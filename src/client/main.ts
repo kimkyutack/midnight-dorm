@@ -19,6 +19,7 @@ declare global {
       move: (dx: number, dy: number) => void;
       buildFirst: (kind: BuildingKind) => boolean;
       disconnect: () => void;
+      cameraMode: () => 'follow' | 'free' | 'none';
     };
   }
 }
@@ -145,9 +146,11 @@ async function joinRoom(): Promise<void> {
 
 function connectToRoom(code: string, addSoloBots: boolean): void {
   network?.close();
+  resultRecorded = false;
   network = new GameNetwork(code, profile.nickname, profile.deviceId, profile.reconnectTokens[code]);
   let firstWelcome = true;
   network.on('welcome', ({ playerId: id, map, snapshot: initial }) => {
+    const previous = snapshot;
     playerId = id; mapData = map; snapshot = initial;
     profile.reconnectTokens[code] = network?.reconnectToken ?? ''; saveProfile(profile);
     if (firstWelcome) {
@@ -156,20 +159,26 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       if (addSoloBots && initial.hostId === id) {
         network?.addBot('easy'); network?.addBot('normal'); network?.addBot('normal');
       }
-    } else renderForSnapshot(initial, false);
+    } else {
+      renderForSnapshot(initial, false);
+      const scene = game?.scene.getScene('game') as GameScene | undefined;
+      if (scene?.scene.isActive()) scene.updateSnapshot(initial, []);
+      refreshSelectionPanel(previous);
+    }
     updateTestApi();
   });
   network.on('snapshot', ({ snapshot: next, events }) => {
+    const previous = snapshot;
     snapshot = next;
     renderForSnapshot(next, false);
     const scene = game?.scene.getScene('game') as GameScene | undefined;
     if (scene?.scene.isActive()) scene.updateSnapshot(next, events);
     playEvents(events);
-    refreshSelectionPanel();
+    refreshSelectionPanel(previous);
     updateTestApi();
   });
   network.on('connection', ({ state, attempt }) => updateConnection(state, attempt));
-  network.on('error', ({ message }) => toast(message));
+  network.on('error', ({ message }) => { toast(message); refreshSelectionPanel(null); });
   network.on('ping', ({ milliseconds }) => { ping = milliseconds; updateHud(); });
   network.connect();
 }
@@ -304,10 +313,15 @@ function renderBuildPanel(tile: Tile): void {
   }
   const benefits = rankBenefits(me.soloRank);
   const availableKinds = benefits.rareTurretUnlocked ? [...BUILD_KINDS, 'arc-turret' as const] : BUILD_KINDS;
-  panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ ${Math.floor(me.gold)} / ⚡ ${Math.floor(me.power)}</p><div class="build-grid">${availableKinds.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = upgradeCost(kind, 1, me.soloRank); return `<button class="build-card ${kind === 'arc-turret' ? 'rare-build' : ''}" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`; }).join('')}</div>${!benefits.rareTurretUnlocked ? '<small class="odds-note">희귀 천둥포는 개인 등급 베테랑부터 해금됩니다.</small>' : ''}`;
+  panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ <b data-owned-gold>${Math.floor(me.gold)}</b> / ⚡ <b data-owned-power>${Math.floor(me.power)}</b></p><div class="build-grid">${availableKinds.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = upgradeCost(kind, 1, me.soloRank); return `<button class="build-card ${kind === 'arc-turret' ? 'rare-build' : ''}" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`; }).join('')}</div>${!benefits.rareTurretUnlocked ? '<small class="odds-note">희귀 천둥포는 개인 등급 베테랑부터 해금됩니다.</small>' : ''}`;
   panel.classList.remove('hidden');
-  panel.querySelectorAll<HTMLElement>('[data-build]').forEach((button) => button.addEventListener('click', () => {
-    if (selectedTile && me.roomId) network?.build(me.roomId, selectedTile, button.dataset.build as BuildingKind);
+  panel.querySelectorAll<HTMLButtonElement>('[data-build]').forEach((button) => button.addEventListener('click', () => {
+    if (!selectedTile || !me.roomId) return;
+    const kind = button.dataset.build as BuildingKind;
+    button.disabled = true;
+    const label = button.querySelector('strong');
+    if (label) label.textContent = `${BALANCE.buildings[kind].label} 설치 중…`;
+    network?.build(me.roomId, { ...selectedTile }, kind);
   }));
 }
 
@@ -333,9 +347,11 @@ function renderTargetPanel(selection: SceneSelection): void {
   const maxLevel = maxBuildingLevel(kind, me.soloRank);
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
-  const cost = currentLevel < maxLevel ? upgradeCost(kind, nextLevel, me.soloRank) : null;
-  const effectLabel = kind === 'bed' ? `초당 골드 ${current.value}` : kind === 'reinforced-door' ? `최대 HP ${current.value}` : ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'].includes(kind) ? `공격력 ${current.value} · 사거리 ${current.range}` : `효과 수치 ${current.value}`;
-  panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">최고 레벨 달성</button>'}`;
+  const doorDestroyed = selection.type === 'door' && (room?.doorHp ?? 0) <= 0;
+  const cost = !doorDestroyed && currentLevel < maxLevel ? upgradeCost(kind, nextLevel, me.soloRank) : null;
+  const effectLabel = kind === 'bed' ? `초당 골드 ${current.value}` : kind === 'reinforced-door' ? doorDestroyed ? '파괴됨 · 복구 및 업그레이드 불가' : `현재 HP ${Math.ceil(room?.doorHp ?? 0)} / ${Math.ceil(room?.doorMaxHp ?? current.value)}` : ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'].includes(kind) ? `공격력 ${current.value} · 사거리 ${current.range}` : `효과 수치 ${current.value}`;
+  const unavailableLabel = doorDestroyed ? '문이 파괴되어 업그레이드할 수 없습니다' : '최고 레벨 달성';
+  panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : `<button class="btn ghost" disabled style="width:100%">${unavailableLabel}</button>`}`;
   panel.classList.remove('hidden');
   panel.querySelector<HTMLElement>('[data-upgrade]')?.addEventListener('click', () => attemptUpgrade(selection, currentLevel, cost));
 }
@@ -344,29 +360,47 @@ function attemptUpgrade(selection: SceneSelection, currentLevel: number, cost: {
   if (!snapshot || !cost) return;
   const me = snapshot.players.find((player) => player.id === playerId);
   if (!me || me.gold < cost.gold || me.power < cost.power) { toast(`업그레이드 비용이 부족합니다. ◆ ${cost.gold} / ⚡ ${cost.power}`); return; }
-  me.gold -= cost.gold;
-  me.power -= cost.power;
-  const room = snapshot.rooms.find((candidate) => candidate.id === selection.roomId);
-  if (selection.type === 'bed' && room) room.bedLevel = currentLevel + 1;
-  else if (selection.type === 'door' && room) {
-    const next = buildingStats('reinforced-door', currentLevel + 1);
-    room.doorLevel = currentLevel + 1;
-    room.doorMaxHp = next.value;
-    room.doorHp = Math.max(room.doorHp, next.value);
-  }
-  else {
-    const building = snapshot.buildings.find((candidate) => candidate.id === selection.buildingId);
-    if (building) building.level = currentLevel + 1;
-  }
   network?.upgrade(selection.targetId);
-  renderTargetPanel(selection);
-  updateHud();
+  const button = app.querySelector<HTMLButtonElement>(`[data-upgrade="${selection.targetId}"]`);
+  if (button) { button.disabled = true; button.textContent = `Lv.${currentLevel + 1} 적용 중…`; }
 }
 
-function refreshSelectionPanel(): void {
+function selectionLevel(state: GameSnapshot | null, selection: SceneSelection): number | null {
+  if (!state) return null;
+  const room = state.rooms.find((candidate) => candidate.id === selection.roomId);
+  if (selection.type === 'bed') return room?.bedLevel ?? null;
+  if (selection.type === 'door') return room?.doorLevel ?? null;
+  return state.buildings.find((building) => building.id === selection.buildingId)?.level ?? null;
+}
+
+function refreshSelectionPanel(previous: GameSnapshot | null): void {
   if (currentView !== 'game' || app.querySelector('[data-build-panel]')?.classList.contains('hidden')) return;
-  if (selectedTarget) renderTargetPanel(selectedTarget);
-  else if (selectedTile) renderBuildPanel(selectedTile);
+  if (selectedTarget) {
+    const before = selectionLevel(previous, selectedTarget);
+    const after = selectionLevel(snapshot, selectedTarget);
+    const previousPlayer = previous?.players.find((player) => player.id === playerId);
+    const nextPlayer = snapshot?.players.find((player) => player.id === playerId);
+    const previousDoor = selectedTarget.type === 'door' ? previous?.rooms.find((room) => room.id === selectedTarget?.roomId)?.doorHp : null;
+    const nextDoor = selectedTarget.type === 'door' ? snapshot?.rooms.find((room) => room.id === selectedTarget?.roomId)?.doorHp : null;
+    const doorDestroyed = selectedTarget.type === 'door' && Boolean(previousDoor && previousDoor > 0) !== Boolean(nextDoor && nextDoor > 0);
+    if (previous === null || before !== after || previousPlayer?.drawCount !== nextPlayer?.drawCount || doorDestroyed || after === null) renderTargetPanel(selectedTarget);
+    return;
+  }
+  if (!selectedTile || !snapshot) return;
+  if (previous === null) {
+    renderBuildPanel(selectedTile);
+    return;
+  }
+  const occupied = snapshot.buildings.find((building) => building.tile.x === selectedTile?.x && building.tile.y === selectedTile?.y);
+  if (occupied) {
+    selectedTarget = { type: 'building', targetId: occupied.id, buildingId: occupied.id, roomId: occupied.roomId };
+    selectedTile = null;
+    renderTargetPanel(selectedTarget);
+    return;
+  }
+  const me = snapshot.players.find((player) => player.id === playerId);
+  setText('[data-owned-gold]', Math.floor(me?.gold ?? 0).toString());
+  setText('[data-owned-power]', Math.floor(me?.power ?? 0).toString());
 }
 
 function closeBuildPanel(): void {
@@ -469,11 +503,53 @@ function showSettings(): void {
   audio.play('button');
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop';
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><label class="setting-row"><span>진동 피드백</span><input class="toggle" type="checkbox" ${profile.vibration ? 'checked' : ''} data-vibration></label><p class="subtitle" style="margin-top:14px">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><button class="btn primary" style="width:100%" data-close>완료</button></section>`;
+  const leaveAction = network ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>' : '';
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? 'on' : 'off'}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? '켜짐' : '꺼짐'}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
   modal.querySelector<HTMLInputElement>('[data-volume]')?.addEventListener('input', (event) => { profile.volume = Number((event.currentTarget as HTMLInputElement).value); audio.setVolume(profile.volume); saveProfile(profile); });
-  modal.querySelector<HTMLInputElement>('[data-vibration]')?.addEventListener('change', (event) => { profile.vibration = (event.currentTarget as HTMLInputElement).checked; saveProfile(profile); });
+  modal.querySelector<HTMLButtonElement>('[data-vibration]')?.addEventListener('click', (event) => {
+    profile.vibration = !profile.vibration;
+    if (!profile.vibration) navigator.vibrate?.(0);
+    saveProfile(profile);
+    const button = event.currentTarget as HTMLButtonElement;
+    button.classList.toggle('on', profile.vibration);
+    button.classList.toggle('off', !profile.vibration);
+    button.setAttribute('aria-pressed', String(profile.vibration));
+    button.textContent = profile.vibration ? '켜짐' : '꺼짐';
+  });
+  modal.querySelector<HTMLButtonElement>('[data-leave-game]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    if (button.dataset.confirmed !== 'true') {
+      button.dataset.confirmed = 'true';
+      button.textContent = '한 번 더 누르면 나갑니다';
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.dataset.confirmed = 'false';
+        button.textContent = '게임 나가기';
+      }, 2_500);
+      return;
+    }
+    modal.remove();
+    leaveCurrentGame();
+  });
   modal.querySelector('[data-close]')?.addEventListener('click', () => { audio.play('button'); modal.remove(); });
+}
+
+function leaveCurrentGame(): void {
+  const code = network?.code;
+  network?.close();
+  network = null;
+  if (code) delete profile.reconnectTokens[code];
+  saveProfile(profile);
+  destroyGame();
+  snapshot = null;
+  mapData = null;
+  playerId = '';
+  selectedTile = null;
+  selectedTarget = null;
+  inputVector = { x: 0, y: 0 };
+  resultRecorded = false;
+  roomMenu();
 }
 
 function toast(message: string): void {
@@ -508,6 +584,10 @@ function updateTestApi(): void {
       network.build(me.roomId, tile, kind); return true;
     },
     disconnect: () => network?.close(),
+    cameraMode: () => {
+      const scene = game?.scene.getScene('game');
+      return scene instanceof GameScene ? scene.getCameraMode() : 'none';
+    },
   };
 }
 

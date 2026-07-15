@@ -1,4 +1,5 @@
 import { BALANCE, buildingStats, maxBuildingLevel } from '../shared/balance';
+import { findPath } from '../shared/pathfinding';
 import type { BuildingKind, GameSnapshot, MapDefinition, PlayerState, Tile } from '../shared/types';
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
@@ -25,6 +26,12 @@ function movementToward(player: PlayerState, target: { x: number; y: number }): 
   return { type: 'move', dx: dx / magnitude, dy: dy / magnitude };
 }
 
+function movementAlongPath(player: PlayerState, target: { x: number; y: number }, map: MapDefinition): BotIntent {
+  const path = findPath(map, player.position, target);
+  const waypoint = path[1] ?? target;
+  return movementToward(player, waypoint);
+}
+
 export function decideBotIntent(
   bot: PlayerState,
   snapshot: GameSnapshot,
@@ -39,7 +46,7 @@ export function decideBotIntent(
       .sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed))[0];
     if (!available) return { type: 'idle' };
     if (distance(bot.position, available.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
-    return movementToward(bot, available.bed);
+    return movementAlongPath(bot, available.bed, map);
   }
 
   const room = snapshot.rooms.find((candidate) => candidate.id === bot.roomId);

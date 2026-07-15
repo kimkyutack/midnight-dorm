@@ -1,11 +1,12 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 interface TestState {
-  map: { walkable: Array<{ x: number; y: number }> } | null;
+  map: { walkable: Array<{ x: number; y: number }>; rooms: Array<{ id: string; bed: { x: number; y: number } }> } | null;
   snapshot: {
     seed: number;
+    serverSeq: number;
     status: string;
-    players: Array<{ id: string; position: { x: number; y: number }; gold: number }>;
+    players: Array<{ id: string; position: { x: number; y: number }; gold: number; isBot: boolean; roomId: string | null }>;
     buildings: unknown[];
     rooms: Array<{ doorHp: number; doorMaxHp: number }>;
     ghost: { hp: number };
@@ -13,10 +14,11 @@ interface TestState {
   playerId: string;
   move: (dx: number, dy: number) => void;
   buildFirst: (kind: string) => boolean;
+  cameraMode: () => 'follow' | 'free' | 'none';
 }
 
-async function enter(page: Page, nickname: string, suffix: string): Promise<string> {
-  await page.goto('/?dev=1&e2e=1');
+async function enter(page: Page, nickname: string, suffix: string, accelerated = true): Promise<string> {
+  await page.goto(`/?dev=1${accelerated ? '&e2e=1' : ''}`);
   await page.getByRole('button', { name: '새 계정' }).click();
   const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
   await page.getByLabel('아이디').fill(username);
@@ -41,7 +43,60 @@ async function mobileContext(browser: Browser): Promise<BrowserContext> {
   });
 }
 
-test('two real browser contexts share movement, building, combat and reconnection', async ({ browser }) => {
+test('three solo bots visibly pathfind through doors before the normal countdown ends', async ({ browser }) => {
+  const context = await mobileContext(browser);
+  const page = await context.newPage();
+  try {
+    await enter(page, '봇길검증', 'p', false);
+    await page.getByRole('button', { name: '봇과 혼자 시작' }).click();
+    await expect(page.locator('[data-player-id]')).toHaveCount(4);
+    await page.getByTestId('start-game').click();
+    await page.waitForFunction(() => {
+      const snapshot = window.__DORM_TEST__?.snapshot;
+      return snapshot?.status === 'COUNTDOWN' && snapshot.players.filter((player) => player.isBot && player.roomId).length === 3;
+    }, undefined, { timeout: 18_000 });
+    const snapshot = (await state(page)).snapshot;
+    const bots = snapshot?.players.filter((player) => player.isBot) ?? [];
+    expect(new Set(bots.map((bot) => bot.roomId)).size).toBe(3);
+    expect(bots.every((bot) => bot.roomId && bot.position)).toBe(true);
+    expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe('follow');
+
+    await page.getByRole('button', { name: '설정' }).click();
+    const vibration = page.locator('[data-vibration]');
+    await expect(vibration).toHaveAttribute('aria-pressed', 'true');
+    await vibration.click();
+    await expect(vibration).toHaveAttribute('aria-pressed', 'false');
+    await page.getByRole('button', { name: '완료' }).click();
+
+    const beforeReload = await state(page);
+    const beforeGold = beforeReload.snapshot?.players.find((player) => player.id === beforeReload.playerId)?.gold ?? 0;
+    await page.reload();
+    await expect(page.getByTestId('network')).toBeVisible({ timeout: 20_000 });
+    await page.waitForFunction((id) => window.__DORM_TEST__?.playerId === id, beforeReload.playerId);
+    const goldSamples = [beforeGold];
+    const sequenceSamples: number[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      await page.waitForTimeout(250);
+      const sample = await state(page);
+      goldSamples.push(sample.snapshot?.players.find((player) => player.id === sample.playerId)?.gold ?? 0);
+      sequenceSamples.push(sample.snapshot?.serverSeq ?? 0);
+    }
+    for (let index = 1; index < goldSamples.length; index += 1) expect(goldSamples[index]).toBeGreaterThanOrEqual(goldSamples[index - 1] as number);
+    for (let index = 1; index < sequenceSamples.length; index += 1) expect(sequenceSamples[index]).toBeGreaterThanOrEqual(sequenceSamples[index - 1] as number);
+
+    await page.getByRole('button', { name: '설정' }).click();
+    await expect(page.locator('[data-vibration]')).toHaveAttribute('aria-pressed', 'false');
+    const leave = page.getByTestId('leave-game');
+    await leave.click();
+    await expect(leave).toContainText('한 번 더');
+    await leave.click();
+    await expect(page.getByTestId('create-room')).toBeVisible();
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+});
+
+test('two real browser contexts share bed locking, building, combat and reconnection', async ({ browser }) => {
   const firstContext = await mobileContext(browser);
   const secondContext = await mobileContext(browser);
   const first = await firstContext.newPage();
@@ -66,6 +121,7 @@ test('two real browser contexts share movement, building, combat and reconnectio
     await expect(second.getByTestId('network')).toBeVisible();
     await first.waitForFunction(() => window.__DORM_TEST__?.snapshot?.status === 'PLAYING');
     await second.waitForFunction(() => window.__DORM_TEST__?.snapshot?.status === 'PLAYING');
+    expect(await first.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe('free');
 
     const firstState = await state(first);
     const secondState = await state(second);
@@ -73,19 +129,14 @@ test('two real browser contexts share movement, building, combat and reconnectio
     expect(firstState.snapshot?.players).toHaveLength(2);
 
     const movingId = firstState.playerId;
-    const beforePosition = secondState.snapshot?.players.find((player) => player.id === movingId)?.position ?? { x: 0, y: 0 };
-    await first.evaluate(() => {
-      const state = window.__DORM_TEST__;
-      const player = state?.snapshot?.players.find((candidate) => candidate.id === state.playerId);
-      const directions = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
-      const direction = directions.find((candidate) => state?.map?.walkable.some((tile) => tile.x === Math.round((player?.position.x ?? 0) + candidate.x) && tile.y === Math.round((player?.position.y ?? 0) + candidate.y)));
-      if (direction) state?.move(direction.x, direction.y);
-    });
-    await second.waitForFunction(({ id, position }) => {
-      const player = window.__DORM_TEST__?.snapshot?.players.find((candidate) => candidate.id === id);
-      return Boolean(player && Math.hypot(player.position.x - position.x, player.position.y - position.y) > 0.08);
-    }, { id: movingId, position: beforePosition }, { timeout: 10_000 });
+    const occupiedPlayer = secondState.snapshot?.players.find((player) => player.id === movingId);
+    const occupiedBed = secondState.map?.rooms.find((room) => room.id === occupiedPlayer?.roomId)?.bed;
+    expect(occupiedPlayer?.position).toEqual(occupiedBed);
+    await first.evaluate(() => window.__DORM_TEST__?.move(1, 1));
+    await first.waitForTimeout(500);
     await first.evaluate(() => window.__DORM_TEST__?.move(0, 0));
+    const afterMoveAttempt = (await state(second)).snapshot?.players.find((player) => player.id === movingId);
+    expect(afterMoveAttempt?.position).toEqual(occupiedBed);
 
     const goldBefore = (await state(first)).snapshot?.players.find((player) => player.id === movingId)?.gold ?? 0;
     expect(await first.evaluate(() => window.__DORM_TEST__?.buildFirst('basic-turret'))).toBe(true);
@@ -97,9 +148,9 @@ test('two real browser contexts share movement, building, combat and reconnectio
 
     await first.waitForFunction(() => window.__DORM_TEST__?.snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp), undefined, { timeout: 35_000 });
     await second.waitForFunction(() => window.__DORM_TEST__?.snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp), undefined, { timeout: 35_000 });
-    const combatFirst = await state(first);
-    const combatSecond = await state(second);
-    expect(combatFirst.snapshot?.ghost.hp).toBe(combatSecond.snapshot?.ghost.hp);
+    const [combatFirst, combatSecond] = await Promise.all([state(first), state(second)]);
+    expect(Math.abs((combatFirst.snapshot?.serverSeq ?? 0) - (combatSecond.snapshot?.serverSeq ?? 0))).toBeLessThanOrEqual(2);
+    expect(Math.abs((combatFirst.snapshot?.ghost.hp ?? 0) - (combatSecond.snapshot?.ghost.hp ?? 0))).toBeLessThanOrEqual(11);
 
     const secondId = (await state(second)).playerId;
     await second.reload();

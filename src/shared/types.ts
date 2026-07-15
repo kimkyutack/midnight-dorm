@@ -121,6 +121,7 @@ export interface GhostState {
   attacksToNextLevel: number;
   retreating: boolean;
   healing: boolean;
+  retreatCount: number;
   skillCooldown: number;
 }
 

@@ -27,6 +27,13 @@ interface BuildingView {
   level: Phaser.GameObjects.Text;
 }
 
+interface DoorView {
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Sprite;
+  hp: Phaser.GameObjects.Graphics;
+  hpLabel: Phaser.GameObjects.Text;
+}
+
 interface DragState {
   id: number;
   x: number;
@@ -49,7 +56,7 @@ export class GameScene extends Phaser.Scene {
   private snapshotData!: GameSnapshot;
   private readonly playerViews = new Map<string, EntityView>();
   private readonly buildingViews = new Map<string, BuildingView>();
-  private readonly doorViews = new Map<string, Phaser.GameObjects.Sprite>();
+  private readonly doorViews = new Map<string, DoorView>();
   private readonly ghostViews = new Map<string, EntityView>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private selectedTile: Tile | null = null;
@@ -57,6 +64,7 @@ export class GameScene extends Phaser.Scene {
   private effects: Phaser.GameObjects.GameObject[] = [];
   private drag: DragState | null = null;
   private cameraInitialized = false;
+  private cameraFollowingPlayer = false;
   private focusedRoomId: string | null = null;
 
   constructor() { super('game'); }
@@ -86,13 +94,16 @@ export class GameScene extends Phaser.Scene {
     const localPlayer = this.snapshotData.players.find((player) => player.id === this.playerId);
     const localSpeed = BALANCE.player.speed * rankBenefits(localPlayer?.soloRank ?? 'beginner').speedMultiplier;
     for (const [id, view] of this.playerViews) {
-      if (id === this.playerId && (this.localInput.x || this.localInput.y)) {
+      const player = this.snapshotData.players.find((candidate) => candidate.id === id);
+      const lyingInBed = Boolean(player?.alive && player.roomId);
+      if (id === this.playerId && !lyingInBed && (this.localInput.x || this.localInput.y)) {
         view.container.x += this.localInput.x * localSpeed * TILE * delta / 1_000;
         view.container.y += this.localInput.y * localSpeed * TILE * delta / 1_000;
       }
       view.container.x = Phaser.Math.Linear(view.container.x, view.target.x * TILE + TILE / 2, id === this.playerId ? factor * .45 : factor);
       view.container.y = Phaser.Math.Linear(view.container.y, view.target.y * TILE + TILE / 2, id === this.playerId ? factor * .45 : factor);
-      view.body.rotation = Math.sin(this.time.now / 170 + view.container.x) * .025;
+      view.body.rotation = lyingInBed ? Math.PI / 2 : Math.sin(this.time.now / 170 + view.container.x) * .025;
+      view.body.setScale(lyingInBed ? .78 : 1).setY(lyingInBed ? 1 : 0);
     }
     for (const [id, view] of this.ghostViews) {
       view.container.x = Phaser.Math.Linear(view.container.x, view.target.x * TILE + TILE / 2, factor);
@@ -112,6 +123,8 @@ export class GameScene extends Phaser.Scene {
 
   setLocalInput(input: Vec2): void { this.localInput = input; }
 
+  getCameraMode(): 'follow' | 'free' { return this.cameraFollowingPlayer ? 'follow' : 'free'; }
+
   updateSnapshot(snapshot: GameSnapshot, events: GameEvent[]): void {
     this.snapshotData = snapshot;
     this.syncPlayers(snapshot.players);
@@ -120,9 +133,19 @@ export class GameScene extends Phaser.Scene {
     this.syncDoors(snapshot);
     for (const event of events) this.playEvent(event);
     const local = snapshot.players.find((player) => player.id === this.playerId);
-    const newlyAssigned = Boolean(local?.roomId && local.roomId !== this.focusedRoomId);
-    if (local && (!this.cameraInitialized || newlyAssigned)) {
-      this.cameras.main.centerOn(local.position.x * TILE + TILE / 2, local.position.y * TILE + TILE / 2);
+    const localView = this.playerViews.get(this.playerId);
+    if (local && localView && !local.roomId) {
+      if (!this.cameraFollowingPlayer) this.cameras.main.startFollow(localView.container, true, .22, .22);
+      this.cameraFollowingPlayer = true;
+      this.cameraInitialized = true;
+      this.focusedRoomId = null;
+    } else if (local?.roomId) {
+      const newlyAssigned = local.roomId !== this.focusedRoomId;
+      if (this.cameraFollowingPlayer) this.cameras.main.stopFollow();
+      this.cameraFollowingPlayer = false;
+      if (!this.cameraInitialized || newlyAssigned) {
+        this.cameras.main.centerOn(local.position.x * TILE + TILE / 2, local.position.y * TILE + TILE / 2);
+      }
       this.cameraInitialized = true;
       this.focusedRoomId = local.roomId;
     }
@@ -225,13 +248,25 @@ export class GameScene extends Phaser.Scene {
     for (const room of snapshot.rooms) {
       const mapRoom = this.mapData.rooms.find((candidate) => candidate.id === room.id);
       if (!mapRoom) continue;
-      let door = this.doorViews.get(room.id);
-      if (!door) {
-        door = this.add.sprite(mapRoom.door.x * TILE + TILE / 2, mapRoom.door.y * TILE + TILE / 2, 'door').setDepth(6);
-        this.doorViews.set(room.id, door);
+      let view = this.doorViews.get(room.id);
+      if (!view) {
+        const body = this.add.sprite(0, 0, 'door');
+        const hp = this.add.graphics();
+        const hpLabel = this.add.text(0, 0, '', {
+          color: '#ffffff', fontFamily: 'sans-serif', fontSize: '7px', fontStyle: 'bold', stroke: '#080913', strokeThickness: 2,
+        }).setOrigin(.5);
+        const container = this.add.container(mapRoom.door.x * TILE + TILE / 2, mapRoom.door.y * TILE + TILE / 2, [body, hp, hpLabel]).setDepth(7);
+        view = { container, body, hp, hpLabel };
+        this.doorViews.set(room.id, view);
       }
-      door.setAlpha(room.doorHp > 0 ? 1 : .16).setTint(room.shieldUntil > snapshot.elapsed ? 0x8da8ff : 0xffffff);
-      door.setScale(1 + (room.doorLevel - 1) * .08);
+      const intact = room.doorHp > 0;
+      const ratio = Phaser.Math.Clamp(room.doorHp / Math.max(1, room.doorMaxHp), 0, 1);
+      const barY = mapRoom.door.y < this.mapData.corridor.y ? 26 : -26;
+      view.body.setAlpha(intact ? 1 : .14).setTint(!intact ? 0x4c4657 : room.shieldUntil > snapshot.elapsed ? 0x8da8ff : 0xffffff);
+      view.body.setScale(1 + (room.doorLevel - 1) * .08);
+      view.hp.clear().fillStyle(0x090a14, .96).fillRoundedRect(-22, barY - 4, 44, 8, 3);
+      if (intact) view.hp.fillStyle(ratio > .5 ? 0x65e89f : ratio > .22 ? 0xffc85f : 0xff5578).fillRoundedRect(-21, barY - 3, 42 * ratio, 6, 2);
+      view.hpLabel.setPosition(0, barY).setText(intact ? `${Math.ceil(room.doorHp)} / ${Math.ceil(room.doorMaxHp)}` : '파괴됨').setColor(intact ? '#ffffff' : '#ff7892');
     }
   }
 
@@ -283,6 +318,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private beginDrag(pointer: Phaser.Input.Pointer): void {
+    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+    if (!local?.roomId) return;
     this.drag = { id: pointer.id, x: pointer.x, y: pointer.y, scrollX: this.cameras.main.scrollX, scrollY: this.cameras.main.scrollY, moved: false };
   }
 
@@ -336,10 +373,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.cameras.main.stopFollow();
     this.input.removeAllListeners();
     for (const view of this.playerViews.values()) view.container.destroy(true);
     for (const view of this.ghostViews.values()) view.container.destroy(true);
     for (const view of this.buildingViews.values()) view.container.destroy(true);
+    for (const view of this.doorViews.values()) view.container.destroy(true);
     this.playerViews.clear();
     this.ghostViews.clear();
     this.buildingViews.clear();

@@ -16,6 +16,8 @@ export class GameNetwork {
   private socket: WebSocket | null = null;
   private sequence = 0;
   private reconnectAttempts = 0;
+  private reconnectTimer: number | null = null;
+  private lastServerSequence = -1;
   private stopped = false;
   private pingTimer: number | null = null;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
@@ -43,33 +45,46 @@ export class GameNetwork {
   }
 
   connect(): void {
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.stopped = false;
     this.emit('connection', { state: this.reconnectAttempts ? 'reconnecting' : 'connecting', attempt: this.reconnectAttempts });
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams({ nickname: this.nickname, deviceId: this.deviceId });
     if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
-    this.socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
-    this.socket.addEventListener('open', () => {
+    const socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
+    this.socket = socket;
+    socket.addEventListener('open', () => {
+      if (this.socket !== socket) return;
       this.reconnectAttempts = 0;
       this.emit('connection', { state: 'connected', attempt: 0 });
       this.startHeartbeat();
     });
-    this.socket.addEventListener('message', (event) => this.receive(String(event.data)));
-    this.socket.addEventListener('close', () => {
+    socket.addEventListener('message', (event) => {
+      if (this.socket === socket) this.receive(String(event.data));
+    });
+    socket.addEventListener('close', () => {
+      if (this.socket !== socket) return;
+      this.socket = null;
       this.stopHeartbeat();
       if (!this.stopped && this.reconnectAttempts < 8) {
         this.reconnectAttempts += 1;
         this.emit('connection', { state: 'reconnecting', attempt: this.reconnectAttempts });
-        window.setTimeout(() => this.connect(), Math.min(4_000, 350 * 2 ** this.reconnectAttempts));
+        this.reconnectTimer = window.setTimeout(() => this.connect(), Math.min(4_000, 350 * 2 ** this.reconnectAttempts));
       } else this.emit('connection', { state: 'closed', attempt: this.reconnectAttempts });
     });
-    this.socket.addEventListener('error', () => this.emit('error', { message: '실시간 서버에 연결하지 못했습니다.' }));
+    socket.addEventListener('error', () => {
+      if (this.socket === socket) this.emit('error', { message: '실시간 서버에 연결하지 못했습니다.' });
+    });
   }
 
   close(): void {
     this.stopped = true;
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.stopHeartbeat();
     this.socket?.close(1000, 'client left');
+    this.socket = null;
   }
 
   send(message: ClientIntent): void {
@@ -92,6 +107,8 @@ export class GameNetwork {
     let message: ServerMessage;
     try { message = JSON.parse(raw) as ServerMessage; }
     catch { this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' }); return; }
+    if (message.type === 'snapshot' && message.sequence < this.lastServerSequence) return;
+    if (message.type === 'welcome' || message.type === 'snapshot') this.lastServerSequence = message.sequence;
     if (message.type === 'welcome') {
       this.playerId = message.playerId;
       this.reconnectToken = message.reconnectToken;

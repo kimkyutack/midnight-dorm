@@ -93,6 +93,34 @@ describe('authoritative game rules', () => {
     expect(state.rooms.filter((room) => room.ownerId).length).toBe(4);
   });
 
+  it('keeps an occupied player lying at the exact bed position', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    const state = begin(engine, playerId);
+    const player = state.players.find((candidate) => candidate.id === playerId);
+    const bed = engine.map.rooms.find((room) => room.id === player?.roomId)?.bed;
+    expect(player?.position).toEqual(bed);
+    expect(engine.setMovement(playerId, 1, 1, 99).ok).toBe(true);
+    engine.tick(0.1);
+    const fixed = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    expect(fixed?.position).toEqual(bed);
+    expect(fixed?.velocity).toEqual({ x: 0, y: 0 });
+  });
+
+  it('makes ten basic turret hits visibly damage a level-one easy ghost in solo and four-player games', () => {
+    const tenHits = buildingStats('basic-turret', 1).value * 10;
+    const solo = setup(1, false);
+    const soloState = begin(solo.engine, solo.ids[0] as string);
+    const multiplayer = setup(4, false);
+    const multiplayerState = begin(multiplayer.engine, multiplayer.ids[0] as string);
+    const soloRatio = tenHits / soloState.ghost.maxHp;
+    const multiplayerRatio = tenHits / multiplayerState.ghost.maxHp;
+    expect(soloRatio).toBeGreaterThanOrEqual(0.1);
+    expect(soloRatio).toBeLessThanOrEqual(0.15);
+    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.08);
+    expect(multiplayerRatio).toBeLessThanOrEqual(0.12);
+  });
+
   it('accepts only declared build tiles and rejects duplicate occupancy', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
@@ -102,6 +130,24 @@ describe('authoritative game rules', () => {
     expect(engine.build(ids[0] as string, roomId, tile, 'basic-turret').ok).toBe(true);
     engine.tick(0.1);
     expect(engine.build(ids[0] as string, roomId, tile, 'floor-trap').error).toContain('사용 중');
+  });
+
+  it('installs several identical generators on different tiles without substituting another building', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing repeat-build player');
+    player.gold = 1_000;
+    player.power = 100;
+    engine.restore(persisted);
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    for (const tile of tiles.slice(0, 4)) expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
+    const generators = engine.snapshot().buildings.filter((building) => building.roomId === roomId);
+    expect(generators).toHaveLength(4);
+    expect(generators.every((building) => building.kind === 'generator')).toBe(true);
   });
 
   it('rejects purchases when resources are insufficient', () => {
@@ -134,7 +180,6 @@ describe('authoritative game rules', () => {
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
     const building = engine.snapshot().buildings[0];
     expect(building).toBeDefined();
-    for (let index = 0; index < 55; index += 1) engine.tick(0.1);
     expect(engine.upgrade(playerId, (building as { id: string }).id).ok).toBe(true);
     const state = engine.snapshot();
     expect(state.rooms.find((room) => room.id === roomId)?.bedLevel).toBe(2);
@@ -234,6 +279,38 @@ describe('accelerated long simulation', () => {
 });
 
 describe('requested progression and event rules', () => {
+  it('routes three bots through doorways and claims distinct beds before countdown ends', () => {
+    const engine = new GameEngine('BOTPATH1', generateMap(42_424), false);
+    const host = engine.join({ nickname: '사람생존자', deviceId: 'device-human-path' });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    for (let index = 0; index < 190 && engine.snapshot().players.filter((player) => player.isBot && player.roomId).length < 3; index += 1) engine.tick(0.1);
+    const state = engine.snapshot();
+    const bots = state.players.filter((player) => player.isBot);
+    expect(bots.every((bot) => bot.roomId)).toBe(true);
+    expect(new Set(bots.map((bot) => bot.roomId)).size).toBe(3);
+    expect(state.status).toBe('COUNTDOWN');
+    expect(state.countdown).toBeGreaterThan(0);
+    expect(bots.every((bot) => bot.velocity.x === 0 && bot.velocity.y === 0)).toBe(true);
+  });
+
+  it('reaches the nearest occupied door and attacks it within six seconds', () => {
+    const engine = new GameEngine('GHOSTPATH', generateMap(51_515), false);
+    const player = engine.join({ nickname: '문지기', deviceId: 'device-ghost-path' });
+    begin(engine, player.player.id);
+    engine.drainEvents();
+    const startedAt = engine.snapshot().elapsed;
+    let hit = false;
+    for (let index = 0; index < 60 && !hit; index += 1) {
+      engine.tick(0.1);
+      hit = engine.drainEvents().some((event) => event.kind === 'door-hit');
+    }
+    expect(hit).toBe(true);
+    expect(engine.snapshot().elapsed - startedAt).toBeLessThanOrEqual(6);
+  });
+
   it('produces one gold per second and doubles bed income by level', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -281,23 +358,159 @@ describe('requested progression and event rules', () => {
     begin(engine, playerId);
     const roomId = engine.snapshot().players[0]?.roomId as string;
     const initial = engine.snapshot().rooms.find((room) => room.id === roomId);
-    expect(initial?.doorMaxHp).toBe(100);
+    expect(initial?.doorMaxHp).toBe(70);
     expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
     const upgraded = engine.snapshot().rooms.find((room) => room.id === roomId);
     expect(upgraded?.doorLevel).toBe(2);
-    expect(upgraded?.doorMaxHp).toBe(180);
-    expect(upgraded?.doorHp).toBe(180);
+    expect(upgraded?.doorMaxHp).toBe(120);
+    expect(upgraded?.doorHp).toBe(120);
   });
 
-  it('levels a ghost from successful door attack counts and raises the next requirement', () => {
+  it('lets three level-one basic turrets and a level-two door beat a level-one easy ghost', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) => Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0)) - Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)));
+    for (const tile of tiles.slice(0, 3)) expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+    expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
+    let shots = 0;
+    let doorHits = 0;
+    let retreats = 0;
+    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING'; index += 1) {
+      engine.tick(0.1);
+      const events = engine.drainEvents();
+      shots += events.filter((event) => event.kind === 'turret-fire').length;
+      doorHits += events.filter((event) => event.kind === 'door-hit').length;
+      retreats += events.filter((event) => event.kind === 'ghost-retreat').length;
+    }
+    const result = engine.snapshot();
+    const room = result.rooms.find((candidate) => candidate.id === roomId);
+    expect(result.status, JSON.stringify({ elapsed: result.elapsed, doorHp: room?.doorHp, ghostHp: result.ghost.hp, ghostLevel: result.ghost.level, attackCount: result.ghost.attackCount, retreating: result.ghost.retreating, healing: result.ghost.healing, shots, doorHits, retreats })).toBe('VICTORY');
+    expect(result.ghost.level).toBe(1);
+    expect(room?.doorHp).toBeGreaterThan(0);
+  });
+
+  it('never revives a destroyed door through upgrades or repair effects', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === player?.roomId);
+    if (!player || !room || !mapRoom) throw new Error('missing destroyed-door fixture');
+    room.doorHp = 0;
+    player.gold = 99_999;
+    player.power = 99_999;
+    player.items.push({ itemId: 'repair-spider', label: '수리 거미', rarity: 'rare', count: 1 });
+    persisted.snapshot.buildings.push({
+      id: 'destroyed-door-repair', kind: 'repair-drone', roomId: room.id, ownerId: playerId,
+      tile: mapRoom.buildTiles[0] as Tile, level: 3, cooldown: 0, hp: 100,
+    });
+    engine.restore(persisted);
+    const levelBefore = room.doorLevel;
+    const result = engine.upgrade(playerId, `door:${room.id}`);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('파괴된 문');
+    for (let index = 0; index < 20; index += 1) engine.tick(0.1);
+    const destroyed = engine.snapshot().rooms.find((candidate) => candidate.id === room.id);
+    expect(destroyed?.doorLevel).toBe(levelBefore);
+    expect(destroyed?.doorHp).toBe(0);
+  });
+
+  it('has a breached ghost attack the player instead of the door and kill in one hit', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === player?.roomId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !room || !mapRoom || !ghost) throw new Error('missing breach fixture');
+    room.doorHp = 0;
+    player.hp = player.maxHp;
+    player.position = { ...mapRoom.bed };
+    ghost.position = { ...mapRoom.bed };
+    ghost.targetRoomId = room.id;
+    ghost.attackCooldown = 0;
+    ghost.retreating = false;
+    ghost.healing = false;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    engine.drainEvents();
+    engine.tick(0.05);
+    const after = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    const events = engine.drainEvents();
+    expect(after?.hp).toBe(0);
+    expect(after?.alive).toBe(false);
+    expect(events.some((event) => event.kind === 'player-hit' && event.playerId === playerId)).toBe(true);
+    expect(events.some((event) => event.kind === 'death' && event.playerId === playerId)).toBe(true);
+    expect(events.some((event) => event.kind === 'door-hit' && event.roomId === room.id)).toBe(false);
+  });
+
+  it('requires thirty door hits for the first growth and raises the next requirement sharply', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players[0];
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === player?.roomId);
+    const fixtureGhost = persisted.snapshot.ghosts[0];
+    if (!room || !mapRoom || !fixtureGhost) throw new Error('missing growth fixture');
+    room.doorHp = 10_000;
+    room.doorMaxHp = 10_000;
+    fixtureGhost.position = { ...mapRoom.door };
+    fixtureGhost.targetRoomId = room.id;
+    fixtureGhost.attackCooldown = 0;
+    persisted.snapshot.ghost = fixtureGhost;
+    engine.restore(persisted);
     const initialRequired = engine.snapshot().ghost.attacksToNextLevel;
-    for (let index = 0; index < 900 && engine.snapshot().ghost.level === 1; index += 1) engine.tick(0.1);
-    const ghost = engine.snapshot().ghost;
-    expect(ghost.level).toBeGreaterThan(1);
-    expect(ghost.maxHp).toBeGreaterThan(BALANCE.ghost.baseHp * .34);
-    expect(ghost.attacksToNextLevel).toBeGreaterThan(initialRequired);
+    expect(initialRequired).toBe(30);
+    for (let index = 0; index < 200 && engine.snapshot().ghost.level === 1; index += 1) engine.tick(0.1);
+    const grownGhost = engine.snapshot().ghost;
+    expect(grownGhost.level).toBe(2);
+    expect(grownGhost.maxHp).toBeGreaterThan(BALANCE.ghost.baseHp * .34);
+    expect(grownGhost.attacksToNextLevel).toBe(46);
+  });
+
+  it('lets a level-five ghost break the strongest repaired and shielded door in under one hundred hits', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === player?.roomId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !room || !mapRoom || !ghost) throw new Error('missing door fixture');
+    room.doorLevel = 5;
+    room.doorMaxHp = 400;
+    room.doorHp = 400;
+    ghost.position = { ...mapRoom.door };
+    ghost.targetRoomId = room.id;
+    ghost.level = 5;
+    ghost.phase = 5;
+    ghost.attackCount = 0;
+    ghost.attacksToNextLevel = 1_000;
+    ghost.attackCooldown = 0;
+    persisted.snapshot.ghost = ghost;
+    const defensiveTiles = [...mapRoom.buildTiles].sort((a, b) => Math.hypot(a.x - mapRoom.door.x, a.y - mapRoom.door.y) - Math.hypot(b.x - mapRoom.door.x, b.y - mapRoom.door.y));
+    persisted.snapshot.buildings.push(
+      { id: 'max-repair', kind: 'repair-drone', roomId: room.id, ownerId: playerId, tile: defensiveTiles[0] as Tile, level: 3, cooldown: 0, hp: 100 },
+      { id: 'max-shield', kind: 'shield-device', roomId: room.id, ownerId: playerId, tile: defensiveTiles[1] as Tile, level: 3, cooldown: 0, hp: 100 },
+    );
+    engine.restore(persisted);
+    let hitCount = 0;
+    for (let index = 0; index < 2_000 && engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp; index += 1) {
+      engine.tick(0.05);
+      hitCount += engine.drainEvents().filter((event) => event.kind === 'door-hit' && event.roomId === room.id).length;
+    }
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(0);
+    expect(hitCount).toBeLessThan(100);
+    expect(buildingStats('repair-drone', 3).value).toBe(6);
   });
 
   it('retreats toward the respawn area below ten percent HP', () => {
