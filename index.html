@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#090b1a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="심야 기숙사" />
+    <meta name="description" content="2~4명이 함께 새벽의 기숙사를 지키는 실시간 협동 디펜스 게임" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <title>심야 기숙사: 협동 방어</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="orientation-lock" aria-live="polite">
+      <div class="rotate-phone" aria-hidden="true">↻</div>
+      <strong>휴대폰을 가로로 돌려주세요</strong>
+      <span>별빛 기숙사는 가로 화면에서 가장 안전합니다.</span>
+    </div>
+    <script type="module" src="/src/client/main.ts"></script>
+  </body>
+</html>

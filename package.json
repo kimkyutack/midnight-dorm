@@ -1,0 +1,36 @@
+{
+  "name": "midnight-dorm-coop-defense",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --host 0.0.0.0",
+    "icons": "node scripts/generate-icons.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "build": "npm run icons && npm run typecheck && WRANGLER_LOG_PATH=.wrangler/logs/build.log vite build",
+    "preview": "WRANGLER_LOG_PATH=.wrangler/logs/preview.log vite preview --host 0.0.0.0",
+    "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.40.0",
+    "@cloudflare/workers-types": "5.20260715.1",
+    "@playwright/test": "1.61.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.4",
+    "vitest": "4.1.10",
+    "wrangler": "4.110.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "@cloudflare/vite-plugin": {
+      "miniflare": "4.20260708.1",
+      "ws": "8.21.1"
+    }
+  }
+}
