@@ -1,4 +1,4 @@
-# 심야 기숙사: 협동 방어
+# 심야 병동: 협동 방어
 
 모바일 가로 화면에서 2~4명이 함께 플레이하는 서버 권위형 실시간 협동 디펜스 게임입니다. 프로젝트 전용 시네마틱 이미지와 실사형 귀신, Phaser Graphics 기반 2.5D 전장, Web Audio 합성음으로 구성했습니다.
 
@@ -43,7 +43,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 
 ## 아키텍처
 
-- `src/shared`: 클라이언트·서버 공용 타입, 메시지 검증, 밸런스, seeded PRNG, BFS 검증 맵, A* 경로 탐색
+- `src/shared`: 클라이언트·서버 공용 타입, 메시지 검증, 밸런스, seeded PRNG, BFS 검증 맵, A\* 경로 탐색
 - `src/shared/progression.ts`: 6개 등급, 185개 스테이지, 난이도 곡선과 개인 등급 혜택
 - `src/server/engine.ts`: 20Hz 서버 권위 게임 상태, 경제, 건설, 업그레이드, 전투, 승패, 재접속
 - `src/server/GameRoom.ts`: 방 하나당 SQLite 기반 Durable Object 하나, WebSocket, 10Hz 스냅샷, 저장·자동 정리

@@ -149,7 +149,7 @@ function openingTeaser(complete: () => void): void {
   }
   currentView = "opening";
   app.dataset.view = "opening";
-  app.innerHTML = `<main class="opening-teaser"><div class="teaser-film"></div><section class="teaser-title"><span class="eyebrow">A MIDNIGHT SURVIVAL</span><h1>심야 기숙사</h1><p data-teaser-copy>문이 닫히기 전에, 살아남을 방을 찾아라.</p></section><button class="teaser-skip" data-teaser-skip>건너뛰기</button><div class="teaser-progress"><i></i></div></main>`;
+  app.innerHTML = `<main class="opening-teaser"><div class="teaser-film"></div><section class="teaser-title"><span class="eyebrow">A MIDNIGHT SURVIVAL</span><h1>심야 병동</h1><p data-teaser-copy>문이 닫히기 전에, 살아남을 방을 찾아라.</p></section><button class="teaser-skip" data-teaser-skip>건너뛰기</button><div class="teaser-progress"><i></i></div></main>`;
   const copy = app.querySelector<HTMLElement>("[data-teaser-copy]");
   const lines = [
     "문이 닫히기 전에, 살아남을 방을 찾아라.",
@@ -215,7 +215,7 @@ function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   setContent(
     "auth",
-    `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 기숙사</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
+    `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
   );
   app
     .querySelectorAll<HTMLElement>("[data-auth-tab]")
@@ -598,7 +598,7 @@ function resultScreen(state: GameSnapshot): void {
   audio.play(victory ? "victory" : "defeat");
   setContent(
     "result",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? "✦" : "☁"}</div><span class="eyebrow">${state.stageLabel} · ${victory ? "DAWN SURVIVED" : "NIGHT CONSUMED"}</span><h1>${victory ? "새벽을 지켜냈습니다" : "기숙사가 잠식되었습니다"}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 악몽 레벨 ${state.ghost.level}<br>${victory ? "승리 XP와 다음 스테이지가 계정에 저장됩니다." : "도전 XP가 계정에 저장됩니다."}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`,
+    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? "✦" : "☁"}</div><span class="eyebrow">${state.stageLabel} · ${victory ? "DAWN SURVIVED" : "NIGHT CONSUMED"}</span><h1>${victory ? "새벽을 지켜냈습니다" : "병동가 잠식되었습니다"}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 악몽 레벨 ${state.ghost.level}<br>${victory ? "승리 XP와 다음 스테이지가 계정에 저장됩니다." : "도전 XP가 계정에 저장됩니다."}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
@@ -1021,7 +1021,7 @@ function updateConnection(
 function connectionOverlay(text: string): void {
   setContent(
     "connecting",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="spinner"></div><h2>${escapeHtml(text)}</h2><p class="subtitle">실시간 기숙사 서버에 연결하고 있습니다.</p></section></main>`,
+    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="spinner"></div><h2>${escapeHtml(text)}</h2><p class="subtitle">실시간 병동 서버에 연결하고 있습니다.</p></section></main>`,
   );
 }
 
