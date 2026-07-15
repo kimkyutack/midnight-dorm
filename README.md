@@ -86,6 +86,19 @@ npm run deploy
 
 Cloudflare 인증이 이미 유효하면 두 번째 명령만 실행하면 됩니다. 프론트엔드와 `/api/rooms/*` WebSocket은 동일 Worker 도메인에서 제공됩니다.
 
+Cloudflare 대시보드에서 Git 리포지토리 빌드를 사용할 때는 각 명령을 `&&`로 연결하거나 별도 필드에 정확히 나눠 입력해야 합니다. `npm install npm run build npm run db:migrate:remote`처럼 공백만으로 이어 쓰면 `npm install`의 패키지 인자로 해석되어 `npm run build`와 D1 마이그레이션이 실행되지 않습니다.
+
+권장 빌드 구성:
+
+```bash
+빌드 명령: npm install && npm run build && npm run db:migrate:remote
+배포 명령: npm run deploy
+버전 명령: npx wrangler versions upload
+루트 디렉터리: /
+```
+
+배포 후 가입이 실패하면 먼저 빌드 캐시를 지우고 다시 배포한 뒤, `npm run db:migrate:remote`가 성공했는지와 Worker 로그의 `Account registration failed` 메시지를 확인합니다.
+
 ## 현재 제한사항
 
 - 오프라인 캐시는 로딩 셸만 제공하며, 실시간 매치는 연결 없이는 진행되지 않습니다.
