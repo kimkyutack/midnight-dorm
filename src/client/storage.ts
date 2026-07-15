@@ -9,6 +9,7 @@ export interface LocalProfile {
   bestGhostLevel: number;
   recentRoomCode: string;
   installHintShown: boolean;
+  openingSeen: boolean;
   reconnectTokens: Record<string, string>;
 }
 
@@ -25,6 +26,7 @@ const defaults = (): LocalProfile => ({
   bestGhostLevel: 0,
   recentRoomCode: '',
   installHintShown: false,
+  openingSeen: false,
   reconnectTokens: {},
 });
 

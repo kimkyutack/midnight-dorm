@@ -17,7 +17,8 @@
     "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
   },
   "dependencies": {
-    "phaser": "3.90.0"
+    "@types/three": "^0.184.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.40.0",

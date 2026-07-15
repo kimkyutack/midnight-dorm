@@ -20,6 +20,12 @@ const level = (gold: number, power: number, value: number, rate: number, range: 
   gold, power, value, rate, range,
 });
 
+const DOOR_HP = [80, 230, 440, 690, 970, 1_290, 1_630, 2_010, 2_410, 2_840, 3_290, 3_770, 4_260, 4_780, 5_320] as const;
+const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
+  const doorLevel = index + 1;
+  return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, doorLevel === 1 ? 0 : Math.ceil(doorLevel * 0.8), hp, 0, 0);
+});
+
 export const BALANCE = {
   tickRate: 20,
   snapshotRate: 10,
@@ -30,14 +36,14 @@ export const BALANCE = {
   countdownSeconds: 20,
   player: {
     maxHp: 100,
-    speed: 3.6,
+    speed: 4.8,
     startingGold: 100,
     startingPower: 18,
     interactionRange: 1.7,
   },
   door: {
-    baseHp: 70,
-    upgradeHp: [70, 120, 190, 280, 400] as const,
+    baseHp: DOOR_HP[0],
+    upgradeHp: DOOR_HP,
   },
   ghost: {
     baseHp: 900,
@@ -46,10 +52,10 @@ export const BALANCE = {
     damagePerPlayer: 0.13,
     damageGrowthPerLevel: 0.58,
     shieldPenetrationPerLevel: 0.15,
-    speed: 2.7,
+    speed: 3.55,
     attackInterval: 1.25,
-    retreatThreshold: 0.1,
-    returnThreshold: 0.35,
+    retreatThreshold: 0.2,
+    returnThreshold: 0.42,
     healPerSecond: 0.1,
     maxRetreats: 1,
     firstLevelAttacks: 30,
@@ -64,27 +70,27 @@ export const BALANCE = {
     },
     'reinforced-door': {
       label: '봉인 강화문',
-      description: '업그레이드할수록 최대 내구도와 현재 내구도가 증가합니다.',
-      maxLevel: 5,
-      levels: [level(0, 0, 70, 0, 0), level(55, 2, 120, 0, 0), level(140, 4, 190, 0, 0), level(280, 7, 280, 0, 0), level(520, 12, 400, 0, 0)],
+      description: '15단계까지 강화되며 초반 업그레이드부터 생존 시간이 크게 증가합니다.',
+      maxLevel: 15,
+      levels: DOOR_LEVELS,
     },
     'basic-turret': {
       label: '수호 포탑',
       description: '포탄을 발사하는 15단계 기본 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 0, 11, 1.05, 7)],
+      levels: [level(10, 0, 13, 1, 9.5)],
     },
     'rapid-turret': {
       label: '반딧불 연사포',
       description: '빠른 탄환을 연속으로 발사하는 15단계 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 1, 5, 0.38, 6.5)],
+      levels: [level(10, 1, 6, 0.34, 9)],
     },
     'frost-turret': {
       label: '서리 레이저',
       description: '귀신을 느리게 하는 레이저 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 2, 7, 1.3, 6)],
+      levels: [level(10, 2, 9, 1.1, 8.5)],
     },
     'arc-turret': {
       label: '희귀 천둥포',
@@ -135,7 +141,7 @@ const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-tu
 
 export function maxBuildingLevel(kind: BuildingKind, soloRank: RankId = 'beginner'): number {
   const benefits = rankBenefits(soloRank);
-  if (kind === 'reinforced-door') return 3 + benefits.doorLevelBonus;
+  if (kind === 'reinforced-door') return BALANCE.buildings[kind].maxLevel;
   if (TURRETS.has(kind)) return BALANCE.buildings[kind].maxLevel + benefits.turretLevelBonus;
   return BALANCE.buildings[kind].maxLevel;
 }

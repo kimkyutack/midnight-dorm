@@ -75,6 +75,7 @@ export class GameEngine {
   private readonly reconnect = new Map<string, ReconnectRecord>();
   private readonly botRuntime = new Map<string, BotRuntime>();
   private pendingEvents: GameEvent[] = [];
+  private readonly retreatGuardUntil = new Map<string, number>();
   private serverSeq = 0;
   private buildCounter = 0;
   private turretSuppressedUntil = 0;
@@ -170,6 +171,7 @@ export class GameEngine {
 
   restore(data: PersistedEngine): void {
     this.state = structuredClone(data.snapshot);
+    this.retreatGuardUntil.clear();
     this.state.ghosts ??= [this.state.ghost];
     this.state.matchEvent ??= '기본 악몽';
     this.state.matchId ??= crypto.randomUUID();
@@ -477,10 +479,10 @@ export class GameEngine {
     this.updatePlayers(dt);
     this.updateBots(dt);
     if (this.state.status === 'COUNTDOWN') {
+      this.updateEconomy(dt);
       this.state.countdown = Math.max(0, this.state.countdown - dt);
       if (this.state.countdown <= 0) this.beginPlaying();
-    }
-    if (this.state.status === 'PLAYING') {
+    } else if (this.state.status === 'PLAYING') {
       this.state.elapsed += dt;
       this.updateEconomy(dt);
       this.updateBuildings(dt);
@@ -562,14 +564,24 @@ export class GameEngine {
       if (!player.alive || !player.roomId) continue;
       const room = this.state.rooms.find((candidate) => candidate.id === player.roomId);
       if (!room) continue;
+      const mapRoom = this.map.rooms.find((candidate) => candidate.id === player.roomId);
       const effects = combinedItemEffects(player.items);
+      const goldBefore = player.gold;
       const income = this.state.elapsed < this.state.goldSuppressedUntil ? 0 : (buildingStats('bed', room.bedLevel).value + effects.goldPerSecond) * dt;
       player.gold += income;
-      if (Math.floor(player.gold - income) < Math.floor(player.gold)) this.pendingEvents.push({ kind: 'gold', playerId: player.id, amount: income });
-      for (const generator of this.state.buildings.filter((building) => building.ownerId === player.id && building.kind === 'generator')) {
+      const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
+      if (goldGained > 0) this.pendingEvents.push({ kind: 'gold', playerId: player.id, amount: goldGained, position: mapRoom ? { ...mapRoom.bed } : undefined });
+      const generators = this.state.buildings.filter((building) => building.ownerId === player.id && building.kind === 'generator');
+      const powerBefore = player.power;
+      for (const generator of generators) {
         player.power += buildingStats('generator', generator.level).value * dt;
       }
       player.power += effects.powerPerSecond * dt;
+      const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
+      if (powerGained > 0) this.pendingEvents.push({
+        kind: 'power', playerId: player.id, amount: powerGained,
+        position: generators[0] ? { ...generators[0].tile } : mapRoom ? { ...mapRoom.bed } : undefined,
+      });
       if (room.doorHp > 0 && this.state.elapsed >= this.state.repairSuppressedUntil) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + effects.doorRepairPerSecond * dt);
     }
   }
@@ -600,14 +612,34 @@ export class GameEngine {
       const suppression = this.state.elapsed < this.turretSuppressedUntil ? 1.65 : 1;
       building.cooldown = stats.rate * suppression * effects.turretRateMultiplier;
       const damage = stats.value * effects.turretDamageMultiplier;
-      nearest.hp = Math.max(0, nearest.hp - damage);
-      if (building.kind === 'frost-turret') nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1.4);
+      const appliedDamage = this.applyGhostDamage(nearest, damage);
+      if (building.kind === 'frost-turret') nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1);
       this.pendingEvents.push({
         kind: 'turret-fire', position: building.tile, targetPosition: { ...nearest.position }, targetId: nearest.id,
-        buildingKind: building.kind, amount: damage,
+        buildingKind: building.kind, amount: appliedDamage,
       });
-      this.pendingEvents.push({ kind: 'ghost-hit', position: { ...nearest.position }, targetId: nearest.id, amount: damage });
+      if (appliedDamage > 0) this.pendingEvents.push({ kind: 'ghost-hit', position: { ...nearest.position }, targetId: nearest.id, amount: appliedDamage });
     }
+  }
+
+  private applyGhostDamage(ghost: GhostState, damage: number): number {
+    if (this.state.elapsed < (this.retreatGuardUntil.get(ghost.id) ?? 0)) return 0;
+    const before = ghost.hp;
+    const next = Math.max(0, before - damage);
+    const crossesRetreatLine = !ghost.retreating && !ghost.healing
+      && ghost.retreatCount < BALANCE.ghost.maxRetreats
+      && before / ghost.maxHp > BALANCE.ghost.retreatThreshold
+      && next / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
+    if (crossesRetreatLine) {
+      ghost.hp = Math.max(1, next);
+      ghost.retreating = true;
+      ghost.retreatCount += 1;
+      ghost.targetRoomId = null;
+      ghost.path = [];
+      this.retreatGuardUntil.set(ghost.id, this.state.elapsed + 0.35);
+      this.pendingEvents.push({ kind: 'ghost-retreat', position: { ...ghost.position }, targetId: ghost.id });
+    } else ghost.hp = next;
+    return Math.max(0, before - ghost.hp);
   }
 
   private updateGhosts(dt: number): void {
@@ -744,8 +776,10 @@ export class GameEngine {
     const next = ghost.path[0] ?? destination;
     const direction = normalize({ x: next.x - ghost.position.x, y: next.y - ghost.position.y });
     const variantSpeed = ghost.variant === 'swift' ? 1.65 : ghost.variant === 'brute' ? 0.78 : ghost.variant.startsWith('twin') ? 1.15 : 1;
-    let speed = BALANCE.ghost.speed * this.stage.speedMultiplier * variantSpeed * (ghost.rage ? 1.32 : 1) * (this.state.elapsed < ghost.slowUntil ? 0.58 : 1);
-    if (ghost.retreating) speed *= 0.85;
+    const slowed = this.state.elapsed < ghost.slowUntil;
+    const slowMultiplier = slowed ? (ghost.retreating ? 0.9 : 0.76) : 1;
+    let speed = BALANCE.ghost.speed * this.stage.speedMultiplier * variantSpeed * (ghost.rage ? 1.32 : 1) * slowMultiplier;
+    if (ghost.retreating) speed *= 1.12;
     const nextPosition = { x: ghost.position.x + direction.x * speed * dt, y: ghost.position.y + direction.y * speed * dt };
     if (isWalkable(this.map, nextPosition.x, ghost.position.y)) ghost.position.x = nextPosition.x;
     if (isWalkable(this.map, ghost.position.x, nextPosition.y)) ghost.position.y = nextPosition.y;

@@ -18,7 +18,7 @@ interface TestState {
 }
 
 async function enter(page: Page, nickname: string, suffix: string, accelerated = true): Promise<string> {
-  await page.goto(`/?dev=1${accelerated ? '&e2e=1' : ''}`);
+  await page.goto(`/?dev=1&automation=1${accelerated ? '&e2e=1' : ''}`);
   await page.getByRole('button', { name: '새 계정' }).click();
   const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
   await page.getByLabel('아이디').fill(username);
@@ -28,6 +28,30 @@ async function enter(page: Page, nickname: string, suffix: string, accelerated =
   await expect(page.getByTestId('create-room')).toBeVisible();
   return username;
 }
+
+test('first launch teaser leads through login to the cinematic game home and mode select', async ({ browser }) => {
+  const context = await mobileContext(browser);
+  const page = await context.newPage();
+  try {
+    await page.goto('/?dev=1&fresh=1');
+    await expect(page.locator('.opening-teaser')).toBeVisible();
+    await expect(page.getByText('심야 기숙사')).toBeVisible();
+    await page.getByRole('button', { name: '건너뛰기' }).click();
+    await page.getByRole('button', { name: '새 계정' }).click();
+    const username = `intro${Date.now().toString(36)}`.slice(0, 20);
+    await page.getByLabel('아이디').fill(username);
+    await page.getByLabel('게임 닉네임').fill('새벽도망자');
+    await page.getByLabel('비밀번호').fill('midnight-test-2026');
+    await page.getByRole('button', { name: '계정 만들고 시작' }).click();
+    await expect(page.locator('.game-home')).toBeVisible();
+    await expect(page.locator('.home-account')).toContainText('새벽도망자');
+    await page.getByRole('button', { name: '게임 시작' }).click();
+    await expect(page.getByTestId('create-room')).toBeVisible();
+    await expect(page.locator('.mode-poster')).toHaveCount(2);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+});
 
 async function state(page: Page): Promise<TestState> {
   return page.evaluate(() => window.__DORM_TEST__ as unknown as TestState);
@@ -161,11 +185,14 @@ test('two real browser contexts share bed locking, building, combat and reconnec
     await expect(first.getByTestId('rematch')).toBeVisible({ timeout: 45_000 });
     await expect(second.getByTestId('rematch')).toBeVisible({ timeout: 45_000 });
 
+    await second.reload();
+    await expect(second.getByTestId('create-room')).toBeVisible();
+
     const manifest = await first.request.get('/manifest.webmanifest');
     expect(manifest.ok()).toBe(true);
     expect((await manifest.json()).display).toBe('fullscreen');
 
-    await first.goto('/?dev=1&fresh=1');
+    await first.goto('/?dev=1&fresh=1&automation=1');
     await expect(first.getByTestId('create-room')).toBeVisible();
     await first.getByRole('button', { name: '로그아웃' }).click();
     await first.getByLabel('아이디').fill(firstUsername);

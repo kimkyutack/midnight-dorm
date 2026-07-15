@@ -172,6 +172,7 @@ export interface GameSnapshot {
 
 export type GameEventKind =
   | 'gold'
+  | 'power'
   | 'build'
   | 'upgrade'
   | 'turret-fire'

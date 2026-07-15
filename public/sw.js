@@ -1,5 +1,8 @@
-const CACHE = 'midnight-dorm-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-maskable.svg'];
+const CACHE = 'midnight-dorm-shell-v2';
+const SHELL = [
+  '/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-maskable.svg',
+  '/assets/cinematic/opening-chase.webp', '/assets/cinematic/dorm-home.webp', '/assets/cinematic/ghost-roster.webp',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

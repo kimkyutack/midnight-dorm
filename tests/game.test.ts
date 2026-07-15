@@ -109,15 +109,11 @@ describe('authoritative game rules', () => {
 
   it('makes ten basic turret hits visibly damage a level-one easy ghost in solo and four-player games', () => {
     const tenHits = buildingStats('basic-turret', 1).value * 10;
-    const solo = setup(1, false);
-    const soloState = begin(solo.engine, solo.ids[0] as string);
-    const multiplayer = setup(4, false);
-    const multiplayerState = begin(multiplayer.engine, multiplayer.ids[0] as string);
-    const soloRatio = tenHits / soloState.ghost.maxHp;
-    const multiplayerRatio = tenHits / multiplayerState.ghost.maxHp;
-    expect(soloRatio).toBeGreaterThanOrEqual(0.1);
+    const soloRatio = tenHits / BALANCE.ghost.baseHp;
+    const multiplayerRatio = tenHits / (BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * 3));
+    expect(soloRatio).toBeGreaterThanOrEqual(0.14);
     expect(soloRatio).toBeLessThanOrEqual(0.15);
-    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.08);
+    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.11);
     expect(multiplayerRatio).toBeLessThanOrEqual(0.12);
   });
 
@@ -325,6 +321,39 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().players[0]?.gold).toBeCloseTo(upgraded + 2, 5);
   });
 
+  it('emits integer gold and power income at the producing bed and generator', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
+    engine.drainEvents();
+    for (let index = 0; index < 6; index += 1) engine.tick(0.05);
+    const events = engine.drainEvents();
+    expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
+  });
+
+  it('starts bed gold income during countdown before the ghost moves', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = engine.map.rooms[0];
+    if (!player || !room) throw new Error('missing countdown income fixture');
+    player.position = { ...room.bed };
+    engine.restore(persisted);
+    expect(engine.interact(playerId).ok).toBe(true);
+    const before = engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold ?? 0;
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    const state = engine.snapshot();
+    expect(state.status).toBe('COUNTDOWN');
+    expect(state.players.find((candidate) => candidate.id === playerId)?.gold).toBeCloseTo(before + 1, 5);
+    expect(state.ghost.position).toEqual(engine.map.ghostSpawn);
+  });
+
   it('starts every turret at 10 gold and uses square prices through level 15', () => {
     for (const kind of ['basic-turret', 'rapid-turret', 'frost-turret'] as const) {
       expect(buildingStats(kind, 1).gold).toBe(10);
@@ -358,12 +387,29 @@ describe('requested progression and event rules', () => {
     begin(engine, playerId);
     const roomId = engine.snapshot().players[0]?.roomId as string;
     const initial = engine.snapshot().rooms.find((room) => room.id === roomId);
-    expect(initial?.doorMaxHp).toBe(70);
+    expect(initial?.doorMaxHp).toBe(80);
     expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
     const upgraded = engine.snapshot().rooms.find((room) => room.id === roomId);
     expect(upgraded?.doorLevel).toBe(2);
-    expect(upgraded?.doorMaxHp).toBe(120);
-    expect(upgraded?.doorHp).toBe(120);
+    expect(upgraded?.doorMaxHp).toBe(230);
+    expect(upgraded?.doorHp).toBe(230);
+  });
+
+  it('upgrades an intact door through level 15 but never level 16', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player?.roomId) throw new Error('missing max-door player');
+    player.gold = 999_999;
+    player.power = 999_999;
+    engine.restore(persisted);
+    for (let level = 2; level <= 15; level += 1) expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(true);
+    const door = engine.snapshot().rooms.find((room) => room.id === player.roomId);
+    expect(door?.doorLevel).toBe(15);
+    expect(door?.doorMaxHp).toBe(5_320);
+    expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(false);
   });
 
   it('lets three level-one basic turrets and a level-two door beat a level-one easy ghost', () => {
@@ -390,6 +436,23 @@ describe('requested progression and event rules', () => {
     expect(result.status, JSON.stringify({ elapsed: result.elapsed, doorHp: room?.doorHp, ghostHp: result.ghost.hp, ghostLevel: result.ghost.level, attackCount: result.ghost.attackCount, retreating: result.ghost.retreating, healing: result.ghost.healing, shots, doorHits, retreats })).toBe('VICTORY');
     expect(result.ghost.level).toBe(1);
     expect(room?.doorHp).toBeGreaterThan(0);
+  });
+
+  it('lets four basic turrets placed across the room keep at least half of a level-two door', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) => Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)) - Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0)));
+    for (const tile of tiles.slice(0, 4)) expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+    expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
+    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING'; index += 1) engine.tick(0.1);
+    const result = engine.snapshot();
+    const door = result.rooms.find((room) => room.id === roomId);
+    expect(result.status).toBe('VICTORY');
+    expect(result.ghost.level).toBe(1);
+    expect(door?.doorHp).toBeGreaterThanOrEqual((door?.doorMaxHp ?? 0) * 0.5);
   });
 
   it('never revives a destroyed door through upgrades or repair effects', () => {
@@ -476,7 +539,7 @@ describe('requested progression and event rules', () => {
     expect(grownGhost.attacksToNextLevel).toBe(46);
   });
 
-  it('lets a level-five ghost break the strongest repaired and shielded door in under one hundred hits', () => {
+  it('lets a level-five ghost break a repaired and shielded level-five door in under one hundred hits', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -513,7 +576,7 @@ describe('requested progression and event rules', () => {
     expect(buildingStats('repair-drone', 3).value).toBe(6);
   });
 
-  it('retreats toward the respawn area below ten percent HP', () => {
+  it('retreats toward the respawn area below twenty percent HP', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
     const persisted = engine.serialize();
@@ -521,7 +584,7 @@ describe('requested progression and event rules', () => {
     expect(ghost).toBeDefined();
     if (!ghost) return;
     ghost.position = { ...engine.map.playerSpawn };
-    ghost.hp = ghost.maxHp * .09;
+    ghost.hp = ghost.maxHp * .19;
     persisted.snapshot.ghost = ghost;
     engine.restore(persisted);
     const before = Math.hypot(ghost.position.x - engine.map.ghostSpawn.x, ghost.position.y - engine.map.ghostSpawn.y);
@@ -530,6 +593,35 @@ describe('requested progression and event rules', () => {
     const after = Math.hypot(retreater.position.x - engine.map.ghostSpawn.x, retreater.position.y - engine.map.ghostSpawn.y);
     expect(retreater.retreating).toBe(true);
     expect(after).toBeLessThan(before);
+  });
+
+  it('lets a frost-hit ghost cross the retreat line alive and keep moving toward recovery', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing frost retreat fixture');
+    ghost.position = { ...tile };
+    ghost.hp = ghost.maxHp * .205;
+    ghost.retreating = false;
+    ghost.healing = false;
+    ghost.retreatCount = 0;
+    persisted.snapshot.ghost = ghost;
+    persisted.snapshot.buildings.push({ id: 'frost-retreat', kind: 'frost-turret', roomId, ownerId: playerId, tile: { ...tile }, level: 1, cooldown: 0, hp: 100 });
+    engine.restore(persisted);
+    const before = Math.hypot(tile.x - engine.map.ghostSpawn.x, tile.y - engine.map.ghostSpawn.y);
+    engine.drainEvents();
+    engine.tick(0.05);
+    const retreater = engine.snapshot().ghosts[0];
+    const after = retreater ? Math.hypot(retreater.position.x - engine.map.ghostSpawn.x, retreater.position.y - engine.map.ghostSpawn.y) : before;
+    const events = engine.drainEvents();
+    expect(retreater?.hp).toBeGreaterThan(0);
+    expect(retreater?.retreating).toBe(true);
+    expect(retreater?.slowUntil).toBeGreaterThan(engine.snapshot().elapsed);
+    expect(after).toBeLessThan(before);
+    expect(events.filter((event) => event.kind === 'ghost-retreat')).toHaveLength(1);
   });
 
   it('offers exactly thirty weighted items and enforces the four draw costs', () => {
@@ -609,7 +701,7 @@ describe('persistent account progression', () => {
   it('applies solo-rank benefits to movement, limits and the rare turret', () => {
     expect(rankBenefits('beginner').speedMultiplier).toBe(1);
     expect(rankBenefits('veteran').rareTurretUnlocked).toBe(true);
-    expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(4);
+    expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(15);
     expect(maxBuildingLevel('basic-turret', 'master')).toBe(16);
     expect(maxBuildingLevel('basic-turret', 'legend')).toBe(17);
     expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(175);

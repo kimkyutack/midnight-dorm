@@ -70,19 +70,18 @@ export interface RankBenefits {
   speedMultiplier: number;
   startingGoldBonus: number;
   startingPowerBonus: number;
-  doorLevelBonus: number;
   turretLevelBonus: number;
   rareTurretUnlocked: boolean;
   rareTurretDiscount: number;
 }
 
 const BENEFITS: Record<RankId, RankBenefits> = {
-  beginner: { speedMultiplier: 1, startingGoldBonus: 0, startingPowerBonus: 0, doorLevelBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  intermediate: { speedMultiplier: 1.05, startingGoldBonus: 10, startingPowerBonus: 0, doorLevelBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  expert: { speedMultiplier: 1.07, startingGoldBonus: 15, startingPowerBonus: 5, doorLevelBonus: 1, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  master: { speedMultiplier: 1.09, startingGoldBonus: 20, startingPowerBonus: 7, doorLevelBonus: 1, turretLevelBonus: 1, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  veteran: { speedMultiplier: 1.11, startingGoldBonus: 30, startingPowerBonus: 10, doorLevelBonus: 2, turretLevelBonus: 1, rareTurretUnlocked: true, rareTurretDiscount: 0.15 },
-  legend: { speedMultiplier: 1.14, startingGoldBonus: 45, startingPowerBonus: 15, doorLevelBonus: 2, turretLevelBonus: 2, rareTurretUnlocked: true, rareTurretDiscount: 0.3 },
+  beginner: { speedMultiplier: 1, startingGoldBonus: 0, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
+  intermediate: { speedMultiplier: 1.05, startingGoldBonus: 10, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
+  expert: { speedMultiplier: 1.07, startingGoldBonus: 15, startingPowerBonus: 5, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
+  master: { speedMultiplier: 1.09, startingGoldBonus: 20, startingPowerBonus: 7, turretLevelBonus: 1, rareTurretUnlocked: false, rareTurretDiscount: 0 },
+  veteran: { speedMultiplier: 1.11, startingGoldBonus: 30, startingPowerBonus: 10, turretLevelBonus: 1, rareTurretUnlocked: true, rareTurretDiscount: 0.15 },
+  legend: { speedMultiplier: 1.14, startingGoldBonus: 45, startingPowerBonus: 15, turretLevelBonus: 2, rareTurretUnlocked: true, rareTurretDiscount: 0.3 },
 };
 
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));
