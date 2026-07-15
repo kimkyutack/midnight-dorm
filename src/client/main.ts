@@ -39,6 +39,8 @@ declare global {
       buildFirst: (kind: BuildingKind) => boolean;
       disconnect: () => void;
       cameraMode: () => "follow" | "free" | "none";
+      cameraZoom: () => number;
+      cameraYaw: () => number;
     };
   }
 }
@@ -215,7 +217,7 @@ function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   setContent(
     "auth",
-    `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
+    `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%; margin-top: 8px;">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
   );
   app
     .querySelectorAll<HTMLElement>("[data-auth-tab]")
@@ -493,7 +495,7 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D</div><div class="hud"><div class="stage-chip"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D</div><div class="hud"><div class="stage-chip"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {
@@ -522,6 +524,21 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
   });
+  const refreshCameraZoom = (): void => {
+    const output = app.querySelector<HTMLOutputElement>("[data-camera-zoom]");
+    if (output) output.value = `${game?.getCameraZoom().toFixed(1) ?? "1.0"}×`;
+  };
+  app.querySelectorAll<HTMLElement>("[data-camera]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const action = button.dataset.camera;
+      if (action === "zoom-in") game?.zoomBy(Math.SQRT2);
+      else if (action === "zoom-out") game?.zoomBy(1 / Math.SQRT2);
+      else if (action === "rotate-left") game?.rotateBy(-Math.PI / 12);
+      else if (action === "rotate-right") game?.rotateBy(Math.PI / 12);
+      refreshCameraZoom();
+      audio.play("button");
+    }),
+  );
   updateHud();
 }
 
@@ -1149,6 +1166,8 @@ function updateTestApi(): void {
     },
     disconnect: () => network?.close(),
     cameraMode: () => game?.getCameraMode() ?? "none",
+    cameraZoom: () => game?.getCameraZoom() ?? 1,
+    cameraYaw: () => game?.getCameraYaw() ?? 0,
   };
 }
 

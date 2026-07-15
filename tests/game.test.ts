@@ -182,6 +182,23 @@ describe('authoritative game rules', () => {
     expect(state.buildings[0]?.level).toBe(2);
   });
 
+  it('allows beds to reach level ten with exactly doubled gold production', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing player');
+    player.gold = 100_000;
+    player.power = 100_000;
+    engine.restore(persisted);
+    for (let level = 2; level <= 10; level += 1) expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
+    expect(engine.snapshot().rooms.find((room) => room.id === roomId)?.bedLevel).toBe(10);
+    expect(buildingStats('bed', 10).value).toBe(512);
+    expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(false);
+  });
+
   it('server turrets acquire and damage the ghost', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
@@ -658,6 +675,37 @@ describe('requested progression and event rules', () => {
       for (const ghost of state.ghosts) variants.add(ghost.variant);
     }
     expect(variants).toEqual(new Set(['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b']));
+  });
+
+  it('splits twin damage so both ghosts together equal one standard ghost attack', () => {
+    let engine: GameEngine | null = null;
+    for (let index = 0; index < 120; index += 1) {
+      const candidate = new GameEngine(`TWIN${index}`, generateMap(70_000 + index), false);
+      if (candidate.snapshot().ghosts.length === 2) {
+        engine = candidate;
+        break;
+      }
+    }
+    if (!engine) throw new Error('missing deterministic twin event');
+    const joined = engine.join({ nickname: 'TwinTarget', deviceId: 'twin-target-device' });
+    const playerId = joined.player.id;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const door = engine.map.rooms.find((room) => room.id === roomId)?.door;
+    if (!door) throw new Error('missing target door');
+    const persisted = engine.serialize();
+    for (const ghost of persisted.snapshot.ghosts) {
+      ghost.position = { ...door };
+      ghost.targetRoomId = roomId;
+      ghost.attackCooldown = 0;
+      ghost.path = [];
+    }
+    engine.restore(persisted);
+    const before = engine.snapshot().rooms.find((room) => room.id === roomId)?.doorHp ?? 0;
+    engine.tick(0.05);
+    const after = engine.snapshot().rooms.find((room) => room.id === roomId)?.doorHp ?? 0;
+    expect(before - after).toBeCloseTo(BALANCE.ghost.baseDamage, 5);
+    expect(engine.drainEvents().filter((event) => event.kind === 'door-hit')).toHaveLength(2);
   });
 });
 

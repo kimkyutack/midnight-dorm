@@ -706,7 +706,8 @@ export class GameEngine {
     ghost.attackCooldown -= dt;
     if (ghost.attackCooldown > 0) return;
     const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
-    const variantDamage = ghost.variant === 'brute' ? 1.3 : ghost.variant.startsWith('twin') ? 0.78 : 1;
+    // 쌍둥이 둘의 합산 문 피해가 일반 귀신 한 마리와 같도록 정확히 절반씩 나눈다.
+    const variantDamage = ghost.variant === 'brute' ? 1.3 : ghost.variant.startsWith('twin') ? 0.5 : 1;
     const damageScale = (1 + BALANCE.ghost.damagePerPlayer * (combatants - 1)
       + (ghost.level - 1) * (BALANCE.ghost.damageGrowthPerLevel + this.stage.levelDamageGrowth))
       * variantDamage * this.stage.damageMultiplier;

@@ -25,6 +25,11 @@ const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const doorLevel = index + 1;
   return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, doorLevel === 1 ? 0 : Math.ceil(doorLevel * 0.8), hp, 0, 0);
 });
+const BED_UPGRADE_GOLD = [0, 35, 90, 210, 460, 970, 2_000, 4_050, 8_200, 16_500] as const;
+const BED_UPGRADE_POWER = [0, 0, 1, 3, 6, 10, 16, 24, 35, 50] as const;
+const BED_LEVELS = BED_UPGRADE_GOLD.map((gold, index) =>
+  level(gold, BED_UPGRADE_POWER[index] as number, 2 ** index, 1, 0),
+);
 
 export const BALANCE = {
   tickRate: 20,
@@ -65,8 +70,8 @@ export const BALANCE = {
     bed: {
       label: '꿈결 침대',
       description: '레벨마다 골드 생산량이 정확히 2배가 됩니다.',
-      maxLevel: 3,
-      levels: [level(0, 0, 1, 1, 0), level(35, 0, 2, 1, 0), level(90, 1, 4, 1, 0)],
+      maxLevel: 10,
+      levels: BED_LEVELS,
     },
     'reinforced-door': {
       label: '봉인 강화문',

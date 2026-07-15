@@ -75,7 +75,7 @@ button { min-width: 48px; min-height: 48px; }
 .home-account strong { margin: 2px 0; font-size: 16px; }
 .home-account small { color: #d6e4ec; font-size: 9px; }
 .home-account em { margin-top: 3px; color: var(--gold); font-size: 7px; font-style: normal; }
-.home-logout { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); min-height: 32px; padding: 0 10px; border: 0; color: #aab7c1; background: transparent; font-size: 8px; font-weight: 850; }
+.home-logout { position: absolute; top: max(16px, env(safe-area-inset-top)); right: calc(max(14px, env(safe-area-inset-right)) + 62px); z-index: 13; min-height: 32px; padding: 0 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; color: #c8d4dc; background: rgba(4,10,18,.54); font-size: 8px; font-weight: 850; backdrop-filter: blur(12px); }
 .home-actions { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); display: grid; justify-items: center; gap: 7px; transform: translateX(-50%); }
 .game-start { display: flex; align-items: center; gap: 14px; min-width: min(52vw, 350px); min-height: 72px; padding: 9px 30px; border: 1px solid rgba(255,231,178,.8); border-radius: 22px; color: #241605; background: linear-gradient(135deg, rgba(255,235,179,.98), rgba(232,151,66,.98)); box-shadow: 0 0 0 6px rgba(255,191,95,.08), 0 18px 60px rgba(255,149,43,.28), inset 0 2px rgba(255,255,255,.55); text-align: left; animation: startPulse 2.2s ease-in-out infinite; }
 .game-start i { font-size: 28px; font-style: normal; }
@@ -213,6 +213,9 @@ select { appearance: none; min-width: 0; padding-right: 34px; background-image: 
 .network-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 9px currentColor; }
 .network-pill.bad { color: var(--danger); }
 .phase-banner { position: absolute; top: 64px; left: 50%; z-index: 7; transform: translateX(-50%); padding: 9px 17px; border-radius: 999px; background: rgba(12,20,37,.78); border: 1px solid rgba(187,215,255,.15); box-shadow: 0 10px 30px rgba(0,0,0,.22); font-size: 11px; font-weight: 850; backdrop-filter: blur(16px); pointer-events: none; }
+.camera-controls { position: absolute; left: 50%; bottom: max(14px, calc(env(safe-area-inset-bottom) + 9px)); z-index: 10; display: flex; align-items: center; gap: 5px; padding: 5px; transform: translateX(-50%); border: 1px solid rgba(198,220,255,.14); border-radius: 16px; background: rgba(8,14,27,.7); box-shadow: 0 12px 32px rgba(0,0,0,.28); backdrop-filter: blur(14px); }
+.camera-controls button { min-width: 34px; width: 34px; min-height: 34px; height: 34px; padding: 0; border: 1px solid rgba(255,255,255,.13); border-radius: 11px; color: #dceeff; background: rgba(40,55,82,.72); font-size: 18px; font-weight: 900; }
+.camera-controls output { min-width: 38px; color: var(--cyan); font-size: 9px; font-weight: 950; text-align: center; font-variant-numeric: tabular-nums; }
 .controls { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
 .joystick { position: absolute; left: max(20px, calc(env(safe-area-inset-left) + 14px)); bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px)); width: 120px; height: 120px; border: 1px solid rgba(200,220,255,.15); border-radius: 50%; background: radial-gradient(circle, rgba(115,151,202,.12) 0 42%, rgba(8,14,28,.58) 44%); box-shadow: 0 12px 36px rgba(0,0,0,.24), inset 0 0 28px rgba(0,0,0,.26); backdrop-filter: blur(12px); pointer-events: auto; touch-action: none; }
 .joystick-knob { position: absolute; left: 37px; top: 37px; width: 46px; height: 46px; border: 1px solid rgba(255,255,255,.26); border-radius: 50%; background: linear-gradient(145deg, rgba(182,181,241,.94), rgba(100,208,220,.9)); box-shadow: 0 10px 24px rgba(0,0,0,.28), inset 0 2px rgba(255,255,255,.42); }
@@ -326,6 +329,8 @@ select { appearance: none; min-width: 0; padding-right: 34px; background-image: 
   .stage-chip { display: none; }
   .joystick { width: 106px; height: 106px; }
   .joystick-knob { left: 31px; top: 31px; width: 44px; height: 44px; }
+  .camera-controls { bottom: 8px; padding: 4px; }
+  .camera-controls button { min-width: 31px; width: 31px; min-height: 31px; height: 31px; }
   .build-panel { top: 54px; bottom: 74px; width: min(47vw, 390px); }
   .item-grid { grid-template-columns: repeat(4, 1fr); }
 }

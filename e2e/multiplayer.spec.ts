@@ -30,6 +30,8 @@ interface TestState {
   move: (dx: number, dy: number) => void;
   buildFirst: (kind: string) => boolean;
   cameraMode: () => "follow" | "free" | "none";
+  cameraZoom: () => number;
+  cameraYaw: () => number;
 }
 
 async function enter(
@@ -118,6 +120,11 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "follow",
     );
+    const initialYaw = await page.evaluate(() => window.__DORM_TEST__?.cameraYaw());
+    await page.getByRole("button", { name: "카메라 확대" }).click();
+    expect(await page.evaluate(() => window.__DORM_TEST__?.cameraZoom())).toBeCloseTo(Math.SQRT2, 1);
+    await page.getByRole("button", { name: "카메라 오른쪽 회전" }).click();
+    expect(await page.evaluate(() => window.__DORM_TEST__?.cameraYaw())).not.toBeCloseTo(initialYaw ?? 0, 3);
 
     await page.getByRole("button", { name: "설정" }).click();
     const vibration = page.locator("[data-vibration]");
@@ -215,25 +222,9 @@ test("two real browser contexts share bed locking, building, combat and reconnec
     expect(firstState.snapshot?.players).toHaveLength(2);
 
     const movingId = firstState.playerId;
-    const occupiedPlayer = secondState.snapshot?.players.find(
-      (player) => player.id === movingId,
-    );
-    const occupiedBed = secondState.map?.rooms.find(
-      (room) => room.id === occupiedPlayer?.roomId,
-    )?.bed;
-    expect(occupiedPlayer?.position).toEqual(occupiedBed);
-    await first.evaluate(() => window.__DORM_TEST__?.move(1, 1));
-    await first.waitForTimeout(500);
-    await first.evaluate(() => window.__DORM_TEST__?.move(0, 0));
-    const afterMoveAttempt = (await state(second)).snapshot?.players.find(
-      (player) => player.id === movingId,
-    );
-    expect(afterMoveAttempt?.position).toEqual(occupiedBed);
-
     const goldBefore =
-      (await state(first)).snapshot?.players.find(
-        (player) => player.id === movingId,
-      )?.gold ?? 0;
+      firstState.snapshot?.players.find((player) => player.id === movingId)
+        ?.gold ?? 0;
     expect(
       await first.evaluate(() =>
         window.__DORM_TEST__?.buildFirst("basic-turret"),
@@ -251,6 +242,21 @@ test("two real browser contexts share bed locking, building, combat and reconnec
       builtFirst.snapshot?.players.find((player) => player.id === movingId)
         ?.gold ?? goldBefore,
     ).toBeLessThan(goldBefore);
+
+    const occupiedPlayer = secondState.snapshot?.players.find(
+      (player) => player.id === movingId,
+    );
+    const occupiedBed = secondState.map?.rooms.find(
+      (room) => room.id === occupiedPlayer?.roomId,
+    )?.bed;
+    expect(occupiedPlayer?.position).toEqual(occupiedBed);
+    await first.evaluate(() => window.__DORM_TEST__?.move(1, 1));
+    await first.waitForTimeout(500);
+    await first.evaluate(() => window.__DORM_TEST__?.move(0, 0));
+    const afterMoveAttempt = (await state(second)).snapshot?.players.find(
+      (player) => player.id === movingId,
+    );
+    expect(afterMoveAttempt?.position).toEqual(occupiedBed);
 
     await first.waitForFunction(
       () =>

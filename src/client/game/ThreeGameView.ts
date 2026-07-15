@@ -3,7 +3,10 @@ import { BALANCE } from '../../shared/balance';
 import { isEliteRank, rankBenefits, rankLabel } from '../../shared/progression';
 import type { BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, Tile, Vec2 } from '../../shared/types';
 
-const CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
+const BASE_CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
+const BASE_CAMERA_HORIZONTAL_DISTANCE = Math.hypot(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
+const MIN_CAMERA_DISTANCE_SCALE = 0.5;
+const MAX_CAMERA_DISTANCE_SCALE = 2;
 const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.82;
@@ -74,6 +77,12 @@ interface PointerDrag {
   x: number;
   y: number;
   moved: boolean;
+  mode: 'pan' | 'rotate';
+}
+
+interface MultiTouchGesture {
+  distance: number;
+  angle: number;
 }
 
 interface TimedEffect {
@@ -368,10 +377,14 @@ export class ThreeGameView {
   private readonly desiredCameraTarget = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
+  private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
+  private gesture: MultiTouchGesture | null = null;
   private followingPlayer = true;
   private focusedRoomId: string | null = null;
+  private cameraDistanceScale = 1;
+  private cameraYaw = Math.atan2(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
   private lastFrame = performance.now();
   private paused = false;
   private destroyed = false;
@@ -385,7 +398,7 @@ export class ThreeGameView {
     this.scene.fog = new THREE.Fog(0x050812, 10, 34);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.55));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.16;
@@ -429,6 +442,24 @@ export class ThreeGameView {
   setLocalInput(input: Vec2): void { this.localInput = input; }
 
   getCameraMode(): 'follow' | 'free' { return this.followingPlayer ? 'follow' : 'free'; }
+
+  getCameraZoom(): number { return Math.round((1 / this.cameraDistanceScale) * 100) / 100; }
+
+  getCameraYaw(): number { return this.cameraYaw; }
+
+  zoomBy(magnificationFactor: number): void {
+    if (!Number.isFinite(magnificationFactor) || magnificationFactor <= 0) return;
+    this.cameraDistanceScale = clamp(
+      this.cameraDistanceScale / magnificationFactor,
+      MIN_CAMERA_DISTANCE_SCALE,
+      MAX_CAMERA_DISTANCE_SCALE,
+    );
+  }
+
+  rotateBy(radians: number): void {
+    if (!Number.isFinite(radians)) return;
+    this.cameraYaw = Math.atan2(Math.sin(this.cameraYaw + radians), Math.cos(this.cameraYaw + radians));
+  }
 
   pause(): void {
     this.paused = true;
@@ -502,7 +533,7 @@ export class ThreeGameView {
     const moon = new THREE.DirectionalLight(0xb9dbf4, 3.65);
     moon.position.set(12, 18, 9);
     moon.castShadow = true;
-    moon.shadow.mapSize.set(1024, 1024);
+    moon.shadow.mapSize.set(512, 512);
     moon.shadow.camera.near = 1;
     moon.shadow.camera.far = 45;
     moon.shadow.camera.left = -14;
@@ -828,7 +859,12 @@ export class ThreeGameView {
     this.desiredCameraTarget.x = clamp(this.desiredCameraTarget.x, 2.5, this.mapData.width - 3.5);
     this.desiredCameraTarget.z = clamp(this.desiredCameraTarget.z, 2.5, this.mapData.height - 3.5);
     this.cameraTarget.lerp(this.desiredCameraTarget, 1 - Math.exp(-7.5 * dt));
-    this.camera.position.copy(this.cameraTarget).add(CAMERA_OFFSET);
+    const horizontalDistance = BASE_CAMERA_HORIZONTAL_DISTANCE * this.cameraDistanceScale;
+    this.camera.position.set(
+      this.cameraTarget.x + Math.sin(this.cameraYaw) * horizontalDistance,
+      this.cameraTarget.y + BASE_CAMERA_OFFSET.y * this.cameraDistanceScale,
+      this.cameraTarget.z + Math.cos(this.cameraYaw) * horizontalDistance,
+    );
     this.camera.lookAt(this.cameraTarget.x, CAMERA_TARGET_HEIGHT, this.cameraTarget.z);
   }
 
@@ -846,6 +882,8 @@ export class ThreeGameView {
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointercancel', this.onPointerUp);
+    canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    canvas.addEventListener('contextmenu', this.onContextMenu);
   }
 
   private unbindInput(): void {
@@ -854,38 +892,94 @@ export class ThreeGameView {
     canvas.removeEventListener('pointermove', this.onPointerMove);
     canvas.removeEventListener('pointerup', this.onPointerUp);
     canvas.removeEventListener('pointercancel', this.onPointerUp);
+    canvas.removeEventListener('wheel', this.onWheel);
+    canvas.removeEventListener('contextmenu', this.onContextMenu);
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     const local = this.snapshotData.players.find((player) => player.id === this.playerId);
     if (!local?.roomId) return;
     this.renderer.domElement.setPointerCapture(event.pointerId);
-    this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.pointerPositions.size >= 2) {
+      this.drag = null;
+      this.gesture = this.currentGesture();
+      return;
+    }
+    this.drag = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      mode: event.button === 2 ? 'rotate' : 'pan',
+    };
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    if (!this.pointerPositions.has(event.pointerId)) return;
+    this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.pointerPositions.size >= 2) {
+      const next = this.currentGesture();
+      if (next && this.gesture) {
+        if (this.gesture.distance > 0) this.zoomBy(next.distance / this.gesture.distance);
+        const angleDelta = Math.atan2(
+          Math.sin(next.angle - this.gesture.angle),
+          Math.cos(next.angle - this.gesture.angle),
+        );
+        this.rotateBy(angleDelta);
+      }
+      this.gesture = next;
+      return;
+    }
     if (!this.drag || this.drag.id !== event.pointerId) return;
     const dx = event.clientX - this.drag.x;
     const dy = event.clientY - this.drag.y;
     if (Math.hypot(dx, dy) > 7) this.drag.moved = true;
     if (!this.drag.moved) return;
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
-    const forward = new THREE.Vector3();
-    this.camera.getWorldDirection(forward);
-    forward.setY(0).normalize();
-    this.desiredCameraTarget.addScaledVector(right, -dx * 0.015);
-    this.desiredCameraTarget.addScaledVector(forward, dy * 0.015);
+    if (this.drag.mode === 'rotate') this.rotateBy(-dx * 0.008);
+    else {
+      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      forward.setY(0).normalize();
+      const panScale = 0.015 * this.cameraDistanceScale;
+      this.desiredCameraTarget.addScaledVector(right, -dx * panScale);
+      this.desiredCameraTarget.addScaledVector(forward, dy * panScale);
+    }
     this.drag.x = event.clientX;
     this.drag.y = event.clientY;
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
-    if (!this.drag || this.drag.id !== event.pointerId) return;
-    const moved = this.drag.moved;
-    this.drag = null;
+    if (!this.pointerPositions.has(event.pointerId)) return;
+    const wasGesture = this.pointerPositions.size > 1 || this.gesture !== null;
+    const moved = this.drag?.id === event.pointerId ? this.drag.moved : wasGesture;
+    this.pointerPositions.delete(event.pointerId);
+    this.gesture = this.pointerPositions.size >= 2 ? this.currentGesture() : null;
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
-    if (!moved) this.selectAt(event.clientX, event.clientY);
+    const remaining = this.pointerPositions.entries().next().value as [number, { x: number; y: number }] | undefined;
+    this.drag = remaining
+      ? { id: remaining[0], x: remaining[1].x, y: remaining[1].y, moved: true, mode: 'pan' }
+      : null;
+    if (!moved && !wasGesture && event.button !== 2) this.selectAt(event.clientX, event.clientY);
   };
+
+  private readonly onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    this.zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+  };
+
+  private readonly onContextMenu = (event: MouseEvent): void => event.preventDefault();
+
+  private currentGesture(): MultiTouchGesture | null {
+    const points = [...this.pointerPositions.values()];
+    const first = points[0];
+    const second = points[1];
+    if (!first || !second) return null;
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    return { distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) };
+  }
 
   private selectAt(clientX: number, clientY: number): void {
     const rect = this.renderer.domElement.getBoundingClientRect();
