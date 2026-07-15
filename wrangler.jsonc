@@ -1,36 +1,36 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "midnight-dorm-coop-defense",
+  "name": "midnight-dorm",
   "main": "./src/server/worker.ts",
   "compatibility_date": "2026-06-10",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "GAME_ROOMS",
-        "class_name": "GameRoom"
-      }
-    ]
+        "class_name": "GameRoom",
+      },
+    ],
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "midnight-dorm-accounts",
       "database_id": "8b691d76-a4b5-4bb8-9ca5-7b2983f1440e",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["GameRoom"]
-    }
+      "new_sqlite_classes": ["GameRoom"],
+    },
   ],
   "observability": {
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }
