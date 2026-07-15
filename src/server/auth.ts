@@ -23,6 +23,26 @@ interface AccountRow {
 
 let schemaReady: Promise<void> | null = null;
 
+async function ensureColumn(db: D1Database, table: string, column: string, definition: string): Promise<void> {
+  const columns = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (columns.results?.some((row) => row.name === column)) return;
+  await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+}
+
+async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
+  await ensureColumn(db, 'accounts', 'password_hash', `TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'accounts', 'password_salt', `TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'accounts', 'solo_xp', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'multiplayer_xp', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'solo_stage_index', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'multiplayer_stage_index', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'victories', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'login_failures', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'locked_until', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'updated_at', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'accounts', 'last_login_at', 'INTEGER NOT NULL DEFAULT 0');
+}
+
 export function ensureAuthSchema(db: D1Database): Promise<void> {
   schemaReady ??= db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
@@ -31,7 +51,7 @@ export function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, play_mode TEXT NOT NULL CHECK (play_mode IN ('solo', 'multiplayer')), stage_index INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), xp_awarded INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC)'),
-  ]).then(() => undefined).catch((error) => {
+  ]).then(() => ensureLegacyAuthColumns(db)).catch((error) => {
     schemaReady = null;
     throw error;
   });
@@ -57,8 +77,12 @@ async function derivePassword(password: string, salt: Uint8Array): Promise<strin
 function secureEqual(left: string, right: string): boolean {
   const a = new TextEncoder().encode(left);
   const b = new TextEncoder().encode(right);
-  const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual(first: BufferSource, second: BufferSource): boolean };
-  return a.length === b.length && subtle.timingSafeEqual(a, b);
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    difference |= (a[index] as number) ^ (b[index] as number);
+  }
+  return difference === 0;
 }
 
 function profileFromRow(row: AccountRow): AccountProfile {
