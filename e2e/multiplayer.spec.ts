@@ -69,6 +69,7 @@ test("first launch teaser leads through login to the cinematic game home and mod
     await page.getByRole("button", { name: "계정 만들고 시작" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
+    await expect(page.locator(".home-account .rank-badge")).toBeVisible();
     await page.getByRole("button", { name: "게임 시작" }).click();
     await expect(page.getByTestId("create-room")).toBeVisible();
     await expect(page.locator(".mode-poster")).toHaveCount(2);
@@ -101,6 +102,8 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await page.getByRole("button", { name: "봇과 혼자 시작" }).click();
     await expect(page.locator("[data-player-id]")).toHaveCount(4);
     await page.getByTestId("start-game").click();
+    await expect(page.locator("#game-root canvas[data-theme='hospital']")).toBeVisible();
+    await expect(page.locator(".stage-chip .rank-badge")).toBeVisible();
     await page.waitForFunction(
       () => {
         const snapshot = window.__DORM_TEST__?.snapshot;
@@ -289,7 +292,8 @@ test("two real browser contexts share bed locking, building, combat and reconnec
         (combatFirst.snapshot?.ghost.hp ?? 0) -
           (combatSecond.snapshot?.ghost.hp ?? 0),
       ),
-    ).toBeLessThanOrEqual(11);
+    // 10Hz 스냅샷 경계에서 한 클라이언트만 1발(기본 피해 13)을 먼저 볼 수 있다.
+    ).toBeLessThanOrEqual(13);
 
     const secondId = (await state(second)).playerId;
     await second.reload();

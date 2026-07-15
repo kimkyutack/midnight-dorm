@@ -164,6 +164,8 @@ export class GameEngine {
       attacksToNextLevel: BALANCE.ghost.firstLevelAttacks,
       retreating: false,
       healing: false,
+      healingElapsed: 0,
+      healingStartHp: 0,
       retreatCount: 0,
       skillCooldown: variant === 'caster' ? 8 : 20,
     };
@@ -188,6 +190,8 @@ export class GameEngine {
       ghost.attacksToNextLevel ??= BALANCE.ghost.firstLevelAttacks;
       ghost.retreating ??= false;
       ghost.healing ??= false;
+      ghost.healingElapsed ??= 0;
+      ghost.healingStartHp ??= ghost.hp;
       ghost.retreatCount ??= 0;
       ghost.skillCooldown ??= 20;
     }
@@ -595,7 +599,7 @@ export class GameEngine {
       const effects = combinedItemEffects(owner?.items ?? []);
       if (building.kind === 'repair-drone' && room && room.doorHp > 0 && this.state.elapsed >= this.state.repairSuppressedUntil) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
       const nearest = this.state.ghosts
-        .filter((ghost) => ghost.hp > 0)
+        .filter((ghost) => ghost.hp > 0 && !ghost.healing)
         .sort((a, b) => distance(a.position, building.tile) - distance(b.position, building.tile))[0];
       if (building.kind === 'shield-device' && room && this.state.ghosts.some((ghost) => ghost.targetRoomId === room.id) && nearest && distance(nearest.position, building.tile) < 7 && building.cooldown <= 0) {
         room.shieldUntil = this.state.elapsed + stats.rate;
@@ -623,11 +627,14 @@ export class GameEngine {
   }
 
   private applyGhostDamage(ghost: GhostState, damage: number): number {
+    // 리스폰 지점의 7초 회복은 보장한다. 후퇴 중에는 계속 포탑 피해를 받아 처치될 수 있다.
+    if (ghost.healing) return 0;
     if (this.state.elapsed < (this.retreatGuardUntil.get(ghost.id) ?? 0)) return 0;
     const before = ghost.hp;
-    const next = Math.max(0, before - damage);
+    // 도망치는 동안은 방어선의 집중 사격에 노출되어, 충분한 화력이 있으면 회복 전에 처치할 수 있다.
+    const appliedDamage = damage * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
+    const next = Math.max(0, before - appliedDamage);
     const crossesRetreatLine = !ghost.retreating && !ghost.healing
-      && ghost.retreatCount < BALANCE.ghost.maxRetreats
       && before / ghost.maxHp > BALANCE.ghost.retreatThreshold
       && next / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
     if (crossesRetreatLine) {
@@ -653,7 +660,7 @@ export class GameEngine {
     ghost.rage = ghost.level >= 5 || ghost.hp / ghost.maxHp <= 0.3;
     ghost.skillCooldown -= dt;
 
-    if (!ghost.retreating && !ghost.healing && ghost.retreatCount < BALANCE.ghost.maxRetreats && ghost.hp / ghost.maxHp < BALANCE.ghost.retreatThreshold) {
+    if (!ghost.retreating && !ghost.healing && ghost.hp / ghost.maxHp <= BALANCE.ghost.retreatThreshold) {
       ghost.retreating = true;
       ghost.retreatCount += 1;
       ghost.targetRoomId = null;
@@ -665,14 +672,21 @@ export class GameEngine {
       else {
         ghost.retreating = false;
         ghost.healing = true;
+        ghost.healingElapsed = 0;
+        ghost.healingStartHp = ghost.hp;
         ghost.path = [];
       }
       return;
     }
     if (ghost.healing) {
-      ghost.hp = Math.min(ghost.maxHp, ghost.hp + ghost.maxHp * BALANCE.ghost.healPerSecond * dt);
-      if (ghost.hp / ghost.maxHp >= BALANCE.ghost.returnThreshold) {
+      ghost.healingElapsed = Math.min(BALANCE.ghost.healDurationSeconds, ghost.healingElapsed + dt);
+      const recoveryProgress = ghost.healingElapsed / BALANCE.ghost.healDurationSeconds;
+      ghost.hp = ghost.healingStartHp + (ghost.maxHp - ghost.healingStartHp) * recoveryProgress;
+      if (recoveryProgress >= 1 - 1e-9) {
+        ghost.hp = ghost.maxHp;
         ghost.healing = false;
+        ghost.healingElapsed = 0;
+        ghost.healingStartHp = ghost.hp;
         ghost.targetRoomId = this.selectGhostTarget(ghost);
         this.pendingEvents.push({ kind: 'ghost-return', position: { ...ghost.position }, targetId: ghost.id });
       }

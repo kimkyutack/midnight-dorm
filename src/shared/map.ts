@@ -10,9 +10,9 @@ interface ShapeTemplate {
 
 const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, index) => from + index);
 const SHAPES: readonly ShapeTemplate[] = [
-  { name: '작은 9칸방', cells: range(1, 3).flatMap((depth) => range(-1, 1).map((dx) => [dx, depth] as const)) },
-  { name: '세로 일자방', cells: range(1, 9).map((depth) => [0, depth] as const) },
-  { name: '가로 일자방', cells: range(-4, 4).map((dx) => [dx, 1] as const) },
+  { name: '작은 10칸방', cells: range(1, 5).flatMap((depth) => range(0, 1).map((dx) => [dx, depth] as const)) },
+  { name: '세로 일자방', cells: range(1, 10).map((depth) => [0, depth] as const) },
+  { name: '가로 일자방', cells: range(-4, 5).map((dx) => [dx, 1] as const) },
   { name: '넓은 15칸방', cells: range(1, 3).flatMap((depth) => range(-2, 2).map((dx) => [dx, depth] as const)) },
   { name: 'L자방', cells: [...range(1, 7).map((depth) => [0, depth] as const), ...range(1, 4).map((dx) => [dx, 7] as const)] },
   { name: 'T자방', cells: [...range(-3, 3).map((dx) => [dx, 1] as const), ...range(2, 6).map((depth) => [0, depth] as const)] },
@@ -112,7 +112,7 @@ export function validateMap(map: MapDefinition): boolean {
   const walkableKeys = new Set(map.walkable.map((tile) => tileKey(tile.x, tile.y)));
   const occupied = new Set<string>();
   for (const room of map.rooms) {
-    if (room.floorTiles.length < 9 || room.floorTiles.length > 15 || room.buildTiles.length !== room.floorTiles.length - 1) return false;
+    if (room.floorTiles.length < 10 || room.floorTiles.length > 15 || room.buildTiles.length !== room.floorTiles.length - 1) return false;
     const bedKey = tileKey(room.bed.x, room.bed.y);
     const doorKey = tileKey(room.door.x, room.door.y);
     if (wallKeys.has(bedKey) || wallKeys.has(doorKey) || occupied.has(bedKey) || occupied.has(doorKey)) return false;

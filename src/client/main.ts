@@ -5,7 +5,8 @@ import {
   upgradeCost,
 } from "../shared/balance";
 import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
-import { rankBenefits, rankLabel, stagesThrough } from "../shared/progression";
+import { rankBadgeSymbol, rankBenefits, rankLabel, stagesThrough } from "../shared/progression";
+import { stageThemeFor } from "../shared/stageThemes";
 import type {
   AccountProfile,
   BuildingKind,
@@ -13,6 +14,7 @@ import type {
   GameSnapshot,
   GameStatus,
   MapDefinition,
+  RankId,
   StageId,
   Tile,
   Vec2,
@@ -122,6 +124,8 @@ const colorHex = (color: number): string =>
   `#${color.toString(16).padStart(6, "0")}`;
 const formatTime = (seconds: number): string =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const rankIdentityHtml = (rank: RankId, badgeClass = ""): string =>
+  `<span class="rank-identity rank-${rank}"><i class="rank-badge ${badgeClass}" aria-hidden="true"><span>${rankBadgeSymbol(rank)}</span></i><b>${rankLabel(rank)}</b></span>`;
 
 function setContent(view: string, html: string): void {
   currentView = view;
@@ -197,7 +201,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀포 해금" : ""}`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-brand"><span class="eyebrow">호러 디펜스</span><h1>심야<br>병동</h1><p>새벽 6시까지 문을 지키고 복도의 존재를 몰아내세요.</p></header><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem rank-${currentAccount.displayRank}">${rankLabel(currentAccount.displayRank)}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small><em>${perk}</em></div></section><button class="home-logout" data-home-logout>로그아웃</button><footer class="home-actions"><button class="game-start" data-game-start><i>☾</i><span><small>TAP TO ENTER</small>게임 시작</span></button><p>헤드폰을 사용하면 복도 소리를 더 정확히 들을 수 있습니다.</p></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-brand"><span class="eyebrow">호러 디펜스</span><h1>심야<br>병동</h1><p>새벽 6시까지 문을 지키고 복도의 존재를 몰아내세요.</p></header><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small><em>${perk}</em></div></section><button class="home-logout" data-home-logout>로그아웃</button><footer class="home-actions"><button class="game-start" data-game-start><i>☾</i><span><small>TAP TO ENTER</small>게임 시작</span></button><p>헤드폰을 사용하면 복도 소리를 더 정확히 들을 수 있습니다.</p></footer></main>`,
   );
   app.querySelector("[data-game-start]")?.addEventListener("click", () => {
     audio.play("button");
@@ -273,19 +277,19 @@ function roomMenu(): void {
   const soloOptions = stagesThrough(currentAccount.soloStageIndex)
     .map(
       (stage) =>
-        `<option value="${stage.id}" ${stage.index === currentAccount.soloStageIndex ? "selected" : ""}>${stage.label}</option>`,
+        `<option value="${stage.id}" ${stage.index === currentAccount.soloStageIndex ? "selected" : ""}>${stage.label} · ${stageThemeFor(stage.id).label}</option>`,
     )
     .join("");
   const multiOptions = stagesThrough(currentAccount.multiplayerStageIndex)
     .map(
       (stage) =>
-        `<option value="${stage.id}" ${stage.index === currentAccount.multiplayerStageIndex ? "selected" : ""}>${stage.label}</option>`,
+        `<option value="${stage.id}" ${stage.index === currentAccount.multiplayerStageIndex ? "selected" : ""}>${stage.label} · ${stageThemeFor(stage.id).label}</option>`,
     )
     .join("");
   const perk = `${benefits.speedMultiplier > 1 ? `이동속도 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동속도"} · 문 최대 Lv.15 · 포탑 최대 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀 천둥포 해금" : ""}`;
   setContent(
     "room-menu",
-    `<main class="mode-select-screen"><div class="mode-backdrop"></div><header class="mode-header"><button class="mode-back" data-mode-back>‹</button><div><span class="eyebrow">SELECT NIGHT</span><h2>어떤 방식으로 플레이하시겠습니까?</h2></div><div class="mode-rank"><b class="rank-${currentAccount.displayRank}">${rankLabel(currentAccount.displayRank)}</b><span>${escapeHtml(currentAccount.nickname)}</span></div></header><section class="mode-stage"><article class="mode-poster solo-poster"><div class="mode-number">01</div><h3>개인 플레이</h3><p>세 명의 생존 봇과 함께 방을 점유하고 나만의 방어 조합을 완성하세요.</p><label>도전 스테이지<select data-solo-stage>${soloOptions}</select></label><button class="btn primary" data-solo aria-label="봇과 혼자 시작">플레이</button></article><article class="mode-poster multi-poster"><div class="mode-number">02</div><h3>멀티 플레이</h3><p>친구와 실시간으로 다른 방을 지키며 같은 귀신을 함께 상대하세요.</p><label>도전 스테이지<select data-multi-stage>${multiOptions}</select></label><button class="btn primary" data-create data-testid="create-room">새 멀티 방 만들기</button></article><aside class="invite-terminal"><div><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" aria-label="초대 코드로 참가" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 초대 코드" /><button class="btn gold" data-join data-testid="join-room">친구 방 참가</button></div><small>${perk}</small></aside></section></main>`,
+    `<main class="mode-select-screen"><div class="mode-backdrop"></div><header class="mode-header"><button class="mode-back" data-mode-back>‹</button><div><span class="eyebrow">SELECT NIGHT</span><h2>어떤 방식으로 플레이하시겠습니까?</h2></div><div class="mode-rank">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-sm")}<span>${escapeHtml(currentAccount.nickname)}</span></div></header><section class="mode-stage"><article class="mode-poster solo-poster"><div class="mode-number">01</div><h3>개인 플레이</h3><p>세 명의 생존 봇과 함께 방을 점유하고 나만의 방어 조합을 완성하세요.</p><label>도전 스테이지<select data-solo-stage>${soloOptions}</select></label><button class="btn primary" data-solo aria-label="봇과 혼자 시작">플레이</button></article><article class="mode-poster multi-poster"><div class="mode-number">02</div><h3>멀티 플레이</h3><p>친구와 실시간으로 다른 방을 지키며 같은 귀신을 함께 상대하세요.</p><label>도전 스테이지<select data-multi-stage>${multiOptions}</select></label><button class="btn primary" data-create data-testid="create-room">새 멀티 방 만들기</button></article><aside class="invite-terminal"><div><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" aria-label="초대 코드로 참가" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 초대 코드" /><button class="btn gold" data-join data-testid="join-room">친구 방 참가</button></div><small>${perk}</small></aside></section></main>`,
   );
   app
     .querySelector(".mode-rank")
@@ -443,7 +447,7 @@ function lobbyScreen(state: GameSnapshot): void {
   destroyGame();
   setContent(
     "lobby",
-    `<main class="screen"><section class="panel"><span class="eyebrow">${state.playMode === "solo" ? "SOLO" : "MULTIPLAYER"} · ${state.stageLabel}</span><h2>친구를 기다리는 중</h2><p class="subtitle">스테이지가 높을수록 귀신의 초기 HP·공격력·성장률과 특수 스킬이 강화됩니다.</p><div class="room-code"><span>8자리 초대 코드<br>눌러서 복사</span><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><div class="players" id="players" data-testid="players"></div><div class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">20초 준비 시작</button></div></section></main>`,
+    `<main class="screen"><section class="panel"><span class="eyebrow">${state.playMode === "solo" ? "SOLO" : "MULTIPLAYER"} · ${state.stageLabel} · ${stageThemeFor(state.stageId).label}</span><h2>친구를 기다리는 중</h2><p class="subtitle">스테이지가 높을수록 귀신의 초기 HP·공격력·성장률과 특수 스킬이 강화됩니다.</p><div class="room-code"><span>8자리 초대 코드<br>눌러서 복사</span><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><div class="players" id="players" data-testid="players"></div><div class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></div></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -472,7 +476,7 @@ function updateLobby(state: GameSnapshot): void {
     state.players
       .map(
         (player) =>
-          `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong><em class="rank-tag rank-${player.displayRank}">${rankLabel(player.displayRank)}</em> ${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</strong><span>${player.isBot ? "서버 생존자 봇" : player.connected ? `개인 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : "재접속 대기"}</span></div><b class="ready-badge">${player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b></article>`,
+          `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong>${rankIdentityHtml(player.displayRank, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "서버 생존자 봇" : player.connected ? `개인 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : "재접속 대기"}</span></div><b class="ready-badge">${player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b></article>`,
       )
       .join("") +
     (state.players.length < 4
@@ -486,7 +490,7 @@ function updateLobby(state: GameSnapshot): void {
   const bot = app.querySelector<HTMLButtonElement>("[data-bot]");
   if (start) {
     start.disabled = !host;
-    start.textContent = host ? "20초 준비 시작" : "방장 대기 중";
+    start.textContent = host ? `${BALANCE.countdownSeconds}초 준비 시작` : "방장 대기 중";
   }
   if (bot) bot.disabled = !host || state.players.length >= 4;
 }
@@ -495,7 +499,7 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D</div><div class="hud"><div class="stage-chip"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {

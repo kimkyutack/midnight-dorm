@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
-import { getStage, higherRank, rankBenefits, rankFromXp, STAGES } from '../src/shared/progression';
+import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
+import { stageThemeFor } from '../src/shared/stageThemes';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 
@@ -31,7 +32,7 @@ function envelope(message: Intent, sequence = 1): ClientMessage {
 
 function begin(engine: GameEngine, hostId: string): GameSnapshot {
   expect(engine.start(hostId).ok).toBe(true);
-  for (let index = 0; index < 240 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
+  for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
   expect(engine.snapshot().status).toBe('PLAYING');
   return engine.snapshot();
 }
@@ -54,6 +55,22 @@ describe('deterministic shared world', () => {
     expect(Array.from({ length: 20 }, () => first.next())).toEqual(Array.from({ length: 20 }, () => second.next()));
   });
 
+  it('assigns distinct code-native themes to every advanced stage tier', () => {
+    expect(stageThemeFor('easy-1').id).toBe('hospital');
+    expect(stageThemeFor('nightmare-1').id).toBe('forest');
+    expect(stageThemeFor('hell-1').id).toBe('ice');
+    expect(stageThemeFor('inferno-1').id).toBe('desert');
+    expect(stageThemeFor('epic-1').id).toBe('junkyard');
+    expect(stageThemeFor('mythic-1').id).toBe('occult');
+    expect(stageThemeFor('legendary-1').id).toBe('void');
+  });
+
+  it('defines a badge and evolving hat identity for all six ranks', () => {
+    const ranks = ['beginner', 'intermediate', 'expert', 'master', 'veteran', 'legend'] as const;
+    expect(new Set(ranks.map((rank) => rankBadgeSymbol(rank))).size).toBe(ranks.length);
+    expect(ranks.every((rank) => RANK_VISUALS[rank].hatLabel.length > 0)).toBe(true);
+  });
+
   it('generates the same connected twelve-room variable map for a seed', () => {
     const first = generateMap(123_456);
     const second = generateMap(123_456);
@@ -61,7 +78,7 @@ describe('deterministic shared world', () => {
     expect(validateMap(first)).toBe(true);
     expect(connectedWalkableCount(first)).toBe(first.walkable.length);
     expect(first.rooms).toHaveLength(12);
-    expect(first.rooms.every((room) => room.floorTiles.length >= 9 && room.floorTiles.length <= 15)).toBe(true);
+    expect(first.rooms.every((room) => room.floorTiles.length >= 10 && room.floorTiles.length <= 15)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
     expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(10);
   });
@@ -85,6 +102,18 @@ describe('deterministic shared world', () => {
 });
 
 describe('authoritative game rules', () => {
+  it('keeps the ghost at spawn for a thirty-second preparation phase', () => {
+    const { engine, ids } = setup(1, false);
+    const ghostSpawn = { ...engine.map.ghostSpawn };
+    expect(engine.start(ids[0] as string).ok).toBe(true);
+    expect(engine.snapshot().countdown).toBe(30);
+    for (let index = 0; index < 299; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
+    expect(engine.snapshot().ghost.position).toEqual(ghostSpawn);
+    engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('PLAYING');
+  });
+
   it('never assigns the same room to two players', () => {
     const { engine, ids } = setup(4);
     const state = begin(engine, ids[0] as string);
@@ -111,10 +140,10 @@ describe('authoritative game rules', () => {
     const tenHits = buildingStats('basic-turret', 1).value * 10;
     const soloRatio = tenHits / BALANCE.ghost.baseHp;
     const multiplayerRatio = tenHits / (BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * 3));
-    expect(soloRatio).toBeGreaterThanOrEqual(0.14);
-    expect(soloRatio).toBeLessThanOrEqual(0.15);
-    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.11);
-    expect(multiplayerRatio).toBeLessThanOrEqual(0.12);
+    expect(soloRatio).toBeGreaterThanOrEqual(0.17);
+    expect(soloRatio).toBeLessThanOrEqual(0.18);
+    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.13);
+    expect(multiplayerRatio).toBeLessThanOrEqual(0.14);
   });
 
   it('accepts only declared build tiles and rejects duplicate occupancy', () => {
@@ -429,7 +458,7 @@ describe('requested progression and event rules', () => {
     expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(false);
   });
 
-  it('lets three level-one basic turrets and a level-two door beat a level-one easy ghost', () => {
+  it('lets three level-one basic turrets protect a level-two door through the first retreat', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -441,7 +470,7 @@ describe('requested progression and event rules', () => {
     let shots = 0;
     let doorHits = 0;
     let retreats = 0;
-    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING'; index += 1) {
+    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING' && retreats === 0; index += 1) {
       engine.tick(0.1);
       const events = engine.drainEvents();
       shots += events.filter((event) => event.kind === 'turret-fire').length;
@@ -450,12 +479,51 @@ describe('requested progression and event rules', () => {
     }
     const result = engine.snapshot();
     const room = result.rooms.find((candidate) => candidate.id === roomId);
-    expect(result.status, JSON.stringify({ elapsed: result.elapsed, doorHp: room?.doorHp, ghostHp: result.ghost.hp, ghostLevel: result.ghost.level, attackCount: result.ghost.attackCount, retreating: result.ghost.retreating, healing: result.ghost.healing, shots, doorHits, retreats })).toBe('VICTORY');
+    expect(result.status, JSON.stringify({ elapsed: result.elapsed, doorHp: room?.doorHp, ghostHp: result.ghost.hp, ghostLevel: result.ghost.level, attackCount: result.ghost.attackCount, retreating: result.ghost.retreating, healing: result.ghost.healing, shots, doorHits, retreats })).toBe('PLAYING');
+    expect(retreats).toBe(1);
     expect(result.ghost.level).toBe(1);
     expect(room?.doorHp).toBeGreaterThan(0);
   });
 
-  it('lets four basic turrets placed across the room keep at least half of a level-two door', () => {
+  it('forces a level-one ghost to retreat before a level-one door breaks with one L1 and one L2 turret', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) =>
+      Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0))
+      - Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)),
+    );
+    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'basic-turret').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'basic-turret').ok).toBe(true);
+    const secondTurret = engine.snapshot().buildings[1];
+    expect(secondTurret).toBeDefined();
+    expect(engine.upgrade(playerId, secondTurret?.id ?? '').ok).toBe(true);
+
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing balance ghost');
+    ghost.variant = 'wanderer';
+    ghost.level = 1;
+    ghost.maxHp = BALANCE.ghost.baseHp;
+    ghost.hp = ghost.maxHp;
+    persisted.snapshot.ghosts = [ghost];
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+
+    let retreatSeen = false;
+    for (let index = 0; index < 1_200 && !retreatSeen; index += 1) {
+      engine.tick(0.1);
+      retreatSeen = engine.drainEvents().some((event) => event.kind === 'ghost-retreat');
+    }
+    const door = engine.snapshot().rooms.find((room) => room.id === roomId);
+    expect(retreatSeen).toBe(true);
+    expect(door?.doorLevel).toBe(1);
+    expect(door?.doorHp).toBeGreaterThan(0);
+  });
+
+  it('lets four basic turrets placed across the room keep at least half of a level-two door through the first retreat', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -464,10 +532,15 @@ describe('requested progression and event rules', () => {
     const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) => Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)) - Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0)));
     for (const tile of tiles.slice(0, 4)) expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
     expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
-    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING'; index += 1) engine.tick(0.1);
+    let retreatSeen = false;
+    for (let index = 0; index < 3_000 && engine.snapshot().status === 'PLAYING' && !retreatSeen; index += 1) {
+      engine.tick(0.1);
+      retreatSeen = engine.drainEvents().some((event) => event.kind === 'ghost-retreat');
+    }
     const result = engine.snapshot();
     const door = result.rooms.find((room) => room.id === roomId);
-    expect(result.status).toBe('VICTORY');
+    expect(result.status).toBe('PLAYING');
+    expect(retreatSeen).toBe(true);
     expect(result.ghost.level).toBe(1);
     expect(door?.doorHp).toBeGreaterThanOrEqual((door?.doorMaxHp ?? 0) * 0.5);
   });
@@ -639,6 +712,48 @@ describe('requested progression and event rules', () => {
     expect(retreater?.slowUntil).toBeGreaterThan(engine.snapshot().elapsed);
     expect(after).toBeLessThan(before);
     expect(events.filter((event) => event.kind === 'ghost-retreat')).toHaveLength(1);
+  });
+
+  it('heals completely for seven seconds at respawn and repeats the retreat cycle', () => {
+    const { engine, ids } = setup(1, false);
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing recovery ghost');
+    ghost.position = { ...engine.map.ghostSpawn };
+    ghost.hp = ghost.maxHp * 0.2;
+    ghost.retreating = false;
+    ghost.healing = true;
+    ghost.healingElapsed = 0;
+    ghost.healingStartHp = ghost.hp;
+    ghost.retreatCount = 1;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+
+    for (let index = 0; index < 35; index += 1) engine.tick(0.1);
+    const halfway = engine.snapshot().ghosts[0];
+    expect(halfway?.healing).toBe(true);
+    expect((halfway?.hp ?? 0) / (halfway?.maxHp ?? 1)).toBeCloseTo(0.6, 1);
+    for (let index = 0; index < 34; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().ghosts[0]?.healing).toBe(true);
+    engine.tick(0.1);
+    const returned = engine.snapshot().ghosts[0];
+    expect(returned?.healing).toBe(false);
+    expect(returned?.hp).toBe(returned?.maxHp);
+
+    const secondCycle = engine.serialize();
+    const recurringGhost = secondCycle.snapshot.ghosts[0];
+    if (!recurringGhost) throw new Error('missing recurring ghost');
+    recurringGhost.position = { ...engine.map.playerSpawn };
+    recurringGhost.hp = recurringGhost.maxHp * 0.2;
+    recurringGhost.retreating = false;
+    recurringGhost.healing = false;
+    recurringGhost.targetRoomId = null;
+    secondCycle.snapshot.ghost = recurringGhost;
+    engine.restore(secondCycle);
+    engine.tick(0.1);
+    expect(engine.snapshot().ghosts[0]?.retreating).toBe(true);
+    expect(engine.snapshot().ghosts[0]?.retreatCount).toBe(2);
   });
 
   it('offers exactly thirty weighted items and enforces the four draw costs', () => {

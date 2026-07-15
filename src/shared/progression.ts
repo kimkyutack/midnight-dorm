@@ -9,6 +9,20 @@ export const RANKS = [
   { id: 'legend', label: '레전드', minXp: 10_000 },
 ] as const satisfies ReadonlyArray<{ id: RankId; label: string; minXp: number }>;
 
+export interface RankVisual {
+  badgeSymbol: string;
+  hatLabel: string;
+}
+
+export const RANK_VISUALS: Readonly<Record<RankId, RankVisual>> = {
+  beginner: { badgeSymbol: '◇', hatLabel: '낡은 밀짚모자' },
+  intermediate: { badgeSymbol: '◆', hatLabel: '생존자 캡모자' },
+  expert: { badgeSymbol: '✦', hatLabel: '야간 스냅백' },
+  master: { badgeSymbol: '♛', hatLabel: '은빛 왕관' },
+  veteran: { badgeSymbol: '✪', hatLabel: '황금 지휘관 왕관' },
+  legend: { badgeSymbol: '✺', hatLabel: '심연의 전설 왕관' },
+};
+
 const STAGE_TIERS = [
   { id: 'easy', label: '쉬움', count: 1 },
   { id: 'normal', label: '노말', count: 5 },
@@ -86,6 +100,7 @@ const BENEFITS: Record<RankId, RankBenefits> = {
 
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));
 export const rankLabel = (rank: RankId): string => RANKS[rankIndex(rank)]?.label ?? '하수';
+export const rankBadgeSymbol = (rank: RankId): string => RANK_VISUALS[rank].badgeSymbol;
 export const rankFromXp = (xp: number): RankId => [...RANKS].reverse().find((rank) => xp >= rank.minXp)?.id ?? 'beginner';
 export const higherRank = (solo: RankId, multiplayer: RankId): RankId => rankIndex(solo) >= rankIndex(multiplayer) ? solo : multiplayer;
 export const isEliteRank = (rank: RankId): boolean => rankIndex(rank) >= rankIndex('master');

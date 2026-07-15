@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { BALANCE } from '../../shared/balance';
-import { isEliteRank, rankBenefits, rankLabel } from '../../shared/progression';
-import type { BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, Tile, Vec2 } from '../../shared/types';
+import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
+import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
+import type { BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, Vec2 } from '../../shared/types';
 
 const BASE_CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
 const BASE_CAMERA_HORIZONTAL_DISTANCE = Math.hypot(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
@@ -213,6 +214,7 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
   const fringe = mesh(new THREE.BoxGeometry(0.42, 0.14, 0.1), hair, [0, 1.73, -0.235]);
   fringe.rotation.z = -0.08;
   avatar.add(fringe);
+  avatar.add(createRankHat(player.displayRank));
   avatar.add(mesh(new THREE.SphereGeometry(0.027, 8, 6), eye, [-0.095, 1.64, -0.271]));
   avatar.add(mesh(new THREE.SphereGeometry(0.027, 8, 6), eye, [0.095, 1.64, -0.271]));
   avatar.add(mesh(new THREE.SphereGeometry(0.035, 8, 6), skin, [0, 1.58, -0.285]));
@@ -250,6 +252,55 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
   root.add(groundRing);
   root.scale.setScalar(0.88);
   return { root, avatar, leftArm, rightArm, leftLeg, rightLeg };
+}
+
+function createRankHat(rank: RankId): THREE.Group {
+  const hat = new THREE.Group();
+  hat.position.y = 1.87;
+  const dark = standardMaterial(0x161321, { roughness: 0.82 });
+  const straw = standardMaterial(0xd9ae62, { roughness: 0.96 });
+  const blue = standardMaterial(0x3979a8, { roughness: 0.78 });
+  const violet = standardMaterial(0x6647a6, { roughness: 0.68 });
+  const silver = standardMaterial(0xc7d6e1, { metalness: 0.72, roughness: 0.3 });
+  const gold = standardMaterial(0xf0b847, { metalness: 0.78, roughness: 0.25, emissive: 0x5c3000, emissiveIntensity: 0.32 });
+  const legend = standardMaterial(0xff5ca8, { metalness: 0.68, roughness: 0.2, emissive: 0x7b123f, emissiveIntensity: 0.78 });
+
+  if (rank === 'beginner') {
+    hat.add(mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.045, 22), straw));
+    hat.add(mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.22, 18), straw, [0, 0.12, 0]));
+    const band = mesh(new THREE.TorusGeometry(0.245, 0.025, 6, 20), dark, [0, 0.055, 0]);
+    band.rotation.x = Math.PI / 2;
+    hat.add(band);
+  } else if (rank === 'intermediate') {
+    const cap = mesh(new THREE.SphereGeometry(0.3, 16, 9, 0, Math.PI * 2, 0, Math.PI / 2), blue, [0, 0.02, 0.02]);
+    cap.scale.y = 0.78;
+    hat.add(cap, mesh(new THREE.BoxGeometry(0.38, 0.045, 0.27), blue, [0, 0.015, -0.28]));
+  } else if (rank === 'expert') {
+    hat.add(mesh(new THREE.CylinderGeometry(0.25, 0.29, 0.22, 7), dark, [0, 0.11, 0]));
+    hat.add(mesh(new THREE.BoxGeometry(0.47, 0.055, 0.3), violet, [0, 0.02, -0.3]));
+    hat.add(mesh(new THREE.BoxGeometry(0.06, 0.19, 0.3), violet, [0, 0.13, -0.19]));
+  } else {
+    const material = rank === 'master' ? silver : rank === 'veteran' ? gold : legend;
+    const radius = rank === 'master' ? 0.27 : 0.3;
+    hat.add(mesh(new THREE.CylinderGeometry(radius, radius + 0.02, 0.12, 14), material, [0, 0.06, 0]));
+    const spikeCount = rank === 'master' ? 4 : rank === 'veteran' ? 5 : 6;
+    for (let index = 0; index < spikeCount; index += 1) {
+      const angle = (index / spikeCount) * Math.PI * 2;
+      const spike = mesh(
+        new THREE.ConeGeometry(rank === 'legend' ? 0.07 : 0.06, rank === 'legend' ? 0.34 : 0.27, 5),
+        material,
+        [Math.cos(angle) * radius * 0.72, rank === 'legend' ? 0.27 : 0.23, Math.sin(angle) * radius * 0.72],
+      );
+      hat.add(spike);
+    }
+    if (rank === 'legend') {
+      const halo = mesh(new THREE.TorusGeometry(0.39, 0.025, 8, 28), legend, [0, 0.47, 0]);
+      halo.rotation.x = Math.PI / 2;
+      hat.add(halo);
+    }
+  }
+  hat.userData.rankHat = rank;
+  return hat;
 }
 
 function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm' | 'rightArm'> {
@@ -361,6 +412,7 @@ export class ThreeGameView {
   private readonly host: HTMLElement;
   private readonly mapData: MapDefinition;
   private readonly playerId: string;
+  private readonly theme: StageTheme;
   private snapshotData: GameSnapshot;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 120);
@@ -394,8 +446,9 @@ export class ThreeGameView {
     this.mapData = payload.map;
     this.playerId = payload.playerId;
     this.snapshotData = payload.snapshot;
-    this.scene.background = new THREE.Color(0x050812);
-    this.scene.fog = new THREE.Fog(0x050812, 10, 34);
+    this.theme = stageThemeFor(payload.snapshot.stageId);
+    this.scene.background = new THREE.Color(this.theme.background);
+    this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
@@ -405,6 +458,7 @@ export class ThreeGameView {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.dataset.renderer = 'three-3d';
+    this.renderer.domElement.dataset.theme = this.theme.id;
     this.renderer.domElement.style.touchAction = 'none';
     this.host.appendChild(this.renderer.domElement);
 
@@ -529,8 +583,8 @@ export class ThreeGameView {
   };
 
   private createLighting(): void {
-    this.scene.add(new THREE.HemisphereLight(0x8fb8d5, 0x0a0714, 2.05));
-    const moon = new THREE.DirectionalLight(0xb9dbf4, 3.65);
+    this.scene.add(new THREE.HemisphereLight(this.theme.hemisphereSky, this.theme.hemisphereGround, 2.05));
+    const moon = new THREE.DirectionalLight(this.theme.moon, 3.65);
     moon.position.set(12, 18, 9);
     moon.castShadow = true;
     moon.shadow.mapSize.set(512, 512);
@@ -542,7 +596,7 @@ export class ThreeGameView {
     moon.shadow.camera.bottom = -14;
     this.scene.add(moon);
     for (let x = 8; x < this.mapData.width; x += 14) {
-      const light = new THREE.PointLight(x % 28 === 8 ? 0x72d9e8 : 0x8887df, 4.8, 8, 1.8);
+      const light = new THREE.PointLight(x % 28 === 8 ? this.theme.lightA : this.theme.lightB, 4.8, 8, 1.8);
       light.position.set(x, 2.4, this.mapData.corridor.y + this.mapData.corridor.height / 2 - 0.5);
       this.scene.add(light);
     }
@@ -551,13 +605,13 @@ export class ThreeGameView {
   private createWorld(): void {
     const corridorTiles = this.mapData.walkable.filter((tile) => tile.y >= this.mapData.corridor.y && tile.y < this.mapData.corridor.y + this.mapData.corridor.height);
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorTiles.includes(tile));
-    this.addTileInstances(corridorTiles, standardMaterial(0x1c2b3b, { roughness: 0.96 }), 0);
-    this.addTileInstances(roomTiles, standardMaterial(0x243654, { roughness: 0.94 }), 0.003);
+    this.addTileInstances(corridorTiles, standardMaterial(this.theme.corridor, { roughness: 0.96 }), 0);
+    this.addTileInstances(roomTiles, standardMaterial(this.theme.room, { roughness: 0.94 }), 0.003);
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
     const markerGeometry = new THREE.PlaneGeometry(0.62, 0.62);
     markerGeometry.rotateX(-Math.PI / 2);
-    const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x5dc9df, transparent: true, opacity: 0.09, depthWrite: false });
+    const markerMaterial = new THREE.MeshBasicMaterial({ color: this.theme.marker, transparent: true, opacity: 0.11, depthWrite: false });
     const markers = new THREE.InstancedMesh(markerGeometry, markerMaterial, buildTiles.length);
     const matrix = new THREE.Matrix4();
     buildTiles.forEach((tile, index) => {
@@ -567,7 +621,7 @@ export class ThreeGameView {
     this.scene.add(markers);
 
     const wallGeometry = new THREE.BoxGeometry(0.98, 1.24, 0.98);
-    const wallMaterial = standardMaterial(0x25374b, { roughness: 0.86 });
+    const wallMaterial = standardMaterial(this.theme.wall, { roughness: 0.86 });
     const walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, this.mapData.walls.length);
     walls.castShadow = true;
     walls.receiveShadow = true;
@@ -577,7 +631,7 @@ export class ThreeGameView {
     });
     this.scene.add(walls);
     const capGeometry = new THREE.BoxGeometry(1, 0.12, 1);
-    const caps = new THREE.InstancedMesh(capGeometry, standardMaterial(0x4b687b, { roughness: 0.72 }), this.mapData.walls.length);
+    const caps = new THREE.InstancedMesh(capGeometry, standardMaterial(this.theme.wallCap, { roughness: 0.72 }), this.mapData.walls.length);
     this.mapData.walls.forEach((tile, index) => {
       matrix.makeTranslation(tile.x, 1.27, tile.y);
       caps.setMatrixAt(index, matrix);
@@ -587,13 +641,51 @@ export class ThreeGameView {
     const zone = this.mapData.respawnZone;
     const respawn = mesh(
       new THREE.PlaneGeometry(zone.width - 0.2, zone.height - 0.2),
-      new THREE.MeshBasicMaterial({ color: 0x9b204d, transparent: true, opacity: 0.24, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: this.theme.respawn, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
       [zone.x + (zone.width - 1) / 2, 0.035, zone.y + (zone.height - 1) / 2],
     );
     respawn.rotation.x = -Math.PI / 2;
     this.scene.add(respawn);
 
     for (const room of this.mapData.rooms) this.createRoomFurniture(room.id);
+    this.createThemeDecorations();
+  }
+
+  private createThemeDecorations(): void {
+    const sampleStep = Math.max(1, Math.floor(this.mapData.walls.length / 14));
+    const samples = this.mapData.walls.filter((_, index) => index % sampleStep === 0).slice(0, 14);
+    samples.forEach((tile, index) => {
+      const prop = new THREE.Group();
+      prop.position.set(tile.x, 1.31, tile.y);
+      prop.rotation.y = (index * 1.71) % (Math.PI * 2);
+      const accent = standardMaterial(this.theme.marker, { emissive: this.theme.marker, emissiveIntensity: 0.28, roughness: 0.55 });
+      const base = standardMaterial(this.theme.wallCap, { roughness: 0.9, metalness: this.theme.decor === 'hospital' ? 0.5 : 0.08 });
+      if (this.theme.decor === 'hospital') {
+        prop.add(mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.85, 8), base, [0, 0.43, 0]));
+        prop.add(mesh(new THREE.TorusGeometry(0.16, 0.025, 6, 14), accent, [0, 0.87, 0]));
+      } else if (this.theme.decor === 'forest') {
+        prop.add(mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.65, 8), standardMaterial(0x3f2b21), [0, 0.32, 0]));
+        prop.add(mesh(new THREE.ConeGeometry(0.43, 0.82, 8), accent, [0, 0.9, 0]));
+      } else if (this.theme.decor === 'ice') {
+        prop.add(mesh(new THREE.ConeGeometry(0.18, 0.76, 5), accent, [0, 0.38, 0]));
+        prop.add(mesh(new THREE.ConeGeometry(0.12, 0.52, 5), accent, [0.22, 0.26, 0.08]));
+      } else if (this.theme.decor === 'desert') {
+        prop.add(mesh(new THREE.CylinderGeometry(0.16, 0.21, 0.72, 7), base, [0, 0.36, 0]));
+        prop.add(mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.16, 7), accent, [0, 0.79, 0]));
+      } else if (this.theme.decor === 'junkyard') {
+        prop.add(mesh(new THREE.BoxGeometry(0.5, 0.34, 0.46), base, [0, 0.17, 0]));
+        const barrel = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.48, 10), accent, [0.25, 0.3, 0.12]);
+        barrel.rotation.z = 0.12;
+        prop.add(barrel);
+      } else {
+        prop.add(mesh(new THREE.ConeGeometry(0.2, 0.88, this.theme.decor === 'void' ? 4 : 6), base, [0, 0.44, 0]));
+        const rune = mesh(new THREE.TorusGeometry(0.24, 0.022, 6, 20), accent, [0, 0.62, -0.08]);
+        rune.rotation.x = Math.PI / 2;
+        prop.add(rune);
+      }
+      prop.scale.setScalar(0.72 + (index % 3) * 0.08);
+      this.scene.add(prop);
+    });
   }
 
   private addTileInstances(tiles: Tile[], material: THREE.Material, y: number): void {
@@ -614,8 +706,8 @@ export class ThreeGameView {
     if (!room) return;
     const bed = new THREE.Group();
     bed.position.copy(worldPoint(room.bed));
-    const frame = standardMaterial(0x25314c, { metalness: 0.28, roughness: 0.65 });
-    const blanket = standardMaterial(0x3e7890, { roughness: 0.95 });
+    const frame = standardMaterial(this.theme.bedFrame, { metalness: 0.28, roughness: 0.65 });
+    const blanket = standardMaterial(this.theme.bedBlanket, { roughness: 0.95 });
     const pillow = standardMaterial(0xd7e2e8, { roughness: 1 });
     bed.add(mesh(new THREE.BoxGeometry(0.88, 0.18, 0.7), frame, [0, 0.13, 0]));
     bed.add(mesh(new THREE.BoxGeometry(0.82, 0.14, 0.64), blanket, [0, 0.29, 0]));
@@ -643,7 +735,7 @@ export class ThreeGameView {
       }
       view.target.copy(worldPoint(player.position));
       const elite = isEliteRank(player.displayRank);
-      updateTextBillboard(view.label, `${player.displayRank}:${player.nickname}`, `${rankLabel(player.displayRank)} ${player.nickname}`, elite ? '#ecc9ff' : '#ffffff');
+      updateTextBillboard(view.label, `${player.displayRank}:${player.nickname}`, `${rankBadgeSymbol(player.displayRank)} ${rankLabel(player.displayRank)} · ${player.nickname}`, elite ? '#ecc9ff' : '#ffffff');
       updateBarBillboard(view.hp, `${Math.ceil(player.hp)}:${player.maxHp}`, player.hp / Math.max(1, player.maxHp), `${Math.ceil(player.hp)} / ${player.maxHp}`, player.hp / player.maxHp > 0.35 ? '#55dfa0' : '#ff5578');
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
