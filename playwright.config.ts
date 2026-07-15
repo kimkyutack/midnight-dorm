@@ -20,7 +20,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --port 4173 --strictPort',
+    command: 'CLOUDFLARE_ENV=e2e npm run dev -- --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173/api/health',
     reuseExistingServer: false,
     timeout: 120_000,

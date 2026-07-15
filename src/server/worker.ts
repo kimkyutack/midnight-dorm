@@ -7,6 +7,7 @@ export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
   DB: D1Database;
   ASSETS: Fetcher;
+  DATA_ENV: 'remote-d1' | 'local-e2e';
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -68,7 +69,9 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health') return Response.json({ ok: true, service: 'midnight-dorm', timestamp: Date.now() });
+    if (url.pathname === '/api/health') {
+      return Response.json({ ok: true, service: 'midnight-dorm', dataEnvironment: env.DATA_ENV, timestamp: Date.now() });
+    }
     const authResponse = await routeAuth(request, env.DB);
     if (authResponse) return authResponse;
     if (url.pathname === '/api/rooms/create' && request.method === 'POST') {

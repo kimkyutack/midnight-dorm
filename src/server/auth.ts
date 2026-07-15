@@ -125,11 +125,18 @@ async function register(request: Request, db: D1Database): Promise<Response> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const now = Date.now();
   const id = crypto.randomUUID();
+  const existing = await db.prepare('SELECT id FROM accounts WHERE username = ?').bind(username).first<{ id: string }>();
+  if (existing) return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
   try {
     await db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .bind(id, username, nickname, await derivePassword(password, salt), bytesToText(salt), now, now).run();
-  } catch {
-    return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint failed: accounts\.username/i.test(message)) {
+      return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
+    }
+    console.error('Account registration failed', error);
+    return Response.json({ error: '계정 저장에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 503 });
   }
   const token = await createSession(db, id);
   const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();

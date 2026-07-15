@@ -22,8 +22,37 @@
       "database_name": "midnight-dorm-accounts",
       "database_id": "8b691d76-a4b5-4bb8-9ca5-7b2983f1440e",
       "migrations_dir": "migrations",
+      "remote": true,
     },
   ],
+  "vars": {
+    "DATA_ENV": "remote-d1",
+  },
+  "env": {
+    "e2e": {
+      "name": "midnight-dorm-e2e",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "GAME_ROOMS",
+            "class_name": "GameRoom",
+          },
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "midnight-dorm-accounts",
+          "database_id": "8b691d76-a4b5-4bb8-9ca5-7b2983f1440e",
+          "migrations_dir": "migrations",
+          "remote": false,
+        },
+      ],
+      "vars": {
+        "DATA_ENV": "local-e2e",
+      },
+    },
+  },
   "migrations": [
     {
       "tag": "v1",
