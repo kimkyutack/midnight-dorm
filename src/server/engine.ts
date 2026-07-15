@@ -514,54 +514,103 @@ export class GameEngine {
   }
 
   private updateBuildings(dt: number): void {
-    const ghost = this.state.ghost;
     for (const building of this.state.buildings) {
       building.cooldown -= dt;
       const stats = buildingStats(building.kind, building.level);
       const room = this.state.rooms.find((candidate) => candidate.id === building.roomId);
+      const owner = this.state.players.find((candidate) => candidate.id === building.ownerId);
+      const effects = combinedItemEffects(owner?.items ?? []);
       if (building.kind === 'repair-drone' && room) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
-      if (building.kind === 'shield-device' && room && room.id === ghost.targetRoomId && distance(ghost.position, building.tile) < 7 && building.cooldown <= 0) {
+      const nearest = this.state.ghosts
+        .filter((ghost) => ghost.hp > 0)
+        .sort((a, b) => distance(a.position, building.tile) - distance(b.position, building.tile))[0];
+      if (building.kind === 'shield-device' && room && this.state.ghosts.some((ghost) => ghost.targetRoomId === room.id) && nearest && distance(nearest.position, building.tile) < 7 && building.cooldown <= 0) {
         room.shieldUntil = this.state.elapsed + stats.rate;
         building.cooldown = stats.rate + 8;
       }
-      if (building.kind === 'floor-trap' && distance(ghost.position, building.tile) <= stats.range) ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + 0.5);
+      if (building.kind === 'floor-trap') {
+        for (const ghost of this.state.ghosts.filter((candidate) => candidate.hp > 0 && distance(candidate.position, building.tile) <= stats.range)) {
+          ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + 0.5);
+        }
+      }
       const offensive = ['basic-turret', 'rapid-turret', 'frost-turret', 'electric-coil'].includes(building.kind);
-      if (!offensive || ghost.hp <= 0 || distance(ghost.position, building.tile) > stats.range || building.cooldown > 0) continue;
+      const range = stats.range + effects.turretRangeBonus;
+      if (!offensive || !nearest || distance(nearest.position, building.tile) > range || building.cooldown > 0) continue;
       const suppression = this.state.elapsed < this.turretSuppressedUntil ? 1.65 : 1;
-      building.cooldown = stats.rate * suppression;
-      ghost.hp = Math.max(0, ghost.hp - stats.value);
-      if (building.kind === 'frost-turret') ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + 1.4);
-      this.pendingEvents.push({ kind: 'turret-fire', position: building.tile, amount: stats.value });
-      this.pendingEvents.push({ kind: 'ghost-hit', position: ghost.position, amount: stats.value });
+      building.cooldown = stats.rate * suppression * effects.turretRateMultiplier;
+      const damage = stats.value * effects.turretDamageMultiplier;
+      nearest.hp = Math.max(0, nearest.hp - damage);
+      if (building.kind === 'frost-turret') nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1.4);
+      this.pendingEvents.push({
+        kind: 'turret-fire', position: building.tile, targetPosition: { ...nearest.position }, targetId: nearest.id,
+        buildingKind: building.kind, amount: damage,
+      });
+      this.pendingEvents.push({ kind: 'ghost-hit', position: { ...nearest.position }, targetId: nearest.id, amount: damage });
     }
   }
 
-  private updateGhost(dt: number): void {
-    const ghost = this.state.ghost;
-    ghost.level = 1 + (this.state.elapsed >= 180 ? 1 : 0) + (this.state.elapsed >= 360 ? 1 : 0) + (this.state.elapsed >= 540 ? 1 : 0);
+  private updateGhosts(dt: number): void {
+    for (const ghost of this.state.ghosts) this.updateGhost(ghost, dt);
+    this.syncPrimaryGhost();
+  }
+
+  private updateGhost(ghost: GhostState, dt: number): void {
+    if (ghost.hp <= 0) return;
     ghost.phase = ghost.level;
-    ghost.rage = this.state.elapsed >= 540 || ghost.hp / ghost.maxHp <= 0.3;
-    this.targetRefresh -= dt;
-    this.chargeCooldown -= dt;
-    if (!ghost.targetRoomId || this.targetRefresh <= 0) {
-      ghost.targetRoomId = this.selectGhostTarget();
-      this.targetRefresh = ghost.level >= 3 ? 7 + this.rng.next() * 7 : 13 + this.rng.next() * 8;
+    ghost.rage = ghost.level >= 5 || ghost.hp / ghost.maxHp <= 0.3;
+    ghost.skillCooldown -= dt;
+
+    if (!ghost.retreating && !ghost.healing && ghost.hp / ghost.maxHp < BALANCE.ghost.retreatThreshold) {
+      ghost.retreating = true;
+      ghost.targetRoomId = null;
+      ghost.path = [];
+      this.pendingEvents.push({ kind: 'ghost-retreat', position: { ...ghost.position }, targetId: ghost.id });
+    }
+    if (ghost.retreating) {
+      if (distance(ghost.position, this.map.ghostSpawn) > 0.5) this.moveGhostToward(ghost, this.map.ghostSpawn, dt);
+      else {
+        ghost.retreating = false;
+        ghost.healing = true;
+        ghost.path = [];
+      }
+      return;
+    }
+    if (ghost.healing) {
+      ghost.hp = Math.min(ghost.maxHp, ghost.hp + ghost.maxHp * BALANCE.ghost.healPerSecond * dt);
+      if (ghost.hp / ghost.maxHp >= BALANCE.ghost.returnThreshold) {
+        ghost.healing = false;
+        ghost.targetRoomId = this.selectGhostTarget(ghost);
+        this.pendingEvents.push({ kind: 'ghost-return', position: { ...ghost.position }, targetId: ghost.id });
+      }
+      return;
+    }
+
+    if (ghost.variant === 'caster' && ghost.skillCooldown <= 0) {
+      this.turretSuppressedUntil = this.state.elapsed + 5;
+      ghost.skillCooldown = Math.max(12, 25 - ghost.level);
+      this.pendingEvents.push({ kind: 'ghost-skill', position: { ...ghost.position }, targetId: ghost.id, label: '포탑 침묵' });
+    }
+    if (!ghost.targetRoomId) {
+      ghost.targetRoomId = this.selectGhostTarget(ghost);
       ghost.path = [];
     }
-    if (ghost.level >= 3 && Math.floor(this.state.elapsed) % 37 < dt) this.turretSuppressedUntil = this.state.elapsed + 6;
     const room = this.state.rooms.find((candidate) => candidate.id === ghost.targetRoomId);
     const mapRoom = this.map.rooms.find((candidate) => candidate.id === ghost.targetRoomId);
-    if (!room || !mapRoom) return;
+    if (!room || !mapRoom) {
+      ghost.targetRoomId = null;
+      return;
+    }
     const targetPlayer = this.state.players.find((player) => player.id === room.ownerId && player.alive);
     const destination = room.doorHp > 0 ? mapRoom.door : targetPlayer?.position ?? mapRoom.bed;
     if (distance(ghost.position, destination) > 0.72) {
-      this.moveGhostToward(destination, dt);
+      this.moveGhostToward(ghost, destination, dt);
       return;
     }
     ghost.attackCooldown -= dt;
     if (ghost.attackCooldown > 0) return;
     const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
-    const damageScale = 1 + BALANCE.ghost.damagePerPlayer * (combatants - 1) + (ghost.level - 1) * 0.18;
+    const variantDamage = ghost.variant === 'brute' ? 1.3 : ghost.variant.startsWith('twin') ? 0.78 : 1;
+    const damageScale = (1 + BALANCE.ghost.damagePerPlayer * (combatants - 1) + (ghost.level - 1) * 0.22) * variantDamage;
     ghost.attackCooldown = BALANCE.ghost.attackInterval / (ghost.rage ? 1.5 : 1);
     if (room.doorHp > 0) {
       const shieldReduction = this.state.elapsed < room.shieldUntil
@@ -570,11 +619,13 @@ export class GameEngine {
         : 0;
       const damage = BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction);
       room.doorHp = Math.max(0, room.doorHp - damage);
-      this.pendingEvents.push({ kind: 'door-hit', position: mapRoom.door, roomId: room.id, amount: damage });
+      ghost.attackCount += 1;
+      this.pendingEvents.push({ kind: 'door-hit', position: mapRoom.door, roomId: room.id, targetId: ghost.id, amount: damage });
+      if (ghost.attackCount >= ghost.attacksToNextLevel) this.levelUpGhost(ghost);
     } else if (targetPlayer) {
       const damage = BALANCE.ghost.playerDamage * damageScale;
       targetPlayer.hp = Math.max(0, targetPlayer.hp - damage);
-      this.pendingEvents.push({ kind: 'player-hit', position: targetPlayer.position, playerId: targetPlayer.id, amount: damage });
+      this.pendingEvents.push({ kind: 'player-hit', position: targetPlayer.position, playerId: targetPlayer.id, targetId: ghost.id, amount: damage });
       if (targetPlayer.hp <= 0) {
         targetPlayer.alive = false;
         targetPlayer.spectator = true;
@@ -585,23 +636,31 @@ export class GameEngine {
     }
   }
 
-  private moveGhostToward(destination: Vec2, dt: number): void {
-    const ghost = this.state.ghost;
+  private levelUpGhost(ghost: GhostState): void {
+    const previousMax = ghost.maxHp;
+    ghost.level += 1;
+    ghost.phase = ghost.level;
+    ghost.attackCount = 0;
+    ghost.attacksToNextLevel += BALANCE.ghost.attacksAddedPerLevel + ghost.level - 1;
+    ghost.maxHp = Math.round(ghost.maxHp * 1.26);
+    ghost.hp += ghost.maxHp - previousMax;
+    this.pendingEvents.push({ kind: 'ghost-level-up', position: { ...ghost.position }, targetId: ghost.id, amount: ghost.level });
+  }
+
+  private moveGhostToward(ghost: GhostState, destination: Vec2, dt: number): void {
     if (ghost.path.length === 0 || this.serverSeq % 20 === 0) ghost.path = findPath(this.map, ghost.position, destination);
     while (ghost.path.length > 0 && distance(ghost.position, ghost.path[0] as Tile) < 0.22) ghost.path.shift();
     const next = ghost.path[0] ?? destination;
     const direction = normalize({ x: next.x - ghost.position.x, y: next.y - ghost.position.y });
-    let speed = BALANCE.ghost.speed * (ghost.rage ? 1.42 : 1) * (this.state.elapsed < ghost.slowUntil ? 0.58 : 1);
-    if (ghost.hp / ghost.maxHp <= 0.3 && this.chargeCooldown <= 0) {
-      speed *= 2.2;
-      this.chargeCooldown = 9;
-    }
+    const variantSpeed = ghost.variant === 'swift' ? 1.65 : ghost.variant === 'brute' ? 0.78 : ghost.variant.startsWith('twin') ? 1.15 : 1;
+    let speed = BALANCE.ghost.speed * variantSpeed * (ghost.rage ? 1.32 : 1) * (this.state.elapsed < ghost.slowUntil ? 0.58 : 1);
+    if (ghost.retreating) speed *= 1.3;
     const nextPosition = { x: ghost.position.x + direction.x * speed * dt, y: ghost.position.y + direction.y * speed * dt };
     if (isWalkable(this.map, nextPosition.x, ghost.position.y)) ghost.position.x = nextPosition.x;
     if (isWalkable(this.map, ghost.position.x, nextPosition.y)) ghost.position.y = nextPosition.y;
   }
 
-  private selectGhostTarget(): string | null {
+  private selectGhostTarget(ghost: GhostState): string | null {
     const candidates = this.state.rooms.filter((room) => {
       const owner = this.state.players.find((player) => player.id === room.ownerId);
       return owner?.alive;
@@ -612,7 +671,7 @@ export class GameEngine {
       const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
       const doorWeakness = 1 - room.doorHp / Math.max(1, room.doorMaxHp);
       const growth = owner.gold / 500 + this.state.buildings.filter((building) => building.roomId === room.id).length * 0.25;
-      const proximity = mapRoom ? 1 / Math.max(1, distance(this.state.ghost.position, mapRoom.door)) : 0;
+      const proximity = mapRoom ? 1 / Math.max(1, distance(ghost.position, mapRoom.door)) : 0;
       const score = doorWeakness * 3 + growth * 0.7 + proximity * 4 + this.rng.next() * 0.85;
       return { id: room.id, score };
     });
@@ -620,11 +679,15 @@ export class GameEngine {
     return scored[0]?.id ?? null;
   }
 
+  private syncPrimaryGhost(): void {
+    this.state.ghost = this.state.ghosts.find((ghost) => ghost.hp > 0) ?? this.state.ghosts[0] as GhostState;
+  }
+
   private evaluateOutcome(): void {
-    if (this.state.ghost.hp <= 0) {
+    if (this.state.ghosts.every((ghost) => ghost.hp <= 0)) {
       this.state.status = 'VICTORY';
       this.state.winner = 'survivors';
-      this.pendingEvents.push({ kind: 'victory', position: this.state.ghost.position });
+      this.pendingEvents.push({ kind: 'victory', position: this.state.ghosts[0]?.position ?? this.map.ghostSpawn });
       return;
     }
     if (this.state.players.length > 0 && this.state.players.every((player) => !player.alive)) {
@@ -668,7 +731,8 @@ export class GameEngine {
       player.hp = clamp(player.hp, 0, player.maxHp);
     }
     for (const room of this.state.rooms) room.doorHp = clamp(room.doorHp, 0, room.doorMaxHp);
-    this.state.ghost.hp = clamp(this.state.ghost.hp, 0, this.state.ghost.maxHp);
+    for (const ghost of this.state.ghosts) ghost.hp = clamp(ghost.hp, 0, ghost.maxHp);
+    this.syncPrimaryGhost();
   }
 
   private makePlayer(id: string, nickname: string, isBot: boolean): PlayerState {
@@ -691,6 +755,8 @@ export class GameEngine {
       lastInputSeq: 0,
       reconnectUntil: 0,
       score: 0,
+      drawCount: 0,
+      items: [],
     };
   }
 }
