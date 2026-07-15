@@ -3,6 +3,8 @@ import { BALANCE } from '../shared/balance';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import type { ServerMessage } from '../shared/types';
+import type { PlayMode, RankId, StageId } from '../shared/types';
+import { recordMatchResult } from './auth';
 import { GameEngine, type PersistedEngine } from './engine';
 import type { Env } from './worker';
 
@@ -16,6 +18,8 @@ interface InitPayload {
   code: string;
   seed: number;
   testMode: boolean;
+  stageId: StageId;
+  playMode: PlayMode;
 }
 
 export class GameRoom extends DurableObject<Env> {
@@ -23,6 +27,8 @@ export class GameRoom extends DurableObject<Env> {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private snapshotAccumulator = 0;
   private persistAccumulator = 0;
+  private recordedMatchId: string | null = null;
+  private recordingMatchId: string | null = null;
   private readonly ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -43,7 +49,10 @@ export class GameRoom extends DurableObject<Env> {
       ).toArray()[0];
       if (row) {
         const map = generateMap(row.seed);
-        this.engine = new GameEngine(row.code, map, Boolean(row.test_mode));
+        this.engine = new GameEngine(row.code, map, Boolean(row.test_mode), {
+          stageId: persisted?.snapshot.stageId,
+          playMode: persisted?.snapshot.playMode,
+        });
         if (persisted) this.engine.restore(persisted);
       }
       if (this.engine && this.ctx.getWebSockets().length > 0) this.startTicking();
@@ -76,7 +85,7 @@ export class GameRoom extends DurableObject<Env> {
       return Response.json({ error: 'invalid room metadata' }, { status: 400 });
     }
     const map = generateMap(payload.seed);
-    this.engine = new GameEngine(payload.code, map, payload.testMode);
+    this.engine = new GameEngine(payload.code, map, payload.testMode, { stageId: payload.stageId, playMode: payload.playMode });
     this.ctx.storage.sql.exec(
       'INSERT INTO room_meta (id, code, seed, test_mode, created_at) VALUES (1, ?, ?, ?, ?)',
       payload.code,
@@ -91,13 +100,16 @@ export class GameRoom extends DurableObject<Env> {
   private acceptPlayer(request: Request): Response {
     const engine = this.engine as GameEngine;
     const url = new URL(request.url);
-    const nickname = url.searchParams.get('nickname') ?? '';
+    const nickname = decodeURIComponent(request.headers.get('x-account-nickname') ?? url.searchParams.get('nickname') ?? '');
+    const accountId = request.headers.get('x-account-id') ?? undefined;
+    const soloRank = (request.headers.get('x-solo-rank') ?? 'beginner') as RankId;
+    const multiplayerRank = (request.headers.get('x-multiplayer-rank') ?? 'beginner') as RankId;
     const deviceId = url.searchParams.get('deviceId') ?? '';
     const reconnectToken = url.searchParams.get('reconnectToken') ?? undefined;
     if (!/^[a-zA-Z0-9-]{8,80}$/.test(deviceId)) return Response.json({ error: '기기 세션이 올바르지 않습니다.' }, { status: 400 });
     let result;
     try {
-      result = engine.join({ nickname, deviceId, reconnectToken });
+      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : '참가할 수 없습니다.' }, { status: 409 });
     }
@@ -202,6 +214,7 @@ export class GameRoom extends DurableObject<Env> {
       const dt = Math.min(0.1, (now - previous) / 1_000);
       previous = now;
       this.engine?.tick(dt, now);
+      void this.recordOutcomeIfNeeded();
       this.snapshotAccumulator += dt;
       this.persistAccumulator += dt;
       if (this.snapshotAccumulator >= 1 / BALANCE.snapshotRate) {
@@ -265,5 +278,28 @@ export class GameRoom extends DurableObject<Env> {
 
   private async persist(): Promise<void> {
     if (this.engine) await this.ctx.storage.put('engine', this.engine.serialize());
+  }
+
+  private async recordOutcomeIfNeeded(): Promise<void> {
+    if (!this.engine) return;
+    const snapshot = this.engine.snapshot();
+    if ((snapshot.status !== 'VICTORY' && snapshot.status !== 'DEFEAT') || this.recordedMatchId === snapshot.matchId || this.recordingMatchId === snapshot.matchId) return;
+    this.recordingMatchId = snapshot.matchId;
+    const victory = snapshot.status === 'VICTORY';
+    try {
+      await Promise.all(snapshot.players.filter((player) => !player.isBot && player.accountId).map((player) => recordMatchResult(this.env.DB, {
+        matchId: snapshot.matchId,
+        accountId: player.accountId as string,
+        playMode: snapshot.playMode,
+        stageIndex: snapshot.stageIndex,
+        victory,
+        elapsed: snapshot.elapsed,
+      })));
+      this.recordedMatchId = snapshot.matchId;
+    } catch (error) {
+      console.error('Failed to record match result', error);
+    } finally {
+      this.recordingMatchId = null;
+    }
   }
 }

@@ -126,6 +126,7 @@ export function createRuntimeTextures(scene: Phaser.Scene): void {
 
   const icons: Record<Exclude<BuildingKind, 'bed' | 'reinforced-door'>, number> = {
     'basic-turret': 0x62d7ff, 'rapid-turret': 0xffcb66, 'frost-turret': 0x9be9ff, generator: 0x73efa0,
+    'arc-turret': 0xf2b2ff,
     'repair-drone': 0xff8eb3, 'electric-coil': 0xc58cff, 'floor-trap': 0xe06d73, 'shield-device': 0x94a9ff,
     'lucky-machine': 0xff6b9d,
   };

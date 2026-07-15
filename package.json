@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "db:migrate:local": "wrangler d1 migrations apply midnight-dorm-accounts --local",
+    "db:migrate:remote": "wrangler d1 migrations apply midnight-dorm-accounts --remote",
     "build": "npm run icons && npm run typecheck && WRANGLER_LOG_PATH=.wrangler/logs/build.log vite build",
     "preview": "WRANGLER_LOG_PATH=.wrangler/logs/preview.log vite preview --host 0.0.0.0",
     "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"

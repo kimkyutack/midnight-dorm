@@ -38,6 +38,7 @@ export type BuildingKind =
   | 'basic-turret'
   | 'rapid-turret'
   | 'frost-turret'
+  | 'arc-turret'
   | 'generator'
   | 'repair-drone'
   | 'electric-coil'
@@ -56,7 +57,11 @@ export interface OwnedItem {
 
 export interface PlayerState {
   id: string;
+  accountId: string | null;
   nickname: string;
+  soloRank: RankId;
+  multiplayerRank: RankId;
+  displayRank: RankId;
   color: number;
   isBot: boolean;
   connected: boolean;
@@ -121,7 +126,27 @@ export interface GhostState {
 
 export type GhostVariant = 'wanderer' | 'swift' | 'brute' | 'caster' | 'twin-a' | 'twin-b';
 
+export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'veteran' | 'legend';
+export type PlayMode = 'solo' | 'multiplayer';
+export type StageId = `${string}-${number}`;
+
+export interface AccountProfile {
+  id: string;
+  username: string;
+  nickname: string;
+  soloRank: RankId;
+  multiplayerRank: RankId;
+  displayRank: RankId;
+  soloXp: number;
+  multiplayerXp: number;
+  soloStageIndex: number;
+  multiplayerStageIndex: number;
+  victories: number;
+  createdAt: number;
+}
+
 export interface GameSnapshot {
+  matchId: string;
   roomCode: string;
   status: GameStatus;
   hostId: string | null;
@@ -135,6 +160,12 @@ export interface GameSnapshot {
   ghost: GhostState;
   ghosts: GhostState[];
   matchEvent: string;
+  stageId: StageId;
+  stageLabel: string;
+  stageIndex: number;
+  playMode: PlayMode;
+  goldSuppressedUntil: number;
+  repairSuppressedUntil: number;
   winner: 'survivors' | 'ghost' | null;
 }
 
@@ -152,6 +183,7 @@ export type GameEventKind =
   | 'ghost-return'
   | 'ghost-skill'
   | 'item-draw'
+  | 'elite-join'
   | 'victory'
   | 'defeat';
 
@@ -207,4 +239,7 @@ export interface JoinIdentity {
   nickname: string;
   deviceId: string;
   reconnectToken?: string;
+  accountId?: string;
+  soloRank?: RankId;
+  multiplayerRank?: RankId;
 }

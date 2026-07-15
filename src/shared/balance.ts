@@ -1,4 +1,5 @@
-import type { BuildingKind } from './types';
+import { rankBenefits } from './progression';
+import type { BuildingKind, RankId } from './types';
 
 export interface BuildingLevelStats {
   gold: number;
@@ -39,7 +40,7 @@ export const BALANCE = {
   },
   door: {
     baseHp: 100,
-    upgradeHp: [100, 180, 320] as const,
+    upgradeHp: [100, 180, 320, 520, 800] as const,
   },
   ghost: {
     baseHp: 1_150,
@@ -65,8 +66,8 @@ export const BALANCE = {
     'reinforced-door': {
       label: '봉인 강화문',
       description: '업그레이드할수록 최대 내구도와 현재 내구도가 증가합니다.',
-      maxLevel: 3,
-      levels: [level(0, 0, 100, 0, 0), level(55, 2, 180, 0, 0), level(140, 4, 320, 0, 0)],
+      maxLevel: 5,
+      levels: [level(0, 0, 100, 0, 0), level(55, 2, 180, 0, 0), level(140, 4, 320, 0, 0), level(280, 7, 520, 0, 0), level(520, 12, 800, 0, 0)],
     },
     'basic-turret': {
       label: '수호 포탑',
@@ -85,6 +86,12 @@ export const BALANCE = {
       description: '귀신을 느리게 하는 레이저 포탑입니다.',
       maxLevel: 15,
       levels: [level(10, 2, 7, 1.3, 6)],
+    },
+    'arc-turret': {
+      label: '희귀 천둥포',
+      description: '베테랑부터 설치할 수 있는 고위력 희귀 포탑입니다.',
+      maxLevel: 15,
+      levels: [level(250, 25, 38, 1.55, 8.5)],
     },
     generator: {
       label: '달빛 발전기',
@@ -125,21 +132,29 @@ export const BALANCE = {
   } satisfies Record<BuildingKind, BuildingDefinition>,
 } as const;
 
-const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret']);
+const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret']);
 
-export function maxBuildingLevel(kind: BuildingKind): number {
+export function maxBuildingLevel(kind: BuildingKind, soloRank: RankId = 'beginner'): number {
+  const benefits = rankBenefits(soloRank);
+  if (kind === 'reinforced-door') return 3 + benefits.doorLevelBonus;
+  if (TURRETS.has(kind)) return BALANCE.buildings[kind].maxLevel + benefits.turretLevelBonus;
   return BALANCE.buildings[kind].maxLevel;
 }
 
-export function upgradeCost(kind: BuildingKind, targetLevel: number): { gold: number; power: number } {
-  const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind), Math.floor(targetLevel)));
-  if (TURRETS.has(kind)) return { gold: 10 * safeLevel * safeLevel, power: safeLevel === 1 ? buildingStats(kind, 1).power : 0 };
+export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: RankId = 'beginner'): { gold: number; power: number } {
+  const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind, soloRank), Math.floor(targetLevel)));
+  if (TURRETS.has(kind)) {
+    const baseGold = kind === 'arc-turret' ? 250 : 10;
+    const discount = kind === 'arc-turret' ? 1 - rankBenefits(soloRank).rareTurretDiscount : 1;
+    return { gold: Math.ceil(baseGold * safeLevel * safeLevel * discount), power: safeLevel === 1 ? buildingStats(kind, 1).power : 0 };
+  }
   const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
   return { gold: stats.gold, power: stats.power };
 }
 
 export function buildingStats(kind: BuildingKind, requestedLevel: number): BuildingLevelStats {
-  const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind), Math.floor(requestedLevel)));
+  const absoluteMax = TURRETS.has(kind) ? BALANCE.buildings[kind].maxLevel + 2 : BALANCE.buildings[kind].maxLevel;
+  const safeLevel = Math.max(1, Math.min(absoluteMax, Math.floor(requestedLevel)));
   const definition = BALANCE.buildings[kind];
   if (!TURRETS.has(kind)) return definition.levels[safeLevel - 1] as BuildingLevelStats;
   const base = definition.levels[0] as BuildingLevelStats;
@@ -160,5 +175,6 @@ function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number, initialP
     const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
     return { gold: stats.gold, power: stats.power };
   }
-  return { gold: 10 * safeLevel * safeLevel, power: safeLevel === 1 ? initialPower : 0 };
+  const baseGold = kind === 'arc-turret' ? 250 : 10;
+  return { gold: baseGold * safeLevel * safeLevel, power: safeLevel === 1 ? initialPower : 0 };
 }

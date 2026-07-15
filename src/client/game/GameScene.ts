@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BALANCE } from '../../shared/balance';
+import { isEliteRank, rankBenefits, rankLabel } from '../../shared/progression';
 import type { BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, Tile, Vec2 } from '../../shared/types';
 import { createRuntimeTextures } from './textures';
 
@@ -16,6 +17,7 @@ interface EntityView {
   body: Phaser.GameObjects.Sprite;
   hp: Phaser.GameObjects.Graphics;
   target: Vec2;
+  name?: Phaser.GameObjects.Text;
 }
 
 interface BuildingView {
@@ -81,10 +83,12 @@ export class GameScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     const factor = 1 - Math.exp(-delta / 75);
+    const localPlayer = this.snapshotData.players.find((player) => player.id === this.playerId);
+    const localSpeed = BALANCE.player.speed * rankBenefits(localPlayer?.soloRank ?? 'beginner').speedMultiplier;
     for (const [id, view] of this.playerViews) {
       if (id === this.playerId && (this.localInput.x || this.localInput.y)) {
-        view.container.x += this.localInput.x * BALANCE.player.speed * TILE * delta / 1_000;
-        view.container.y += this.localInput.y * BALANCE.player.speed * TILE * delta / 1_000;
+        view.container.x += this.localInput.x * localSpeed * TILE * delta / 1_000;
+        view.container.y += this.localInput.y * localSpeed * TILE * delta / 1_000;
       }
       view.container.x = Phaser.Math.Linear(view.container.x, view.target.x * TILE + TILE / 2, id === this.playerId ? factor * .45 : factor);
       view.container.y = Phaser.Math.Linear(view.container.y, view.target.y * TILE + TILE / 2, id === this.playerId ? factor * .45 : factor);
@@ -152,14 +156,18 @@ export class GameScene extends Phaser.Scene {
       let view = this.playerViews.get(player.id);
       if (!view) {
         const shadow = this.add.ellipse(0, 17, 29, 9, 0x04050c, .45);
+        const elite = isEliteRank(player.displayRank);
+        const aura = this.add.ellipse(0, 7, 40, 52, elite ? 0xc481ff : 0x000000, elite ? .12 : 0).setStrokeStyle(elite ? 2 : 0, elite ? 0xe4b8ff : 0x000000, elite ? .6 : 0);
         const body = this.add.sprite(0, 0, 'player').setTint(player.color);
-        const name = this.add.text(0, -35, player.nickname, { color: '#ffffff', fontFamily: 'sans-serif', fontSize: '11px', fontStyle: 'bold', stroke: '#090b1a', strokeThickness: 4 }).setOrigin(.5);
+        const name = this.add.text(0, -38, `${rankLabel(player.displayRank)} ${player.nickname}`, { color: elite ? '#f0d8ff' : '#ffffff', fontFamily: 'sans-serif', fontSize: '10px', fontStyle: 'bold', stroke: '#090b1a', strokeThickness: 4 }).setOrigin(.5);
         const hp = this.add.graphics();
-        const container = this.add.container(player.position.x * TILE + TILE / 2, player.position.y * TILE + TILE / 2, [shadow, body, name, hp]).setDepth(10);
-        view = { container, body, hp, target: { ...player.position } };
+        const container = this.add.container(player.position.x * TILE + TILE / 2, player.position.y * TILE + TILE / 2, [shadow, aura, body, name, hp]).setDepth(10);
+        if (elite) this.tweens.add({ targets: aura, alpha: { from: .2, to: .55 }, scale: { from: .9, to: 1.13 }, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        view = { container, body, hp, name, target: { ...player.position } };
         this.playerViews.set(player.id, view);
       }
       view.target = { ...player.position };
+      view.name?.setText(`${rankLabel(player.displayRank)} ${player.nickname}`);
       view.container.setAlpha(player.alive ? (player.connected ? 1 : .55) : .22);
       view.hp.clear().fillStyle(0x161728, .9).fillRoundedRect(-18, -27, 36, 5, 2).fillStyle(player.hp / player.maxHp > .35 ? 0x68efa4 : 0xff668c).fillRoundedRect(-18, -27, 36 * player.hp / player.maxHp, 5, 2);
       if (player.id === this.playerId) view.container.setDepth(12);
@@ -196,8 +204,9 @@ export class GameScene extends Phaser.Scene {
       let view = this.buildingViews.get(building.id);
       if (!view) {
         const body = this.add.sprite(0, 0, `building-${building.kind}`);
-        const isTurret = ['basic-turret', 'rapid-turret', 'frost-turret'].includes(building.kind);
-        const barrel = isTurret ? this.add.rectangle(0, -8, 5, 21, building.kind === 'frost-turret' ? 0xa8f3ff : 0xe6e9ff).setOrigin(.5, 1) : null;
+        const isTurret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'].includes(building.kind);
+        const barrelColor = building.kind === 'frost-turret' ? 0xa8f3ff : building.kind === 'arc-turret' ? 0xf1b7ff : 0xe6e9ff;
+        const barrel = isTurret ? this.add.rectangle(0, -8, building.kind === 'arc-turret' ? 7 : 5, building.kind === 'arc-turret' ? 24 : 21, barrelColor).setOrigin(.5, 1) : null;
         const level = this.add.text(13, 10, '', { color: '#ffffff', backgroundColor: '#17192d', fontFamily: 'sans-serif', fontSize: '9px', fontStyle: 'bold', padding: { x: 3, y: 1 } }).setOrigin(.5);
         const pieces: Phaser.GameObjects.GameObject[] = [body];
         if (barrel) pieces.push(barrel);
@@ -230,7 +239,19 @@ export class GameScene extends Phaser.Scene {
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
       const from = { x: event.position.x * TILE + TILE / 2, y: event.position.y * TILE + TILE / 2 };
       const to = { x: event.targetPosition.x * TILE + TILE / 2, y: event.targetPosition.y * TILE + TILE / 2 };
-      if (event.buildingKind === 'frost-turret') {
+      if (event.buildingKind === 'arc-turret') {
+        const lightning = this.add.graphics().setDepth(21).lineStyle(6, 0xc36fff, .45);
+        const segments = 7;
+        lightning.beginPath().moveTo(from.x, from.y);
+        for (let index = 1; index < segments; index += 1) {
+          const ratio = index / segments;
+          lightning.lineTo(Phaser.Math.Linear(from.x, to.x, ratio) + Phaser.Math.Between(-10, 10), Phaser.Math.Linear(from.y, to.y, ratio) + Phaser.Math.Between(-10, 10));
+        }
+        lightning.lineTo(to.x, to.y).strokePath().lineStyle(2, 0xffffff, 1).lineBetween(from.x, from.y, to.x, to.y);
+        const impact = this.add.circle(to.x, to.y, 7, 0xffffff, .85).setStrokeStyle(5, 0xd18bff, .9).setDepth(22);
+        this.effects.push(lightning, impact);
+        this.tweens.add({ targets: [lightning, impact], alpha: 0, duration: 240, onComplete: () => { this.removeEffect(lightning); this.removeEffect(impact); } });
+      } else if (event.buildingKind === 'frost-turret') {
         const laser = this.add.graphics().setDepth(19).lineStyle(5, 0x91efff, .92).lineBetween(from.x, from.y, to.x, to.y).lineStyle(1, 0xffffff, 1).lineBetween(from.x, from.y, to.x, to.y);
         this.effects.push(laser);
         this.tweens.add({ targets: laser, alpha: 0, duration: 180, onComplete: () => this.removeEffect(laser) });

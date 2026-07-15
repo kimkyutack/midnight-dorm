@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
 import { DRAW_COSTS, getRandomItem } from '../shared/randomItems';
-import type { BuildingKind, GameEvent, GameSnapshot, MapDefinition, Tile, Vec2 } from '../shared/types';
+import { rankBenefits, rankLabel, stagesThrough } from '../shared/progression';
+import type { AccountProfile, BuildingKind, GameEvent, GameSnapshot, MapDefinition, StageId, Tile, Vec2 } from '../shared/types';
 import { SynthAudio } from './audio';
+import { getAccount, loginAccount, logoutAccount, registerAccount } from './auth';
 import { GameScene, type SceneSelection } from './game/GameScene';
 import { GameNetwork } from './network';
 import { loadProfile, saveProfile } from './storage';
@@ -32,6 +34,7 @@ let game: Phaser.Game | null = null;
 let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
 let playerId = '';
+let account: AccountProfile | null = null;
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let currentView = '';
@@ -65,32 +68,61 @@ function desktopNotice(): void {
   setContent('desktop', `<main class="screen"><section class="panel compact desktop-card"><div class="desktop-icon">📱</div><span class="eyebrow">MOBILE ONLY</span><h2>모바일 전용 게임입니다</h2><p class="subtitle">휴대폰 브라우저에서 이 주소를 열어 가로 모드로 플레이하세요. 개발 환경에서는 주소 끝에 <strong>?dev=1</strong>을 붙일 수 있습니다.</p></section></main>`);
 }
 
-function nicknameScreen(): void {
-  setContent('nickname', `<main class="screen"><section class="panel compact"><div class="title-mark">☾</div><span class="eyebrow">REAL-TIME CO-OP DEFENSE</span><h1>심야 기숙사<br>협동 방어</h1><p class="subtitle">별빛 방을 점유하고, 친구와 함께 악몽의 순찰자를 막아내세요.</p><form id="nickname-form"><div class="field"><label for="nickname">생존자 닉네임</label><input id="nickname" name="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" value="${escapeHtml(profile.nickname)}" placeholder="2~12자 닉네임" /></div><button class="btn primary" type="submit" style="width:100%">기숙사 입장</button></form></section></main>`);
-  app.querySelector<HTMLFormElement>('#nickname-form')?.addEventListener('submit', (event) => {
-    event.preventDefault(); audio.play('button');
-    const value = app.querySelector<HTMLInputElement>('#nickname')?.value.trim() ?? '';
-    if (value.length < 2) { toast('닉네임은 2자 이상 입력해주세요.'); return; }
-    profile.nickname = value; saveProfile(profile); roomMenu();
+function authScreen(mode: 'login' | 'register' = 'login'): void {
+  const registering = mode === 'register';
+  setContent('auth', `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 기숙사</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? 'primary' : 'ghost'}" data-auth-tab="login">로그인</button><button class="btn ${registering ? 'primary' : 'ghost'}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ''}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? 'new-password' : 'current-password'}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%">${registering ? '계정 만들고 시작' : '로그인하고 시작'}</button></form></section></main>`);
+  app.querySelectorAll<HTMLElement>('[data-auth-tab]').forEach((button) => button.addEventListener('click', () => authScreen(button.dataset.authTab === 'register' ? 'register' : 'login')));
+  app.querySelector<HTMLFormElement>('#auth-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    audio.play('button');
+    const username = app.querySelector<HTMLInputElement>('#username')?.value.trim() ?? '';
+    const password = app.querySelector<HTMLInputElement>('#password')?.value ?? '';
+    const nickname = app.querySelector<HTMLInputElement>('#nickname')?.value.trim() ?? '';
+    connectionOverlay(registering ? '계정을 만드는 중…' : '계정에 로그인하는 중…');
+    void (registering ? registerAccount(username, nickname, password) : loginAccount(username, password))
+      .then((next) => {
+        account = next;
+        profile.nickname = next.nickname;
+        saveProfile(profile);
+        roomMenu();
+      })
+      .catch((error) => {
+        authScreen(mode);
+        toast(error instanceof Error ? error.message : '로그인할 수 없습니다.');
+      });
   });
 }
 
 function roomMenu(): void {
-  setContent('room-menu', `<main class="screen"><section class="panel"><span class="eyebrow">WELCOME, ${escapeHtml(profile.nickname)}</span><h2>어떤 새벽을 시작할까요?</h2><p class="subtitle">방을 만들거나 친구가 보낸 8자리 초대 코드를 입력하세요.</p><div class="button-row"><button class="btn primary" data-create data-testid="create-room">새 방 만들기</button><button class="btn ghost" data-solo>봇과 혼자 시작</button></div><div class="field"><label for="invite-code">초대 코드로 참가</label><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" value="${escapeHtml(profile.recentRoomCode)}" placeholder="A1B2C3D4" /></div><button class="btn gold" data-join data-testid="join-room" style="width:100%">친구 방 참가</button></section></main>`);
+  if (!account) { authScreen(); return; }
+  const currentAccount = account;
+  const benefits = rankBenefits(currentAccount.soloRank);
+  const soloOptions = stagesThrough(currentAccount.soloStageIndex).map((stage) => `<option value="${stage.id}" ${stage.index === currentAccount.soloStageIndex ? 'selected' : ''}>${stage.label}</option>`).join('');
+  const multiOptions = stagesThrough(currentAccount.multiplayerStageIndex).map((stage) => `<option value="${stage.id}" ${stage.index === currentAccount.multiplayerStageIndex ? 'selected' : ''}>${stage.label}</option>`).join('');
+  const perk = `${benefits.speedMultiplier > 1 ? `이동속도 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : '기본 이동속도'} · 문 최대 Lv.${3 + benefits.doorLevelBonus} · 포탑 최대 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? ' · 희귀 천둥포 해금' : ''}`;
+  setContent('room-menu', `<main class="screen"><section class="panel account-hub"><div class="account-head"><div><span class="eyebrow">WELCOME, ${escapeHtml(currentAccount.nickname)}</span><h2>어떤 새벽을 시작할까요?</h2></div><button class="btn ghost mini-btn" data-logout>로그아웃</button></div><div class="rank-summary"><div class="rank-emblem rank-${currentAccount.displayRank}">${rankLabel(currentAccount.displayRank)}</div><div><strong>게임 표시 등급 · ${rankLabel(currentAccount.displayRank)}</strong><span>개인 ${rankLabel(currentAccount.soloRank)} (${currentAccount.soloXp} XP) · 멀티 ${rankLabel(currentAccount.multiplayerRank)} (${currentAccount.multiplayerXp} XP)</span><small>${perk}</small></div></div><div class="mode-grid"><article class="mode-card"><span class="eyebrow">SOLO</span><h3>개인 플레이</h3><label>도전 스테이지<select data-solo-stage>${soloOptions}</select></label><button class="btn primary" data-solo>봇과 혼자 시작</button></article><article class="mode-card"><span class="eyebrow">MULTIPLAYER</span><h3>멀티 플레이</h3><label>도전 스테이지<select data-multi-stage>${multiOptions}</select></label><button class="btn primary" data-create data-testid="create-room">새 멀티 방</button></article></div><div class="join-strip"><div class="field"><label for="invite-code">8자리 초대 코드로 참가</label><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" value="${escapeHtml(profile.recentRoomCode)}" placeholder="A1B2C3D4" /></div><button class="btn gold" data-join data-testid="join-room">친구 방 참가</button></div></section></main>`);
   app.querySelector('[data-create]')?.addEventListener('click', () => void createRoom(false));
   app.querySelector('[data-solo]')?.addEventListener('click', () => void createRoom(true));
   app.querySelector('[data-join]')?.addEventListener('click', () => void joinRoom());
+  app.querySelector('[data-logout]')?.addEventListener('click', () => void logoutAccount().then(() => {
+    account = null;
+    network?.close();
+    network = null;
+    authScreen();
+  }));
   app.querySelector<HTMLInputElement>('#invite-code')?.addEventListener('input', (event) => {
     const input = event.currentTarget as HTMLInputElement; input.value = input.value.toUpperCase().replace(/[^A-Z2-9]/g, '');
   });
 }
 
 async function createRoom(solo: boolean): Promise<void> {
+  const selector = app.querySelector(solo ? '[data-solo-stage]' : '[data-multi-stage]') as HTMLSelectElement | null;
+  const stageId = (selector?.value ?? 'easy-1') as StageId;
   audio.play('button'); connectionOverlay('방을 만드는 중…');
   try {
-    const response = await fetch('/api/rooms/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ testMode: e2eMode }) });
-    if (!response.ok) throw new Error('방을 만들지 못했습니다.');
-    const data = await response.json() as { code: string };
+    const response = await fetch('/api/rooms/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ testMode: e2eMode, stageId, playMode: solo ? 'solo' : 'multiplayer' }) });
+    const data = await response.json() as { code?: string; error?: string };
+    if (!response.ok || !data.code) throw new Error(data.error ?? '방을 만들지 못했습니다.');
     profile.recentRoomCode = data.code; saveProfile(profile);
     connectToRoom(data.code, solo);
   } catch (error) {
@@ -144,7 +176,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
 
 function lobbyScreen(state: GameSnapshot): void {
   destroyGame();
-  setContent('lobby', `<main class="screen"><section class="panel"><span class="eyebrow">WAITING ROOM</span><h2>친구를 기다리는 중</h2><div class="room-code"><span>8자리 초대 코드<br>눌러서 복사</span><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><div class="players" id="players" data-testid="players"></div><div class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">20초 준비 시작</button></div></section></main>`);
+  setContent('lobby', `<main class="screen"><section class="panel"><span class="eyebrow">${state.playMode === 'solo' ? 'SOLO' : 'MULTIPLAYER'} · ${state.stageLabel}</span><h2>친구를 기다리는 중</h2><p class="subtitle">스테이지가 높을수록 귀신의 초기 HP·공격력·성장률과 특수 스킬이 강화됩니다.</p><div class="room-code"><span>8자리 초대 코드<br>눌러서 복사</span><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><div class="players" id="players" data-testid="players"></div><div class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">20초 준비 시작</button></div></section></main>`);
   app.querySelector('[data-copy]')?.addEventListener('click', () => { void navigator.clipboard?.writeText(state.roomCode); toast('초대 코드를 복사했습니다.'); });
   app.querySelector('[data-ready]')?.addEventListener('click', () => {
     const me = snapshot?.players.find((player) => player.id === playerId); network?.ready(!me?.ready); audio.play('button');
@@ -157,7 +189,7 @@ function lobbyScreen(state: GameSnapshot): void {
 function updateLobby(state: GameSnapshot): void {
   const container = app.querySelector('#players');
   if (!container) return;
-  container.innerHTML = state.players.map((player) => `<article class="player-card" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong>${escapeHtml(player.nickname)}${state.hostId === player.id ? ' ★' : ''}</strong><span>${player.isBot ? '서버 생존자 봇' : player.connected ? '온라인' : '재접속 대기'}</span></div><b class="ready-badge">${player.ready || player.id === state.hostId ? 'READY' : 'WAIT'}</b></article>`).join('') + (state.players.length < 4 ? `<article class="player-card" style="opacity:.42"><i class="player-dot"></i><div class="player-copy"><strong>빈 침대</strong><span>친구 또는 봇</span></div></article>` : '');
+  container.innerHTML = state.players.map((player) => `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong><em class="rank-tag rank-${player.displayRank}">${rankLabel(player.displayRank)}</em> ${escapeHtml(player.nickname)}${state.hostId === player.id ? ' ★' : ''}</strong><span>${player.isBot ? '서버 생존자 봇' : player.connected ? `개인 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : '재접속 대기'}</span></div><b class="ready-badge">${player.ready || player.id === state.hostId ? 'READY' : 'WAIT'}</b></article>`).join('') + (state.players.length < 4 ? `<article class="player-card" style="opacity:.42"><i class="player-dot"></i><div class="player-copy"><strong>빈 침대</strong><span>친구 또는 봇</span></div></article>` : '');
   const me = state.players.find((player) => player.id === playerId);
   const ready = app.querySelector<HTMLButtonElement>('[data-ready]');
   if (ready) ready.textContent = me?.ready ? '준비 취소' : '준비';
@@ -169,7 +201,8 @@ function updateLobby(state: GameSnapshot): void {
 }
 
 function gameScreen(state: GameSnapshot): void {
-  setContent('game', `<main id="game-shell"><div id="game-root"></div><div class="hud"><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`);
+  const me = state.players.find((player) => player.id === playerId);
+  setContent('game', `<main id="game-shell"><div id="game-root"></div><div class="hud"><div class="stage-chip"><span>${state.playMode === 'solo' ? '개인' : '멀티'} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : '생존자'}</strong></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`);
   setupJoystick();
   app.querySelector('[data-interact]')?.addEventListener('click', () => { network?.interact(); audio.play('button'); });
   app.querySelector('[data-cancel]')?.addEventListener('click', () => closeBuildPanel());
@@ -217,7 +250,10 @@ function updateHud(): void {
   setText('[data-draw]', `${me?.drawCount ?? 0}/4`);
   setText('[data-time]', formatTime(snapshot.elapsed));
   const retreating = snapshot.ghosts.some((ghost) => ghost.retreating || ghost.healing);
-  setText('[data-phase]', snapshot.status === 'COUNTDOWN' ? `침대를 찾아 점유하세요 · ${Math.ceil(snapshot.countdown)}초` : retreating ? '⚠ 귀신이 회복 구역으로 후퇴 중 — 지금 처치하세요!' : `${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`);
+  const goldLocked = snapshot.goldSuppressedUntil > snapshot.elapsed;
+  const repairLocked = snapshot.repairSuppressedUntil > snapshot.elapsed;
+  const skillWarning = goldLocked ? `⚠ 골드 획득 봉인 ${Math.ceil(snapshot.goldSuppressedUntil - snapshot.elapsed)}초` : repairLocked ? `⚠ 문 수리 봉인 ${Math.ceil(snapshot.repairSuppressedUntil - snapshot.elapsed)}초` : null;
+  setText('[data-phase]', snapshot.status === 'COUNTDOWN' ? `${snapshot.stageLabel} · 침대를 찾아 점유하세요 · ${Math.ceil(snapshot.countdown)}초` : skillWarning ?? (retreating ? '⚠ 귀신이 회복 구역으로 후퇴 중 — 지금 처치하세요!' : `${snapshot.stageLabel} · ${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`));
   const net = app.querySelector<HTMLElement>('[data-network]');
   if (net) net.textContent = `연결됨 · ${Math.round(ping)}ms`;
 }
@@ -233,9 +269,12 @@ function resultScreen(state: GameSnapshot): void {
     saveProfile(profile);
   }
   audio.play(victory ? 'victory' : 'defeat');
-  setContent('result', `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? '✦' : '☁'}</div><span class="eyebrow">${victory ? 'DAWN SURVIVED' : 'NIGHT CONSUMED'}</span><h1>${victory ? '새벽을 지켜냈습니다' : '기숙사가 잠식되었습니다'}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 악몽 레벨 ${state.ghost.level}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`);
+  setContent('result', `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? '✦' : '☁'}</div><span class="eyebrow">${state.stageLabel} · ${victory ? 'DAWN SURVIVED' : 'NIGHT CONSUMED'}</span><h1>${victory ? '새벽을 지켜냈습니다' : '기숙사가 잠식되었습니다'}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 악몽 레벨 ${state.ghost.level}<br>${victory ? '승리 XP와 다음 스테이지가 계정에 저장됩니다.' : '도전 XP가 계정에 저장됩니다.'}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`);
   app.querySelector('[data-rematch]')?.addEventListener('click', () => { resultRecorded = false; network?.rematch(); audio.play('button'); });
-  app.querySelector('[data-leave]')?.addEventListener('click', () => { network?.close(); network = null; roomMenu(); });
+  app.querySelector('[data-leave]')?.addEventListener('click', () => {
+    network?.close(); network = null; loading();
+    void getAccount().then((next) => { account = next; roomMenu(); }).catch(() => roomMenu());
+  });
 }
 
 function onTileSelected(event: CustomEvent<Tile>): void {
@@ -263,7 +302,9 @@ function renderBuildPanel(tile: Tile): void {
     renderTargetPanel(selectedTarget);
     return;
   }
-  panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ ${Math.floor(me.gold)} / ⚡ ${Math.floor(me.power)}</p><div class="build-grid">${BUILD_KINDS.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = buildingStats(kind, 1); return `<button class="build-card" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`; }).join('')}</div>`;
+  const benefits = rankBenefits(me.soloRank);
+  const availableKinds = benefits.rareTurretUnlocked ? [...BUILD_KINDS, 'arc-turret' as const] : BUILD_KINDS;
+  panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ ${Math.floor(me.gold)} / ⚡ ${Math.floor(me.power)}</p><div class="build-grid">${availableKinds.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = upgradeCost(kind, 1, me.soloRank); return `<button class="build-card ${kind === 'arc-turret' ? 'rare-build' : ''}" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`; }).join('')}</div>${!benefits.rareTurretUnlocked ? '<small class="odds-note">희귀 천둥포는 개인 등급 베테랑부터 해금됩니다.</small>' : ''}`;
   panel.classList.remove('hidden');
   panel.querySelectorAll<HTMLElement>('[data-build]').forEach((button) => button.addEventListener('click', () => {
     if (selectedTile && me.roomId) network?.build(me.roomId, selectedTile, button.dataset.build as BuildingKind);
@@ -289,11 +330,11 @@ function renderTargetPanel(selection: SceneSelection): void {
     panel.querySelector('[data-draw]')?.addEventListener('click', () => network?.drawItem(building.id));
     return;
   }
-  const maxLevel = maxBuildingLevel(kind);
+  const maxLevel = maxBuildingLevel(kind, me.soloRank);
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
-  const cost = currentLevel < maxLevel ? upgradeCost(kind, nextLevel) : null;
-  const effectLabel = kind === 'bed' ? `초당 골드 ${current.value}` : kind === 'reinforced-door' ? `최대 HP ${room ? Math.round(room.doorMaxHp) : current.value}` : ['basic-turret', 'rapid-turret', 'frost-turret'].includes(kind) ? `공격력 ${current.value} · 사거리 ${current.range}` : `효과 수치 ${current.value}`;
+  const cost = currentLevel < maxLevel ? upgradeCost(kind, nextLevel, me.soloRank) : null;
+  const effectLabel = kind === 'bed' ? `초당 골드 ${current.value}` : kind === 'reinforced-door' ? `최대 HP ${current.value}` : ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'].includes(kind) ? `공격력 ${current.value} · 사거리 ${current.range}` : `효과 수치 ${current.value}`;
   panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">최고 레벨 달성</button>'}`;
   panel.classList.remove('hidden');
   panel.querySelector<HTMLElement>('[data-upgrade]')?.addEventListener('click', () => attemptUpgrade(selection, currentLevel, cost));
@@ -307,7 +348,12 @@ function attemptUpgrade(selection: SceneSelection, currentLevel: number, cost: {
   me.power -= cost.power;
   const room = snapshot.rooms.find((candidate) => candidate.id === selection.roomId);
   if (selection.type === 'bed' && room) room.bedLevel = currentLevel + 1;
-  else if (selection.type === 'door' && room) room.doorLevel = currentLevel + 1;
+  else if (selection.type === 'door' && room) {
+    const next = buildingStats('reinforced-door', currentLevel + 1);
+    room.doorLevel = currentLevel + 1;
+    room.doorMaxHp = next.value;
+    room.doorHp = Math.max(room.doorHp, next.value);
+  }
   else {
     const building = snapshot.buildings.find((candidate) => candidate.id === selection.buildingId);
     if (building) building.level = currentLevel + 1;
@@ -358,13 +404,26 @@ function sendMovement(): void {
 }
 
 function playEvents(events: GameEvent[]): void {
-  const interesting = events.find((event) => ['build', 'upgrade', 'turret-fire', 'door-hit', 'player-hit', 'ghost-level-up', 'ghost-retreat', 'ghost-return', 'ghost-skill', 'item-draw', 'victory', 'defeat'].includes(event.kind));
+  const interesting = events.find((event) => ['build', 'upgrade', 'turret-fire', 'door-hit', 'player-hit', 'ghost-level-up', 'ghost-retreat', 'ghost-return', 'ghost-skill', 'item-draw', 'elite-join', 'victory', 'defeat'].includes(event.kind));
   if (interesting) audio.play(interesting.kind);
+  const elite = events.find((event) => event.kind === 'elite-join');
+  if (elite?.label) showEliteEntrance(elite.label);
   const draw = events.find((event) => event.kind === 'item-draw' && event.playerId === playerId);
   if (draw?.itemId) showItemReveal(draw.itemId);
   const levelUp = events.find((event) => event.kind === 'ghost-level-up');
   if (levelUp) toast(`귀신이 문을 충분히 공격해 Lv.${levelUp.amount ?? '?'}로 성장했습니다!`);
   if (profile.vibration && events.some((event) => event.kind === 'door-hit' || event.kind === 'player-hit')) navigator.vibrate?.(35);
+}
+
+function showEliteEntrance(label: string): void {
+  const existing = app.querySelector('.elite-entrance');
+  existing?.remove();
+  const entrance = document.createElement('div');
+  entrance.className = 'elite-entrance';
+  entrance.innerHTML = `<i>✦</i><strong>${escapeHtml(label)}</strong><span>ELITE SURVIVOR</span>`;
+  app.appendChild(entrance);
+  window.setTimeout(() => entrance.classList.add('leaving'), 2_500);
+  window.setTimeout(() => entrance.remove(), 3_200);
 }
 
 function showInventory(): void {
@@ -467,13 +526,17 @@ window.setTimeout(() => {
 }, 350);
 
 async function resumeOrEnter(): Promise<void> {
-  if (freshMode) {
-    nicknameScreen();
+  try {
+    account = await getAccount();
+    profile.nickname = account.nickname;
+    saveProfile(profile);
+  } catch {
+    authScreen();
     return;
   }
   const code = profile.recentRoomCode;
-  if (!profile.nickname || !/^[A-Z2-9]{8}$/.test(code) || !profile.reconnectTokens[code]) {
-    nicknameScreen();
+  if (freshMode || !/^[A-Z2-9]{8}$/.test(code) || !profile.reconnectTokens[code]) {
+    roomMenu();
     return;
   }
   try {
@@ -483,6 +546,6 @@ async function resumeOrEnter(): Promise<void> {
   } catch {
     delete profile.reconnectTokens[code];
     saveProfile(profile);
-    nicknameScreen();
+    roomMenu();
   }
 }

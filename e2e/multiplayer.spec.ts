@@ -15,10 +15,16 @@ interface TestState {
   buildFirst: (kind: string) => boolean;
 }
 
-async function enter(page: Page, nickname: string): Promise<void> {
+async function enter(page: Page, nickname: string, suffix: string): Promise<string> {
   await page.goto('/?dev=1&e2e=1');
-  await page.getByLabel('생존자 닉네임').fill(nickname);
-  await page.getByRole('button', { name: '기숙사 입장' }).click();
+  await page.getByRole('button', { name: '새 계정' }).click();
+  const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
+  await page.getByLabel('아이디').fill(username);
+  await page.getByLabel('게임 닉네임').fill(nickname);
+  await page.getByLabel('비밀번호').fill('midnight-test-2026');
+  await page.getByRole('button', { name: '계정 만들고 시작' }).click();
+  await expect(page.getByTestId('create-room')).toBeVisible();
+  return username;
 }
 
 async function state(page: Page): Promise<TestState> {
@@ -42,12 +48,12 @@ test('two real browser contexts share movement, building, combat and reconnectio
   const second = await secondContext.newPage();
 
   try {
-    await enter(first, '별빛하나');
+    const firstUsername = await enter(first, '별빛하나', 'a');
     await first.getByTestId('create-room').click();
     const code = await first.getByTestId('room-code').textContent();
     expect(code).toMatch(/^[A-Z2-9]{8}$/);
 
-    await enter(second, '별빛둘');
+    await enter(second, '별빛둘', 'b');
     await second.getByLabel('초대 코드로 참가').fill(code as string);
     await second.getByTestId('join-room').click();
     await expect(first.locator('[data-player-id]')).toHaveCount(2);
@@ -107,6 +113,14 @@ test('two real browser contexts share movement, building, combat and reconnectio
     const manifest = await first.request.get('/manifest.webmanifest');
     expect(manifest.ok()).toBe(true);
     expect((await manifest.json()).display).toBe('fullscreen');
+
+    await first.goto('/?dev=1&fresh=1');
+    await expect(first.getByTestId('create-room')).toBeVisible();
+    await first.getByRole('button', { name: '로그아웃' }).click();
+    await first.getByLabel('아이디').fill(firstUsername);
+    await first.getByLabel('비밀번호').fill('midnight-test-2026');
+    await first.getByRole('button', { name: '로그인하고 시작' }).click();
+    await expect(first.getByTestId('create-room')).toBeVisible();
   } finally {
     await firstContext.close().catch(() => undefined);
     await secondContext.close().catch(() => undefined);
