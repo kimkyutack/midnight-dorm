@@ -69,9 +69,7 @@ export class GameEngine {
   private pendingEvents: GameEvent[] = [];
   private serverSeq = 0;
   private buildCounter = 0;
-  private targetRefresh = 0;
   private turretSuppressedUntil = 0;
-  private chargeCooldown = 0;
   private rematchVotes = new Set<string>();
   private state: GameSnapshot;
   lastHumanActivity = Date.now();
@@ -95,9 +93,11 @@ export class GameEngine {
       shieldUntil: 0,
     }));
     const eventRoll = this.testMode ? 0 : this.rng.next();
-    const variants: GhostVariant[] = eventRoll < 0.2
-      ? ['twin-a', 'twin-b']
-      : [eventRoll < 0.42 ? 'swift' : eventRoll < 0.64 ? 'caster' : eventRoll < 0.82 ? 'brute' : 'wanderer'];
+    const variants: GhostVariant[] = this.testMode
+      ? ['wanderer']
+      : eventRoll < 0.2
+        ? ['twin-a', 'twin-b']
+        : [eventRoll < 0.42 ? 'swift' : eventRoll < 0.64 ? 'caster' : eventRoll < 0.82 ? 'brute' : 'wanderer'];
     const ghosts = variants.map((variant, index) => this.makeGhost(variant, index));
     const eventNames: Record<GhostVariant, string> = {
       wanderer: '기본 악몽', swift: '질주하는 원혼', brute: '거구의 식귀', caster: '봉인술사',

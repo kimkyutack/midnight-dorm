@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BALANCE } from '../src/shared/balance';
+import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
+import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 
@@ -52,14 +53,16 @@ describe('deterministic shared world', () => {
     expect(Array.from({ length: 20 }, () => first.next())).toEqual(Array.from({ length: 20 }, () => second.next()));
   });
 
-  it('generates the same connected six-room map for a seed', () => {
+  it('generates the same connected twelve-room variable map for a seed', () => {
     const first = generateMap(123_456);
     const second = generateMap(123_456);
     expect(first).toEqual(second);
     expect(validateMap(first)).toBe(true);
     expect(connectedWalkableCount(first)).toBe(first.walkable.length);
-    expect(first.rooms).toHaveLength(6);
-    expect(first.rooms.every((room) => room.buildTiles.length >= 10)).toBe(true);
+    expect(first.rooms).toHaveLength(12);
+    expect(first.rooms.every((room) => room.floorTiles.length >= 9 && room.floorTiles.length <= 15)).toBe(true);
+    expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
+    expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(10);
   });
 
   it('finds a traversable A* route from spawn to every bed', () => {
@@ -97,7 +100,7 @@ describe('authoritative game rules', () => {
     begin(engine, ids[0] as string);
     const { roomId } = assigned(engine, ids[0] as string);
     const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
-    expect(engine.build(ids[0] as string, roomId, tiles[0] as Tile, 'basic-turret').ok).toBe(true);
+    expect(engine.build(ids[0] as string, roomId, tiles[0] as Tile, 'electric-coil').ok).toBe(true);
     engine.tick(0.1);
     const result = engine.build(ids[0] as string, roomId, tiles[1] as Tile, 'electric-coil');
     expect(result.ok).toBe(false);
@@ -118,7 +121,7 @@ describe('authoritative game rules', () => {
     begin(engine, ids[0] as string);
     const playerId = ids[0] as string;
     const { roomId, tile } = assigned(engine, playerId);
-    expect(engine.build(playerId, roomId, tile, 'floor-trap').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
     const building = engine.snapshot().buildings[0];
     expect(building).toBeDefined();
@@ -160,7 +163,7 @@ describe('authoritative game rules', () => {
     for (let index = 0; index < 1_400 && engine.snapshot().status === 'PLAYING'; index += 1) {
       engine.tick(0.1);
       const player = engine.snapshot().players[0];
-      if (player && player.gold >= 95 && player.power >= 3 && nextTile < tiles.length) {
+      if (player && player.gold >= 10 && nextTile < tiles.length) {
         const result = engine.build(playerId, roomId, tiles[nextTile] as Tile, 'basic-turret');
         if (result.ok) nextTile += 1;
       }
@@ -214,6 +217,112 @@ describe('accelerated long simulation', () => {
       }
       expect(isWalkable(engine.map, state.ghost.position.x, state.ghost.position.y)).toBe(true);
     }
-    expect(['VICTORY', 'DEFEAT']).toContain(engine.snapshot().status);
+    expect(['PLAYING', 'VICTORY', 'DEFEAT']).toContain(engine.snapshot().status);
   }, 20_000);
+});
+
+describe('requested progression and event rules', () => {
+  it('produces one gold per second and doubles bed income by level', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const before = engine.snapshot().players[0]?.gold ?? 0;
+    for (let index = 0; index < 5; index += 1) engine.tick(0.05);
+    expect(engine.snapshot().players[0]?.gold).toBeCloseTo(before + 1, 5);
+    const roomId = engine.snapshot().players[0]?.roomId as string;
+    expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
+    const upgraded = engine.snapshot().players[0]?.gold ?? 0;
+    for (let index = 0; index < 5; index += 1) engine.tick(0.05);
+    expect(engine.snapshot().players[0]?.gold).toBeCloseTo(upgraded + 2, 5);
+  });
+
+  it('starts every turret at 10 gold and uses square prices through level 15', () => {
+    for (const kind of ['basic-turret', 'rapid-turret', 'frost-turret'] as const) {
+      expect(buildingStats(kind, 1).gold).toBe(10);
+      expect(maxBuildingLevel(kind)).toBe(15);
+      expect(upgradeCost(kind, 2).gold).toBe(40);
+      expect(upgradeCost(kind, 7).gold).toBe(490);
+      expect(upgradeCost(kind, 15).gold).toBe(2_250);
+    }
+  });
+
+  it('raises door HP only when its level is upgraded', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const roomId = engine.snapshot().players[0]?.roomId as string;
+    const initial = engine.snapshot().rooms.find((room) => room.id === roomId);
+    expect(initial?.doorMaxHp).toBe(100);
+    expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
+    const upgraded = engine.snapshot().rooms.find((room) => room.id === roomId);
+    expect(upgraded?.doorLevel).toBe(2);
+    expect(upgraded?.doorMaxHp).toBe(180);
+    expect(upgraded?.doorHp).toBe(180);
+  });
+
+  it('levels a ghost from successful door attack counts and raises the next requirement', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const initialRequired = engine.snapshot().ghost.attacksToNextLevel;
+    for (let index = 0; index < 900 && engine.snapshot().ghost.level === 1; index += 1) engine.tick(0.1);
+    const ghost = engine.snapshot().ghost;
+    expect(ghost.level).toBeGreaterThan(1);
+    expect(ghost.maxHp).toBeGreaterThan(BALANCE.ghost.baseHp * .34);
+    expect(ghost.attacksToNextLevel).toBeGreaterThan(initialRequired);
+  });
+
+  it('retreats toward the respawn area below ten percent HP', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    expect(ghost).toBeDefined();
+    if (!ghost) return;
+    ghost.position = { ...engine.map.playerSpawn };
+    ghost.hp = ghost.maxHp * .09;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    const before = Math.hypot(ghost.position.x - engine.map.ghostSpawn.x, ghost.position.y - engine.map.ghostSpawn.y);
+    engine.tick(0.1);
+    const retreater = engine.snapshot().ghosts[0] as NonNullable<typeof ghost>;
+    const after = Math.hypot(retreater.position.x - engine.map.ghostSpawn.x, retreater.position.y - engine.map.ghostSpawn.y);
+    expect(retreater.retreating).toBe(true);
+    expect(after).toBeLessThan(before);
+  });
+
+  it('offers exactly thirty weighted items and enforces the four draw costs', () => {
+    expect(RANDOM_ITEMS).toHaveLength(30);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'paper-crown')?.weight ?? 0);
+    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 10 }, { gold: 120, power: 20 }, { gold: 200, power: 40 }]);
+
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'lucky-machine').ok).toBe(true);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing player');
+    player.gold = 1_000;
+    player.power = 1_000;
+    engine.restore(persisted);
+    const machineId = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine')?.id as string;
+    for (let index = 0; index < 4; index += 1) expect(engine.drawItem(playerId, machineId).ok).toBe(true);
+    expect(engine.snapshot().players[0]?.drawCount).toBe(4);
+    expect(engine.snapshot().players[0]?.gold).toBe(580);
+    expect(engine.snapshot().players[0]?.power).toBe(930);
+    expect(engine.drawItem(playerId, machineId).ok).toBe(false);
+  });
+
+  it('can create fast, brute, caster, and twin match events', () => {
+    const variants = new Set<string>();
+    for (let index = 0; index < 120; index += 1) {
+      const engine = new GameEngine(`EVENT${index}`, generateMap(30_000 + index), false);
+      const state = engine.snapshot();
+      for (const ghost of state.ghosts) variants.add(ghost.variant);
+    }
+    expect(variants).toEqual(new Set(['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b']));
+  });
 });

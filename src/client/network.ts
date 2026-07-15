@@ -84,6 +84,7 @@ export class GameNetwork {
   interact(): void { this.send({ type: 'interact' }); }
   build(roomId: string, tile: Tile, kind: BuildingKind): void { this.send({ type: 'build', roomId, tile, kind }); }
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
+  drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 

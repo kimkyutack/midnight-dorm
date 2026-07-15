@@ -5,3 +5,4 @@ test-results/
 playwright-report/
 coverage/
 .DS_Store
+*-lock.json

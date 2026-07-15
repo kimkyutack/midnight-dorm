@@ -30,7 +30,7 @@ export const BALANCE = {
   player: {
     maxHp: 100,
     speed: 3.6,
-    startingGold: 70,
+    startingGold: 100,
     startingPower: 18,
     interactionRange: 1.7,
   },

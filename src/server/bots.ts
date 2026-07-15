@@ -1,4 +1,4 @@
-import { BALANCE } from '../shared/balance';
+import { BALANCE, buildingStats, maxBuildingLevel } from '../shared/balance';
 import type { BuildingKind, GameSnapshot, MapDefinition, PlayerState, Tile } from '../shared/types';
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
@@ -50,7 +50,7 @@ export function decideBotIntent(
   if (imperfectDelay) return { type: 'idle' };
   if (room.doorHp / room.doorMaxHp < 0.48) {
     const repair = snapshot.buildings.find((building) => building.roomId === room.id && building.kind === 'repair-drone');
-    if (!repair && bot.gold >= BALANCE.buildings['repair-drone'].levels[0].gold) {
+    if (!repair && bot.gold >= buildingStats('repair-drone', 1).gold) {
       const tile = freeTile(snapshot, mapRoom.buildTiles);
       if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
     }
@@ -63,14 +63,14 @@ export function decideBotIntent(
   const priority: BuildingKind[] = ['generator', 'basic-turret', 'rapid-turret', 'frost-turret', 'electric-coil', 'shield-device', 'floor-trap'];
   for (const kind of priority) {
     if (owned.some((building) => building.kind === kind)) continue;
-    const stats = BALANCE.buildings[kind].levels[0];
+    const stats = buildingStats(kind, 1);
     if (bot.gold >= stats.gold && bot.power >= stats.power) {
       const tile = freeTile(snapshot, mapRoom.buildTiles);
       if (tile) return { type: 'build', roomId: room.id, tile, kind };
     }
   }
 
-  const upgradeable = owned.find((building) => building.level < 3);
+  const upgradeable = owned.find((building) => building.level < maxBuildingLevel(building.kind));
   return upgradeable ? { type: 'upgrade', targetId: upgradeable.id } : { type: 'idle' };
 }
 

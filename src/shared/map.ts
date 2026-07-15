@@ -16,7 +16,7 @@ const SHAPES: readonly ShapeTemplate[] = [
   { name: '넓은 15칸방', cells: range(1, 3).flatMap((depth) => range(-2, 2).map((dx) => [dx, depth] as const)) },
   { name: 'L자방', cells: [...range(1, 7).map((depth) => [0, depth] as const), ...range(1, 4).map((dx) => [dx, 7] as const)] },
   { name: 'T자방', cells: [...range(-3, 3).map((dx) => [dx, 1] as const), ...range(2, 6).map((depth) => [0, depth] as const)] },
-  { name: 'U자방', cells: [...range(1, 5).flatMap((depth) => [[-2, depth] as const, [2, depth] as const]), ...range(-1, 1).map((dx) => [dx, 5] as const)] },
+  { name: 'U자방', cells: [...range(-2, 2).map((dx) => [dx, 1] as const), ...range(2, 5).flatMap((depth) => [[-2, depth] as const, [2, depth] as const])] },
   { name: '마름모방', cells: [[0, 1], [-1, 2], [0, 2], [1, 2], [-2, 3], [-1, 3], [0, 3], [1, 3], [2, 3], [-1, 4], [0, 4], [1, 4], [0, 5]] },
   { name: '번개방', cells: [[0, 1], [1, 1], [2, 1], [2, 2], [2, 3], [1, 3], [0, 3], [0, 4], [0, 5], [-1, 5], [-2, 5]] },
   { name: '십자방', cells: [[0, 1], [0, 2], [-1, 3], [0, 3], [1, 3], [-2, 3], [2, 3], [0, 4], [0, 5], [-1, 5], [1, 5]] },

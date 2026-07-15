@@ -1,11 +1,11 @@
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
-  'ready', 'start', 'add-bot', 'remove-bot', 'move', 'interact', 'build', 'upgrade', 'rematch', 'ping', 'resync',
+  'ready', 'start', 'add-bot', 'remove-bot', 'move', 'interact', 'build', 'upgrade', 'draw-item', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'generator', 'repair-drone',
-  'electric-coil', 'floor-trap', 'shield-device',
+  'electric-coil', 'floor-trap', 'shield-device', 'lucky-machine',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +53,9 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'upgrade':
       if (typeof value.targetId !== 'string') return { ok: false, error: 'invalid upgrade target' };
+      break;
+    case 'draw-item':
+      if (typeof value.machineId !== 'string') return { ok: false, error: 'invalid lucky machine' };
       break;
     case 'ping':
       if (typeof value.clientTime !== 'number' || !Number.isFinite(value.clientTime)) return { ok: false, error: 'invalid ping' };

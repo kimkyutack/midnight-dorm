@@ -1,6 +1,7 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 interface TestState {
+  map: { walkable: Array<{ x: number; y: number }> } | null;
   snapshot: {
     seed: number;
     status: string;
@@ -66,12 +67,18 @@ test('two real browser contexts share movement, building, combat and reconnectio
     expect(firstState.snapshot?.players).toHaveLength(2);
 
     const movingId = firstState.playerId;
-    const before = secondState.snapshot?.players.find((player) => player.id === movingId)?.position.x ?? 0;
-    await first.evaluate(() => window.__DORM_TEST__?.move(1, 0));
-    await second.waitForFunction(({ id, x }) => {
+    const beforePosition = secondState.snapshot?.players.find((player) => player.id === movingId)?.position ?? { x: 0, y: 0 };
+    await first.evaluate(() => {
+      const state = window.__DORM_TEST__;
+      const player = state?.snapshot?.players.find((candidate) => candidate.id === state.playerId);
+      const directions = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+      const direction = directions.find((candidate) => state?.map?.walkable.some((tile) => tile.x === Math.round((player?.position.x ?? 0) + candidate.x) && tile.y === Math.round((player?.position.y ?? 0) + candidate.y)));
+      if (direction) state?.move(direction.x, direction.y);
+    });
+    await second.waitForFunction(({ id, position }) => {
       const player = window.__DORM_TEST__?.snapshot?.players.find((candidate) => candidate.id === id);
-      return Boolean(player && Math.abs(player.position.x - x) > 0.08);
-    }, { id: movingId, x: before });
+      return Boolean(player && Math.hypot(player.position.x - position.x, player.position.y - position.y) > 0.08);
+    }, { id: movingId, position: beforePosition }, { timeout: 10_000 });
     await first.evaluate(() => window.__DORM_TEST__?.move(0, 0));
 
     const goldBefore = (await state(first)).snapshot?.players.find((player) => player.id === movingId)?.gold ?? 0;

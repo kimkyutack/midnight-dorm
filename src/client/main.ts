@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { BALANCE } from '../shared/balance';
+import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
+import { DRAW_COSTS, getRandomItem } from '../shared/randomItems';
 import type { BuildingKind, GameEvent, GameSnapshot, MapDefinition, Tile, Vec2 } from '../shared/types';
 import { SynthAudio } from './audio';
-import { GameScene } from './game/GameScene';
+import { GameScene, type SceneSelection } from './game/GameScene';
 import { GameNetwork } from './network';
 import { loadProfile, saveProfile } from './storage';
 import './styles.css';
@@ -32,6 +33,7 @@ let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
 let playerId = '';
 let selectedTile: Tile | null = null;
+let selectedTarget: SceneSelection | null = null;
 let currentView = '';
 let inputSequence = 0;
 let inputVector: Vec2 = { x: 0, y: 0 };
@@ -40,8 +42,9 @@ let resultRecorded = false;
 let toastTimer = 0;
 const e2eMode = new URLSearchParams(location.search).get('e2e') === '1';
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
+const freshMode = new URLSearchParams(location.search).get('fresh') === '1';
 const BUILD_KINDS: Exclude<BuildingKind, 'bed' | 'reinforced-door'>[] = [
-  'basic-turret', 'rapid-turret', 'frost-turret', 'generator', 'repair-drone', 'electric-coil', 'floor-trap', 'shield-device',
+  'basic-turret', 'rapid-turret', 'frost-turret', 'generator', 'repair-drone', 'electric-coil', 'floor-trap', 'shield-device', 'lucky-machine',
 ];
 
 const escapeHtml = (value: string): string => value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] as string);
@@ -130,6 +133,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     const scene = game?.scene.getScene('game') as GameScene | undefined;
     if (scene?.scene.isActive()) scene.updateSnapshot(next, events);
     playEvents(events);
+    refreshSelectionPanel();
     updateTestApi();
   });
   network.on('connection', ({ state, attempt }) => updateConnection(state, attempt));
@@ -165,17 +169,19 @@ function updateLobby(state: GameSnapshot): void {
 }
 
 function gameScreen(state: GameSnapshot): void {
-  setContent('game', `<main id="game-shell"><div id="game-root"></div><div class="hud"><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`);
+  setContent('game', `<main id="game-shell"><div id="game-root"></div><div class="hud"><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`);
   setupJoystick();
   app.querySelector('[data-interact]')?.addEventListener('click', () => { network?.interact(); audio.play('button'); });
   app.querySelector('[data-cancel]')?.addEventListener('click', () => closeBuildPanel());
+  app.querySelector('[data-inventory]')?.addEventListener('click', showInventory);
   window.addEventListener('dorm:tile-selected', onTileSelected as EventListener);
+  window.addEventListener('dorm:target-selected', onTargetSelected as EventListener);
   if (!mapData) return;
   game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game-root',
-    width: mapData.width * 32,
-    height: mapData.height * 32,
+    width: 960,
+    height: 480,
     backgroundColor: '#090b1a',
     render: { antialias: true, pixelArt: false, roundPixels: true, powerPreference: 'high-performance' },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
@@ -205,9 +211,13 @@ function updateHud(): void {
   setText('[data-gold]', me ? Math.floor(me.gold).toString() : '0');
   setText('[data-power]', me ? Math.floor(me.power).toString() : '0');
   setText('[data-door]', room ? `${Math.ceil(room.doorHp)}` : '미점유');
-  setText('[data-ghost]', `Lv.${snapshot.ghost.level}`);
+  const aliveGhosts = snapshot.ghosts.filter((ghost) => ghost.hp > 0);
+  const leadGhost = aliveGhosts[0] ?? snapshot.ghost;
+  setText('[data-ghost]', `${aliveGhosts.length > 1 ? `${aliveGhosts.length}명 · ` : ''}Lv.${leadGhost.level} ${leadGhost.attackCount}/${leadGhost.attacksToNextLevel}`);
+  setText('[data-draw]', `${me?.drawCount ?? 0}/4`);
   setText('[data-time]', formatTime(snapshot.elapsed));
-  setText('[data-phase]', snapshot.status === 'COUNTDOWN' ? `침대를 찾아 점유하세요 · ${Math.ceil(snapshot.countdown)}초` : snapshot.ghost.rage ? '⚠ 악몽의 순찰자 분노 상태' : '협력하여 순찰자를 처치하세요');
+  const retreating = snapshot.ghosts.some((ghost) => ghost.retreating || ghost.healing);
+  setText('[data-phase]', snapshot.status === 'COUNTDOWN' ? `침대를 찾아 점유하세요 · ${Math.ceil(snapshot.countdown)}초` : retreating ? '⚠ 귀신이 회복 구역으로 후퇴 중 — 지금 처치하세요!' : `${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`);
   const net = app.querySelector<HTMLElement>('[data-network]');
   if (net) net.textContent = `연결됨 · ${Math.round(ping)}ms`;
 }
@@ -229,8 +239,15 @@ function resultScreen(state: GameSnapshot): void {
 }
 
 function onTileSelected(event: CustomEvent<Tile>): void {
+  selectedTarget = null;
   selectedTile = event.detail;
   renderBuildPanel(event.detail);
+}
+
+function onTargetSelected(event: CustomEvent<SceneSelection>): void {
+  selectedTile = null;
+  selectedTarget = event.detail;
+  renderTargetPanel(event.detail);
 }
 
 function renderBuildPanel(tile: Tile): void {
@@ -239,18 +256,76 @@ function renderBuildPanel(tile: Tile): void {
   if (!me?.roomId || tile.roomId !== me.roomId) { toast('자신이 점유한 방의 타일만 사용할 수 있습니다.'); return; }
   const panel = app.querySelector<HTMLElement>('[data-build-panel]');
   if (!panel) return;
-  const room = snapshot.rooms.find((candidate) => candidate.id === me.roomId);
-  const buildings = snapshot.buildings.filter((building) => building.roomId === me.roomId);
-  panel.innerHTML = `<h3>방어 설비</h3><p>${tile.x}, ${tile.y} 타일 · 골드 ${Math.floor(me.gold)} · 전력 ${Math.floor(me.power)}</p><div class="build-grid">${BUILD_KINDS.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = definition.levels[0]; return `<button class="build-card" data-build="${kind}"><strong>${definition.label}</strong><span>◆ ${cost.gold} · ⚡ ${cost.power}</span></button>`; }).join('')}</div><h3 style="margin-top:12px">기본 설비 업그레이드</h3><div class="build-grid"><button class="build-card" data-upgrade="bed:${me.roomId}"><strong>꿈결 침대 Lv.${room?.bedLevel ?? 1}</strong><span>골드 생산 강화</span></button><button class="build-card" data-upgrade="door:${me.roomId}"><strong>별빛 강화문 Lv.${room?.doorLevel ?? 1}</strong><span>문 내구도 강화</span></button>${buildings.filter((building) => building.level < 3).map((building) => `<button class="build-card" data-upgrade="${building.id}"><strong>${BALANCE.buildings[building.kind].label} Lv.${building.level}</strong><span>설비 강화</span></button>`).join('')}</div>`;
+  const occupied = snapshot.buildings.find((building) => building.tile.x === tile.x && building.tile.y === tile.y);
+  if (occupied) {
+    selectedTarget = { type: 'building', targetId: occupied.id, buildingId: occupied.id, roomId: occupied.roomId };
+    selectedTile = null;
+    renderTargetPanel(selectedTarget);
+    return;
+  }
+  panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ ${Math.floor(me.gold)} / ⚡ ${Math.floor(me.power)}</p><div class="build-grid">${BUILD_KINDS.map((kind) => { const definition = BALANCE.buildings[kind]; const cost = buildingStats(kind, 1); return `<button class="build-card" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`; }).join('')}</div>`;
   panel.classList.remove('hidden');
   panel.querySelectorAll<HTMLElement>('[data-build]').forEach((button) => button.addEventListener('click', () => {
     if (selectedTile && me.roomId) network?.build(me.roomId, selectedTile, button.dataset.build as BuildingKind);
   }));
-  panel.querySelectorAll<HTMLElement>('[data-upgrade]').forEach((button) => button.addEventListener('click', () => network?.upgrade(button.dataset.upgrade as string)));
+}
+
+function renderTargetPanel(selection: SceneSelection): void {
+  if (!snapshot) return;
+  const me = snapshot.players.find((player) => player.id === playerId);
+  const panel = app.querySelector<HTMLElement>('[data-build-panel]');
+  if (!me || !panel) return;
+  if (selection.roomId !== me.roomId) { toast('자신이 점유한 방의 설비만 조작할 수 있습니다.'); return; }
+  const room = snapshot.rooms.find((candidate) => candidate.id === selection.roomId);
+  const building = selection.buildingId ? snapshot.buildings.find((candidate) => candidate.id === selection.buildingId) : undefined;
+  const kind: BuildingKind = selection.type === 'bed' ? 'bed' : selection.type === 'door' ? 'reinforced-door' : building?.kind ?? 'basic-turret';
+  const currentLevel = selection.type === 'bed' ? room?.bedLevel ?? 1 : selection.type === 'door' ? room?.doorLevel ?? 1 : building?.level ?? 1;
+  const definition = BALANCE.buildings[kind];
+  if (kind === 'lucky-machine' && building) {
+    const cost = DRAW_COSTS[me.drawCount];
+    const owned = me.items.map((item) => `${escapeHtml(item.label)}${item.count > 1 ? ` ×${item.count}` : ''}`).join(' · ') || '아직 획득한 아이템이 없습니다.';
+    panel.innerHTML = `<h3>🎁 ${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>${me.drawCount}/4회 사용</strong><span>${owned}</span></div>${cost ? `<button class="btn gold" data-draw style="width:100%">${me.drawCount + 1}번째 뽑기 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">이번 판 4회 완료</button>'}<small class="odds-note">전설 아이템은 매우 낮은 확률로 등장하며, 장식품은 아무 효과가 없습니다.</small>`;
+    panel.classList.remove('hidden');
+    panel.querySelector('[data-draw]')?.addEventListener('click', () => network?.drawItem(building.id));
+    return;
+  }
+  const maxLevel = maxBuildingLevel(kind);
+  const nextLevel = currentLevel + 1;
+  const current = buildingStats(kind, currentLevel);
+  const cost = currentLevel < maxLevel ? upgradeCost(kind, nextLevel) : null;
+  const effectLabel = kind === 'bed' ? `초당 골드 ${current.value}` : kind === 'reinforced-door' ? `최대 HP ${room ? Math.round(room.doorMaxHp) : current.value}` : ['basic-turret', 'rapid-turret', 'frost-turret'].includes(kind) ? `공격력 ${current.value} · 사거리 ${current.range}` : `효과 수치 ${current.value}`;
+  panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">최고 레벨 달성</button>'}`;
+  panel.classList.remove('hidden');
+  panel.querySelector<HTMLElement>('[data-upgrade]')?.addEventListener('click', () => attemptUpgrade(selection, currentLevel, cost));
+}
+
+function attemptUpgrade(selection: SceneSelection, currentLevel: number, cost: { gold: number; power: number } | null): void {
+  if (!snapshot || !cost) return;
+  const me = snapshot.players.find((player) => player.id === playerId);
+  if (!me || me.gold < cost.gold || me.power < cost.power) { toast(`업그레이드 비용이 부족합니다. ◆ ${cost.gold} / ⚡ ${cost.power}`); return; }
+  me.gold -= cost.gold;
+  me.power -= cost.power;
+  const room = snapshot.rooms.find((candidate) => candidate.id === selection.roomId);
+  if (selection.type === 'bed' && room) room.bedLevel = currentLevel + 1;
+  else if (selection.type === 'door' && room) room.doorLevel = currentLevel + 1;
+  else {
+    const building = snapshot.buildings.find((candidate) => candidate.id === selection.buildingId);
+    if (building) building.level = currentLevel + 1;
+  }
+  network?.upgrade(selection.targetId);
+  renderTargetPanel(selection);
+  updateHud();
+}
+
+function refreshSelectionPanel(): void {
+  if (currentView !== 'game' || app.querySelector('[data-build-panel]')?.classList.contains('hidden')) return;
+  if (selectedTarget) renderTargetPanel(selectedTarget);
+  else if (selectedTile) renderBuildPanel(selectedTile);
 }
 
 function closeBuildPanel(): void {
   selectedTile = null;
+  selectedTarget = null;
   app.querySelector('[data-build-panel]')?.classList.add('hidden');
 }
 
@@ -283,9 +358,37 @@ function sendMovement(): void {
 }
 
 function playEvents(events: GameEvent[]): void {
-  const interesting = events.find((event) => ['build', 'upgrade', 'turret-fire', 'door-hit', 'player-hit', 'victory', 'defeat'].includes(event.kind));
+  const interesting = events.find((event) => ['build', 'upgrade', 'turret-fire', 'door-hit', 'player-hit', 'ghost-level-up', 'ghost-retreat', 'ghost-return', 'ghost-skill', 'item-draw', 'victory', 'defeat'].includes(event.kind));
   if (interesting) audio.play(interesting.kind);
+  const draw = events.find((event) => event.kind === 'item-draw' && event.playerId === playerId);
+  if (draw?.itemId) showItemReveal(draw.itemId);
+  const levelUp = events.find((event) => event.kind === 'ghost-level-up');
+  if (levelUp) toast(`귀신이 문을 충분히 공격해 Lv.${levelUp.amount ?? '?'}로 성장했습니다!`);
   if (profile.vibration && events.some((event) => event.kind === 'door-hit' || event.kind === 'player-hit')) navigator.vibrate?.(35);
+}
+
+function showInventory(): void {
+  if (!snapshot) return;
+  const me = snapshot.players.find((player) => player.id === playerId);
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  const cards = me?.items.length ? me.items.map((owned) => {
+    const item = getRandomItem(owned.itemId);
+    return `<article class="item-card rarity-${owned.rarity}"><strong>${escapeHtml(owned.label)}${owned.count > 1 ? ` ×${owned.count}` : ''}</strong><span>${escapeHtml(item?.description ?? '')}</span><small>${owned.rarity.toUpperCase()}</small></article>`;
+  }).join('') : '<p class="subtitle">랜덤 상자를 설치하고 아이템을 뽑아보세요.</p>';
+  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH ITEMS · ${me?.drawCount ?? 0}/4</span><h2>이번 판 가방</h2><div class="item-grid">${cards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
+  app.appendChild(modal);
+  modal.querySelector('[data-close]')?.addEventListener('click', () => modal.remove());
+}
+
+function showItemReveal(itemId: string): void {
+  const item = getRandomItem(itemId);
+  if (!item) return;
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop item-reveal';
+  modal.innerHTML = `<section class="panel compact rarity-${item.rarity}" style="text-align:center"><div class="reveal-orb">🎁</div><span class="eyebrow">${item.rarity.toUpperCase()} DROP</span><h2>${escapeHtml(item.label)}</h2><p class="subtitle">${escapeHtml(item.description)}</p><button class="btn gold" style="width:100%" data-close>가방에 넣기</button></section>`;
+  app.appendChild(modal);
+  modal.querySelector('[data-close]')?.addEventListener('click', () => modal.remove());
 }
 
 function updateConnection(state: 'connecting' | 'connected' | 'reconnecting' | 'closed', attempt: number): void {
@@ -327,6 +430,7 @@ function setText(selector: string, value: string): void {
 
 function destroyGame(): void {
   window.removeEventListener('dorm:tile-selected', onTileSelected as EventListener);
+  window.removeEventListener('dorm:target-selected', onTargetSelected as EventListener);
   game?.destroy(true); game = null;
 }
 
@@ -363,6 +467,10 @@ window.setTimeout(() => {
 }, 350);
 
 async function resumeOrEnter(): Promise<void> {
+  if (freshMode) {
+    nicknameScreen();
+    return;
+  }
   const code = profile.recentRoomCode;
   if (!profile.nickname || !/^[A-Z2-9]{8}$/.test(code) || !profile.reconnectTokens[code]) {
     nicknameScreen();
