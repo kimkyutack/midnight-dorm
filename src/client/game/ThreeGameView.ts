@@ -783,27 +783,11 @@ export class ThreeGameView {
       MIN_CAMERA_DISTANCE_SCALE,
       MAX_CAMERA_DISTANCE_SCALE,
     );
-    this.notifyCameraMoved();
   }
 
   rotateBy(radians: number): void {
     if (!Number.isFinite(radians)) return;
     this.cameraYaw = Math.atan2(Math.sin(this.cameraYaw + radians), Math.cos(this.cameraYaw + radians));
-    this.notifyCameraMoved();
-  }
-
-  focusLocalRoom(): void {
-    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
-    const roomId = local?.roomId;
-    const room = roomId ? this.mapData.rooms.find((candidate) => candidate.id === roomId) : null;
-    const tiles = room?.floorTiles.length ? room.floorTiles : room?.buildTiles;
-    if (tiles?.length) {
-      const center = tiles.reduce((sum, tile) => ({ x: sum.x + tile.x, y: sum.y + tile.y }), { x: 0, y: 0 });
-      this.desiredCameraTarget.set(center.x / tiles.length, 0, center.y / tiles.length);
-    } else if (local) {
-      this.desiredCameraTarget.copy(worldPoint(local.position));
-    }
-    this.cameraTarget.lerp(this.desiredCameraTarget, 0.6);
   }
 
   pause(): void {
@@ -1147,10 +1131,7 @@ export class ThreeGameView {
         if (isWalkableArea(this.mapData, nextX, view.root.position.z, BALANCE.player.collisionRadius)) view.root.position.x = nextX;
         if (isWalkableArea(this.mapData, view.root.position.x, nextZ, BALANCE.player.collisionRadius)) view.root.position.z = nextZ;
       }
-      const localActivelyMoving = id === this.playerId && !lying && (this.localInput.x || this.localInput.y);
-      const serverDistance = view.root.position.distanceTo(view.target);
-      const correctionSpeed = localActivelyMoving ? (serverDistance > 1.15 ? 6.5 : 1.8) : id === this.playerId ? 8.5 : 10.5;
-      view.root.position.lerp(view.target, 1 - Math.exp(-correctionSpeed * dt));
+      view.root.position.lerp(view.target, 1 - Math.exp(-(id === this.playerId ? 8.5 : 10.5) * dt));
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
@@ -1351,7 +1332,6 @@ export class ThreeGameView {
       const panScale = 0.015 * this.cameraDistanceScale;
       this.desiredCameraTarget.addScaledVector(right, -dx * panScale);
       this.desiredCameraTarget.addScaledVector(forward, dy * panScale);
-      this.notifyCameraMoved();
     }
     this.drag.x = event.clientX;
     this.drag.y = event.clientY;
@@ -1377,10 +1357,6 @@ export class ThreeGameView {
   };
 
   private readonly onContextMenu = (event: MouseEvent): void => event.preventDefault();
-
-  private notifyCameraMoved(): void {
-    window.dispatchEvent(new CustomEvent('dorm:camera-moved'));
-  }
 
   private currentGesture(): MultiTouchGesture | null {
     const points = [...this.pointerPositions.values()];
