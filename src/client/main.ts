@@ -87,6 +87,7 @@ let lastMovementSentAt = 0;
 let pendingMovementTimer = 0;
 const pendingActions = new Map<string, number>();
 let ping = 0;
+let displayedPing = 0;
 let resultRecorded = false;
 let toastTimer = 0;
 const e2eMode = new URLSearchParams(location.search).get("e2e") === "1";
@@ -656,6 +657,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
   });
   network.on("ping", ({ milliseconds }) => {
     ping = milliseconds;
+    if (displayedPing === 0) displayedPing = milliseconds;
     updateHud();
   });
   network.connect();
@@ -723,7 +725,7 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><button class="camera-home hidden" data-camera-home aria-label="내 방으로 카메라 이동">⌖ 내 방</button><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {
@@ -744,6 +746,12 @@ function gameScreen(state: GameSnapshot): void {
     "dorm:target-selected",
     onTargetSelected as EventListener,
   );
+  window.addEventListener("dorm:camera-moved", onCameraMoved);
+  app.querySelector("[data-camera-home]")?.addEventListener("click", () => {
+    game?.focusLocalRoom();
+    app.querySelector("[data-camera-home]")?.classList.add("hidden");
+    audio.play("button");
+  });
   if (!mapData) return;
   const gameRoot = app.querySelector<HTMLElement>("#game-root");
   if (!gameRoot) return;
@@ -768,6 +776,7 @@ function gameScreen(state: GameSnapshot): void {
       else if (action === "rotate-left") game?.rotateBy(-Math.PI / 12);
       else if (action === "rotate-right") game?.rotateBy(Math.PI / 12);
       refreshCameraZoom();
+      onCameraMoved();
       audio.play("button");
     }),
   );
@@ -821,8 +830,13 @@ function updateHud(): void {
             ? "⚠ 귀신이 후퇴합니다"
             : `${snapshot.stageLabel} · ${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`)),
   );
+  displayedPing += (ping - displayedPing) * 0.25;
   const net = app.querySelector<HTMLElement>("[data-network]");
-  if (net) net.textContent = `연결됨 · ${Math.round(ping)}ms`;
+  if (net) {
+    const roundedPing = Math.round(displayedPing);
+    net.textContent = `연결됨 · ${roundedPing}ms${roundedPing >= 90 ? " · 보정 중" : ""}`;
+    net.classList.toggle("lagging", roundedPing >= 90);
+  }
 }
 
 function resultScreen(state: GameSnapshot): void {
@@ -1141,6 +1155,10 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
   setText("[data-owned-power]", Math.floor(me?.power ?? 0).toString());
 }
 
+function onCameraMoved(): void {
+  app.querySelector("[data-camera-home]")?.classList.remove("hidden");
+}
+
 function closeBuildPanel(): void {
   selectedTile = null;
   selectedTarget = null;
@@ -1411,6 +1429,7 @@ function destroyGame(): void {
     "dorm:target-selected",
     onTargetSelected as EventListener,
   );
+  window.removeEventListener("dorm:camera-moved", onCameraMoved);
   game?.destroy();
   game = null;
 }
