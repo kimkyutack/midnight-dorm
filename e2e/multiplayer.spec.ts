@@ -59,20 +59,21 @@ test("first launch teaser leads through login to the cinematic game home and mod
   try {
     await page.goto("/?dev=1&fresh=1");
     await expect(page.locator(".opening-teaser")).toBeVisible();
-    await expect(page.getByText("심야 병동")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "심야 병동" })).toBeVisible();
     await page.getByRole("button", { name: "건너뛰기" }).click();
     await page.getByRole("button", { name: "새 계정" }).click();
+    const passwordInput = page.getByRole("textbox", { name: "비밀번호" });
     await expect(page.getByLabel("아이디")).toHaveAttribute("autocapitalize", "off");
-    await expect(page.getByLabel("비밀번호")).toHaveAttribute("autocapitalize", "off");
-    await expect(page.getByLabel("비밀번호")).toHaveAttribute("autocorrect", "off");
-    await expect(page.getByLabel("비밀번호")).toHaveAttribute("spellcheck", "false");
-    await expect(page.getByLabel("비밀번호")).toHaveAttribute("inputmode", "email");
+    await expect(passwordInput).toHaveAttribute("autocapitalize", "off");
+    await expect(passwordInput).toHaveAttribute("autocorrect", "off");
+    await expect(passwordInput).toHaveAttribute("spellcheck", "false");
+    await expect(passwordInput).toHaveAttribute("inputmode", "email");
     const username = `intro${Date.now().toString(36)}`.slice(0, 20);
     const password = "midnight-test-2026";
     await page.getByLabel("아이디").fill(username);
     await page.getByLabel("게임 닉네임").fill("새벽도망자");
-    await page.getByLabel("비밀번호").fill(password);
-    await expect(page.getByLabel("비밀번호")).toHaveValue(password);
+    await passwordInput.fill(password);
+    await expect(passwordInput).toHaveValue(password);
     await page.getByRole("button", { name: "계정 만들고 시작" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
