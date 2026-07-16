@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { BALANCE } from '../../shared/balance';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
-import type { BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, Vec2 } from '../../shared/types';
+import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, Vec2 } from '../../shared/types';
+import { movementFacingYaw } from './avatarMath';
 
 const BASE_CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
 const BASE_CAMERA_HORIZONTAL_DISTANCE = Math.hypot(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
@@ -32,7 +33,7 @@ interface BillboardData {
   key: string;
 }
 
-interface PlayerRig {
+export interface PlayerRig {
   root: THREE.Group;
   avatar: THREE.Group;
   leftArm: THREE.Group;
@@ -93,6 +94,8 @@ interface TimedEffect {
   from?: THREE.Vector3;
   to?: THREE.Vector3;
   rise?: number;
+  baseScale?: THREE.Vector3;
+  scaleGrowth?: number;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -188,12 +191,16 @@ function setObjectOpacity(object: THREE.Object3D, opacity: number): void {
   });
 }
 
-function createHuman(player: PlayerState, local: boolean): PlayerRig {
+export function createPlayerRig(
+  appearance: AvatarAppearance,
+  displayRank: RankId,
+  color: number,
+  local = false,
+): PlayerRig {
   const root = new THREE.Group();
   const avatar = new THREE.Group();
   root.add(avatar);
 
-  const appearance = player.appearance;
   const animal = appearance.character.replace('character-', '');
   const furColors: Record<string, number> = {
     bunny: 0xe6c2b7,
@@ -218,9 +225,15 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
     'shoes-moon': 0xb8cdeb,
     'shoes-neon': 0x43d9ca,
   };
-  const fur = standardMaterial(furColors[animal] ?? 0xe6c2b7, { roughness: 0.9 });
+  const fur = new THREE.MeshPhysicalMaterial({
+    color: furColors[animal] ?? 0xe6c2b7,
+    roughness: 0.68,
+    metalness: 0,
+    clearcoat: 0.18,
+    clearcoatRoughness: 0.72,
+  });
   const innerEar = standardMaterial(animal === 'fox' ? 0x5a2c2b : 0xc9858a, { roughness: 0.9 });
-  const clothColor = new THREE.Color(outfitColors[appearance.outfit] ?? player.color);
+  const clothColor = new THREE.Color(outfitColors[appearance.outfit] ?? color);
   const cloth = standardMaterial(clothColor, {
     roughness: 0.88,
     emissive: appearance.outfit === 'outfit-starlight' ? 0x17214f : 0x000000,
@@ -231,38 +244,46 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
     emissive: appearance.shoes === 'shoes-neon' ? 0x176b64 : 0x000000,
     emissiveIntensity: appearance.shoes === 'shoes-neon' ? 0.9 : 0,
   });
-  const eye = standardMaterial(0x17151d, { roughness: 0.35 });
+  const eye = new THREE.MeshPhysicalMaterial({ color: 0x17151d, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08 });
   const white = standardMaterial(0xf8f2e8, { roughness: 0.82 });
   const cheek = standardMaterial(0xe58f94, { roughness: 0.9, transparent: true, opacity: 0.64 });
 
-  const torso = mesh(new THREE.CapsuleGeometry(0.27, 0.34, 5, 12), cloth, [0, 0.67, 0]);
-  torso.scale.set(1, 1, 0.78);
+  const torso = mesh(new THREE.CapsuleGeometry(0.29, 0.31, 7, 16), cloth, [0, 0.67, 0]);
+  torso.scale.set(1.04, 0.98, 0.88);
   avatar.add(torso);
-  const head = mesh(new THREE.SphereGeometry(0.39, 20, 14), fur, [0, 1.17, -0.015]);
-  head.scale.set(1.03, 0.93, 0.91);
+  const tummy = mesh(new THREE.SphereGeometry(0.235, 18, 12), cloth.clone(), [0, 0.67, -0.185]);
+  tummy.scale.set(1, 1.08, 0.3);
+  (tummy.material as THREE.MeshStandardMaterial).color.offsetHSL(0, -0.08, 0.08);
+  avatar.add(tummy);
+  const head = mesh(new THREE.SphereGeometry(0.42, 28, 20), fur, [0, 1.18, -0.015]);
+  head.scale.set(1.06, 0.98, 0.98);
   avatar.add(head);
   avatar.add(createAnimalEars(animal, fur, innerEar));
-  avatar.add(mesh(new THREE.SphereGeometry(0.047, 10, 8), eye, [-0.13, 1.19, -0.34]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.047, 10, 8), eye, [0.13, 1.19, -0.34]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.014, 8, 6), white, [-0.145, 1.205, -0.382]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.014, 8, 6), white, [0.115, 1.205, -0.382]));
-  const muzzle = mesh(new THREE.SphereGeometry(0.12, 12, 8), white, [0, 1.07, -0.355]);
-  muzzle.scale.set(1.18, 0.68, 0.56);
+  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [-0.145, 1.205, -0.37]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [0.145, 1.205, -0.37]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [-0.164, 1.227, -0.426]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [0.126, 1.227, -0.426]));
+  const muzzle = mesh(new THREE.SphereGeometry(0.13, 18, 12), white, [0, 1.065, -0.39]);
+  muzzle.scale.set(1.22, 0.7, 0.62);
   avatar.add(muzzle);
-  avatar.add(mesh(new THREE.SphereGeometry(0.034, 8, 6), standardMaterial(0x684348), [0, 1.105, -0.425]));
-  const leftCheek = mesh(new THREE.SphereGeometry(0.047, 8, 6), cheek, [-0.245, 1.09, -0.31]);
-  const rightCheek = mesh(new THREE.SphereGeometry(0.047, 8, 6), cheek, [0.245, 1.09, -0.31]);
+  avatar.add(mesh(new THREE.SphereGeometry(0.039, 12, 8), standardMaterial(0x684348, { roughness: 0.32 }), [0, 1.105, -0.47]));
+  const smile = mesh(new THREE.TorusGeometry(0.052, 0.01, 5, 18, Math.PI), standardMaterial(0x71464d, { roughness: 0.4 }), [0, 1.02, -0.467]);
+  smile.rotation.z = Math.PI;
+  avatar.add(smile);
+  const leftCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [-0.255, 1.09, -0.34]);
+  const rightCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [0.255, 1.09, -0.34]);
   leftCheek.scale.y = rightCheek.scale.y = 0.52;
   avatar.add(leftCheek, rightCheek);
-  avatar.add(createAvatarHat(appearance.hat, player.displayRank));
+  avatar.add(createAvatarHat(appearance.hat, displayRank));
   avatar.add(createAvatarAccessory(appearance.accessory));
+  avatar.add(createAnimalTail(animal, fur));
 
   const leftArm = new THREE.Group();
   const rightArm = new THREE.Group();
   leftArm.position.set(-0.31, 0.83, 0);
   rightArm.position.set(0.31, 0.83, 0);
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.072, 0.25, 3, 8), cloth, [0, -0.16, 0]));
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.072, 0.25, 3, 8), cloth, [0, -0.16, 0]));
+  leftArm.add(mesh(new THREE.CapsuleGeometry(0.08, 0.24, 5, 10), cloth, [0, -0.16, 0]));
+  rightArm.add(mesh(new THREE.CapsuleGeometry(0.08, 0.24, 5, 10), cloth, [0, -0.16, 0]));
   leftArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
   rightArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
   avatar.add(leftArm, rightArm);
@@ -273,19 +294,59 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
   rightLeg.position.set(0.135, 0.4, 0);
   leftLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
   rightLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
-  leftLeg.add(mesh(new THREE.BoxGeometry(0.2, 0.13, 0.29), shoe, [0, -0.28, -0.055]));
-  rightLeg.add(mesh(new THREE.BoxGeometry(0.2, 0.13, 0.29), shoe, [0, -0.28, -0.055]));
+  const leftShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.28, -0.055]);
+  const rightShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.28, -0.055]);
+  leftShoe.scale.set(0.9, 0.62, 1.25);
+  rightShoe.scale.copy(leftShoe.scale);
+  leftLeg.add(leftShoe);
+  rightLeg.add(rightShoe);
   avatar.add(leftLeg, rightLeg);
 
   const groundRing = mesh(
     new THREE.RingGeometry(local ? 0.34 : 0.31, local ? 0.4 : 0.35, 36),
-    new THREE.MeshBasicMaterial({ color: local ? 0x74e6ff : player.color, transparent: true, opacity: local ? 0.72 : 0.3, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: local ? 0x74e6ff : color, transparent: true, opacity: local ? 0.72 : 0.3, side: THREE.DoubleSide }),
     [0, 0.025, 0],
   );
   groundRing.rotation.x = -Math.PI / 2;
   root.add(groundRing);
   root.scale.setScalar(0.92);
   return { root, avatar, leftArm, rightArm, leftLeg, rightLeg };
+}
+
+function createAnimalTail(animal: string, fur: THREE.Material): THREE.Group {
+  const tail = new THREE.Group();
+  if (animal === 'bunny') {
+    tail.add(mesh(new THREE.SphereGeometry(0.15, 14, 10), fur, [0, 0.68, 0.28]));
+  } else if (animal === 'bear' || animal === 'hamster') {
+    tail.add(mesh(new THREE.SphereGeometry(animal === 'hamster' ? 0.1 : 0.085, 12, 8), fur, [0, 0.7, 0.27]));
+  } else {
+    const radius = animal === 'fox' ? 0.085 : animal === 'puppy' ? 0.068 : 0.058;
+    const points = (animal === 'puppy'
+      ? [[0.17, 0.63, 0.23], [0.27, 0.71, 0.26], [0.25, 0.82, 0.27]]
+      : [[0.16, 0.57, 0.22], [0.27, 0.66, 0.25], [0.32, 0.8, 0.27], [0.27, 0.94, 0.26]])
+      .map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const from = points[index] as THREE.Vector3;
+      const to = points[index + 1] as THREE.Vector3;
+      const direction = to.clone().sub(from);
+      const length = direction.length();
+      const segment = mesh(
+        new THREE.CapsuleGeometry(radius * (1 - index * 0.08), Math.max(0.015, length - radius * 1.6), 5, 10),
+        fur,
+        [0, 0, 0],
+      );
+      segment.position.copy(from).lerp(to, 0.5);
+      segment.quaternion.setFromUnitVectors(up, direction.normalize());
+      tail.add(segment);
+    }
+    tail.add(mesh(
+      new THREE.SphereGeometry(radius * 0.78, 12, 9),
+      fur,
+      (points[points.length - 1] as THREE.Vector3).toArray() as [number, number, number],
+    ));
+  }
+  return tail;
 }
 
 function createAnimalEars(animal: string, fur: THREE.Material, inner: THREE.Material): THREE.Group {
@@ -935,7 +996,7 @@ export class ThreeGameView {
     for (const player of players) {
       let view = this.playerViews.get(player.id);
       if (!view) {
-        const rig = createHuman(player, player.id === this.playerId);
+        const rig = createPlayerRig(player.appearance, player.displayRank, player.color, player.id === this.playerId);
         rig.root.position.copy(worldPoint(player.position));
         const label = makeBillboard();
         label.scale.set(2.35, 0.59, 1);
@@ -1068,7 +1129,7 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (moving && !lying) view.avatar.rotation.y = damp(view.avatar.rotation.y, Math.atan2(dx, dz), 12, dt);
+      if (moving && !lying) view.avatar.rotation.y = damp(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
       const stride = moving && !lying ? Math.sin(time * 0.011 + view.seed) * 0.68 : 0;
       view.leftArm.rotation.x = damp(view.leftArm.rotation.x, stride, 12, dt);
       view.rightArm.rotation.x = damp(view.rightArm.rotation.x, -stride, 12, dt);
@@ -1090,7 +1151,7 @@ export class ThreeGameView {
       view.root.position.lerp(view.target, 1 - Math.exp(-8 * dt));
       const dx = view.root.position.x - beforeX;
       const dz = view.root.position.z - beforeZ;
-      if (Math.hypot(dx, dz) > 0.001) view.body.rotation.y = damp(view.body.rotation.y, Math.atan2(dx, dz), 9, dt);
+      if (Math.hypot(dx, dz) > 0.001) view.body.rotation.y = damp(view.body.rotation.y, movementFacingYaw(dx, dz), 9, dt);
       view.body.position.y = Math.sin(time * 0.0048 + view.seed) * 0.1 + 0.08;
       view.body.rotation.z = Math.sin(time * 0.0026 + view.seed) * 0.045;
       const reach = Math.sin(time * 0.006 + view.seed) * 0.22;
@@ -1116,7 +1177,11 @@ export class ThreeGameView {
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
       if (effect.from && effect.to) effect.object.position.lerpVectors(effect.from, effect.to, progress);
       if (effect.rise) effect.object.position.y += effect.rise * 0.016;
-      effect.object.scale.setScalar(1 + progress * 1.4);
+      if (effect.baseScale) {
+        effect.object.scale.copy(effect.baseScale).multiplyScalar(1 + progress * (effect.scaleGrowth ?? 0));
+      } else {
+        effect.object.scale.setScalar(1 + progress * 1.4);
+      }
       setObjectOpacity(effect.object, 1 - progress);
       if (progress < 1) continue;
       this.scene.remove(effect.object);
@@ -1127,11 +1192,20 @@ export class ThreeGameView {
   private playEvent(event: GameEvent): void {
     if ((event.kind === 'gold' || event.kind === 'power') && event.position && (event.amount ?? 0) > 0) {
       const popup = makeBillboard();
-      popup.scale.set(1.65, 0.52, 1);
+      // 512×128 캔버스와 동일한 4:1 비율을 유지한다. 애니메이션에서도
+      // baseScale을 보존해야 모바일 원근 카메라에서 글자가 눌리지 않는다.
+      popup.scale.set(2.08, 0.52, 1);
       updateTextBillboard(popup, `${event.kind}:${event.amount}:${performance.now()}`, `${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`, event.kind === 'gold' ? '#ffd36f' : '#75e8ff', 'rgba(5,8,16,.72)');
       popup.position.copy(worldPoint(event.position, 1.9));
       this.scene.add(popup);
-      this.effects.push({ object: popup, born: performance.now(), duration: 1_050, rise: 0.024 });
+      this.effects.push({
+        object: popup,
+        born: performance.now(),
+        duration: 1_050,
+        rise: 0.024,
+        baseScale: popup.scale.clone(),
+        scaleGrowth: 0.06,
+      });
       return;
     }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {

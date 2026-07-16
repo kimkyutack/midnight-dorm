@@ -21,6 +21,7 @@ import {
 import { stageThemeFor } from "../shared/stageThemes";
 import type {
   AccountProfile,
+  AvatarAppearance,
   BuildingKind,
   CosmeticSlot,
   GameEvent,
@@ -42,6 +43,7 @@ import {
   registerAccount,
 } from "./auth";
 import { ThreeGameView, type SceneSelection } from "./game/ThreeGameView";
+import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { GameNetwork } from "./network";
 import { loadProfile, saveProfile } from "./storage";
 import "./styles.css";
@@ -70,6 +72,7 @@ const audio = new SynthAudio();
 audio.setVolume(profile.volume);
 let network: GameNetwork | null = null;
 let game: ThreeGameView | null = null;
+let customAvatarPreview: AvatarPreview3D | null = null;
 let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
 let playerId = "";
@@ -144,6 +147,8 @@ const rankIdentityHtml = (rank: RankId, badgeClass = ""): string =>
   `<span class="rank-identity rank-${rank}"><i class="rank-badge ${badgeClass}" aria-hidden="true"><span>${rankBadgeSymbol(rank)}</span></i><b>${rankLabel(rank)}</b></span>`;
 
 function setContent(view: string, html: string): void {
+  customAvatarPreview?.destroy();
+  customAvatarPreview = null;
   currentView = view;
   app.dataset.view = view;
   app.innerHTML = `${html}<button class="btn icon-btn" data-settings aria-label="설정">⚙</button><div class="toast" id="toast"></div>`;
@@ -251,18 +256,8 @@ const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
   turret: "포탑",
 };
 
-function avatarPreviewHtml(profile: AccountProfile): string {
-  const appearance = profile.appearance;
-  const character = cosmeticById(appearance.character);
-  const outfit = cosmeticById(appearance.outfit);
-  const shoes = cosmeticById(appearance.shoes);
-  const hat = cosmeticById(appearance.hat);
-  const characterClass = appearance.character.replace("character-", "");
-  const hatClass = appearance.hat.replace("hat-", "");
-  const accessoryClass = appearance.accessory.replace("accessory-", "");
-  const hatSymbol = appearance.hat === "hat-rank" ? "" : hat?.symbol ?? "";
-  const accessorySymbol = appearance.accessory === "accessory-none" ? "" : cosmeticById(appearance.accessory)?.symbol ?? "";
-  return `<div class="custom-avatar character-${escapeHtml(characterClass)} hat-${escapeHtml(hatClass)} accessory-${escapeHtml(accessoryClass)}" style="--fur:${character?.swatch ?? "#e9c7bc"};--cloth:${outfit?.swatch ?? "#6677a6"};--shoes:${shoes?.swatch ?? "#b6c4ca"}"><div class="custom-avatar-shadow"></div><div class="custom-avatar-body"><i class="custom-arm left"></i><i class="custom-arm right"></i><i class="custom-leg left"></i><i class="custom-leg right"></i></div><div class="custom-avatar-head"><i class="custom-ear left"></i><i class="custom-ear right"></i><i class="custom-eye left"></i><i class="custom-eye right"></i><i class="custom-muzzle"></i><i class="custom-cheek left"></i><i class="custom-cheek right"></i></div><div class="custom-avatar-hat">${escapeHtml(hatSymbol)}</div><div class="custom-avatar-accessory">${escapeHtml(accessorySymbol)}</div></div>`;
+function avatarPreviewHtml(): string {
+  return `<div class="custom-avatar-stage" data-avatar-preview><span class="custom-preview-badge">3D FITTING ROOM</span><span class="custom-rotate-hint">↔ 캐릭터를 밀어서 회전</span><div class="custom-view-switch" aria-label="캐릭터 보는 방향"><button data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
 
 function turretPreviewHtml(profile: AccountProfile): string {
@@ -317,15 +312,70 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
       } else if (item.unlock.kind === "rank") {
         status = "등급 해금";
       }
-      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${!available && item.unlock.kind === "rank" ? "locked" : ""}"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div><button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}" ${disabled ? "disabled" : ""}>${status}</button></article>`;
+      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${!available && item.unlock.kind === "rank" ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div><button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}" ${disabled ? "disabled" : ""}>${status}</button></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
   const turretMode = activeSlot === "turret";
   setContent(
     "customize",
-    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${turretMode ? turretPreviewHtml(currentAccount) : avatarPreviewHtml(currentAccount)}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong>${turretMode ? "방어 설비 컬렉션" : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small>${turretMode ? "종류별 외형은 다음 설치부터 적용됩니다." : `${escapeHtml(currentAccount.nickname)}의 현재 캐릭터`}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
+    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${turretMode ? turretPreviewHtml(currentAccount) : avatarPreviewHtml()}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong data-custom-preview-title>${turretMode ? "방어 설비 컬렉션" : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? "종류별 외형은 다음 설치부터 적용됩니다." : "드래그하거나 앞·옆·뒤 버튼으로 확인하세요."}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
   );
+  if (!turretMode) {
+    const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
+    if (previewHost) {
+      customAvatarPreview = new AvatarPreview3D(
+        previewHost,
+        appearance,
+        currentAccount.displayRank,
+      );
+    }
+    app.querySelectorAll<HTMLButtonElement>("[data-avatar-view]").forEach(
+      (button) =>
+        button.addEventListener("click", () => {
+          customAvatarPreview?.setView(button.dataset.avatarView as AvatarView);
+          app.querySelectorAll("[data-avatar-view]").forEach((candidate) =>
+            candidate.classList.toggle("active", candidate === button),
+          );
+        }),
+    );
+    const showPreview = (itemId: string): void => {
+      const item = cosmeticById(itemId);
+      if (!item || item.slot === "turret") return;
+      const previewAppearance: AvatarAppearance = {
+        ...appearance,
+        [item.slot]: item.id,
+      };
+      customAvatarPreview?.updateAppearance(
+        previewAppearance,
+        currentAccount.displayRank,
+      );
+      app.querySelectorAll("[data-cosmetic-preview]").forEach((candidate) =>
+        candidate.classList.toggle(
+          "previewing",
+          (candidate as HTMLElement).dataset.cosmeticPreview === item.id,
+        ),
+      );
+      setText("[data-custom-preview-title]", item.label);
+      setText(
+        "[data-custom-preview-copy]",
+        currentAccount.ownedCosmetics.includes(item.id) || item.unlock.kind === "starter"
+          ? "현재 캐릭터에 입혀 본 모습입니다."
+          : "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다.",
+      );
+    };
+    app.querySelectorAll<HTMLElement>("[data-cosmetic-preview]").forEach(
+      (card) => {
+        card.addEventListener("click", () => showPreview(card.dataset.cosmeticPreview ?? ""));
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            showPreview(card.dataset.cosmeticPreview ?? "");
+          }
+        });
+      },
+    );
+  }
   app.querySelector("[data-custom-back]")?.addEventListener("click", () => {
     if (customizeReturnView === "room-menu") roomMenu();
     else homeScreen();
@@ -341,6 +391,7 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
       button.addEventListener("click", () => {
         const itemId = button.dataset.cosmeticId ?? "";
         const action = button.dataset.cosmeticAction;
+        const originalLabel = button.textContent ?? "";
         button.disabled = true;
         button.textContent = "처리 중";
         void (async () => {
@@ -350,7 +401,8 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
             customizationScreen(activeSlot);
             toast(action === "purchase" ? "구매하고 바로 착용했습니다." : "착용 상태를 저장했습니다.");
           } catch (error) {
-            customizationScreen(activeSlot);
+            button.disabled = false;
+            button.textContent = originalLabel;
             toast(error instanceof Error ? error.message : "커스텀 상태를 저장하지 못했습니다.");
           }
         })();
@@ -695,7 +747,10 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
   });
-  if (document.hidden) game.pause();
+  // Playwright의 모바일 2-client 시나리오는 같은 프로세스에서 WebGL 장면을
+  // 두 개 그린다. 자동화 중에는 네트워크/게임 상태만 진행하고 렌더 루프를
+  // 멈춰 입력이 서버 시간보다 뒤처지지 않게 한다.
+  if (document.hidden || automationMode) game.pause();
   const refreshCameraZoom = (): void => {
     const output = app.querySelector<HTMLOutputElement>("[data-camera-zoom]");
     if (output) output.value = `${game?.getCameraZoom().toFixed(1) ?? "1.0"}×`;

@@ -91,8 +91,15 @@ test("first launch teaser leads through login to the cinematic game home and mod
     expect((await page.request.post("/api/customize/equip", { data: { itemId: "character-bear" } })).status()).toBe(403);
     await page.getByRole("button", { name: /커스텀/ }).click();
     await expect(page.getByRole("heading", { name: "나만의 생존자" })).toBeVisible();
-    await expect(page.locator(".custom-avatar")).toBeVisible();
+    const avatarCanvas = page.locator(".custom-avatar-canvas");
+    await expect(avatarCanvas).toBeVisible();
+    await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");
     await expect(page.locator(".cosmetic-card")).toHaveCount(6);
+    await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText("달고양이 루루");
+    await expect(page.locator("[data-custom-preview-copy]")).toContainText("포인트는 차감되지 않습니다");
+    await page.getByRole("button", { name: "뒤", exact: true }).click();
+    await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
@@ -244,7 +251,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
     ]);
     await expect.poll(
       async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
-      { timeout: 8_000, intervals: [100] },
+      { timeout: 5_000, intervals: [100] },
     ).toBe("free");
 
     const firstState = await state(first);

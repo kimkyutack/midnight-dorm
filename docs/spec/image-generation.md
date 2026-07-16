@@ -23,7 +23,7 @@ Premium mobile horror game home background, 16:9. An isolated abandoned Korean u
 
 ## ghost-roster.webp
 
-목적: Phaser 전장에서 사용하는 6종 실사형 귀신 시트.
+목적: Three.js 전장에서 사용하는 6종 실사형 귀신 시트.
 
 ```text
 Production-ready 3-column by 2-row horror character sheet on a uniform pure-black background. Six distinct full-body photoreal ghosts: long-haired wanderer, thin fast crawler, burned orderly brute, faceless occult caster, cyan drowned twin and pink cracked-porcelain twin. One centered character per equal cell, generous black margins, consistent scale, distinct silhouettes, non-gory, original designs. No grid, border, label, text, watermark or UI.
@@ -33,6 +33,6 @@ Production-ready 3-column by 2-row horror character sheet on a uniform pure-blac
 
 - 귀신 시트 한 프레임은 512×432다.
 - 프레임 순서는 `wanderer`, `swift`, `brute`, `caster`, `twin-a`, `twin-b`다.
-- 배경 검정은 Phaser `SCREEN` 블렌드로 제거한다.
+- 배경 검정은 Three.js 투명 텍스처 전처리 또는 가산 합성 재질로 제거한다.
 - 시네마틱 이미지는 CSS `cover`로 표시하며 모바일 가로 화면에서 중앙 주 피사체가 잘리지 않아야 한다.
 - 다른 게임의 로고, UI, 캐릭터 또는 고유 건물 디자인을 프롬프트에 포함하지 않는다.

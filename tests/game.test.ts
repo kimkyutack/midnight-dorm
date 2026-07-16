@@ -10,6 +10,7 @@ import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
+import { movementFacingYaw } from '../src/client/game/avatarMath';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -112,6 +113,13 @@ describe('deterministic shared world', () => {
 });
 
 describe('survivor customization rules', () => {
+  it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
+    expect(movementFacingYaw(0, -1)).toBeCloseTo(0);
+    expect(Math.abs(movementFacingYaw(0, 1))).toBeCloseTo(Math.PI);
+    expect(movementFacingYaw(1, 0)).toBeCloseTo(-Math.PI / 2);
+    expect(movementFacingYaw(-1, 0)).toBeCloseTo(Math.PI / 2);
+  });
+
   it('defines a varied original catalog across survivor and turret equipment slots', () => {
     expect(COSMETIC_CATALOG).toHaveLength(41);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
