@@ -781,6 +781,7 @@ export class ThreeGameView {
 
   private readonly animate = (time: number): void => {
     if (this.destroyed || this.paused) return;
+    if (time - this.lastFrame < 1_000 / 30) return;
     const dt = Math.min(0.05, Math.max(0.001, (time - this.lastFrame) / 1_000));
     this.lastFrame = time;
     this.animatePlayers(time, dt);

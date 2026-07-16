@@ -695,6 +695,7 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
   });
+  if (document.hidden) game.pause();
   const refreshCameraZoom = (): void => {
     const output = app.querySelector<HTMLOutputElement>("[data-camera-zoom]");
     if (output) output.value = `${game?.getCameraZoom().toFixed(1) ?? "1.0"}×`;

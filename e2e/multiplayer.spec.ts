@@ -234,15 +234,18 @@ test("two real browser contexts share a room, building, combat and reconnection"
       first.locator(".player-card", { hasText: "별빛둘" }),
     ).toContainText("READY");
     await first.getByTestId("start-game").click();
-    await expect(first.getByTestId("network")).toBeVisible();
-    await expect(second.getByTestId("network")).toBeVisible();
     await Promise.all([
       expect.poll(async () => (await state(first)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
       expect.poll(async () => (await state(second)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
     ]);
-    expect(await first.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
-      "free",
-    );
+    await Promise.all([
+      expect(first.getByTestId("network")).toBeVisible(),
+      expect(second.getByTestId("network")).toBeVisible(),
+    ]);
+    await expect.poll(
+      async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
+      { timeout: 8_000, intervals: [100] },
+    ).toBe("free");
 
     const firstState = await state(first);
     const secondState = await state(second);
@@ -261,9 +264,10 @@ test("two real browser contexts share a room, building, combat and reconnection"
         window.__DORM_TEST__?.buildFirst("basic-turret"),
       ),
     ).toBe(true);
-    await second.waitForFunction(
-      () => (window.__DORM_TEST__?.snapshot?.buildings.length ?? 0) >= 1,
-    );
+    await expect.poll(
+      async () => (await state(second)).snapshot?.buildings.length ?? 0,
+      { timeout: 5_000, intervals: [50] },
+    ).toBeGreaterThanOrEqual(1);
     const builtFirst = await state(first);
     const builtSecond = await state(second);
     expect(builtFirst.snapshot?.buildings.length).toBe(
@@ -300,22 +304,16 @@ test("two real browser contexts share a room, building, combat and reconnection"
     );
     expect(afterMoveAttempt?.position).toEqual(occupiedBed);
 
-    await first.waitForFunction(
-      () =>
-        window.__DORM_TEST__?.snapshot?.rooms.some(
-          (room) => room.doorHp < room.doorMaxHp,
-        ),
-      undefined,
-      { timeout: 35_000 },
-    );
-    await second.waitForFunction(
-      () =>
-        window.__DORM_TEST__?.snapshot?.rooms.some(
-          (room) => room.doorHp < room.doorMaxHp,
-        ),
-      undefined,
-      { timeout: 35_000 },
-    );
+    await Promise.all([
+      expect.poll(
+        async () => (await state(first)).snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp),
+        { timeout: 35_000, intervals: [100] },
+      ).toBe(true),
+      expect.poll(
+        async () => (await state(second)).snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp),
+        { timeout: 35_000, intervals: [100] },
+      ).toBe(true),
+    ]);
     const [combatFirst, combatSecond] = await Promise.all([
       state(first),
       state(second),
