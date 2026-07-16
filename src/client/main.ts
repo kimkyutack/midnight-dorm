@@ -142,8 +142,12 @@ function setContent(view: string, html: string): void {
 function loading(): void {
   setContent(
     "loading",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">☾</div><div class="spinner"></div><h2>새벽 순찰 준비 중</h2><p class="subtitle">방어 장치와 복도를 점검하고 있습니다.</p></section></main>`,
+    loadingMarkup("병동에 들어가는 중", "잠시 후 불 꺼진 복도가 열립니다."),
   );
+}
+
+function loadingMarkup(title: string, detail: string): string {
+  return `<main class="boot-screen"><div class="boot-backdrop" aria-hidden="true"></div><header class="boot-brand"><i aria-hidden="true">☾</i><span>심야 병동</span></header><section class="boot-status" role="status"><small>LOADING</small><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p><div class="boot-progress" aria-hidden="true"><i></i></div></section></main>`;
 }
 
 function desktopNotice(): void {
@@ -226,16 +230,22 @@ function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   setContent(
     "auth",
-    `<main class="screen"><section class="panel auth-panel" style="display: grid; gap: 10px;"><div class="auth-brand"><div class="title-mark">☾</div><div><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%; margin-top: 8px;">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
+    `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>HORROR CO-OP DEFENSE</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br>새벽이 올 때까지 살아남으세요.</p></header><section class="auth-sheet"><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : ""}</small><h2>${registering ? "계정생성" : ""}</h2></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form><button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 계정이 있나요?" : "처음 오셨나요?"}</span><strong>${registering ? "로그인" : "새 계정"}</strong></button></section><footer class="auth-footnote">계정에는 게임 진행도와 등급만 저장됩니다.</footer></main>`,
   );
-  for (const input of app.querySelectorAll<HTMLInputElement>("#username, #password")) {
-    input.setAttribute("autocapitalize", "off");
-    input.setAttribute("autocorrect", "off");
-    input.setAttribute("spellcheck", "false");
-    // Android/Gboard can retain the uppercase state after a Korean nickname.
-    // The email keyboard reliably starts in lowercase while still allowing symbols.
-    input.setAttribute("inputmode", "email");
-  }
+  app
+    .querySelector("[data-password-reveal]")
+    ?.addEventListener("click", (event) => {
+      const input = app.querySelector<HTMLInputElement>("#password");
+      const button = event.currentTarget as HTMLButtonElement;
+      if (!input) return;
+      const revealing = input.type === "password";
+      input.type = revealing ? "text" : "password";
+      button.textContent = revealing ? "숨김" : "보기";
+      button.setAttribute(
+        "aria-label",
+        revealing ? "비밀번호 숨기기" : "비밀번호 표시",
+      );
+    });
   app
     .querySelectorAll<HTMLElement>("[data-auth-tab]")
     .forEach((button) =>
@@ -1057,7 +1067,7 @@ function updateConnection(
 function connectionOverlay(text: string): void {
   setContent(
     "connecting",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="spinner"></div><h2>${escapeHtml(text)}</h2><p class="subtitle">실시간 병동 서버에 연결하고 있습니다.</p></section></main>`,
+    loadingMarkup(text, "안전한 연결을 확인하고 있습니다."),
   );
 }
 
