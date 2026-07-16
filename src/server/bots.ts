@@ -41,9 +41,13 @@ export function decideBotIntent(
   if (!bot.alive || (snapshot.status !== 'COUNTDOWN' && snapshot.status !== 'PLAYING')) return { type: 'idle' };
 
   if (!bot.roomId) {
-    const available = map.rooms
-      .filter((room) => !snapshot.rooms.find((state) => state.id === room.id)?.ownerId)
-      .sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed))[0];
+    const available = map.rooms.flatMap((room) => {
+      const roomState = snapshot.rooms.find((state) => state.id === room.id);
+      return room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex }))
+        .filter(({ bedIndex }) => !roomState?.ownerIds.some((ownerId) =>
+          snapshot.players.some((player) => player.id === ownerId && player.bedIndex === bedIndex),
+        ));
+    }).sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed))[0];
     if (!available) return { type: 'idle' };
     if (distance(bot.position, available.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
     return movementAlongPath(bot, available.bed, map);
@@ -63,13 +67,14 @@ export function decideBotIntent(
     }
     if (room.doorLevel < 3) return { type: 'upgrade', targetId: `door:${room.id}` };
   }
-  if (room.bedLevel < 3) return { type: 'upgrade', targetId: `bed:${room.id}` };
+  const bedLevel = room.bedLevels[bot.bedIndex ?? 0] ?? 1;
+  if (bedLevel < 3) return { type: 'upgrade', targetId: `bed:${room.id}:${bot.bedIndex ?? 0}` };
   if (room.doorLevel < 3) return { type: 'upgrade', targetId: `door:${room.id}` };
 
   const owned = snapshot.buildings.filter((building) => building.roomId === room.id);
   const priority: BuildingKind[] = ['generator', 'basic-turret', 'rapid-turret', 'frost-turret', 'electric-coil', 'shield-device', 'floor-trap'];
   for (const kind of priority) {
-    if (owned.some((building) => building.kind === kind)) continue;
+    if (owned.some((building) => building.kind === kind && (kind !== 'generator' || building.ownerId === bot.id))) continue;
     const stats = buildingStats(kind, 1);
     if (bot.gold >= stats.gold && bot.power >= stats.power) {
       const tile = freeTile(snapshot, mapRoom.buildTiles);

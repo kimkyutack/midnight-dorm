@@ -17,6 +17,14 @@ export const registerAccount = (username: string, nickname: string, password: st
   method: 'POST', body: JSON.stringify({ username, nickname, password }),
 });
 
+export const purchaseCosmetic = (itemId: string): Promise<AccountProfile> => authRequest('/api/customize/purchase', {
+  method: 'POST', body: JSON.stringify({ itemId }),
+});
+
+export const equipCosmetic = (itemId: string): Promise<AccountProfile> => authRequest('/api/customize/equip', {
+  method: 'POST', body: JSON.stringify({ itemId }),
+});
+
 export async function logoutAccount(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' } });
 }

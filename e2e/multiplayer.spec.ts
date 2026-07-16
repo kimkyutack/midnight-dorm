@@ -9,7 +9,7 @@ import {
 interface TestState {
   map: {
     walkable: Array<{ x: number; y: number }>;
-    rooms: Array<{ id: string; bed: { x: number; y: number } }>;
+    rooms: Array<{ id: string; bed: { x: number; y: number }; beds: Array<{ x: number; y: number }> }>;
   } | null;
   snapshot: {
     seed: number;
@@ -21,6 +21,7 @@ interface TestState {
       gold: number;
       isBot: boolean;
       roomId: string | null;
+      bedIndex: number | null;
     }>;
     buildings: unknown[];
     rooms: Array<{ doorHp: number; doorMaxHp: number }>;
@@ -45,7 +46,7 @@ async function enter(
   const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
   await page.getByLabel("아이디").fill(username);
   await page.getByLabel("게임 닉네임").fill(nickname);
-  await page.getByLabel("비밀번호").fill("midnight-test-2026");
+  await page.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
   await page.getByRole("button", { name: "계정 만들고 시작" }).click();
   await expect(page.getByTestId("create-room")).toBeVisible();
   return username;
@@ -78,6 +79,22 @@ test("first launch teaser leads through login to the cinematic game home and mod
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
+    const profileResponse = await page.request.get("/api/auth/me");
+    expect(profileResponse).toBeOK();
+    const profile = await profileResponse.json() as {
+      profile: { customPoints: number; appearance: { character: string }; ownedCosmetics: string[] };
+    };
+    expect(profile.profile.customPoints).toBe(0);
+    expect(profile.profile.appearance.character).toBe("character-bunny");
+    expect(profile.profile.ownedCosmetics).toContain("hat-rank");
+    expect((await page.request.post("/api/customize/purchase", { data: { itemId: "character-cat" } })).status()).toBe(409);
+    expect((await page.request.post("/api/customize/equip", { data: { itemId: "character-bear" } })).status()).toBe(403);
+    await page.getByRole("button", { name: /커스텀/ }).click();
+    await expect(page.getByRole("heading", { name: "나만의 생존자" })).toBeVisible();
+    await expect(page.locator(".custom-avatar")).toBeVisible();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(6);
+    await page.getByRole("button", { name: "이전 화면" }).click();
+    await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
     expect(await page.request.post("/api/auth/login", { data: { username, password } })).toBeOK();
     await page.getByRole("button", { name: "게임 시작" }).click();
@@ -192,7 +209,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
   }
 });
 
-test("two real browser contexts share bed locking, building, combat and reconnection", async ({
+test("two real browser contexts share a room, building, combat and reconnection", async ({
   browser,
 }) => {
   const firstContext = await mobileContext(browser);
@@ -219,12 +236,10 @@ test("two real browser contexts share bed locking, building, combat and reconnec
     await first.getByTestId("start-game").click();
     await expect(first.getByTestId("network")).toBeVisible();
     await expect(second.getByTestId("network")).toBeVisible();
-    await first.waitForFunction(
-      () => window.__DORM_TEST__?.snapshot?.status === "PLAYING",
-    );
-    await second.waitForFunction(
-      () => window.__DORM_TEST__?.snapshot?.status === "PLAYING",
-    );
+    await Promise.all([
+      expect.poll(async () => (await state(first)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
+      expect.poll(async () => (await state(second)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
+    ]);
     expect(await first.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "free",
     );
@@ -233,6 +248,9 @@ test("two real browser contexts share bed locking, building, combat and reconnec
     const secondState = await state(second);
     expect(firstState.snapshot?.seed).toBe(secondState.snapshot?.seed);
     expect(firstState.snapshot?.players).toHaveLength(2);
+    const roommates = firstState.snapshot?.players ?? [];
+    expect(roommates[0]?.roomId).toBe(roommates[1]?.roomId);
+    expect(roommates[0]?.bedIndex).not.toBe(roommates[1]?.bedIndex);
 
     const movingId = firstState.playerId;
     const goldBefore =
@@ -256,12 +274,23 @@ test("two real browser contexts share bed locking, building, combat and reconnec
         ?.gold ?? goldBefore,
     ).toBeLessThan(goldBefore);
 
+    const secondId = (await state(second)).playerId;
+    await second.reload();
+    await expect(second.getByTestId("network")).toBeVisible({
+      timeout: 20_000,
+    });
+    await second.waitForFunction(
+      (id) => window.__DORM_TEST__?.playerId === id,
+      secondId,
+    );
+    expect((await state(second)).playerId).toBe(secondId);
+
     const occupiedPlayer = secondState.snapshot?.players.find(
       (player) => player.id === movingId,
     );
     const occupiedBed = secondState.map?.rooms.find(
       (room) => room.id === occupiedPlayer?.roomId,
-    )?.bed;
+    )?.beds[occupiedPlayer?.bedIndex ?? 0];
     expect(occupiedPlayer?.position).toEqual(occupiedBed);
     await first.evaluate(() => window.__DORM_TEST__?.move(1, 1));
     await first.waitForTimeout(500);
@@ -305,17 +334,6 @@ test("two real browser contexts share bed locking, building, combat and reconnec
     // 10Hz 스냅샷 경계에서 한 클라이언트만 1발(기본 피해 13)을 먼저 볼 수 있다.
     ).toBeLessThanOrEqual(13);
 
-    const secondId = (await state(second)).playerId;
-    await second.reload();
-    await expect(second.getByTestId("network")).toBeVisible({
-      timeout: 20_000,
-    });
-    await second.waitForFunction(
-      (id) => window.__DORM_TEST__?.playerId === id,
-      secondId,
-    );
-    expect((await state(second)).playerId).toBe(secondId);
-
     await expect(first.getByTestId("rematch")).toBeVisible({ timeout: 45_000 });
     await expect(second.getByTestId("rematch")).toBeVisible({
       timeout: 45_000,
@@ -332,7 +350,7 @@ test("two real browser contexts share bed locking, building, combat and reconnec
     await expect(first.getByTestId("create-room")).toBeVisible();
     await first.getByRole("button", { name: "로그아웃" }).click();
     await first.getByLabel("아이디").fill(firstUsername);
-    await first.getByLabel("비밀번호").fill("midnight-test-2026");
+    await first.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
     await first.getByRole("button", { name: "로그인하고 시작" }).click();
     await expect(first.getByTestId("create-room")).toBeVisible();
   } finally {

@@ -1,5 +1,6 @@
-import { getStage, higherRank, rankFromXp, STAGES } from '../shared/progression';
-import type { AccountProfile, PlayMode } from '../shared/types';
+import { getStage, higherRank, rankFromXp, rankLabel, STAGES } from '../shared/progression';
+import { cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
+import type { AccountProfile, AvatarAppearance, CosmeticSlot, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -20,6 +21,15 @@ interface AccountRow {
   login_failures: number;
   locked_until: number;
   created_at: number;
+}
+
+interface CustomizationRow {
+  custom_points: number;
+  appearance: string;
+}
+
+interface TurretLoadoutRow {
+  skins: string;
 }
 
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
@@ -54,6 +64,10 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, play_mode TEXT NOT NULL CHECK (play_mode IN ('solo', 'multiplayer')), stage_index INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), xp_awarded INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_customization (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, custom_points INTEGER NOT NULL DEFAULT 0 CHECK (custom_points >= 0), appearance TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_cosmetics (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, purchased_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_account_cosmetics_account ON account_cosmetics(account_id)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_turret_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, skins TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
   ]);
   await ensureLegacyAuthColumns(db);
 }
@@ -97,7 +111,12 @@ function secureEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-function profileFromRow(row: AccountRow): AccountProfile {
+function profileFromRow(
+  row: AccountRow,
+  customization: CustomizationRow | null,
+  purchasedCosmetics: string[],
+  turretLoadout: TurretLoadoutRow | null,
+): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
   return {
@@ -112,8 +131,42 @@ function profileFromRow(row: AccountRow): AccountProfile {
     soloStageIndex: row.solo_stage_index,
     multiplayerStageIndex: row.multiplayer_stage_index,
     victories: row.victories,
+    customPoints: customization?.custom_points ?? 0,
+    ownedCosmetics: [...new Set([...STARTER_COSMETICS, ...purchasedCosmetics])],
+    appearance: normalizeAppearance(parseAppearance(customization?.appearance)),
+    turretSkins: parseTurretSkins(turretLoadout?.skins),
     createdAt: row.created_at,
   };
+}
+
+function parseTurretSkins(value: string | undefined): TurretSkinLoadout {
+  if (!value) return { ...DEFAULT_TURRET_SKINS };
+  try {
+    return normalizeTurretSkins(JSON.parse(value));
+  } catch {
+    return { ...DEFAULT_TURRET_SKINS };
+  }
+}
+
+function parseAppearance(value: string | undefined): AvatarAppearance {
+  if (!value) return { ...DEFAULT_APPEARANCE };
+  try {
+    return normalizeAppearance(JSON.parse(value));
+  } catch {
+    return { ...DEFAULT_APPEARANCE };
+  }
+}
+
+async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountProfile> {
+  const [customization, cosmetics, turretLoadout] = await Promise.all([
+    db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
+      .bind(row.id).first<CustomizationRow>(),
+    db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
+      .bind(row.id).all<{ item_id: string }>(),
+    db.prepare('SELECT skins FROM account_turret_loadouts WHERE account_id = ?')
+      .bind(row.id).first<TurretLoadoutRow>(),
+  ]);
+  return profileFromRow(row, customization, cosmetics.results?.map((item) => item.item_id) ?? [], turretLoadout);
 }
 
 function cookieValue(request: Request): string | null {
@@ -151,11 +204,16 @@ async function prepareSession(): Promise<{ token: string; tokenHash: string; cre
 }
 
 async function authenticatedProfileFromReadySchema(request: Request, db: D1Database): Promise<AccountProfile | null> {
+  const row = await authenticatedRowFromReadySchema(request, db);
+  return row ? profileForRow(db, row) : null;
+}
+
+async function authenticatedRowFromReadySchema(request: Request, db: D1Database): Promise<AccountRow | null> {
   const token = cookieValue(request);
   if (!token) return null;
   const row = await db.prepare(`SELECT a.* FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?`)
     .bind(await sha256(token), Date.now()).first<AccountRow>();
-  return row ? profileFromRow(row) : null;
+  return row ?? null;
 }
 
 export async function getAuthenticatedProfile(request: Request, db: D1Database, bootstrapSchema = false): Promise<AccountProfile | null> {
@@ -184,11 +242,15 @@ async function register(request: Request, db: D1Database): Promise<Response> {
     await db.batch([
       db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .bind(id, username, nickname, passwordHash, bytesToText(salt), now, now),
+      db.prepare(`INSERT INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+        .bind(id, JSON.stringify(DEFAULT_APPEARANCE), now),
+      db.prepare(`INSERT INTO account_turret_loadouts (account_id, skins, updated_at) VALUES (?, ?, ?)`)
+        .bind(id, JSON.stringify(DEFAULT_TURRET_SKINS), now),
       db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
         .bind(session.tokenHash, id, session.expiresAt, session.createdAt),
     ]);
     const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
-    return Response.json({ profile: profileFromRow(row as AccountRow) }, { headers: { 'set-cookie': sessionCookie(request, session.token, SESSION_MS / 1_000) } });
+    return Response.json({ profile: await profileForRow(db, row as AccountRow) }, { headers: { 'set-cookie': sessionCookie(request, session.token, SESSION_MS / 1_000) } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/UNIQUE constraint failed[^\n]*accounts\.username/i.test(message)) {
@@ -226,7 +288,7 @@ async function login(request: Request, db: D1Database): Promise<Response> {
   }
   await db.prepare('UPDATE accounts SET login_failures = 0, locked_until = 0, last_login_at = ?, updated_at = ? WHERE id = ?').bind(now, now, row.id).run();
   const token = await createSession(db, row.id);
-  return Response.json({ profile: profileFromRow(row) }, { headers: { 'set-cookie': sessionCookie(request, token, SESSION_MS / 1_000) } });
+  return Response.json({ profile: await profileForRow(db, row) }, { headers: { 'set-cookie': sessionCookie(request, token, SESSION_MS / 1_000) } });
 }
 
 async function logout(request: Request, db: D1Database): Promise<Response> {
@@ -236,14 +298,69 @@ async function logout(request: Request, db: D1Database): Promise<Response> {
   return Response.json({ ok: true }, { headers: { 'set-cookie': sessionCookie(request, '', 0) } });
 }
 
+async function customize(request: Request, db: D1Database, action: 'purchase' | 'equip'): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { itemId?: string };
+  try { body = await request.json(); } catch { return Response.json({ error: '아이템을 확인해주세요.' }, { status: 400 }); }
+  const item = cosmeticById(body.itemId ?? '');
+  if (!item) return Response.json({ error: '존재하지 않는 커스텀 아이템입니다.' }, { status: 404 });
+  const now = Date.now();
+  await db.prepare(`INSERT OR IGNORE INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+    .bind(row.id, JSON.stringify(DEFAULT_APPEARANCE), now).run();
+  await db.prepare(`INSERT OR IGNORE INTO account_turret_loadouts (account_id, skins, updated_at) VALUES (?, ?, ?)`)
+    .bind(row.id, JSON.stringify(DEFAULT_TURRET_SKINS), now).run();
+  const profile = await profileForRow(db, row);
+
+  if (action === 'purchase') {
+    if (item.unlock.kind !== 'points') return Response.json({ error: '이 아이템은 구매 대상이 아닙니다.' }, { status: 400 });
+    if (profile.ownedCosmetics.includes(item.id)) return Response.json({ error: '이미 보유한 아이템입니다.' }, { status: 409 });
+    if (profile.customPoints < item.unlock.price) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
+    const debit = await db.prepare('UPDATE account_customization SET custom_points = custom_points - ?, updated_at = ? WHERE account_id = ? AND custom_points >= ?')
+      .bind(item.unlock.price, now, row.id, item.unlock.price).run();
+    if ((debit.meta.changes ?? 0) === 0) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
+    try {
+      await db.prepare('INSERT INTO account_cosmetics (account_id, item_id, purchased_at) VALUES (?, ?, ?)')
+        .bind(row.id, item.id, now).run();
+    } catch (error) {
+      await db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
+        .bind(item.unlock.price, now, row.id).run();
+      const message = error instanceof Error ? error.message : String(error);
+      if (/UNIQUE constraint failed/i.test(message)) return Response.json({ error: '이미 보유한 아이템입니다.' }, { status: 409 });
+      throw error;
+    }
+    return Response.json({ profile: await profileForRow(db, row) });
+  }
+
+  if (!cosmeticAvailable(item, profile.displayRank, profile.ownedCosmetics)) {
+    const error = item.unlock.kind === 'rank'
+      ? `${rankLabel(item.unlock.rank)} 등급 조건을 아직 달성하지 못했습니다.`
+      : '먼저 아이템을 구매해주세요.';
+    return Response.json({ error }, { status: 403 });
+  }
+  if (item.slot === 'turret' && item.turretKind) {
+    const turretSkins = { ...profile.turretSkins, [item.turretKind as TurretKind]: item.id };
+    await db.prepare('UPDATE account_turret_loadouts SET skins = ?, updated_at = ? WHERE account_id = ?')
+      .bind(JSON.stringify(turretSkins), now, row.id).run();
+  } else {
+    const appearance = { ...profile.appearance, [item.slot as Exclude<CosmeticSlot, 'turret'>]: item.id };
+    await db.prepare('UPDATE account_customization SET appearance = ?, updated_at = ? WHERE account_id = ?')
+      .bind(JSON.stringify(appearance), now, row.id).run();
+  }
+  return Response.json({ profile: await profileForRow(db, row) });
+}
+
 export async function routeAuth(request: Request, db: D1Database, bootstrapSchema = false): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/api/auth/')) return null;
+  if (!url.pathname.startsWith('/api/auth/') && !url.pathname.startsWith('/api/customize/')) return null;
   try {
     if (bootstrapSchema) await ensureAuthSchema(db);
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
+    if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
+    if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/auth/me' && request.method === 'GET') {
       const profile = await authenticatedProfileFromReadySchema(request, db);
       return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
@@ -263,12 +380,20 @@ export async function recordMatchResult(
   if (bootstrapSchema) await ensureAuthSchema(db);
   const stage = getStage(STAGES[input.stageIndex]?.id);
   const xp = input.victory ? stage.victoryXp : Math.max(10, Math.floor(stage.victoryXp * 0.18));
+  const points = input.victory ? customizationReward(input.stageIndex) : 0;
   const inserted = await db.prepare(`INSERT OR IGNORE INTO match_results (match_id, account_id, play_mode, stage_index, victory, xp_awarded, elapsed_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(input.matchId, input.accountId, input.playMode, input.stageIndex, input.victory ? 1 : 0, xp, Math.floor(input.elapsed), Date.now()).run();
   if ((inserted.meta.changes ?? 0) === 0) return;
   const xpColumn = input.playMode === 'solo' ? 'solo_xp' : 'multiplayer_xp';
   const stageColumn = input.playMode === 'solo' ? 'solo_stage_index' : 'multiplayer_stage_index';
   const nextStage = Math.min(STAGES.length - 1, input.stageIndex + (input.victory ? 1 : 0));
-  await db.prepare(`UPDATE accounts SET ${xpColumn} = ${xpColumn} + ?, ${stageColumn} = MAX(${stageColumn}, ?), victories = victories + ?, updated_at = ? WHERE id = ?`)
-    .bind(xp, nextStage, input.victory ? 1 : 0, Date.now(), input.accountId).run();
+  const now = Date.now();
+  await db.batch([
+    db.prepare(`UPDATE accounts SET ${xpColumn} = ${xpColumn} + ?, ${stageColumn} = MAX(${stageColumn}, ?), victories = victories + ?, updated_at = ? WHERE id = ?`)
+      .bind(xp, nextStage, input.victory ? 1 : 0, now, input.accountId),
+    db.prepare(`INSERT OR IGNORE INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+      .bind(input.accountId, JSON.stringify(DEFAULT_APPEARANCE), now),
+    db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
+      .bind(points, now, input.accountId),
+  ]);
 }

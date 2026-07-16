@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
+import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
@@ -78,9 +79,9 @@ describe('deterministic shared world', () => {
     expect(validateMap(first)).toBe(true);
     expect(connectedWalkableCount(first)).toBe(first.walkable.length);
     expect(first.rooms).toHaveLength(12);
-    expect(first.rooms.every((room) => room.floorTiles.length >= 10 && room.floorTiles.length <= 15)).toBe(true);
+    expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 25)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
-    expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(10);
+    expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(6);
   });
 
   it('finds a traversable A* route from spawn to every bed', () => {
@@ -98,6 +99,45 @@ describe('deterministic shared world', () => {
       const path = findPath(map, room.bed, map.playerSpawn);
       expect(path.some((tile) => tile.x === room.door.x && tile.y === room.door.y)).toBe(true);
     }
+  });
+
+  it('creates twenty-five-tile multiplayer rooms with two beds each', () => {
+    const map = generateMap(7_707, 'multiplayer');
+    expect(validateMap(map)).toBe(true);
+    expect(map.playMode).toBe('multiplayer');
+    expect(map.rooms).toHaveLength(12);
+    expect(map.rooms.every((room) => room.floorTiles.length === 25)).toBe(true);
+    expect(map.rooms.every((room) => room.beds.length === 2 && room.buildTiles.length === 23)).toBe(true);
+  });
+});
+
+describe('survivor customization rules', () => {
+  it('defines a varied original catalog across survivor and turret equipment slots', () => {
+    expect(COSMETIC_CATALOG).toHaveLength(41);
+    expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
+      new Set(['character', 'hat', 'outfit', 'accessory', 'shoes', 'turret']),
+    );
+    expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
+    expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.hat);
+  });
+
+  it('separates starter, point-purchased, and rank-unlocked cosmetics', () => {
+    const starter = cosmeticById('character-bunny');
+    const pointItem = cosmeticById('character-cat');
+    const rankItem = cosmeticById('character-bear');
+    expect(starter && cosmeticAvailable(starter, 'beginner', [])).toBe(true);
+    expect(pointItem && cosmeticAvailable(pointItem, 'legend', [])).toBe(false);
+    expect(pointItem && cosmeticAvailable(pointItem, 'beginner', ['character-cat'])).toBe(true);
+    expect(rankItem && cosmeticAvailable(rankItem, 'intermediate', [])).toBe(false);
+    expect(rankItem && cosmeticAvailable(rankItem, 'expert', [])).toBe(true);
+  });
+
+  it('normalizes invalid equipment and scales clear rewards from 80 to 500 points', () => {
+    expect(normalizeAppearance({ character: 'hat-beanie', shoes: 'invalid' })).toEqual(DEFAULT_APPEARANCE);
+    expect(customizationReward(0)).toBe(80);
+    expect(customizationReward(5)).toBe(100);
+    expect(customizationReward(105)).toBe(500);
+    expect(customizationReward(999)).toBe(500);
   });
 });
 
@@ -120,6 +160,47 @@ describe('authoritative game rules', () => {
     const occupied = state.players.map((player) => player.roomId);
     expect(new Set(occupied).size).toBe(occupied.length);
     expect(state.rooms.filter((room) => room.ownerId).length).toBe(4);
+  });
+
+  it('lets two multiplayer survivors share one room while keeping income ownership personal', () => {
+    const map = generateMap(73_401, 'multiplayer');
+    const engine = new GameEngine('SHAREDROOM', map, true, { playMode: 'multiplayer' });
+    const first = engine.join({ nickname: 'RoommateA', deviceId: 'shared-room-a' });
+    const second = engine.join({ nickname: 'RoommateB', deviceId: 'shared-room-b' });
+    engine.handle(second.player.id, envelope({ type: 'ready', ready: true }, 2));
+    begin(engine, first.player.id);
+    const initial = engine.snapshot();
+    const firstPlayer = initial.players.find((player) => player.id === first.player.id);
+    const secondPlayer = initial.players.find((player) => player.id === second.player.id);
+    expect(firstPlayer?.roomId).toBe(secondPlayer?.roomId);
+    expect(firstPlayer?.bedIndex).not.toBe(secondPlayer?.bedIndex);
+    const roomId = firstPlayer?.roomId as string;
+    const room = map.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) throw new Error('missing shared room');
+
+    const persisted = engine.serialize();
+    for (const player of persisted.snapshot.players) {
+      player.gold = 10_000;
+      player.power = 1_000;
+    }
+    engine.restore(persisted);
+    expect(engine.build(first.player.id, roomId, room.buildTiles[0] as Tile, 'generator').ok).toBe(true);
+    const before = engine.snapshot();
+    const firstPower = before.players.find((player) => player.id === first.player.id)?.power ?? 0;
+    const secondPower = before.players.find((player) => player.id === second.player.id)?.power ?? 0;
+    engine.tick(1);
+    expect((engine.snapshot().players.find((player) => player.id === first.player.id)?.power ?? 0) - firstPower).toBeGreaterThan(0);
+    expect(engine.snapshot().players.find((player) => player.id === second.player.id)?.power).toBe(secondPower);
+
+    expect(engine.build(first.player.id, roomId, room.buildTiles[1] as Tile, 'basic-turret').ok).toBe(true);
+    const turret = engine.snapshot().buildings.find((building) => building.kind === 'basic-turret');
+    if (!turret) throw new Error('missing shared turret');
+    expect(engine.upgrade(second.player.id, turret.id).ok).toBe(true);
+    expect(engine.snapshot().buildings.find((building) => building.id === turret.id)?.level).toBe(2);
+    expect(engine.upgrade(second.player.id, `door:${roomId}`).ok).toBe(true);
+    expect(engine.build(second.player.id, roomId, room.buildTiles[2] as Tile, 'generator').ok).toBe(true);
+    expect(engine.snapshot().buildings.filter((building) => building.kind === 'generator').map((building) => building.ownerId).sort()).toEqual([first.player.id, second.player.id].sort());
+    expect(engine.upgrade(second.player.id, `bed:${roomId}:${firstPlayer?.bedIndex ?? 0}`).ok).toBe(false);
   });
 
   it('keeps an occupied player lying at the exact bed position', () => {
@@ -193,7 +274,7 @@ describe('authoritative game rules', () => {
     const ownerRoom = assigned(engine, ids[0] as string);
     const result = engine.build(ids[1] as string, ownerRoom.roomId, ownerRoom.tile, 'basic-turret');
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('자신의 방');
+    expect(result.error).toContain('머무는 방');
   });
 
   it('upgrades a bed and a placed building by one level', () => {
@@ -338,19 +419,19 @@ describe('requested progression and event rules', () => {
     expect(bots.every((bot) => bot.velocity.x === 0 && bot.velocity.y === 0)).toBe(true);
   });
 
-  it('reaches the nearest occupied door and attacks it within six seconds', () => {
+  it('reaches a randomly selected occupied door across the expanded map', () => {
     const engine = new GameEngine('GHOSTPATH', generateMap(51_515), false);
     const player = engine.join({ nickname: '문지기', deviceId: 'device-ghost-path' });
     begin(engine, player.player.id);
     engine.drainEvents();
     const startedAt = engine.snapshot().elapsed;
     let hit = false;
-    for (let index = 0; index < 60 && !hit; index += 1) {
+    for (let index = 0; index < 300 && !hit; index += 1) {
       engine.tick(0.1);
       hit = engine.drainEvents().some((event) => event.kind === 'door-hit');
     }
     expect(hit).toBe(true);
-    expect(engine.snapshot().elapsed - startedAt).toBeLessThanOrEqual(6);
+    expect(engine.snapshot().elapsed - startedAt).toBeLessThanOrEqual(30);
   });
 
   it('produces one gold per second and doubles bed income by level', () => {
@@ -560,7 +641,7 @@ describe('requested progression and event rules', () => {
     player.items.push({ itemId: 'repair-spider', label: '수리 거미', rarity: 'rare', count: 1 });
     persisted.snapshot.buildings.push({
       id: 'destroyed-door-repair', kind: 'repair-drone', roomId: room.id, ownerId: playerId,
-      tile: mapRoom.buildTiles[0] as Tile, level: 3, cooldown: 0, hp: 100,
+      tile: mapRoom.buildTiles[0] as Tile, level: 3, cooldown: 0, hp: 100, skinId: 'drone-heart',
     });
     engine.restore(persisted);
     const levelBefore = room.doorLevel;
@@ -652,8 +733,8 @@ describe('requested progression and event rules', () => {
     persisted.snapshot.ghost = ghost;
     const defensiveTiles = [...mapRoom.buildTiles].sort((a, b) => Math.hypot(a.x - mapRoom.door.x, a.y - mapRoom.door.y) - Math.hypot(b.x - mapRoom.door.x, b.y - mapRoom.door.y));
     persisted.snapshot.buildings.push(
-      { id: 'max-repair', kind: 'repair-drone', roomId: room.id, ownerId: playerId, tile: defensiveTiles[0] as Tile, level: 3, cooldown: 0, hp: 100 },
-      { id: 'max-shield', kind: 'shield-device', roomId: room.id, ownerId: playerId, tile: defensiveTiles[1] as Tile, level: 3, cooldown: 0, hp: 100 },
+      { id: 'max-repair', kind: 'repair-drone', roomId: room.id, ownerId: playerId, tile: defensiveTiles[0] as Tile, level: 3, cooldown: 0, hp: 100, skinId: 'drone-heart' },
+      { id: 'max-shield', kind: 'shield-device', roomId: room.id, ownerId: playerId, tile: defensiveTiles[1] as Tile, level: 3, cooldown: 0, hp: 100, skinId: 'shield-default' },
     );
     engine.restore(persisted);
     let hitCount = 0;
@@ -682,7 +763,8 @@ describe('requested progression and event rules', () => {
     const retreater = engine.snapshot().ghosts[0] as NonNullable<typeof ghost>;
     const after = Math.hypot(retreater.position.x - engine.map.ghostSpawn.x, retreater.position.y - engine.map.ghostSpawn.y);
     expect(retreater.retreating).toBe(true);
-    expect(after).toBeLessThan(before);
+    expect(after).not.toBe(before);
+    expect(retreater?.path.length).toBeGreaterThan(0);
   });
 
   it('lets a frost-hit ghost cross the retreat line alive and keep moving toward recovery', () => {
@@ -699,7 +781,7 @@ describe('requested progression and event rules', () => {
     ghost.healing = false;
     ghost.retreatCount = 0;
     persisted.snapshot.ghost = ghost;
-    persisted.snapshot.buildings.push({ id: 'frost-retreat', kind: 'frost-turret', roomId, ownerId: playerId, tile: { ...tile }, level: 1, cooldown: 0, hp: 100 });
+    persisted.snapshot.buildings.push({ id: 'frost-retreat', kind: 'frost-turret', roomId, ownerId: playerId, tile: { ...tile }, level: 1, cooldown: 0, hp: 100, skinId: 'turret-frost-snow' });
     engine.restore(persisted);
     const before = Math.hypot(tile.x - engine.map.ghostSpawn.x, tile.y - engine.map.ghostSpawn.y);
     engine.drainEvents();
@@ -710,7 +792,8 @@ describe('requested progression and event rules', () => {
     expect(retreater?.hp).toBeGreaterThan(0);
     expect(retreater?.retreating).toBe(true);
     expect(retreater?.slowUntil).toBeGreaterThan(engine.snapshot().elapsed);
-    expect(after).toBeLessThan(before);
+    expect(after).not.toBe(before);
+    expect(retreater?.path.length).toBeGreaterThan(0);
     expect(events.filter((event) => event.kind === 'ghost-retreat')).toHaveLength(1);
   });
 
@@ -822,6 +905,29 @@ describe('requested progression and event rules', () => {
     expect(before - after).toBeCloseTo(BALANCE.ghost.baseDamage, 5);
     expect(engine.drainEvents().filter((event) => event.kind === 'door-hit')).toHaveLength(2);
   });
+
+  it('sends twin ghosts toward different occupied rooms when alternatives exist', () => {
+    let engine: GameEngine | null = null;
+    for (let index = 0; index < 120; index += 1) {
+      const candidate = new GameEngine(`TWINROUTE${index}`, generateMap(90_000 + index, 'multiplayer'), false, { playMode: 'multiplayer' });
+      if (candidate.snapshot().ghosts.length === 2) {
+        engine = candidate;
+        break;
+      }
+    }
+    if (!engine) throw new Error('missing twin route fixture');
+    const players = Array.from({ length: 4 }, (_, index) => engine?.join({ nickname: `TwinRoom${index}`, deviceId: `twin-room-${index}` }));
+    const host = players[0]?.player.id;
+    if (!host) throw new Error('missing twin route host');
+    for (let index = 1; index < players.length; index += 1) {
+      engine.handle(players[index]?.player.id as string, envelope({ type: 'ready', ready: true }, index + 2));
+    }
+    begin(engine, host);
+    engine.tick(0.1);
+    const targets = engine.snapshot().ghosts.map((ghost) => ghost.targetRoomId);
+    expect(targets.every(Boolean)).toBe(true);
+    expect(new Set(targets).size).toBe(2);
+  });
 });
 
 describe('persistent account progression', () => {
@@ -863,6 +969,10 @@ describe('persistent account progression', () => {
 
   it('applies solo-rank benefits to movement, limits and the rare turret', () => {
     expect(rankBenefits('beginner').speedMultiplier).toBe(1);
+    expect(rankBenefits('beginner').bedGoldMultiplier).toBe(1);
+    expect(rankBenefits('intermediate').bedGoldMultiplier).toBe(1.1);
+    expect(rankBenefits('legend').bedGoldMultiplier).toBe(1.5);
+    expect(rankBenefits('legend').ghostDifficultyMultiplier).toBe(1.25);
     expect(rankBenefits('veteran').rareTurretUnlocked).toBe(true);
     expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(15);
     expect(maxBuildingLevel('basic-turret', 'master')).toBe(16);

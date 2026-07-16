@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { BALANCE } from '../shared/balance';
+import { normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import type { ServerMessage } from '../shared/types';
@@ -48,7 +49,7 @@ export class GameRoom extends DurableObject<Env> {
         'SELECT code, seed, test_mode FROM room_meta WHERE id = 1',
       ).toArray()[0];
       if (row) {
-        const map = generateMap(row.seed);
+        const map = generateMap(row.seed, persisted?.snapshot.playMode ?? 'multiplayer');
         this.engine = new GameEngine(row.code, map, Boolean(row.test_mode), {
           stageId: persisted?.snapshot.stageId,
           playMode: persisted?.snapshot.playMode,
@@ -84,7 +85,7 @@ export class GameRoom extends DurableObject<Env> {
     if (!/^[A-Z2-9]{8}$/.test(payload.code) || !Number.isSafeInteger(payload.seed)) {
       return Response.json({ error: 'invalid room metadata' }, { status: 400 });
     }
-    const map = generateMap(payload.seed);
+    const map = generateMap(payload.seed, payload.playMode);
     this.engine = new GameEngine(payload.code, map, payload.testMode, { stageId: payload.stageId, playMode: payload.playMode });
     this.ctx.storage.sql.exec(
       'INSERT INTO room_meta (id, code, seed, test_mode, created_at) VALUES (1, ?, ?, ?, ?)',
@@ -104,12 +105,22 @@ export class GameRoom extends DurableObject<Env> {
     const accountId = request.headers.get('x-account-id') ?? undefined;
     const soloRank = (request.headers.get('x-solo-rank') ?? 'beginner') as RankId;
     const multiplayerRank = (request.headers.get('x-multiplayer-rank') ?? 'beginner') as RankId;
+    const appearanceHeader = request.headers.get('x-avatar-appearance');
+    const turretSkinsHeader = request.headers.get('x-turret-skins');
+    let appearance = normalizeAppearance(undefined);
+    if (appearanceHeader) {
+      try { appearance = normalizeAppearance(JSON.parse(decodeURIComponent(appearanceHeader))); } catch { appearance = normalizeAppearance(undefined); }
+    }
+    let turretSkins = normalizeTurretSkins(undefined);
+    if (turretSkinsHeader) {
+      try { turretSkins = normalizeTurretSkins(JSON.parse(decodeURIComponent(turretSkinsHeader))); } catch { turretSkins = normalizeTurretSkins(undefined); }
+    }
     const deviceId = url.searchParams.get('deviceId') ?? '';
     const reconnectToken = url.searchParams.get('reconnectToken') ?? undefined;
     if (!/^[a-zA-Z0-9-]{8,80}$/.test(deviceId)) return Response.json({ error: '기기 세션이 올바르지 않습니다.' }, { status: 400 });
     let result;
     try {
-      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank });
+      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank, appearance, turretSkins });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : '참가할 수 없습니다.' }, { status: 409 });
     }

@@ -1,4 +1,5 @@
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
+import { botAppearance, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { isBuildTile, isWalkable } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
 import { combinedItemEffects, DRAW_COSTS, RANDOM_ITEMS } from '../shared/randomItems';
@@ -19,6 +20,7 @@ import type {
   RankId,
   RoomState,
   Tile,
+  TurretKind,
   Vec2,
 } from '../shared/types';
 import { BOT_REACTION_SECONDS, decideBotIntent, type BotDifficulty, type BotIntent } from './bots';
@@ -90,7 +92,7 @@ export class GameEngine {
     this.map = map;
     this.testMode = testMode;
     this.stage = getStage(config.stageId);
-    this.playMode = config.playMode ?? 'multiplayer';
+    this.playMode = config.playMode ?? map.playMode;
     this.rng = new SeededRandom(map.seed ^ hashString(roomCode));
     this.state = this.createInitialState();
   }
@@ -99,10 +101,12 @@ export class GameEngine {
     const rooms: RoomState[] = this.map.rooms.map((room) => ({
       id: room.id,
       ownerId: null,
+      ownerIds: [],
       doorHp: BALANCE.door.baseHp,
       doorMaxHp: BALANCE.door.baseHp,
       doorLevel: 1,
       bedLevel: 1,
+      bedLevels: room.beds.map(() => 1),
       shieldUntil: 0,
     }));
     const eventRoll = this.testMode ? 0 : this.rng.next();
@@ -200,9 +204,20 @@ export class GameEngine {
       player.soloRank ??= 'beginner';
       player.multiplayerRank ??= 'beginner';
       player.displayRank ??= higherRank(player.soloRank, player.multiplayerRank);
+      player.appearance = normalizeAppearance(player.appearance);
+      player.turretSkins = normalizeTurretSkins(player.turretSkins);
+      player.bedIndex ??= null;
       player.drawCount ??= 0;
       player.items ??= [];
     }
+    for (const room of this.state.rooms) {
+      room.ownerIds ??= room.ownerId ? [room.ownerId] : [];
+      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+      room.bedLevels ??= (mapRoom?.beds ?? [mapRoom?.bed]).filter(Boolean).map((_, index) => index === 0 ? room.bedLevel : 1);
+      room.bedLevel = room.bedLevels[0] ?? room.bedLevel ?? 1;
+      room.ownerId = room.ownerIds[0] ?? room.ownerId ?? null;
+    }
+    for (const building of this.state.buildings) building.skinId ??= DEFAULT_TURRET_SKINS[building.kind as keyof typeof DEFAULT_TURRET_SKINS] ?? '';
     this.serverSeq = this.state.serverSeq;
     this.reconnect.clear();
     for (const record of data.reconnect) this.reconnect.set(record.token, record);
@@ -248,6 +263,8 @@ export class GameEngine {
         player.soloRank = identity.soloRank ?? player.soloRank;
         player.multiplayerRank = identity.multiplayerRank ?? player.multiplayerRank;
         player.displayRank = higherRank(player.soloRank, player.multiplayerRank);
+        player.appearance = normalizeAppearance(identity.appearance ?? player.appearance);
+        player.turretSkins = normalizeTurretSkins(identity.turretSkins ?? player.turretSkins);
         this.lastHumanActivity = now;
         return { player, reconnectToken: record.token, reconnected: true };
       }
@@ -257,7 +274,7 @@ export class GameEngine {
     if (this.state.status !== 'LOBBY' && this.state.status !== 'COUNTDOWN') throw new Error('진행 중인 게임에는 새로 참가할 수 없습니다.');
     const id = crypto.randomUUID();
     const token = crypto.randomUUID();
-    const player = this.makePlayer(id, nickname, false, identity.accountId ?? null, identity.soloRank ?? 'beginner', identity.multiplayerRank ?? 'beginner');
+    const player = this.makePlayer(id, nickname, false, identity.accountId ?? null, identity.soloRank ?? 'beginner', identity.multiplayerRank ?? 'beginner', identity.appearance, identity.turretSkins);
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
       this.pendingEvents.push({ kind: 'elite-join', playerId: player.id, label: `${rankLabel(player.displayRank)} ${player.nickname}님이 입장했습니다!` });
@@ -285,7 +302,8 @@ export class GameEngine {
     if (this.state.status !== 'LOBBY') return { ok: false, error: '대기실에서만 봇을 추가할 수 있습니다.' };
     if (this.state.players.length >= BALANCE.maxPlayersWithBots) return { ok: false, error: '생존자는 최대 4명입니다.' };
     const id = `bot-${crypto.randomUUID()}`;
-    const bot = this.makePlayer(id, `새벽봇 ${this.state.players.filter((player) => player.isBot).length + 1}`, true, null, 'beginner', 'beginner');
+    const botIndex = this.state.players.filter((player) => player.isBot).length;
+    const bot = this.makePlayer(id, `새벽봇 ${botIndex + 1}`, true, null, 'beginner', 'beginner', botAppearance(botIndex));
     bot.ready = true;
     this.state.players.push(bot);
     this.botRuntime.set(id, { difficulty, reaction: this.rng.next() });
@@ -366,14 +384,21 @@ export class GameEngine {
     if (!player || !player.alive) return { ok: false, error: '상호작용할 수 없습니다.' };
     if (player.roomId) return { ok: false, error: '이미 침대를 점유했습니다.' };
     if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') return { ok: false, error: '준비 시간이 시작된 뒤 침대를 점유할 수 있습니다.' };
-    const candidate = this.map.rooms
-      .filter((room) => distance(player.position, room.bed) <= BALANCE.player.interactionRange)
+    const candidate = this.map.rooms.flatMap((mapRoom) => {
+      const room = this.state.rooms.find((state) => state.id === mapRoom.id);
+      if (!room) return [];
+      return mapRoom.beds.map((bed, bedIndex) => ({ mapRoom, room, bed, bedIndex }))
+        .filter(({ room: roomState, bedIndex }) => !roomState.ownerIds.some((ownerId) => {
+          const owner = this.state.players.find((candidatePlayer) => candidatePlayer.id === ownerId);
+          return owner?.bedIndex === bedIndex;
+        }));
+    }).filter(({ bed }) => distance(player.position, bed) <= BALANCE.player.interactionRange)
       .sort((a, b) => distance(player.position, a.bed) - distance(player.position, b.bed))[0];
-    if (!candidate) return { ok: false, error: '침대에 더 가까이 가세요.' };
-    const room = this.state.rooms.find((state) => state.id === candidate.id);
-    if (!room || room.ownerId) return { ok: false, error: '이미 점유된 방입니다.' };
-    room.ownerId = player.id;
-    player.roomId = room.id;
+    if (!candidate) return { ok: false, error: '비어 있는 침대에 더 가까이 가세요.' };
+    candidate.room.ownerIds.push(player.id);
+    candidate.room.ownerId ??= player.id;
+    player.roomId = candidate.room.id;
+    player.bedIndex = candidate.bedIndex;
     player.position = { ...candidate.bed };
     player.velocity = { x: 0, y: 0 };
     return { ok: true };
@@ -385,13 +410,14 @@ export class GameEngine {
     const room = this.state.rooms.find((candidate) => candidate.id === roomId);
     if (!player || !player.alive || !room) return { ok: false, error: '건설할 수 없습니다.' };
     if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') return { ok: false, error: '게임 중에만 건설할 수 있습니다.' };
-    if (room.ownerId !== playerId || player.roomId !== roomId) return { ok: false, error: '자신의 방에만 건설할 수 있습니다.' };
+    if (!room.ownerIds.includes(playerId) || player.roomId !== roomId) return { ok: false, error: '자신이 머무는 방에만 건설할 수 있습니다.' };
     if (!isBuildTile(this.map, roomId, tile)) return { ok: false, error: '건설 가능한 타일이 아닙니다.' };
     if (this.state.buildings.some((building) => building.tile.x === tile.x && building.tile.y === tile.y)) return { ok: false, error: '이미 사용 중인 타일입니다.' };
     if (kind === 'lucky-machine' && this.state.buildings.some((building) => building.ownerId === playerId && building.kind === kind)) return { ok: false, error: '랜덤 상자는 방마다 하나만 설치할 수 있습니다.' };
-    const benefits = rankBenefits(player.soloRank);
+    const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+    const benefits = rankBenefits(activeRank);
     if (kind === 'arc-turret' && !benefits.rareTurretUnlocked) return { ok: false, error: '희귀 천둥포는 개인 등급 베테랑부터 설치할 수 있습니다.' };
-    const buildCost = upgradeCost(kind, 1, player.soloRank);
+    const buildCost = upgradeCost(kind, 1, activeRank);
     if (player.gold < buildCost.gold || player.power < buildCost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
     player.gold -= buildCost.gold;
     player.power -= buildCost.power;
@@ -400,6 +426,7 @@ export class GameEngine {
       kind,
       roomId,
       ownerId: playerId,
+      skinId: DEFAULT_TURRET_SKINS[kind as TurretKind] ? player.turretSkins[kind as TurretKind] : '',
       tile: { x: tile.x, y: tile.y, roomId },
       level: 1,
       cooldown: 0,
@@ -414,18 +441,24 @@ export class GameEngine {
     const player = this.state.players.find((candidate) => candidate.id === playerId);
     if (!player || !player.alive || !player.roomId) return { ok: false, error: '업그레이드할 수 없습니다.' };
     if (targetId.startsWith('bed:') || targetId.startsWith('door:')) {
-      const [target, roomId] = targetId.split(':');
+      const [target, roomId, rawBedIndex] = targetId.split(':');
       const room = this.state.rooms.find((candidate) => candidate.id === roomId);
-      if (!room || room.ownerId !== playerId || room.id !== player.roomId) return { ok: false, error: '자신의 설비만 업그레이드할 수 있습니다.' };
+      if (!room || !room.ownerIds.includes(playerId) || room.id !== player.roomId) return { ok: false, error: '같은 방의 설비만 업그레이드할 수 있습니다.' };
       const kind: BuildingKind = target === 'bed' ? 'bed' : 'reinforced-door';
-      const level = kind === 'bed' ? room.bedLevel : room.doorLevel;
+      const bedIndex = kind === 'bed' ? Number(rawBedIndex ?? player.bedIndex ?? 0) : 0;
+      if (kind === 'bed' && (!Number.isInteger(bedIndex) || bedIndex !== player.bedIndex)) return { ok: false, error: '자신이 점유한 침대만 강화할 수 있습니다.' };
+      const level = kind === 'bed' ? room.bedLevels[bedIndex] ?? 1 : room.doorLevel;
       if (kind === 'reinforced-door' && room.doorHp <= 0) return { ok: false, error: '파괴된 문은 업그레이드할 수 없습니다.' };
-      if (level >= maxBuildingLevel(kind, player.soloRank)) return { ok: false, error: '이미 최고 단계입니다.' };
-      const cost = upgradeCost(kind, level + 1, player.soloRank);
+      const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+      if (level >= maxBuildingLevel(kind, activeRank)) return { ok: false, error: '이미 최고 단계입니다.' };
+      const cost = upgradeCost(kind, level + 1, activeRank);
       if (player.gold < cost.gold || player.power < cost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
       player.gold -= cost.gold;
       player.power -= cost.power;
-      if (kind === 'bed') room.bedLevel += 1;
+      if (kind === 'bed') {
+        room.bedLevels[bedIndex] = level + 1;
+        room.bedLevel = room.bedLevels[0] ?? 1;
+      }
       else {
         room.doorLevel += 1;
         room.doorMaxHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
@@ -435,9 +468,11 @@ export class GameEngine {
       return { ok: true };
     }
     const building = this.state.buildings.find((candidate) => candidate.id === targetId);
-    if (!building || building.ownerId !== playerId || building.roomId !== player.roomId) return { ok: false, error: '자신의 건물만 업그레이드할 수 있습니다.' };
-    if (building.level >= maxBuildingLevel(building.kind, player.soloRank)) return { ok: false, error: '이미 최고 단계입니다.' };
-    const cost = upgradeCost(building.kind, building.level + 1, player.soloRank);
+    const buildingRoom = building ? this.state.rooms.find((candidate) => candidate.id === building.roomId) : undefined;
+    if (!building || !buildingRoom?.ownerIds.includes(playerId) || building.roomId !== player.roomId) return { ok: false, error: '같은 방의 건물만 업그레이드할 수 있습니다.' };
+    const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+    if (building.level >= maxBuildingLevel(building.kind, activeRank)) return { ok: false, error: '이미 최고 단계입니다.' };
+    const cost = upgradeCost(building.kind, building.level + 1, activeRank);
     if (player.gold < cost.gold || player.power < cost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
     player.gold -= cost.gold;
     player.power -= cost.power;
@@ -500,20 +535,30 @@ export class GameEngine {
     this.state.status = 'PLAYING';
     const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
     const maxHp = BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * (combatants - 1));
+    const rankPressure = Math.max(1, ...this.state.players.filter((player) => player.alive).map((player) =>
+      rankBenefits(this.playMode === 'solo' ? player.soloRank : player.multiplayerRank).ghostDifficultyMultiplier,
+    ));
     for (const ghost of this.state.ghosts) {
       const variantHp = ghost.variant === 'brute' ? 1.45 : ghost.variant.startsWith('twin') ? 0.68 : ghost.variant === 'swift' ? 0.84 : 1;
-      ghost.maxHp = (this.testMode ? maxHp * 0.34 : maxHp) * variantHp * this.stage.hpMultiplier;
+      ghost.maxHp = (this.testMode ? maxHp * 0.34 : maxHp) * variantHp * this.stage.hpMultiplier * rankPressure;
       ghost.hp = ghost.maxHp;
       ghost.position = { ...this.map.ghostSpawn };
     }
     this.syncPrimaryGhost();
     for (const player of this.state.players.filter((candidate) => !candidate.roomId)) {
-      const available = this.state.rooms.find((room) => !room.ownerId);
+      const available = this.state.rooms.flatMap((room) => {
+        const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+        return (mapRoom?.beds ?? []).map((bed, bedIndex) => ({ room, bed, bedIndex }))
+          .filter(({ room: roomState, bedIndex }) => !roomState.ownerIds.some((ownerId) =>
+            this.state.players.some((owner) => owner.id === ownerId && owner.bedIndex === bedIndex),
+          ));
+      })[0];
       if (available) {
-        available.ownerId = player.id;
-        player.roomId = available.id;
-        const mapRoom = this.map.rooms.find((room) => room.id === available.id);
-        if (mapRoom) player.position = { ...mapRoom.bed };
+        available.room.ownerIds.push(player.id);
+        available.room.ownerId ??= player.id;
+        player.roomId = available.room.id;
+        player.bedIndex = available.bedIndex;
+        player.position = { ...available.bed };
       }
     }
   }
@@ -523,12 +568,13 @@ export class GameEngine {
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
-        const bed = this.map.rooms.find((room) => room.id === player.roomId)?.bed;
+        const bed = this.map.rooms.find((room) => room.id === player.roomId)?.beds[player.bedIndex ?? 0];
         if (bed) player.position = { ...bed };
         player.velocity = { x: 0, y: 0 };
         continue;
       }
-      const speed = BALANCE.player.speed * rankBenefits(player.soloRank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
+      const rank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+      const speed = BALANCE.player.speed * rankBenefits(rank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
       const nextX = player.position.x + player.velocity.x * speed * dt;
       const nextY = player.position.y + player.velocity.y * speed * dt;
       if (isWalkable(this.map, nextX, player.position.y)) player.position.x = nextX;
@@ -571,10 +617,13 @@ export class GameEngine {
       const mapRoom = this.map.rooms.find((candidate) => candidate.id === player.roomId);
       const effects = combinedItemEffects(player.items);
       const goldBefore = player.gold;
-      const income = this.state.elapsed < this.state.goldSuppressedUntil ? 0 : (buildingStats('bed', room.bedLevel).value + effects.goldPerSecond) * dt;
+      const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+      const bedLevel = room.bedLevels[player.bedIndex ?? 0] ?? 1;
+      const income = this.state.elapsed < this.state.goldSuppressedUntil ? 0 : (buildingStats('bed', bedLevel).value * rankBenefits(activeRank).bedGoldMultiplier + effects.goldPerSecond) * dt;
       player.gold += income;
       const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
-      if (goldGained > 0) this.pendingEvents.push({ kind: 'gold', playerId: player.id, amount: goldGained, position: mapRoom ? { ...mapRoom.bed } : undefined });
+      const playerBed = mapRoom?.beds[player.bedIndex ?? 0] ?? mapRoom?.bed;
+      if (goldGained > 0) this.pendingEvents.push({ kind: 'gold', playerId: player.id, amount: goldGained, position: playerBed ? { ...playerBed } : undefined });
       const generators = this.state.buildings.filter((building) => building.ownerId === player.id && building.kind === 'generator');
       const powerBefore = player.power;
       for (const generator of generators) {
@@ -584,7 +633,7 @@ export class GameEngine {
       const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
       if (powerGained > 0) this.pendingEvents.push({
         kind: 'power', playerId: player.id, amount: powerGained,
-        position: generators[0] ? { ...generators[0].tile } : mapRoom ? { ...mapRoom.bed } : undefined,
+        position: generators[0] ? { ...generators[0].tile } : playerBed ? { ...playerBed } : undefined,
       });
       if (room.doorHp > 0 && this.state.elapsed >= this.state.repairSuppressedUntil) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + effects.doorRepairPerSecond * dt);
     }
@@ -711,7 +760,9 @@ export class GameEngine {
       ghost.targetRoomId = null;
       return;
     }
-    const targetPlayer = this.state.players.find((player) => player.id === room.ownerId && player.alive);
+    const targetPlayer = room.ownerIds.map((ownerId) => this.state.players.find((player) => player.id === ownerId && player.alive))
+      .filter((player): player is PlayerState => Boolean(player))
+      .sort((a, b) => distance(ghost.position, a.position) - distance(ghost.position, b.position))[0];
     const destination = room.doorHp > 0 ? mapRoom.door : targetPlayer?.position ?? mapRoom.bed;
     if (distance(ghost.position, destination) > 0.72) {
       this.moveGhostToward(ghost, destination, dt);
@@ -720,11 +771,14 @@ export class GameEngine {
     ghost.attackCooldown -= dt;
     if (ghost.attackCooldown > 0) return;
     const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
+    const rankPressure = Math.max(1, ...this.state.players.filter((player) => player.alive).map((player) =>
+      rankBenefits(this.playMode === 'solo' ? player.soloRank : player.multiplayerRank).ghostDifficultyMultiplier,
+    ));
     // 쌍둥이 둘의 합산 문 피해가 일반 귀신 한 마리와 같도록 정확히 절반씩 나눈다.
     const variantDamage = ghost.variant === 'brute' ? 1.3 : ghost.variant.startsWith('twin') ? 0.5 : 1;
     const damageScale = (1 + BALANCE.ghost.damagePerPlayer * (combatants - 1)
       + (ghost.level - 1) * (BALANCE.ghost.damageGrowthPerLevel + this.stage.levelDamageGrowth))
-      * variantDamage * this.stage.damageMultiplier;
+      * variantDamage * this.stage.damageMultiplier * rankPressure;
     ghost.attackCooldown = BALANCE.ghost.attackInterval / (ghost.rage ? 1.5 : 1);
     if (room.doorHp > 0) {
       const rawShieldReduction = this.state.elapsed < room.shieldUntil
@@ -802,21 +856,15 @@ export class GameEngine {
 
   private selectGhostTarget(ghost: GhostState): string | null {
     const candidates = this.state.rooms.filter((room) => {
-      const owner = this.state.players.find((player) => player.id === room.ownerId);
-      return owner?.alive;
+      return room.ownerIds.some((ownerId) => this.state.players.some((player) => player.id === ownerId && player.alive));
     });
     if (candidates.length === 0) return null;
-    const scored = candidates.map((room) => {
-      const owner = this.state.players.find((player) => player.id === room.ownerId) as PlayerState;
-      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
-      const doorWeakness = 1 - room.doorHp / Math.max(1, room.doorMaxHp);
-      const growth = owner.gold / 500 + this.state.buildings.filter((building) => building.roomId === room.id).length * 0.25;
-      const routeLength = mapRoom ? findPath(this.map, ghost.position, mapRoom.door).length : Number.POSITIVE_INFINITY;
-      const score = -routeLength * 0.24 + doorWeakness * 2 + growth * 0.2 + this.rng.next() * 0.2;
-      return { id: room.id, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0]?.id ?? null;
+    const otherTwinTargets = ghost.variant.startsWith('twin')
+      ? new Set(this.state.ghosts.filter((candidate) => candidate.id !== ghost.id && candidate.variant.startsWith('twin')).map((candidate) => candidate.targetRoomId).filter(Boolean))
+      : new Set<string>();
+    const diversified = candidates.length > 1 ? candidates.filter((room) => !otherTwinTargets.has(room.id)) : candidates;
+    const pool = diversified.length > 0 ? diversified : candidates;
+    return pool[this.rng.int(0, pool.length - 1)]?.id ?? null;
   }
 
   private syncPrimaryGhost(): void {
@@ -848,7 +896,7 @@ export class GameEngine {
   private resetForRematch(): void {
     const hostId = this.state.hostId;
     const players = this.state.players.map((player) => ({
-      ...this.makePlayer(player.id, player.nickname, player.isBot, player.accountId, player.soloRank, player.multiplayerRank),
+      ...this.makePlayer(player.id, player.nickname, player.isBot, player.accountId, player.soloRank, player.multiplayerRank, player.appearance, player.turretSkins),
       connected: player.connected,
       ready: player.isBot,
     }));
@@ -879,8 +927,8 @@ export class GameEngine {
     this.syncPrimaryGhost();
   }
 
-  private makePlayer(id: string, nickname: string, isBot: boolean, accountId: string | null, soloRank: RankId, multiplayerRank: RankId): PlayerState {
-    const benefits = rankBenefits(soloRank);
+  private makePlayer(id: string, nickname: string, isBot: boolean, accountId: string | null, soloRank: RankId, multiplayerRank: RankId, appearance = DEFAULT_APPEARANCE, turretSkins = DEFAULT_TURRET_SKINS): PlayerState {
+    const benefits = rankBenefits(this.playMode === 'solo' ? soloRank : multiplayerRank);
     return {
       id,
       accountId,
@@ -888,6 +936,8 @@ export class GameEngine {
       soloRank,
       multiplayerRank,
       displayRank: higherRank(soloRank, multiplayerRank),
+      appearance: normalizeAppearance(appearance),
+      turretSkins: normalizeTurretSkins(turretSkins),
       color: COLORS[this.state.players.length % COLORS.length] as number,
       isBot,
       connected: true,
@@ -901,6 +951,7 @@ export class GameEngine {
       gold: BALANCE.player.startingGold + benefits.startingGoldBonus,
       power: BALANCE.player.startingPower + benefits.startingPowerBonus,
       roomId: null,
+      bedIndex: null,
       lastInputSeq: 0,
       reconnectUntil: 0,
       score: 0,

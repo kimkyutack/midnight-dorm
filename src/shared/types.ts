@@ -15,15 +15,18 @@ export interface MapRoom {
   bounds: { x: number; y: number; width: number; height: number };
   door: Tile;
   bed: Tile;
+  beds: Tile[];
   floorTiles: Tile[];
   buildTiles: Tile[];
 }
 
 export interface MapDefinition {
   seed: number;
+  playMode: PlayMode;
   width: number;
   height: number;
   corridor: { x: number; y: number; width: number; height: number };
+  corridorTiles: Tile[];
   respawnZone: { x: number; y: number; width: number; height: number };
   playerSpawn: Vec2;
   ghostSpawn: Vec2;
@@ -46,6 +49,9 @@ export type BuildingKind =
   | 'shield-device'
   | 'lucky-machine';
 
+export type TurretKind = 'basic-turret' | 'rapid-turret' | 'frost-turret' | 'arc-turret';
+export type TurretSkinLoadout = Record<TurretKind, string>;
+
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export interface OwnedItem {
@@ -62,6 +68,7 @@ export interface PlayerState {
   soloRank: RankId;
   multiplayerRank: RankId;
   displayRank: RankId;
+  appearance: AvatarAppearance;
   color: number;
   isBot: boolean;
   connected: boolean;
@@ -75,6 +82,8 @@ export interface PlayerState {
   gold: number;
   power: number;
   roomId: string | null;
+  bedIndex: number | null;
+  turretSkins: TurretSkinLoadout;
   lastInputSeq: number;
   reconnectUntil: number;
   score: number;
@@ -85,10 +94,12 @@ export interface PlayerState {
 export interface RoomState {
   id: string;
   ownerId: string | null;
+  ownerIds: string[];
   doorHp: number;
   doorMaxHp: number;
   doorLevel: number;
   bedLevel: number;
+  bedLevels: number[];
   shieldUntil: number;
 }
 
@@ -97,6 +108,7 @@ export interface BuildingState {
   kind: BuildingKind;
   roomId: string;
   ownerId: string;
+  skinId: string;
   tile: Tile;
   level: number;
   cooldown: number;
@@ -133,6 +145,16 @@ export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'vetera
 export type PlayMode = 'solo' | 'multiplayer';
 export type StageId = `${string}-${number}`;
 
+export type CosmeticSlot = 'character' | 'hat' | 'outfit' | 'accessory' | 'shoes' | 'turret';
+
+export interface AvatarAppearance {
+  character: string;
+  hat: string;
+  outfit: string;
+  accessory: string;
+  shoes: string;
+}
+
 export interface AccountProfile {
   id: string;
   username: string;
@@ -145,6 +167,10 @@ export interface AccountProfile {
   soloStageIndex: number;
   multiplayerStageIndex: number;
   victories: number;
+  customPoints: number;
+  ownedCosmetics: string[];
+  appearance: AvatarAppearance;
+  turretSkins: TurretSkinLoadout;
   createdAt: number;
 }
 
@@ -246,4 +272,6 @@ export interface JoinIdentity {
   accountId?: string;
   soloRank?: RankId;
   multiplayerRank?: RankId;
+  appearance?: AvatarAppearance;
+  turretSkins?: TurretSkinLoadout;
 }

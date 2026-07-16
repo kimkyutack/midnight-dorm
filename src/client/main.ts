@@ -6,8 +6,15 @@ import {
 } from "../shared/balance";
 import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
 import {
+  cosmeticAvailable,
+  cosmeticById,
+  cosmeticsForSlot,
+  customizationReward,
+} from "../shared/customization";
+import {
   rankBadgeSymbol,
   rankBenefits,
+  getStage,
   rankLabel,
   stagesThrough,
 } from "../shared/progression";
@@ -15,6 +22,7 @@ import { stageThemeFor } from "../shared/stageThemes";
 import type {
   AccountProfile,
   BuildingKind,
+  CosmeticSlot,
   GameEvent,
   GameSnapshot,
   GameStatus,
@@ -26,9 +34,11 @@ import type {
 } from "../shared/types";
 import { SynthAudio } from "./audio";
 import {
+  equipCosmetic,
   getAccount,
   loginAccount,
   logoutAccount,
+  purchaseCosmetic,
   registerAccount,
 } from "./auth";
 import { ThreeGameView, type SceneSelection } from "./game/ThreeGameView";
@@ -64,6 +74,7 @@ let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
 let playerId = "";
 let account: AccountProfile | null = null;
+let customizeReturnView: "home" | "room-menu" = "home";
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let currentView = "";
@@ -210,11 +221,16 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀포 해금" : ""}`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-brand"><span class="eyebrow">호러 디펜스</span><h1>심야<br>병동</h1><p>새벽 6시까지 문을 지키고 복도의 존재를 몰아내세요.</p></header><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small><em>${perk}</em></div></section><button class="home-logout" data-home-logout>로그아웃</button><footer class="home-actions"><button class="game-start" data-game-start><i>☾</i><span><small>TAP TO ENTER</small>게임 시작</span></button><p>헤드폰을 사용하면 복도 소리를 더 정확히 들을 수 있습니다.</p></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-brand"><span class="eyebrow">MIDNIGHT WARD</span><h1>심야<br>병동</h1><p>작은 생존자들과 함께 문을 지키고 새벽을 맞이하세요.</p></header><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small><em>${perk}</em></div></section><button class="home-logout" data-home-logout>로그아웃</button><footer class="home-actions"><div class="home-menu"><button class="game-start" data-game-start><i>☾</i><span><small>PLAY</small>게임 시작</span></button><button class="home-custom" data-customize><i>✦</i><span><small>MY SURVIVOR</small>커스텀</span><em>${currentAccount.customPoints.toLocaleString()} P</em></button></div><p>커스텀 외형은 전투 능력치에 영향을 주지 않습니다.</p></footer></main>`,
   );
   app.querySelector("[data-game-start]")?.addEventListener("click", () => {
     audio.play("button");
     roomMenu();
+  });
+  app.querySelector("[data-customize]")?.addEventListener("click", () => {
+    audio.play("button");
+    customizeReturnView = "home";
+    customizationScreen();
   });
   app.querySelector("[data-home-logout]")?.addEventListener(
     "click",
@@ -224,6 +240,122 @@ function homeScreen(): void {
         authScreen();
       }),
   );
+}
+
+const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
+  character: "캐릭터",
+  hat: "모자",
+  outfit: "옷",
+  accessory: "장신구",
+  shoes: "신발",
+  turret: "포탑",
+};
+
+function avatarPreviewHtml(profile: AccountProfile): string {
+  const appearance = profile.appearance;
+  const character = cosmeticById(appearance.character);
+  const outfit = cosmeticById(appearance.outfit);
+  const shoes = cosmeticById(appearance.shoes);
+  const hat = cosmeticById(appearance.hat);
+  const characterClass = appearance.character.replace("character-", "");
+  const hatClass = appearance.hat.replace("hat-", "");
+  const accessoryClass = appearance.accessory.replace("accessory-", "");
+  const hatSymbol = appearance.hat === "hat-rank" ? "" : hat?.symbol ?? "";
+  const accessorySymbol = appearance.accessory === "accessory-none" ? "" : cosmeticById(appearance.accessory)?.symbol ?? "";
+  return `<div class="custom-avatar character-${escapeHtml(characterClass)} hat-${escapeHtml(hatClass)} accessory-${escapeHtml(accessoryClass)}" style="--fur:${character?.swatch ?? "#e9c7bc"};--cloth:${outfit?.swatch ?? "#6677a6"};--shoes:${shoes?.swatch ?? "#b6c4ca"}"><div class="custom-avatar-shadow"></div><div class="custom-avatar-body"><i class="custom-arm left"></i><i class="custom-arm right"></i><i class="custom-leg left"></i><i class="custom-leg right"></i></div><div class="custom-avatar-head"><i class="custom-ear left"></i><i class="custom-ear right"></i><i class="custom-eye left"></i><i class="custom-eye right"></i><i class="custom-muzzle"></i><i class="custom-cheek left"></i><i class="custom-cheek right"></i></div><div class="custom-avatar-hat">${escapeHtml(hatSymbol)}</div><div class="custom-avatar-accessory">${escapeHtml(accessorySymbol)}</div></div>`;
+}
+
+function turretPreviewHtml(profile: AccountProfile): string {
+  const turrets = [
+    ["basic-turret", "수호"],
+    ["rapid-turret", "연사"],
+    ["frost-turret", "서리"],
+    ["arc-turret", "천둥"],
+  ] as const;
+  return `<div class="turret-hangar">${turrets.map(([kind, label]) => {
+    const item = cosmeticById(profile.turretSkins[kind]);
+    return `<div class="turret-preview turret-preview-${kind}" style="--turret-swatch:${item?.swatch ?? "#78dff1"}"><i></i><b></b><span>${label}</span></div>`;
+  }).join("")}</div>`;
+}
+
+function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
+  if (!account) {
+    authScreen();
+    return;
+  }
+  const currentAccount = account;
+  const appearance = currentAccount.appearance;
+  const tabs = (Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[])
+    .map(
+      (slot) =>
+        `<button class="custom-tab ${slot === activeSlot ? "active" : ""}" data-custom-slot="${slot}">${CUSTOM_SLOT_LABELS[slot]}</button>`,
+    )
+    .join("");
+  const cards = cosmeticsForSlot(activeSlot)
+    .map((item) => {
+      const selected = activeSlot === "turret"
+        ? Boolean(item.turretKind && currentAccount.turretSkins[item.turretKind] === item.id)
+        : appearance[activeSlot] === item.id;
+      const owned = currentAccount.ownedCosmetics.includes(item.id);
+      const available = cosmeticAvailable(
+        item,
+        currentAccount.displayRank,
+        currentAccount.ownedCosmetics,
+      );
+      let action = "equip";
+      let status = "착용";
+      let disabled = false;
+      if (selected) {
+        status = "착용 중";
+        disabled = true;
+      } else if (item.unlock.kind === "points" && !owned) {
+        action = "purchase";
+        status = `${item.unlock.price.toLocaleString()} P`;
+      } else if (item.unlock.kind === "rank" && !available) {
+        status = `${rankLabel(item.unlock.rank)} 해금`;
+        disabled = true;
+      } else if (item.unlock.kind === "rank") {
+        status = "등급 해금";
+      }
+      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${!available && item.unlock.kind === "rank" ? "locked" : ""}"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div><button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}" ${disabled ? "disabled" : ""}>${status}</button></article>`;
+    })
+    .join("");
+  const character = cosmeticById(appearance.character);
+  const turretMode = activeSlot === "turret";
+  setContent(
+    "customize",
+    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${turretMode ? turretPreviewHtml(currentAccount) : avatarPreviewHtml(currentAccount)}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong>${turretMode ? "방어 설비 컬렉션" : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small>${turretMode ? "종류별 외형은 다음 설치부터 적용됩니다." : `${escapeHtml(currentAccount.nickname)}의 현재 캐릭터`}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
+  );
+  app.querySelector("[data-custom-back]")?.addEventListener("click", () => {
+    if (customizeReturnView === "room-menu") roomMenu();
+    else homeScreen();
+  });
+  app.querySelectorAll<HTMLElement>("[data-custom-slot]").forEach((button) =>
+    button.addEventListener("click", () =>
+      customizationScreen(button.dataset.customSlot as CosmeticSlot),
+    ),
+  );
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-cosmetic-action]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        const itemId = button.dataset.cosmeticId ?? "";
+        const action = button.dataset.cosmeticAction;
+        button.disabled = true;
+        button.textContent = "처리 중";
+        void (async () => {
+          try {
+            if (action === "purchase") account = await purchaseCosmetic(itemId);
+            account = await equipCosmetic(itemId);
+            customizationScreen(activeSlot);
+            toast(action === "purchase" ? "구매하고 바로 착용했습니다." : "착용 상태를 저장했습니다.");
+          } catch (error) {
+            customizationScreen(activeSlot);
+            toast(error instanceof Error ? error.message : "커스텀 상태를 저장하지 못했습니다.");
+          }
+        })();
+      }),
+    );
 }
 
 function authScreen(mode: "login" | "register" = "login"): void {
@@ -312,7 +444,7 @@ function roomMenu(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동속도 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동속도"} · 문 최대 Lv.15 · 포탑 최대 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀 천둥포 해금" : ""}`;
   setContent(
     "room-menu",
-    `<main class="mode-select-screen"><div class="mode-backdrop"></div><header class="mode-header"><button class="mode-back" data-mode-back>‹</button><div><span class="eyebrow">SELECT NIGHT</span><h2>어떤 방식으로 플레이하시겠습니까?</h2></div><div class="mode-rank">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-sm")}<span>${escapeHtml(currentAccount.nickname)}</span></div></header><section class="mode-stage"><article class="mode-poster solo-poster"><div class="mode-number">01</div><h3>개인 플레이</h3><p>세 명의 생존 봇과 함께 방을 점유하고 나만의 방어 조합을 완성하세요.</p><label>도전 스테이지<select data-solo-stage>${soloOptions}</select></label><button class="btn primary" data-solo aria-label="봇과 혼자 시작">플레이</button></article><article class="mode-poster multi-poster"><div class="mode-number">02</div><h3>멀티 플레이</h3><p>친구와 실시간으로 다른 방을 지키며 같은 귀신을 함께 상대하세요.</p><label>도전 스테이지<select data-multi-stage>${multiOptions}</select></label><button class="btn primary" data-create data-testid="create-room">새 멀티 방 만들기</button></article><aside class="invite-terminal"><div><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" aria-label="초대 코드로 참가" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 초대 코드" /><button class="btn gold" data-join data-testid="join-room">친구 방 참가</button></div><small>${perk}</small></aside></section></main>`,
+    `<main class="mode-select-screen"><div class="mode-backdrop"></div><header class="mode-header"><button class="mode-back" data-mode-back aria-label="게임 홈">‹</button><div><span class="eyebrow">PLAY</span><h2>플레이 방식 선택</h2></div><nav class="mode-tools"><button class="mode-custom" data-customize><span>✦ ${currentAccount.customPoints.toLocaleString()} P</span><strong>커스텀</strong></button><div class="mode-rank">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-sm")}<span>${escapeHtml(currentAccount.nickname)}</span></div></nav></header><section class="mode-stage"><article class="mode-poster solo-poster"><div class="mode-icon">☾</div><div class="mode-copy"><h3>개인 플레이</h3><p>세 명의 귀여운 생존 봇과 함께 방어합니다.</p></div><label>스테이지<select data-solo-stage>${soloOptions}</select></label><button class="mode-play" data-solo aria-label="봇과 혼자 시작">혼자 시작</button></article><article class="mode-poster multi-poster"><div class="mode-icon">◎</div><div class="mode-copy"><h3>멀티 플레이</h3><p>친구와 각자의 방을 지키며 협동합니다.</p></div><label>스테이지<select data-multi-stage>${multiOptions}</select></label><button class="mode-play" data-create data-testid="create-room">새 방 만들기</button></article><aside class="invite-terminal"><div class="invite-copy"><span>FRIEND ROOM</span><strong>초대 코드로 참가</strong></div><div><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" aria-label="초대 코드로 참가" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드" /><button class="invite-join" data-join data-testid="join-room">참가</button></div><small>${perk}</small></aside></section></main>`,
   );
   app
     .querySelector(".mode-rank")
@@ -332,6 +464,10 @@ function roomMenu(): void {
   app
     .querySelector("[data-mode-back]")
     ?.addEventListener("click", () => homeScreen());
+  app.querySelector("[data-customize]")?.addEventListener("click", () => {
+    customizeReturnView = "room-menu";
+    customizationScreen();
+  });
   app.querySelector("[data-logout]")?.addEventListener(
     "click",
     () =>
@@ -426,6 +562,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     playerId = id;
     mapData = map;
     snapshot = initial;
+    updateTestApi();
     profile.reconnectTokens[code] = network?.reconnectToken ?? "";
     saveProfile(profile);
     if (firstWelcome) {
@@ -446,6 +583,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
   network.on("snapshot", ({ snapshot: next, events }) => {
     const previous = snapshot;
     snapshot = next;
+    updateTestApi();
     renderForSnapshot(next, false);
     game?.updateSnapshot(next, events);
     playEvents(events);
@@ -468,9 +606,13 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
 
 function lobbyScreen(state: GameSnapshot): void {
   destroyGame();
+  const stage = getStage(state.stageId);
+  const roomRule = state.playMode === "multiplayer"
+    ? "방 12개 · 방마다 25칸 · 침대 2개 · 공동 건설/강화"
+    : "방 12개 · 방마다 20~25칸 · 다중 순환 경로";
   setContent(
     "lobby",
-    `<main class="screen"><section class="panel"><span class="eyebrow">${state.playMode === "solo" ? "SOLO" : "MULTIPLAYER"} · ${state.stageLabel} · ${stageThemeFor(state.stageId).label}</span><h2>친구를 기다리는 중</h2><p class="subtitle">스테이지가 높을수록 귀신의 초기 HP·공격력·성장률과 특수 스킬이 강화됩니다.</p><div class="room-code"><span>8자리 초대 코드<br>눌러서 복사</span><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><div class="players" id="players" data-testid="players"></div><div class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></div></section></main>`,
+    `<main class="lobby-screen"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "SOLO NIGHT" : "CO-OP NIGHT"} · ${stageThemeFor(state.stageId).label}</span><h2>새벽조 편성</h2><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><small>선택 스테이지</small><strong>${state.stageLabel}</strong><span>HP ×${stage.hpMultiplier.toFixed(2)} · 공격 ×${stage.damageMultiplier.toFixed(2)}</span></div></header><div class="lobby-code"><div><span>ROOM CODE</span><small>코드를 눌러 복사</small></div><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * .55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></footer></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -642,9 +784,10 @@ function resultScreen(state: GameSnapshot): void {
     saveProfile(profile);
   }
   audio.play(victory ? "victory" : "defeat");
+  const reward = customizationReward(state.stageIndex);
   setContent(
     "result",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? "✦" : "☁"}</div><span class="eyebrow">${state.stageLabel} · ${victory ? "DAWN SURVIVED" : "NIGHT CONSUMED"}</span><h1>${victory ? "새벽을 지켜냈습니다" : "병동이 잠식되었습니다"}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 레벨 ${state.ghost.level}<br>${victory ? "승리 XP와 다음 스테이지가 계정에 저장됩니다." : "도전 XP가 계정에 저장됩니다."}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`,
+    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${victory ? "새벽 생존" : "작전 실패"}</h1><p>${victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${reward} P</strong><small>커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다.</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div></section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
@@ -683,7 +826,7 @@ function renderBuildPanel(tile: Tile): void {
   if (!snapshot) return;
   const me = snapshot.players.find((player) => player.id === playerId);
   if (!me?.roomId || tile.roomId !== me.roomId) {
-    toast("자신이 점유한 방의 타일만 사용할 수 있습니다.");
+    toast("자신이 머무는 방의 타일만 사용할 수 있습니다.");
     return;
   }
   const panel = app.querySelector<HTMLElement>("[data-build-panel]");
@@ -702,14 +845,15 @@ function renderBuildPanel(tile: Tile): void {
     renderTargetPanel(selectedTarget);
     return;
   }
-  const benefits = rankBenefits(me.soloRank);
+  const modeRank = snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
+  const benefits = rankBenefits(modeRank);
   const availableKinds = benefits.rareTurretUnlocked
     ? [...BUILD_KINDS, "arc-turret" as const]
     : BUILD_KINDS;
   panel.innerHTML = `<h3>빈 타일에 설비 설치</h3><p>${tile.x}, ${tile.y} · 보유 ◆ <b data-owned-gold>${Math.floor(me.gold)}</b> / ⚡ <b data-owned-power>${Math.floor(me.power)}</b></p><div class="build-grid">${availableKinds
     .map((kind) => {
       const definition = BALANCE.buildings[kind];
-      const cost = upgradeCost(kind, 1, me.soloRank);
+      const cost = upgradeCost(kind, 1, modeRank);
       return `<button class="build-card ${kind === "arc-turret" ? "rare-build" : ""}" data-build="${kind}"><strong>${definition.label}</strong><span>설치 비용 ◆ ${cost.gold} · ⚡ ${cost.power}</span><small>${definition.description}</small></button>`;
     })
     .join(
@@ -735,7 +879,7 @@ function renderTargetPanel(selection: SceneSelection): void {
   const panel = app.querySelector<HTMLElement>("[data-build-panel]");
   if (!me || !panel) return;
   if (selection.roomId !== me.roomId) {
-    toast("자신이 점유한 방의 설비만 조작할 수 있습니다.");
+    toast("자신이 머무는 방의 설비만 조작할 수 있습니다.");
     return;
   }
   const room = snapshot.rooms.find(
@@ -752,9 +896,10 @@ function renderTargetPanel(selection: SceneSelection): void {
       : selection.type === "door"
         ? "reinforced-door"
         : (building?.kind ?? "basic-turret");
+  const bedIndex = selection.type === "bed" ? Number(selection.targetId.split(":")[2] ?? me.bedIndex ?? 0) : 0;
   const currentLevel =
     selection.type === "bed"
-      ? (room?.bedLevel ?? 1)
+      ? (room?.bedLevels[bedIndex] ?? 1)
       : selection.type === "door"
         ? (room?.doorLevel ?? 1)
         : (building?.level ?? 1);
@@ -775,17 +920,19 @@ function renderTargetPanel(selection: SceneSelection): void {
       ?.addEventListener("click", () => network?.drawItem(building.id));
     return;
   }
-  const maxLevel = maxBuildingLevel(kind, me.soloRank);
+  const modeRank = snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
+  const benefits = rankBenefits(modeRank);
+  const maxLevel = maxBuildingLevel(kind, modeRank);
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
   const doorDestroyed = selection.type === "door" && (room?.doorHp ?? 0) <= 0;
   const cost =
     !doorDestroyed && currentLevel < maxLevel
-      ? upgradeCost(kind, nextLevel, me.soloRank)
+      ? upgradeCost(kind, nextLevel, modeRank)
       : null;
   const effectLabel =
     kind === "bed"
-      ? `초당 골드 ${current.value}`
+      ? `초당 골드 ${(current.value * benefits.bedGoldMultiplier).toFixed(1)} · 등급 보너스 ×${benefits.bedGoldMultiplier.toFixed(1)}`
       : kind === "reinforced-door"
         ? doorDestroyed
           ? "파괴됨 · 복구 및 업그레이드 불가"
@@ -839,7 +986,10 @@ function selectionLevel(
   const room = state.rooms.find(
     (candidate) => candidate.id === selection.roomId,
   );
-  if (selection.type === "bed") return room?.bedLevel ?? null;
+  if (selection.type === "bed") {
+    const bedIndex = Number(selection.targetId.split(":")[2] ?? 0);
+    return room?.bedLevels[bedIndex] ?? null;
+  }
   if (selection.type === "door") return room?.doorLevel ?? null;
   return (
     state.buildings.find((building) => building.id === selection.buildingId)

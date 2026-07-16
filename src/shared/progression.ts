@@ -69,8 +69,8 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
     tier: tier.id,
     level,
     label: `${tier.label} ${level}`,
-    hpMultiplier: Number((1 + index * 0.032 + pressure * pressure * 1.2).toFixed(3)),
-    damageMultiplier: Number((1 + index * 0.023 + pressure * 0.8).toFixed(3)),
+    hpMultiplier: Number((1 + index * 0.055 + pressure * pressure * 1.6).toFixed(3)),
+    damageMultiplier: Number((1 + index * 0.035 + pressure * 1.0).toFixed(3)),
     speedMultiplier: Number(Math.min(1.62, 1 + index * 0.004).toFixed(3)),
     levelHpGrowth: Number(Math.min(0.58, 0.26 + index * 0.0019).toFixed(3)),
     levelDamageGrowth: Number(Math.min(0.5, 0.22 + index * 0.0017).toFixed(3)),
@@ -87,15 +87,17 @@ export interface RankBenefits {
   turretLevelBonus: number;
   rareTurretUnlocked: boolean;
   rareTurretDiscount: number;
+  bedGoldMultiplier: number;
+  ghostDifficultyMultiplier: number;
 }
 
 const BENEFITS: Record<RankId, RankBenefits> = {
-  beginner: { speedMultiplier: 1, startingGoldBonus: 0, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  intermediate: { speedMultiplier: 1.05, startingGoldBonus: 10, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  expert: { speedMultiplier: 1.07, startingGoldBonus: 15, startingPowerBonus: 5, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  master: { speedMultiplier: 1.09, startingGoldBonus: 20, startingPowerBonus: 7, turretLevelBonus: 1, rareTurretUnlocked: false, rareTurretDiscount: 0 },
-  veteran: { speedMultiplier: 1.11, startingGoldBonus: 30, startingPowerBonus: 10, turretLevelBonus: 1, rareTurretUnlocked: true, rareTurretDiscount: 0.15 },
-  legend: { speedMultiplier: 1.14, startingGoldBonus: 45, startingPowerBonus: 15, turretLevelBonus: 2, rareTurretUnlocked: true, rareTurretDiscount: 0.3 },
+  beginner: { speedMultiplier: 1, startingGoldBonus: 0, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0, bedGoldMultiplier: 1, ghostDifficultyMultiplier: 1 },
+  intermediate: { speedMultiplier: 1.05, startingGoldBonus: 10, startingPowerBonus: 0, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0, bedGoldMultiplier: 1.1, ghostDifficultyMultiplier: 1.05 },
+  expert: { speedMultiplier: 1.07, startingGoldBonus: 15, startingPowerBonus: 5, turretLevelBonus: 0, rareTurretUnlocked: false, rareTurretDiscount: 0, bedGoldMultiplier: 1.2, ghostDifficultyMultiplier: 1.1 },
+  master: { speedMultiplier: 1.09, startingGoldBonus: 20, startingPowerBonus: 7, turretLevelBonus: 1, rareTurretUnlocked: false, rareTurretDiscount: 0, bedGoldMultiplier: 1.3, ghostDifficultyMultiplier: 1.15 },
+  veteran: { speedMultiplier: 1.11, startingGoldBonus: 30, startingPowerBonus: 10, turretLevelBonus: 1, rareTurretUnlocked: true, rareTurretDiscount: 0.15, bedGoldMultiplier: 1.4, ghostDifficultyMultiplier: 1.2 },
+  legend: { speedMultiplier: 1.14, startingGoldBonus: 45, startingPowerBonus: 15, turretLevelBonus: 2, rareTurretUnlocked: true, rareTurretDiscount: 0.3, bedGoldMultiplier: 1.5, ghostDifficultyMultiplier: 1.25 },
 };
 
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));

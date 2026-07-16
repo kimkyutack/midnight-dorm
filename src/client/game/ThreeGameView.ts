@@ -10,7 +10,7 @@ const MIN_CAMERA_DISTANCE_SCALE = 0.5;
 const MAX_CAMERA_DISTANCE_SCALE = 2;
 const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
-const PLAYER_HEIGHT = 1.82;
+const PLAYER_HEIGHT = 1.48;
 
 export interface SceneSelection {
   type: 'bed' | 'door' | 'building';
@@ -193,65 +193,131 @@ function createHuman(player: PlayerState, local: boolean): PlayerRig {
   const avatar = new THREE.Group();
   root.add(avatar);
 
-  const jacket = new THREE.Color(player.color);
-  const skin = standardMaterial(0xd9a27f, { roughness: 0.72 });
-  const hair = standardMaterial(0x17131b, { roughness: 1 });
-  const cloth = standardMaterial(jacket, { roughness: 0.88 });
-  const clothDark = standardMaterial(jacket.clone().multiplyScalar(0.54), { roughness: 0.92 });
-  const pants = standardMaterial(0x242a39, { roughness: 0.96 });
-  const shoe = standardMaterial(0x171923, { roughness: 0.96 });
-  const eye = standardMaterial(0x17101a, { roughness: 0.4 });
+  const appearance = player.appearance;
+  const animal = appearance.character.replace('character-', '');
+  const furColors: Record<string, number> = {
+    bunny: 0xe6c2b7,
+    cat: 0xaeb9ce,
+    puppy: 0xc99264,
+    bear: 0x8f6248,
+    fox: 0xcf6843,
+    hamster: 0xcfaa75,
+  };
+  const outfitColors: Record<string, number> = {
+    'outfit-pajamas': 0x6879aa,
+    'outfit-raincoat': 0xe0b33b,
+    'outfit-campus': 0x477b6b,
+    'outfit-medic': 0xd8e5e4,
+    'outfit-commander': 0x3f334f,
+    'outfit-starlight': 0x5364b2,
+  };
+  const shoeColors: Record<string, number> = {
+    'shoes-slippers': 0xaabcc2,
+    'shoes-sneakers': 0x5ab5a2,
+    'shoes-boots': 0x6c577f,
+    'shoes-moon': 0xb8cdeb,
+    'shoes-neon': 0x43d9ca,
+  };
+  const fur = standardMaterial(furColors[animal] ?? 0xe6c2b7, { roughness: 0.9 });
+  const innerEar = standardMaterial(animal === 'fox' ? 0x5a2c2b : 0xc9858a, { roughness: 0.9 });
+  const clothColor = new THREE.Color(outfitColors[appearance.outfit] ?? player.color);
+  const cloth = standardMaterial(clothColor, {
+    roughness: 0.88,
+    emissive: appearance.outfit === 'outfit-starlight' ? 0x17214f : 0x000000,
+    emissiveIntensity: appearance.outfit === 'outfit-starlight' ? 0.6 : 0,
+  });
+  const shoe = standardMaterial(shoeColors[appearance.shoes] ?? 0x20242d, {
+    roughness: 0.82,
+    emissive: appearance.shoes === 'shoes-neon' ? 0x176b64 : 0x000000,
+    emissiveIntensity: appearance.shoes === 'shoes-neon' ? 0.9 : 0,
+  });
+  const eye = standardMaterial(0x17151d, { roughness: 0.35 });
+  const white = standardMaterial(0xf8f2e8, { roughness: 0.82 });
+  const cheek = standardMaterial(0xe58f94, { roughness: 0.9, transparent: true, opacity: 0.64 });
 
-  const torso = mesh(new THREE.CapsuleGeometry(0.24, 0.48, 4, 10), cloth, [0, 1.02, 0]);
-  torso.scale.set(1, 1, 0.72);
+  const torso = mesh(new THREE.CapsuleGeometry(0.27, 0.34, 5, 12), cloth, [0, 0.67, 0]);
+  torso.scale.set(1, 1, 0.78);
   avatar.add(torso);
-  avatar.add(mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.16, 10), skin, [0, 1.38, 0]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.29, 16, 12), skin, [0, 1.64, 0]));
-
-  const hairCap = mesh(new THREE.SphereGeometry(0.31, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.61), hair, [0, 1.7, 0.015]);
-  hairCap.rotation.x = -0.08;
-  avatar.add(hairCap);
-  const fringe = mesh(new THREE.BoxGeometry(0.42, 0.14, 0.1), hair, [0, 1.73, -0.235]);
-  fringe.rotation.z = -0.08;
-  avatar.add(fringe);
-  avatar.add(createRankHat(player.displayRank));
-  avatar.add(mesh(new THREE.SphereGeometry(0.027, 8, 6), eye, [-0.095, 1.64, -0.271]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.027, 8, 6), eye, [0.095, 1.64, -0.271]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.035, 8, 6), skin, [0, 1.58, -0.285]));
+  const head = mesh(new THREE.SphereGeometry(0.39, 20, 14), fur, [0, 1.17, -0.015]);
+  head.scale.set(1.03, 0.93, 0.91);
+  avatar.add(head);
+  avatar.add(createAnimalEars(animal, fur, innerEar));
+  avatar.add(mesh(new THREE.SphereGeometry(0.047, 10, 8), eye, [-0.13, 1.19, -0.34]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.047, 10, 8), eye, [0.13, 1.19, -0.34]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.014, 8, 6), white, [-0.145, 1.205, -0.382]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.014, 8, 6), white, [0.115, 1.205, -0.382]));
+  const muzzle = mesh(new THREE.SphereGeometry(0.12, 12, 8), white, [0, 1.07, -0.355]);
+  muzzle.scale.set(1.18, 0.68, 0.56);
+  avatar.add(muzzle);
+  avatar.add(mesh(new THREE.SphereGeometry(0.034, 8, 6), standardMaterial(0x684348), [0, 1.105, -0.425]));
+  const leftCheek = mesh(new THREE.SphereGeometry(0.047, 8, 6), cheek, [-0.245, 1.09, -0.31]);
+  const rightCheek = mesh(new THREE.SphereGeometry(0.047, 8, 6), cheek, [0.245, 1.09, -0.31]);
+  leftCheek.scale.y = rightCheek.scale.y = 0.52;
+  avatar.add(leftCheek, rightCheek);
+  avatar.add(createAvatarHat(appearance.hat, player.displayRank));
+  avatar.add(createAvatarAccessory(appearance.accessory));
 
   const leftArm = new THREE.Group();
   const rightArm = new THREE.Group();
-  leftArm.position.set(-0.31, 1.25, 0);
-  rightArm.position.set(0.31, 1.25, 0);
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.075, 0.43, 3, 8), cloth, [0, -0.25, 0]));
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.075, 0.43, 3, 8), cloth, [0, -0.25, 0]));
-  leftArm.add(mesh(new THREE.SphereGeometry(0.078, 8, 6), skin, [0, -0.53, 0]));
-  rightArm.add(mesh(new THREE.SphereGeometry(0.078, 8, 6), skin, [0, -0.53, 0]));
+  leftArm.position.set(-0.31, 0.83, 0);
+  rightArm.position.set(0.31, 0.83, 0);
+  leftArm.add(mesh(new THREE.CapsuleGeometry(0.072, 0.25, 3, 8), cloth, [0, -0.16, 0]));
+  rightArm.add(mesh(new THREE.CapsuleGeometry(0.072, 0.25, 3, 8), cloth, [0, -0.16, 0]));
+  leftArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
+  rightArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
   avatar.add(leftArm, rightArm);
 
   const leftLeg = new THREE.Group();
   const rightLeg = new THREE.Group();
-  leftLeg.position.set(-0.125, 0.76, 0);
-  rightLeg.position.set(0.125, 0.76, 0);
-  leftLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.39, 3, 8), pants, [0, -0.25, 0]));
-  rightLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.39, 3, 8), pants, [0, -0.25, 0]));
-  leftLeg.add(mesh(new THREE.BoxGeometry(0.18, 0.12, 0.28), shoe, [0, -0.52, -0.05]));
-  rightLeg.add(mesh(new THREE.BoxGeometry(0.18, 0.12, 0.28), shoe, [0, -0.52, -0.05]));
+  leftLeg.position.set(-0.135, 0.4, 0);
+  rightLeg.position.set(0.135, 0.4, 0);
+  leftLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
+  rightLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
+  leftLeg.add(mesh(new THREE.BoxGeometry(0.2, 0.13, 0.29), shoe, [0, -0.28, -0.055]));
+  rightLeg.add(mesh(new THREE.BoxGeometry(0.2, 0.13, 0.29), shoe, [0, -0.28, -0.055]));
   avatar.add(leftLeg, rightLeg);
 
-  const collar = mesh(new THREE.TorusGeometry(0.2, 0.035, 6, 16, Math.PI), clothDark, [0, 1.31, -0.08]);
-  collar.rotation.x = Math.PI / 2;
-  avatar.add(collar);
-
   const groundRing = mesh(
-    new THREE.RingGeometry(local ? 0.38 : 0.34, local ? 0.44 : 0.38, 36),
+    new THREE.RingGeometry(local ? 0.34 : 0.31, local ? 0.4 : 0.35, 36),
     new THREE.MeshBasicMaterial({ color: local ? 0x74e6ff : player.color, transparent: true, opacity: local ? 0.72 : 0.3, side: THREE.DoubleSide }),
     [0, 0.025, 0],
   );
   groundRing.rotation.x = -Math.PI / 2;
   root.add(groundRing);
-  root.scale.setScalar(0.88);
+  root.scale.setScalar(0.92);
   return { root, avatar, leftArm, rightArm, leftLeg, rightLeg };
+}
+
+function createAnimalEars(animal: string, fur: THREE.Material, inner: THREE.Material): THREE.Group {
+  const ears = new THREE.Group();
+  if (animal === 'cat' || animal === 'fox') {
+    for (const x of [-0.24, 0.24]) {
+      const ear = mesh(new THREE.ConeGeometry(0.15, animal === 'fox' ? 0.36 : 0.29, 4), fur, [x, 1.53, 0]);
+      ear.rotation.z = x < 0 ? 0.14 : -0.14;
+      ears.add(ear);
+    }
+  } else if (animal === 'puppy') {
+    for (const x of [-0.32, 0.32]) {
+      const ear = mesh(new THREE.CapsuleGeometry(0.1, 0.28, 4, 8), fur, [x, 1.36, 0]);
+      ear.rotation.z = x < 0 ? -0.42 : 0.42;
+      ears.add(ear);
+    }
+  } else if (animal === 'bear' || animal === 'hamster') {
+    for (const x of [-0.27, 0.27]) {
+      ears.add(mesh(new THREE.SphereGeometry(animal === 'hamster' ? 0.14 : 0.16, 10, 8), fur, [x, 1.44, 0]));
+      ears.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), inner, [x, 1.44, -0.11]));
+    }
+  } else {
+    for (const x of [-0.17, 0.17]) {
+      const ear = mesh(new THREE.CapsuleGeometry(0.1, 0.46, 5, 9), fur, [x, 1.65, 0.02]);
+      ear.rotation.z = x < 0 ? -0.08 : 0.08;
+      ears.add(ear);
+      const inset = mesh(new THREE.CapsuleGeometry(0.045, 0.28, 4, 8), inner, [x, 1.65, -0.085]);
+      inset.rotation.z = ear.rotation.z;
+      ears.add(inset);
+    }
+  }
+  return ears;
 }
 
 function createRankHat(rank: RankId): THREE.Group {
@@ -301,6 +367,115 @@ function createRankHat(rank: RankId): THREE.Group {
   }
   hat.userData.rankHat = rank;
   return hat;
+}
+
+function createAvatarHat(hatId: string, rank: RankId): THREE.Group {
+  const hat = new THREE.Group();
+  const midnight = standardMaterial(0x243049, { roughness: 0.82 });
+  const cyan = standardMaterial(0x66d7dc, { roughness: 0.66, emissive: 0x143e4a, emissiveIntensity: 0.42 });
+  const cream = standardMaterial(0xe7d7bd, { roughness: 0.92 });
+  const silver = standardMaterial(0xc9dce7, { metalness: 0.72, roughness: 0.28 });
+  const gold = standardMaterial(0xf2bd52, { metalness: 0.76, roughness: 0.24, emissive: 0x4f2900, emissiveIntensity: 0.28 });
+
+  if (hatId === 'hat-rank') {
+    const rankHat = createRankHat(rank);
+    rankHat.position.y = 1.49;
+    rankHat.scale.setScalar(0.82);
+    hat.add(rankHat);
+  } else if (hatId === 'hat-beanie') {
+    const crown = mesh(new THREE.SphereGeometry(0.31, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), midnight, [0, 1.44, 0.015]);
+    crown.scale.y = 0.8;
+    hat.add(crown);
+    hat.add(mesh(new THREE.TorusGeometry(0.285, 0.055, 7, 24), cyan, [0, 1.45, 0.01]));
+    const pompom = mesh(new THREE.SphereGeometry(0.085, 10, 8), cyan, [0, 1.72, 0.02]);
+    hat.add(pompom);
+  } else if (hatId === 'hat-moon-cap') {
+    const crown = mesh(new THREE.SphereGeometry(0.32, 16, 9, 0, Math.PI * 2, 0, Math.PI / 2), midnight, [0, 1.44, 0.02]);
+    crown.scale.y = 0.72;
+    hat.add(crown);
+    const brim = mesh(new THREE.BoxGeometry(0.38, 0.045, 0.27), midnight, [0, 1.44, -0.29]);
+    brim.rotation.x = -0.08;
+    hat.add(brim);
+    const moon = mesh(new THREE.TorusGeometry(0.064, 0.018, 7, 18, Math.PI * 1.45), cream, [0, 1.56, -0.294]);
+    moon.rotation.z = -0.55;
+    hat.add(moon);
+  } else if (hatId === 'hat-headlamp') {
+    const band = mesh(new THREE.TorusGeometry(0.325, 0.035, 7, 24), midnight, [0, 1.43, 0]);
+    band.rotation.x = Math.PI / 2;
+    hat.add(band);
+    const lamp = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.065, 14), cyan, [0, 1.48, -0.342]);
+    lamp.rotation.x = Math.PI / 2;
+    hat.add(lamp);
+    const light = new THREE.PointLight(0x74f4ff, 0.65, 2.2);
+    light.position.set(0, 1.48, -0.48);
+    hat.add(light);
+  } else if (hatId === 'hat-silver-crown' || hatId === 'hat-gold-crown') {
+    const material = hatId === 'hat-silver-crown' ? silver : gold;
+    hat.add(mesh(new THREE.CylinderGeometry(0.25, 0.28, 0.11, 14), material, [0, 1.48, 0.02]));
+    for (let index = 0; index < 5; index += 1) {
+      const angle = (index / 5) * Math.PI * 2;
+      hat.add(mesh(
+        new THREE.ConeGeometry(0.055, 0.26, 5),
+        material,
+        [Math.cos(angle) * 0.2, 1.64, Math.sin(angle) * 0.2 + 0.02],
+      ));
+    }
+  } else if (hatId === 'hat-halo') {
+    const halo = mesh(
+      new THREE.TorusGeometry(0.34, 0.025, 8, 28),
+      standardMaterial(0xffd9f1, { emissive: 0xff4baa, emissiveIntensity: 1.8, roughness: 0.2 }),
+      [0, 1.75, 0.02],
+    );
+    halo.rotation.x = Math.PI / 2;
+    hat.add(halo);
+  }
+
+  return hat;
+}
+
+function createAvatarAccessory(accessoryId: string): THREE.Group {
+  const accessory = new THREE.Group();
+  const cyan = standardMaterial(0x5fd6d4, { roughness: 0.72, emissive: 0x113d42, emissiveIntensity: 0.36 });
+  const amber = standardMaterial(0xf1b85c, { roughness: 0.56, emissive: 0x6f3400, emissiveIntensity: 0.42 });
+  const violet = standardMaterial(0x8a74d6, { roughness: 0.74 });
+
+  if (accessoryId === 'accessory-scarf') {
+    const collar = mesh(new THREE.TorusGeometry(0.24, 0.055, 7, 22), cyan, [0, 0.94, 0]);
+    collar.rotation.x = Math.PI / 2;
+    accessory.add(collar);
+    const tail = mesh(new THREE.BoxGeometry(0.11, 0.36, 0.055), cyan, [0.18, 0.73, 0.23]);
+    tail.rotation.z = -0.22;
+    accessory.add(tail);
+  } else if (accessoryId === 'accessory-backpack') {
+    const pack = mesh(new THREE.BoxGeometry(0.44, 0.5, 0.2), violet, [0, 0.7, 0.25]);
+    pack.geometry.translate(0, 0, 0.08);
+    accessory.add(pack);
+    accessory.add(mesh(new THREE.BoxGeometry(0.22, 0.18, 0.06), amber, [0, 0.65, 0.42]));
+  } else if (accessoryId === 'accessory-star') {
+    const star = mesh(
+      new THREE.OctahedronGeometry(0.12, 0),
+      standardMaterial(0xe4f6ff, { emissive: 0x66dbff, emissiveIntensity: 1.45, roughness: 0.25 }),
+      [0, 0.76, -0.29],
+    );
+    star.scale.set(1, 1.28, 0.42);
+    accessory.add(star);
+  } else if (accessoryId === 'accessory-lantern') {
+    const handle = mesh(new THREE.TorusGeometry(0.105, 0.018, 6, 18, Math.PI), amber, [0.43, 0.74, -0.02]);
+    handle.rotation.z = Math.PI;
+    accessory.add(handle);
+    accessory.add(mesh(new THREE.CylinderGeometry(0.085, 0.1, 0.2, 10), amber, [0.43, 0.57, -0.02]));
+    const glow = mesh(
+      new THREE.SphereGeometry(0.057, 9, 7),
+      standardMaterial(0xfff0a1, { emissive: 0xffaa33, emissiveIntensity: 2.4, roughness: 0.24 }),
+      [0.43, 0.59, -0.105],
+    );
+    accessory.add(glow);
+    const light = new THREE.PointLight(0xffb85e, 0.7, 2.1);
+    light.position.copy(glow.position);
+    accessory.add(light);
+  }
+
+  return accessory;
 }
 
 function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm' | 'rightArm'> {
@@ -370,9 +545,22 @@ function buildingColor(kind: BuildingKind): number {
   return colors[kind];
 }
 
+function turretSkinColor(building: BuildingState): number {
+  const skin = building.skinId ?? '';
+  if (skin.includes('toy')) return 0xf1b86b;
+  if (skin.includes('pumpkin')) return 0xe87942;
+  if (skin.includes('candy')) return 0xed86b5;
+  if (skin.includes('dragon')) return 0x8ccf72;
+  if (skin.includes('globe')) return 0xc4f4ff;
+  if (skin.includes('crystal')) return 0x7fc8ff;
+  if (skin.includes('idol')) return 0xb69cf2;
+  if (skin.includes('crown')) return 0xf0bd63;
+  return buildingColor(building.kind);
+}
+
 function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
-  const color = buildingColor(building.kind);
+  const color = turretSkinColor(building);
   const baseMaterial = standardMaterial(0x172235, { metalness: 0.52, roughness: 0.42 });
   const accent = standardMaterial(color, { emissive: color, emissiveIntensity: 0.85, metalness: 0.35, roughness: 0.28 });
   const dark = standardMaterial(0x080b13, { metalness: 0.6, roughness: 0.34 });
@@ -389,6 +577,27 @@ function createBuildingModel(building: BuildingState): { root: THREE.Group; barr
     barrel.add(barrelMesh);
     barrel.add(mesh(new THREE.SphereGeometry(0.17, 12, 8), dark, [0, 0, 0]));
     root.add(barrel);
+    if (building.skinId.includes('pumpkin')) {
+      root.add(mesh(new THREE.SphereGeometry(0.24, 12, 9), accent, [0, 0.48, 0]));
+      root.add(mesh(new THREE.ConeGeometry(0.055, 0.18, 7), standardMaterial(0x68a054), [0, 0.76, 0]));
+    } else if (building.skinId.includes('toy') || building.skinId.includes('candy')) {
+      const ring = mesh(new THREE.TorusGeometry(0.22, 0.04, 7, 18), accent, [0, 0.48, 0]);
+      ring.rotation.x = Math.PI / 2;
+      root.add(ring);
+    } else if (building.skinId.includes('dragon')) {
+      root.add(mesh(new THREE.ConeGeometry(0.075, 0.2, 5), accent, [-0.14, 0.77, 0]));
+      root.add(mesh(new THREE.ConeGeometry(0.075, 0.2, 5), accent, [0.14, 0.77, 0]));
+    } else if (building.skinId.includes('globe')) {
+      root.add(mesh(new THREE.SphereGeometry(0.31, 16, 12), new THREE.MeshPhysicalMaterial({ color, transparent: true, opacity: 0.3, roughness: 0.12 }), [0, 0.5, 0]));
+    } else if (building.skinId.includes('crystal')) {
+      root.add(mesh(new THREE.OctahedronGeometry(0.24), accent, [0, 0.59, 0]));
+    } else if (building.skinId.includes('idol')) {
+      const ring = mesh(new THREE.TorusGeometry(0.29, 0.055, 8, 22), accent, [0, 0.52, 0]);
+      ring.rotation.x = Math.PI / 2;
+      root.add(ring);
+    } else if (building.skinId.includes('crown')) {
+      for (const x of [-0.16, 0, 0.16]) root.add(mesh(new THREE.ConeGeometry(0.07, 0.22, 5), accent, [x, 0.78, 0]));
+    }
   } else if (building.kind === 'generator') {
     const coil = mesh(new THREE.TorusGeometry(0.2, 0.045, 8, 24), accent, [0, 0.58, 0]);
     coil.rotation.x = Math.PI / 2;
@@ -595,16 +804,18 @@ export class ThreeGameView {
     moon.shadow.camera.top = 14;
     moon.shadow.camera.bottom = -14;
     this.scene.add(moon);
-    for (let x = 8; x < this.mapData.width; x += 14) {
-      const light = new THREE.PointLight(x % 28 === 8 ? this.theme.lightA : this.theme.lightB, 4.8, 8, 1.8);
-      light.position.set(x, 2.4, this.mapData.corridor.y + this.mapData.corridor.height / 2 - 0.5);
+    const lightTiles = this.mapData.corridorTiles.filter((_, index) => index % Math.max(1, Math.floor(this.mapData.corridorTiles.length / 22)) === 0).slice(0, 22);
+    lightTiles.forEach((tile, index) => {
+      const light = new THREE.PointLight(index % 2 === 0 ? this.theme.lightA : this.theme.lightB, 3.8, 7.5, 1.8);
+      light.position.set(tile.x, 2.2, tile.y);
       this.scene.add(light);
-    }
+    });
   }
 
   private createWorld(): void {
-    const corridorTiles = this.mapData.walkable.filter((tile) => tile.y >= this.mapData.corridor.y && tile.y < this.mapData.corridor.y + this.mapData.corridor.height);
-    const roomTiles = this.mapData.walkable.filter((tile) => !corridorTiles.includes(tile));
+    const corridorKeys = new Set(this.mapData.corridorTiles.map((tile) => `${tile.x},${tile.y}`));
+    const corridorTiles = this.mapData.corridorTiles;
+    const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
     this.addTileInstances(corridorTiles, standardMaterial(this.theme.corridor, { roughness: 0.96 }), 0);
     this.addTileInstances(roomTiles, standardMaterial(this.theme.room, { roughness: 0.94 }), 0.003);
 
@@ -620,20 +831,20 @@ export class ThreeGameView {
     });
     this.scene.add(markers);
 
-    const wallGeometry = new THREE.BoxGeometry(0.98, 1.24, 0.98);
+    const wallGeometry = new THREE.BoxGeometry(0.98, 0.68, 0.98);
     const wallMaterial = standardMaterial(this.theme.wall, { roughness: 0.86 });
     const walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, this.mapData.walls.length);
     walls.castShadow = true;
     walls.receiveShadow = true;
     this.mapData.walls.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, 0.62, tile.y);
+      matrix.makeTranslation(tile.x, 0.34, tile.y);
       walls.setMatrixAt(index, matrix);
     });
     this.scene.add(walls);
     const capGeometry = new THREE.BoxGeometry(1, 0.12, 1);
     const caps = new THREE.InstancedMesh(capGeometry, standardMaterial(this.theme.wallCap, { roughness: 0.72 }), this.mapData.walls.length);
     this.mapData.walls.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, 1.27, tile.y);
+      matrix.makeTranslation(tile.x, 0.73, tile.y);
       caps.setMatrixAt(index, matrix);
     });
     this.scene.add(caps);
@@ -656,7 +867,7 @@ export class ThreeGameView {
     const samples = this.mapData.walls.filter((_, index) => index % sampleStep === 0).slice(0, 14);
     samples.forEach((tile, index) => {
       const prop = new THREE.Group();
-      prop.position.set(tile.x, 1.31, tile.y);
+      prop.position.set(tile.x, 0.78, tile.y);
       prop.rotation.y = (index * 1.71) % (Math.PI * 2);
       const accent = standardMaterial(this.theme.marker, { emissive: this.theme.marker, emissiveIntensity: 0.28, roughness: 0.55 });
       const base = standardMaterial(this.theme.wallCap, { roughness: 0.9, metalness: this.theme.decor === 'hospital' ? 0.5 : 0.08 });
@@ -704,15 +915,18 @@ export class ThreeGameView {
   private createRoomFurniture(roomId: string): void {
     const room = this.mapData.rooms.find((candidate) => candidate.id === roomId);
     if (!room) return;
-    const bed = new THREE.Group();
-    bed.position.copy(worldPoint(room.bed));
     const frame = standardMaterial(this.theme.bedFrame, { metalness: 0.28, roughness: 0.65 });
     const blanket = standardMaterial(this.theme.bedBlanket, { roughness: 0.95 });
     const pillow = standardMaterial(0xd7e2e8, { roughness: 1 });
-    bed.add(mesh(new THREE.BoxGeometry(0.88, 0.18, 0.7), frame, [0, 0.13, 0]));
-    bed.add(mesh(new THREE.BoxGeometry(0.82, 0.14, 0.64), blanket, [0, 0.29, 0]));
-    bed.add(mesh(new THREE.BoxGeometry(0.35, 0.11, 0.54), pillow, [-0.2, 0.4, 0]));
-    this.scene.add(bed);
+    room.beds.forEach((bedTile, index) => {
+      const bed = new THREE.Group();
+      bed.position.copy(worldPoint(bedTile));
+      bed.rotation.y = index % 2 === 0 ? 0 : Math.PI;
+      bed.add(mesh(new THREE.BoxGeometry(0.88, 0.18, 0.7), frame, [0, 0.13, 0]));
+      bed.add(mesh(new THREE.BoxGeometry(0.82, 0.14, 0.64), blanket, [0, 0.29, 0]));
+      bed.add(mesh(new THREE.BoxGeometry(0.35, 0.11, 0.54), pillow, [-0.2, 0.4, 0]));
+      this.scene.add(bed);
+    });
   }
 
   private syncPlayers(players: PlayerState[]): void {
@@ -912,11 +1126,11 @@ export class ThreeGameView {
   private playEvent(event: GameEvent): void {
     if ((event.kind === 'gold' || event.kind === 'power') && event.position && (event.amount ?? 0) > 0) {
       const popup = makeBillboard();
-      popup.scale.set(1.15, 0.36, 1);
+      popup.scale.set(1.65, 0.52, 1);
       updateTextBillboard(popup, `${event.kind}:${event.amount}:${performance.now()}`, `${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`, event.kind === 'gold' ? '#ffd36f' : '#75e8ff', 'rgba(5,8,16,.72)');
-      popup.position.copy(worldPoint(event.position, 1.35));
+      popup.position.copy(worldPoint(event.position, 1.9));
       this.scene.add(popup);
-      this.effects.push({ object: popup, born: performance.now(), duration: 850, rise: 0.018 });
+      this.effects.push({ object: popup, born: performance.now(), duration: 1_050, rise: 0.024 });
       return;
     }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
@@ -1086,10 +1300,11 @@ export class ThreeGameView {
       window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'building', targetId: building.id, buildingId: building.id, roomId: building.roomId } }));
       return;
     }
-    const bedRoom = this.mapData.rooms.find((room) => room.bed.x === tile.x && room.bed.y === tile.y);
-    if (bedRoom) {
+    const bedTarget = this.mapData.rooms.flatMap((room) => room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex })))
+      .find(({ bed }) => bed.x === tile.x && bed.y === tile.y);
+    if (bedTarget) {
       this.highlight(tile);
-      window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'bed', targetId: `bed:${bedRoom.id}`, roomId: bedRoom.id } }));
+      window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'bed', targetId: `bed:${bedTarget.room.id}:${bedTarget.bedIndex}`, roomId: bedTarget.room.id } }));
       return;
     }
     const doorRoom = this.mapData.rooms.find((room) => room.door.x === tile.x && room.door.y === tile.y);

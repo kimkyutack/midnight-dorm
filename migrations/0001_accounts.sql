@@ -41,3 +41,25 @@ CREATE TABLE IF NOT EXISTS match_results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS account_customization (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  custom_points INTEGER NOT NULL DEFAULT 0 CHECK (custom_points >= 0),
+  appearance TEXT NOT NULL DEFAULT '{}',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS account_cosmetics (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  purchased_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_cosmetics_account ON account_cosmetics(account_id);
+
+CREATE TABLE IF NOT EXISTS account_turret_loadouts (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  skins TEXT NOT NULL DEFAULT '{}',
+  updated_at INTEGER NOT NULL
+);

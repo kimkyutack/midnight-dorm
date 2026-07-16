@@ -63,6 +63,8 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-account-nickname', encodeURIComponent(profile.nickname));
   headers.set('x-solo-rank', profile.soloRank);
   headers.set('x-multiplayer-rank', profile.multiplayerRank);
+  headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
+  headers.set('x-turret-skins', encodeURIComponent(JSON.stringify(profile.turretSkins)));
   return stub.fetch(new Request(target, { method: request.method, headers }));
 }
 
