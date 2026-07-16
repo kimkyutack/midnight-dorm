@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE } from '../../shared/balance';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
+import { isWalkableArea } from '../../shared/map';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, Vec2 } from '../../shared/types';
 import { movementFacingYaw } from './avatarMath';
@@ -12,6 +13,8 @@ const MAX_CAMERA_DISTANCE_SCALE = 2;
 const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.48;
+const FRAME_DT_MAX = 1 / 30;
+const TAP_DEBOUNCE_MS = 260;
 
 export interface SceneSelection {
   type: 'bed' | 'door' | 'building';
@@ -708,6 +711,8 @@ export class ThreeGameView {
   private cameraDistanceScale = 1;
   private cameraYaw = Math.atan2(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
   private lastFrame = performance.now();
+  private lastSelectionAt = 0;
+  private lastSelectionKey = '';
   private paused = false;
   private destroyed = false;
 
@@ -842,8 +847,7 @@ export class ThreeGameView {
 
   private readonly animate = (time: number): void => {
     if (this.destroyed || this.paused) return;
-    if (time - this.lastFrame < 1_000 / 30) return;
-    const dt = Math.min(0.05, Math.max(0.001, (time - this.lastFrame) / 1_000));
+    const dt = Math.min(FRAME_DT_MAX, Math.max(0.001, (time - this.lastFrame) / 1_000));
     this.lastFrame = time;
     this.animatePlayers(time, dt);
     this.animateGhosts(time, dt);
@@ -1122,10 +1126,12 @@ export class ThreeGameView {
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
       if (id === this.playerId && !lying && (this.localInput.x || this.localInput.y)) {
-        view.root.position.x += this.localInput.x * localSpeed * dt;
-        view.root.position.z += this.localInput.y * localSpeed * dt;
+        const nextX = view.root.position.x + this.localInput.x * localSpeed * dt;
+        const nextZ = view.root.position.z + this.localInput.y * localSpeed * dt;
+        if (isWalkableArea(this.mapData, nextX, view.root.position.z, BALANCE.player.collisionRadius)) view.root.position.x = nextX;
+        if (isWalkableArea(this.mapData, view.root.position.x, nextZ, BALANCE.player.collisionRadius)) view.root.position.z = nextZ;
       }
-      view.root.position.lerp(view.target, 1 - Math.exp(-(id === this.playerId ? 5.5 : 9) * dt));
+      view.root.position.lerp(view.target, 1 - Math.exp(-(id === this.playerId ? 8.5 : 10.5) * dt));
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
@@ -1239,7 +1245,7 @@ export class ThreeGameView {
     }
     this.desiredCameraTarget.x = clamp(this.desiredCameraTarget.x, 2.5, this.mapData.width - 3.5);
     this.desiredCameraTarget.z = clamp(this.desiredCameraTarget.z, 2.5, this.mapData.height - 3.5);
-    this.cameraTarget.lerp(this.desiredCameraTarget, 1 - Math.exp(-7.5 * dt));
+    this.cameraTarget.lerp(this.desiredCameraTarget, 1 - Math.exp(-10 * dt));
     const horizontalDistance = BASE_CAMERA_HORIZONTAL_DISTANCE * this.cameraDistanceScale;
     this.camera.position.set(
       this.cameraTarget.x + Math.sin(this.cameraYaw) * horizontalDistance,
@@ -1363,12 +1369,17 @@ export class ThreeGameView {
   }
 
   private selectAt(clientX: number, clientY: number): void {
+    const now = performance.now();
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObject(this.selectionSurface, false)[0];
     if (!hit) return;
     const tile = { x: Math.round(hit.point.x), y: Math.round(hit.point.z) };
+    const selectionKey = `${tile.x}:${tile.y}`;
+    if (selectionKey === this.lastSelectionKey && now - this.lastSelectionAt < TAP_DEBOUNCE_MS) return;
+    this.lastSelectionKey = selectionKey;
+    this.lastSelectionAt = now;
     const building = this.snapshotData.buildings.find((candidate) => candidate.tile.x === tile.x && candidate.tile.y === tile.y);
     if (building) {
       this.highlight(tile);
