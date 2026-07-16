@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BALANCE } from '../../shared/balance';
+import { tileKey, walkableKeysFor } from '../../shared/map';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, Vec2 } from '../../shared/types';
@@ -700,6 +701,7 @@ export class ThreeGameView {
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
+  private readonly walkableKeys: Set<string>;
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
   private gesture: MultiTouchGesture | null = null;
@@ -714,6 +716,7 @@ export class ThreeGameView {
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
     this.mapData = payload.map;
+    this.walkableKeys = walkableKeysFor(payload.map);
     this.playerId = payload.playerId;
     this.snapshotData = payload.snapshot;
     this.theme = stageThemeFor(payload.snapshot.stageId);
@@ -842,7 +845,6 @@ export class ThreeGameView {
 
   private readonly animate = (time: number): void => {
     if (this.destroyed || this.paused) return;
-    if (time - this.lastFrame < 1_000 / 30) return;
     const dt = Math.min(0.05, Math.max(0.001, (time - this.lastFrame) / 1_000));
     this.lastFrame = time;
     this.animatePlayers(time, dt);
@@ -1122,8 +1124,7 @@ export class ThreeGameView {
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
       if (id === this.playerId && !lying && (this.localInput.x || this.localInput.y)) {
-        view.root.position.x += this.localInput.x * localSpeed * dt;
-        view.root.position.z += this.localInput.y * localSpeed * dt;
+        this.moveViewWithinWalls(view.root.position, this.localInput.x * localSpeed * dt, this.localInput.y * localSpeed * dt);
       }
       view.root.position.lerp(view.target, 1 - Math.exp(-(id === this.playerId ? 5.5 : 9) * dt));
       const dx = view.root.position.x - view.lastPosition.x;
@@ -1140,6 +1141,27 @@ export class ThreeGameView {
       view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : 1, 9, dt));
       view.lastPosition.copy(view.root.position);
     }
+  }
+
+  private moveViewWithinWalls(position: THREE.Vector3, dx: number, dz: number): void {
+    const canStand = (x: number, z: number): boolean => {
+      const radius = 0.32;
+      const samples: ReadonlyArray<readonly [number, number]> = [
+        [0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius],
+        [radius * 0.72, radius * 0.72], [radius * 0.72, -radius * 0.72],
+        [-radius * 0.72, radius * 0.72], [-radius * 0.72, -radius * 0.72],
+      ];
+      return samples.every(([offsetX, offsetZ]) => this.walkableKeys.has(tileKey(Math.round(x + offsetX), Math.round(z + offsetZ))));
+    };
+    const nextX = position.x + dx;
+    const nextZ = position.z + dz;
+    if (canStand(nextX, nextZ)) {
+      position.x = nextX;
+      position.z = nextZ;
+      return;
+    }
+    if (canStand(nextX, position.z)) position.x = nextX;
+    if (canStand(position.x, nextZ)) position.z = nextZ;
   }
 
   private animateGhosts(time: number, dt: number): void {

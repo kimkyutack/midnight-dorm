@@ -79,6 +79,8 @@ let playerId = "";
 let account: AccountProfile | null = null;
 let customizeReturnView: "home" | "room-menu" = "home";
 let selectedTile: Tile | null = null;
+let pendingBuildKey: string | null = null;
+let pendingBuildStartedAt = 0;
 let selectedTarget: SceneSelection | null = null;
 let currentView = "";
 let inputSequence = 0;
@@ -867,6 +869,8 @@ function resultScreen(state: GameSnapshot): void {
 }
 
 function onTileSelected(event: CustomEvent<Tile>): void {
+  const tileKey = `${event.detail.roomId ?? ''}:${event.detail.x},${event.detail.y}`;
+  if (pendingBuildKey === tileKey && performance.now() - pendingBuildStartedAt < 1_200) return;
   selectedTarget = null;
   selectedTile = event.detail;
   renderBuildPanel(event.detail);
@@ -891,6 +895,7 @@ function renderBuildPanel(tile: Tile): void {
     (building) => building.tile.x === tile.x && building.tile.y === tile.y,
   );
   if (occupied) {
+    pendingBuildKey = null;
     selectedTarget = {
       type: "building",
       targetId: occupied.id,
@@ -920,7 +925,11 @@ function renderBuildPanel(tile: Tile): void {
     button.addEventListener("click", () => {
       if (!selectedTile || !me.roomId) return;
       const kind = button.dataset.build as BuildingKind;
-      button.disabled = true;
+      const buildKey = `${me.roomId}:${selectedTile.x},${selectedTile.y}`;
+      if (pendingBuildKey === buildKey && performance.now() - pendingBuildStartedAt < 1_200) return;
+      pendingBuildKey = buildKey;
+      pendingBuildStartedAt = performance.now();
+      panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((card) => { card.disabled = true; });
       const label = button.querySelector("strong");
       if (label)
         label.textContent = `${BALANCE.buildings[kind].label} 설치 중…`;
@@ -1103,6 +1112,7 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
       building.tile.y === selectedTile?.y,
   );
   if (occupied) {
+    pendingBuildKey = null;
     selectedTarget = {
       type: "building",
       targetId: occupied.id,
@@ -1119,6 +1129,7 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
 }
 
 function closeBuildPanel(): void {
+  pendingBuildKey = null;
   selectedTile = null;
   selectedTarget = null;
   app.querySelector("[data-build-panel]")?.classList.add("hidden");

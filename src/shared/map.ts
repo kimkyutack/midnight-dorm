@@ -244,13 +244,27 @@ export function generateMap(seed: number, playMode: PlayMode = 'solo'): MapDefin
 }
 
 const walkableCache = new WeakMap<MapDefinition, Set<string>>();
-export function isWalkable(map: MapDefinition, x: number, y: number): boolean {
+export function walkableKeysFor(map: MapDefinition): Set<string> {
   let keys = walkableCache.get(map);
   if (!keys) {
     keys = new Set(map.walkable.map((tile) => tileKey(tile.x, tile.y)));
     walkableCache.set(map, keys);
   }
-  return keys.has(tileKey(Math.round(x), Math.round(y)));
+  return keys;
+}
+
+export function isWalkable(map: MapDefinition, x: number, y: number): boolean {
+  return walkableKeysFor(map).has(tileKey(Math.round(x), Math.round(y)));
+}
+
+export function isWalkableCircle(map: MapDefinition, x: number, y: number, radius = 0.32): boolean {
+  const keys = walkableKeysFor(map);
+  const samples: ReadonlyArray<readonly [number, number]> = [
+    [0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius],
+    [radius * 0.72, radius * 0.72], [radius * 0.72, -radius * 0.72],
+    [-radius * 0.72, radius * 0.72], [-radius * 0.72, -radius * 0.72],
+  ];
+  return samples.every(([dx, dy]) => keys.has(tileKey(Math.round(x + dx), Math.round(y + dy))));
 }
 
 export function isBuildTile(map: MapDefinition, roomId: string, tile: Tile): boolean {

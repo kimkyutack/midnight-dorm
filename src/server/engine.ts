@@ -1,6 +1,6 @@
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
 import { botAppearance, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
-import { isBuildTile, isWalkable } from '../shared/map';
+import { isBuildTile, isWalkableCircle } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
 import { combinedItemEffects, DRAW_COSTS, RANDOM_ITEMS } from '../shared/randomItems';
 import { getStage, higherRank, isEliteRank, rankBenefits, rankLabel, type StageDefinition } from '../shared/progression';
@@ -68,6 +68,26 @@ const normalize = (vector: Vec2): Vec2 => {
   const magnitude = Math.hypot(vector.x, vector.y);
   return magnitude > 1 ? { x: vector.x / magnitude, y: vector.y / magnitude } : vector;
 };
+const COLLISION_RADIUS = 0.32;
+
+function moveAlongWalkable(map: MapDefinition, position: Vec2, velocity: Vec2, distanceToMove: number): Vec2 {
+  if (distanceToMove <= 0 || (velocity.x === 0 && velocity.y === 0)) return position;
+  const steps = Math.max(1, Math.ceil(distanceToMove / 0.18));
+  const stepX = (velocity.x * distanceToMove) / steps;
+  const stepY = (velocity.y * distanceToMove) / steps;
+  let next = { ...position };
+  for (let index = 0; index < steps; index += 1) {
+    const candidateX = next.x + stepX;
+    const candidateY = next.y + stepY;
+    if (isWalkableCircle(map, candidateX, candidateY, COLLISION_RADIUS)) {
+      next = { x: candidateX, y: candidateY };
+      continue;
+    }
+    if (isWalkableCircle(map, candidateX, next.y, COLLISION_RADIUS)) next.x = candidateX;
+    if (isWalkableCircle(map, next.x, candidateY, COLLISION_RADIUS)) next.y = candidateY;
+  }
+  return next;
+}
 
 export class GameEngine {
   readonly map: MapDefinition;
@@ -575,10 +595,7 @@ export class GameEngine {
       }
       const rank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
       const speed = BALANCE.player.speed * rankBenefits(rank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
-      const nextX = player.position.x + player.velocity.x * speed * dt;
-      const nextY = player.position.y + player.velocity.y * speed * dt;
-      if (isWalkable(this.map, nextX, player.position.y)) player.position.x = nextX;
-      if (isWalkable(this.map, player.position.x, nextY)) player.position.y = nextY;
+      player.position = moveAlongWalkable(this.map, player.position, player.velocity, speed * dt);
     }
   }
 
@@ -849,9 +866,7 @@ export class GameEngine {
     const slowMultiplier = slowed ? (ghost.retreating ? 0.9 : 0.76) : 1;
     let speed = BALANCE.ghost.speed * this.stage.speedMultiplier * variantSpeed * (ghost.rage ? 1.32 : 1) * slowMultiplier;
     if (ghost.retreating) speed *= 1.12;
-    const nextPosition = { x: ghost.position.x + direction.x * speed * dt, y: ghost.position.y + direction.y * speed * dt };
-    if (isWalkable(this.map, nextPosition.x, ghost.position.y)) ghost.position.x = nextPosition.x;
-    if (isWalkable(this.map, ghost.position.x, nextPosition.y)) ghost.position.y = nextPosition.y;
+    ghost.position = moveAlongWalkable(this.map, ghost.position, direction, speed * dt);
   }
 
   private selectGhostTarget(ghost: GhostState): string | null {
