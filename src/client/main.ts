@@ -83,6 +83,9 @@ let selectedTarget: SceneSelection | null = null;
 let currentView = "";
 let inputSequence = 0;
 let inputVector: Vec2 = { x: 0, y: 0 };
+let lastMovementSentAt = 0;
+let pendingMovementTimer = 0;
+const pendingActions = new Map<string, number>();
 let ping = 0;
 let resultRecorded = false;
 let toastTimer = 0;
@@ -92,6 +95,8 @@ const automationMode =
 const testShellMode = e2eMode || automationMode;
 const devMode = new URLSearchParams(location.search).get("dev") === "1";
 const freshMode = new URLSearchParams(location.search).get("fresh") === "1";
+const MOVEMENT_SEND_INTERVAL_MS = 50;
+const ACTION_DEBOUNCE_MS = 650;
 const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "basic-turret",
   "rapid-turret",
@@ -866,6 +871,18 @@ function resultScreen(state: GameSnapshot): void {
   });
 }
 
+
+function claimAction(key: string, cooldown = ACTION_DEBOUNCE_MS): boolean {
+  const now = performance.now();
+  const previous = pendingActions.get(key) ?? 0;
+  if (now - previous < cooldown) return false;
+  pendingActions.set(key, now);
+  window.setTimeout(() => {
+    if (pendingActions.get(key) === now) pendingActions.delete(key);
+  }, cooldown);
+  return true;
+}
+
 function onTileSelected(event: CustomEvent<Tile>): void {
   selectedTarget = null;
   selectedTile = event.detail;
@@ -920,6 +937,8 @@ function renderBuildPanel(tile: Tile): void {
     button.addEventListener("click", () => {
       if (!selectedTile || !me.roomId) return;
       const kind = button.dataset.build as BuildingKind;
+      const actionKey = `build:${me.roomId}:${selectedTile.x}:${selectedTile.y}:${kind}`;
+      if (!claimAction(actionKey)) return;
       button.disabled = true;
       const label = button.querySelector("strong");
       if (label)
@@ -973,7 +992,10 @@ function renderTargetPanel(selection: SceneSelection): void {
     panel.classList.remove("hidden");
     panel
       .querySelector("[data-draw]")
-      ?.addEventListener("click", () => network?.drawItem(building.id));
+      ?.addEventListener("click", () => {
+        if (!claimAction(`draw:${building.id}`)) return;
+        network?.drawItem(building.id);
+      });
     return;
   }
   const modeRank = snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
@@ -1024,6 +1046,7 @@ function attemptUpgrade(
     toast(`업그레이드 비용이 부족합니다. ◆ ${cost.gold} / ⚡ ${cost.power}`);
     return;
   }
+  if (!claimAction(`upgrade:${selection.targetId}`)) return;
   network?.upgrade(selection.targetId);
   const button = app.querySelector<HTMLButtonElement>(
     `[data-upgrade="${selection.targetId}"]`,
@@ -1140,7 +1163,8 @@ function setupJoystick(): void {
       dy = (dy / magnitude) * radius;
     }
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    inputVector = { x: dx / radius, y: dy / radius };
+    const next = { x: dx / radius, y: dy / radius };
+    inputVector = Math.hypot(next.x, next.y) < 0.06 ? { x: 0, y: 0 } : next;
     sendMovement();
   };
   base.addEventListener("pointerdown", (event) => {
@@ -1156,15 +1180,34 @@ function setupJoystick(): void {
     pointerId = -1;
     knob.style.transform = "";
     inputVector = { x: 0, y: 0 };
-    sendMovement();
+    sendMovement(true);
   };
   base.addEventListener("pointerup", release);
   base.addEventListener("pointercancel", release);
 }
 
-function sendMovement(): void {
+function flushMovement(): void {
+  pendingMovementTimer = 0;
+  lastMovementSentAt = performance.now();
   network?.move(inputVector.x, inputVector.y, ++inputSequence);
+}
+
+function sendMovement(force = false): void {
   game?.setLocalInput(inputVector);
+  if (force) {
+    if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+    flushMovement();
+    return;
+  }
+  const elapsed = performance.now() - lastMovementSentAt;
+  if (elapsed >= MOVEMENT_SEND_INTERVAL_MS) {
+    if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+    flushMovement();
+    return;
+  }
+  if (!pendingMovementTimer) {
+    pendingMovementTimer = window.setTimeout(flushMovement, MOVEMENT_SEND_INTERVAL_MS - elapsed);
+  }
 }
 
 function playEvents(events: GameEvent[]): void {

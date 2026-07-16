@@ -45,6 +45,7 @@ export const BALANCE = {
     startingGold: 100,
     startingPower: 18,
     interactionRange: 1.7,
+    collisionRadius: 0.28,
   },
   door: {
     baseHp: DOOR_HP[0],
