@@ -1,6 +1,6 @@
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
 import { botAppearance, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
-import { isBuildTile, isWalkable } from '../shared/map';
+import { isBuildTile, isWalkable, isWalkableArea } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
 import { combinedItemEffects, DRAW_COSTS, RANDOM_ITEMS } from '../shared/randomItems';
 import { getStage, higherRank, isEliteRank, rankBenefits, rankLabel, type StageDefinition } from '../shared/progression';
@@ -577,8 +577,8 @@ export class GameEngine {
       const speed = BALANCE.player.speed * rankBenefits(rank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
       const nextX = player.position.x + player.velocity.x * speed * dt;
       const nextY = player.position.y + player.velocity.y * speed * dt;
-      if (isWalkable(this.map, nextX, player.position.y)) player.position.x = nextX;
-      if (isWalkable(this.map, player.position.x, nextY)) player.position.y = nextY;
+      if (isWalkableArea(this.map, nextX, player.position.y, BALANCE.player.collisionRadius)) player.position.x = nextX;
+      if (isWalkableArea(this.map, player.position.x, nextY, BALANCE.player.collisionRadius)) player.position.y = nextY;
     }
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
-import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
@@ -100,6 +100,19 @@ describe('deterministic shared world', () => {
       const path = findPath(map, room.bed, map.playerSpawn);
       expect(path.some((tile) => tile.x === room.door.x && tile.y === room.door.y)).toBe(true);
     }
+  });
+
+  it('keeps collision-radius movement out of adjacent wall cells', () => {
+    const map = generateMap(4_204);
+    const wall = map.walls.find((candidate) =>
+      isWalkable(map, candidate.x - 1, candidate.y) ||
+      isWalkable(map, candidate.x + 1, candidate.y) ||
+      isWalkable(map, candidate.x, candidate.y - 1) ||
+      isWalkable(map, candidate.x, candidate.y + 1),
+    );
+    expect(wall).toBeDefined();
+    expect(isWalkableArea(map, wall!.x, wall!.y, BALANCE.player.collisionRadius)).toBe(false);
+    expect(isWalkableArea(map, wall!.x - 0.49, wall!.y, BALANCE.player.collisionRadius)).toBe(false);
   });
 
   it('creates twenty-five-tile multiplayer rooms with two beds each', () => {
