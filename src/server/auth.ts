@@ -3,7 +3,8 @@ import type { AccountProfile, PlayMode } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
-const PBKDF2_ITERATIONS = 210_000;
+const PASSWORD_SCHEME = 'pbkdf2-sha256';
+const PBKDF2_ITERATIONS = 100_000;
 
 interface AccountRow {
   id: string;
@@ -21,41 +22,40 @@ interface AccountRow {
   created_at: number;
 }
 
-let schemaReady: Promise<void> | null = null;
-
-async function ensureColumn(db: D1Database, table: string, column: string, definition: string): Promise<void> {
-  const columns = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
-  if (columns.results?.some((row) => row.name === column)) return;
-  await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
-}
-
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
-  await ensureColumn(db, 'accounts', 'password_hash', `TEXT NOT NULL DEFAULT ''`);
-  await ensureColumn(db, 'accounts', 'password_salt', `TEXT NOT NULL DEFAULT ''`);
-  await ensureColumn(db, 'accounts', 'solo_xp', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'multiplayer_xp', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'solo_stage_index', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'multiplayer_stage_index', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'victories', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'login_failures', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'locked_until', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'updated_at', 'INTEGER NOT NULL DEFAULT 0');
-  await ensureColumn(db, 'accounts', 'last_login_at', 'INTEGER NOT NULL DEFAULT 0');
+  const columns = await db.prepare('PRAGMA table_info(accounts)').all<{ name: string }>();
+  const existing = new Set(columns.results?.map((row) => row.name) ?? []);
+  const definitions = [
+    ['password_hash', `TEXT NOT NULL DEFAULT ''`],
+    ['password_salt', `TEXT NOT NULL DEFAULT ''`],
+    ['solo_xp', 'INTEGER NOT NULL DEFAULT 0'],
+    ['multiplayer_xp', 'INTEGER NOT NULL DEFAULT 0'],
+    ['solo_stage_index', 'INTEGER NOT NULL DEFAULT 0'],
+    ['multiplayer_stage_index', 'INTEGER NOT NULL DEFAULT 0'],
+    ['victories', 'INTEGER NOT NULL DEFAULT 0'],
+    ['login_failures', 'INTEGER NOT NULL DEFAULT 0'],
+    ['locked_until', 'INTEGER NOT NULL DEFAULT 0'],
+    ['updated_at', 'INTEGER NOT NULL DEFAULT 0'],
+    ['last_login_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ] as const;
+  const missing = definitions
+    .filter(([column]) => !existing.has(column))
+    .map(([column, definition]) => db.prepare(`ALTER TABLE accounts ADD COLUMN ${column} ${definition}`));
+  if (missing.length > 0) await db.batch(missing);
 }
 
-export function ensureAuthSchema(db: D1Database): Promise<void> {
-  schemaReady ??= db.batch([
+export async function ensureAuthSchema(db: D1Database): Promise<void> {
+  // D1 promises are request-scoped in Workers. Never cache this promise at module
+  // scope: a later request would try to await I/O created by another request.
+  await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, play_mode TEXT NOT NULL CHECK (play_mode IN ('solo', 'multiplayer')), stage_index INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), xp_awarded INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC)'),
-  ]).then(() => ensureLegacyAuthColumns(db)).catch((error) => {
-    schemaReady = null;
-    throw error;
-  });
-  return schemaReady;
+  ]);
+  await ensureLegacyAuthColumns(db);
 }
 
 const bytesToText = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
@@ -68,10 +68,22 @@ async function sha256(value: string): Promise<string> {
   return bytesToText(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))));
 }
 
-async function derivePassword(password: string, salt: Uint8Array): Promise<string> {
+async function derivePassword(password: string, salt: Uint8Array, iterations = PBKDF2_ITERATIONS): Promise<string> {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations }, key, 256);
   return bytesToText(new Uint8Array(bits));
+}
+
+function encodePasswordHash(hash: string): string {
+  return `${PASSWORD_SCHEME}$${PBKDF2_ITERATIONS}$${hash}`;
+}
+
+function decodePasswordHash(value: string): { hash: string; iterations: number } | null {
+  const match = value.match(/^pbkdf2-sha256\$(\d+)\$([A-Za-z0-9_-]+)$/);
+  if (!match) return null;
+  const iterations = Number(match[1]);
+  if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > 100_000) return null;
+  return { iterations, hash: match[2] as string };
 }
 
 function secureEqual(left: string, right: string): boolean {
@@ -127,13 +139,28 @@ async function createSession(db: D1Database, accountId: string): Promise<string>
   return token;
 }
 
-export async function getAuthenticatedProfile(request: Request, db: D1Database): Promise<AccountProfile | null> {
-  await ensureAuthSchema(db);
+async function prepareSession(): Promise<{ token: string; tokenHash: string; createdAt: number; expiresAt: number }> {
+  const token = bytesToText(crypto.getRandomValues(new Uint8Array(32)));
+  const createdAt = Date.now();
+  return {
+    token,
+    tokenHash: await sha256(token),
+    createdAt,
+    expiresAt: createdAt + SESSION_MS,
+  };
+}
+
+async function authenticatedProfileFromReadySchema(request: Request, db: D1Database): Promise<AccountProfile | null> {
   const token = cookieValue(request);
   if (!token) return null;
   const row = await db.prepare(`SELECT a.* FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?`)
     .bind(await sha256(token), Date.now()).first<AccountRow>();
   return row ? profileFromRow(row) : null;
+}
+
+export async function getAuthenticatedProfile(request: Request, db: D1Database, bootstrapSchema = false): Promise<AccountProfile | null> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  return authenticatedProfileFromReadySchema(request, db);
 }
 
 async function register(request: Request, db: D1Database): Promise<Response> {
@@ -152,19 +179,24 @@ async function register(request: Request, db: D1Database): Promise<Response> {
   const existing = await db.prepare('SELECT id FROM accounts WHERE username = ?').bind(username).first<{ id: string }>();
   if (existing) return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
   try {
-    await db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, username, nickname, await derivePassword(password, salt), bytesToText(salt), now, now).run();
+    const passwordHash = encodePasswordHash(await derivePassword(password, salt));
+    const session = await prepareSession();
+    await db.batch([
+      db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(id, username, nickname, passwordHash, bytesToText(salt), now, now),
+      db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+        .bind(session.tokenHash, id, session.expiresAt, session.createdAt),
+    ]);
+    const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
+    return Response.json({ profile: profileFromRow(row as AccountRow) }, { headers: { 'set-cookie': sessionCookie(request, session.token, SESSION_MS / 1_000) } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/UNIQUE constraint failed: accounts\.username/i.test(message)) {
+    if (/UNIQUE constraint failed[^\n]*accounts\.username/i.test(message)) {
       return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
     }
     console.error('Account registration failed', error);
     return Response.json({ error: '계정 저장에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 503 });
   }
-  const token = await createSession(db, id);
-  const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
-  return Response.json({ profile: profileFromRow(row as AccountRow) }, { headers: { 'set-cookie': sessionCookie(request, token, SESSION_MS / 1_000) } });
 }
 
 async function login(request: Request, db: D1Database): Promise<Response> {
@@ -178,7 +210,14 @@ async function login(request: Request, db: D1Database): Promise<Response> {
   if (!row) return genericError();
   const now = Date.now();
   if (row.locked_until > now) return Response.json({ error: '로그인 시도가 많아 잠시 잠겼습니다. 10분 뒤 다시 시도하세요.' }, { status: 429 });
-  const valid = secureEqual(await derivePassword(password, textToBytes(row.password_salt)), row.password_hash);
+  const storedPassword = decodePasswordHash(row.password_hash);
+  if (!storedPassword) {
+    return Response.json({ error: '이 계정은 이전 개발용 암호 형식입니다. 계정을 다시 생성해주세요.' }, { status: 409 });
+  }
+  const valid = secureEqual(
+    await derivePassword(password, textToBytes(row.password_salt), storedPassword.iterations),
+    storedPassword.hash,
+  );
   if (!valid) {
     const failures = row.login_failures + 1;
     await db.prepare('UPDATE accounts SET login_failures = ?, locked_until = ?, updated_at = ? WHERE id = ?')
@@ -197,25 +236,31 @@ async function logout(request: Request, db: D1Database): Promise<Response> {
   return Response.json({ ok: true }, { headers: { 'set-cookie': sessionCookie(request, '', 0) } });
 }
 
-export async function routeAuth(request: Request, db: D1Database): Promise<Response | null> {
+export async function routeAuth(request: Request, db: D1Database, bootstrapSchema = false): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/auth/')) return null;
-  await ensureAuthSchema(db);
-  if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
-  if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
-  if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
-  if (url.pathname === '/api/auth/me' && request.method === 'GET') {
-    const profile = await getAuthenticatedProfile(request, db);
-    return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  try {
+    if (bootstrapSchema) await ensureAuthSchema(db);
+    if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
+    if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
+    if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
+    if (url.pathname === '/api/auth/me' && request.method === 'GET') {
+      const profile = await authenticatedProfileFromReadySchema(request, db);
+      return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+    }
+    return Response.json({ error: '지원하지 않는 인증 요청입니다.' }, { status: 404 });
+  } catch (error) {
+    console.error('Auth request failed', error);
+    return Response.json({ error: '인증 서버 처리에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 503 });
   }
-  return Response.json({ error: '지원하지 않는 인증 요청입니다.' }, { status: 404 });
 }
 
 export async function recordMatchResult(
   db: D1Database,
   input: { matchId: string; accountId: string; playMode: PlayMode; stageIndex: number; victory: boolean; elapsed: number },
+  bootstrapSchema = false,
 ): Promise<void> {
-  await ensureAuthSchema(db);
+  if (bootstrapSchema) await ensureAuthSchema(db);
   const stage = getStage(STAGES[input.stageIndex]?.id);
   const xp = input.victory ? stage.victoryXp : Math.max(10, Math.floor(stage.victoryXp * 0.18));
   const inserted = await db.prepare(`INSERT OR IGNORE INTO match_results (match_id, account_id, play_mode, stage_index, victory, xp_awarded, elapsed_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)

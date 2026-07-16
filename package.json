@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --host 0.0.0.0",
+    "dev": "CLOUDFLARE_ENV=e2e WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --host 0.0.0.0",
     "icons": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -56,7 +56,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   const target = new URL(`https://game-room.internal/${action}`);
   target.search = url.search;
   if (action === 'status') return stub.fetch(new Request(target, request));
-  const profile = await getAuthenticatedProfile(request, env.DB);
+  const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
   if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
   const headers = new Headers(request.headers);
   headers.set('x-account-id', profile.id);
@@ -72,10 +72,10 @@ export default {
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, service: 'midnight-dorm', dataEnvironment: env.DATA_ENV, timestamp: Date.now() });
     }
-    const authResponse = await routeAuth(request, env.DB);
+    const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (authResponse) return authResponse;
     if (url.pathname === '/api/rooms/create' && request.method === 'POST') {
-      const profile = await getAuthenticatedProfile(request, env.DB);
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
       return profile ? createRoom(request, env, profile) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
     const match = url.pathname.match(/^\/api\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);

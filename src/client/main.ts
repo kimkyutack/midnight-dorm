@@ -5,7 +5,12 @@ import {
   upgradeCost,
 } from "../shared/balance";
 import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
-import { rankBadgeSymbol, rankBenefits, rankLabel, stagesThrough } from "../shared/progression";
+import {
+  rankBadgeSymbol,
+  rankBenefits,
+  rankLabel,
+  stagesThrough,
+} from "../shared/progression";
 import { stageThemeFor } from "../shared/stageThemes";
 import type {
   AccountProfile,
@@ -221,8 +226,16 @@ function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   setContent(
     "auth",
-    `<main class="screen"><section class="panel auth-panel"><div class="auth-brand"><div class="title-mark">☾</div><div><span class="eyebrow">CLOUDFLARE D1 ACCOUNT</span><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%; margin-top: 8px;">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
+    `<main class="screen"><section class="panel auth-panel" style="display: grid; gap: 10px;"><div class="auth-brand"><div class="title-mark">☾</div><div><h1>심야 병동</h1><p class="subtitle">계정에 개인/멀티 등급과 스테이지 진행도를 안전하게 저장합니다.</p></div></div><div class="auth-tabs"><button class="btn ${!registering ? "primary" : "ghost"}" data-auth-tab="login">로그인</button><button class="btn ${registering ? "primary" : "ghost"}" data-auth-tab="register">새 계정</button></div><form id="auth-form"><div class="field"><label for="username">아이디</label><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" placeholder="영문 소문자·숫자 4~20자" /></div>${registering ? '<div class="field"><label for="nickname">게임 닉네임</label><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자 닉네임" /></div>' : ""}<div class="field"><label for="password">비밀번호</label><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" placeholder="8자 이상" /></div><button class="btn gold" type="submit" style="width:100%; margin-top: 8px;">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form></section></main>`,
   );
+  for (const input of app.querySelectorAll<HTMLInputElement>("#username, #password")) {
+    input.setAttribute("autocapitalize", "off");
+    input.setAttribute("autocorrect", "off");
+    input.setAttribute("spellcheck", "false");
+    // Android/Gboard can retain the uppercase state after a Korean nickname.
+    // The email keyboard reliably starts in lowercase while still allowing symbols.
+    input.setAttribute("inputmode", "email");
+  }
   app
     .querySelectorAll<HTMLElement>("[data-auth-tab]")
     .forEach((button) =>
@@ -490,7 +503,9 @@ function updateLobby(state: GameSnapshot): void {
   const bot = app.querySelector<HTMLButtonElement>("[data-bot]");
   if (start) {
     start.disabled = !host;
-    start.textContent = host ? `${BALANCE.countdownSeconds}초 준비 시작` : "방장 대기 중";
+    start.textContent = host
+      ? `${BALANCE.countdownSeconds}초 준비 시작`
+      : "방장 대기 중";
   }
   if (bot) bot.disabled = !host || state.players.length >= 4;
 }
@@ -590,7 +605,7 @@ function updateHud(): void {
       ? `${snapshot.stageLabel} · 침대를 찾아 점유하세요 · ${Math.ceil(snapshot.countdown)}초`
       : (skillWarning ??
           (retreating
-            ? "⚠ 귀신이 회복 구역으로 후퇴 중 — 지금 처치하세요!"
+            ? "⚠ 귀신이 후퇴합니다"
             : `${snapshot.stageLabel} · ${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`)),
   );
   const net = app.querySelector<HTMLElement>("[data-network]");
@@ -619,7 +634,7 @@ function resultScreen(state: GameSnapshot): void {
   audio.play(victory ? "victory" : "defeat");
   setContent(
     "result",
-    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? "✦" : "☁"}</div><span class="eyebrow">${state.stageLabel} · ${victory ? "DAWN SURVIVED" : "NIGHT CONSUMED"}</span><h1>${victory ? "새벽을 지켜냈습니다" : "병동가 잠식되었습니다"}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 악몽 레벨 ${state.ghost.level}<br>${victory ? "승리 XP와 다음 스테이지가 계정에 저장됩니다." : "도전 XP가 계정에 저장됩니다."}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`,
+    `<main class="screen"><section class="panel compact" style="text-align:center"><div class="title-mark">${victory ? "✦" : "☁"}</div><span class="eyebrow">${state.stageLabel} · ${victory ? "DAWN SURVIVED" : "NIGHT CONSUMED"}</span><h1>${victory ? "새벽을 지켜냈습니다" : "병동이 잠식되었습니다"}</h1><p class="subtitle">생존 시간 ${formatTime(state.elapsed)} · 레벨 ${state.ghost.level}<br>${victory ? "승리 XP와 다음 스테이지가 계정에 저장됩니다." : "도전 XP가 계정에 저장됩니다."}</p><div class="button-row"><button class="btn primary" data-rematch data-testid="rematch">같은 팀으로 재대결</button><button class="btn ghost" data-leave>메뉴로 나가기</button></div></section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;

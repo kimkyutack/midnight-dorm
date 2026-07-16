@@ -294,7 +294,7 @@ export class GameRoom extends DurableObject<Env> {
         stageIndex: snapshot.stageIndex,
         victory,
         elapsed: snapshot.elapsed,
-      })));
+      }, this.env.DATA_ENV === 'local-e2e')));
       this.recordedMatchId = snapshot.matchId;
     } catch (error) {
       console.error('Failed to record match result', error);
