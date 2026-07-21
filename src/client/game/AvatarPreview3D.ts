@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { AvatarAppearance, RankId } from '../../shared/types';
-import { createPlayerRig, type PlayerRig } from './ThreeGameView';
+import type { AvatarAppearance, RankId, TurretKind } from '../../shared/types';
+import { createPlayerRig, createTurretPreviewModel } from './ThreeGameView';
 
 export type AvatarView = 'front' | 'side' | 'back';
 
@@ -29,10 +29,12 @@ export class AvatarPreview3D {
   private readonly camera = new THREE.PerspectiveCamera(28, 1, 0.1, 30);
   private readonly renderer: THREE.WebGLRenderer;
   private readonly resizeObserver: ResizeObserver;
-  private rig: PlayerRig | null = null;
+  private previewObject: THREE.Group | null = null;
   private yaw = 0;
   private pointerId: number | null = null;
   private pointerX = 0;
+  private pointerStartX = 0;
+  private pointerMoved = false;
   private destroyed = false;
 
   constructor(host: HTMLElement, appearance: AvatarAppearance, rank: RankId, color = 0x78dff1) {
@@ -51,8 +53,8 @@ export class AvatarPreview3D {
     this.renderer.domElement.setAttribute('aria-label', '회전 가능한 3D 캐릭터 미리보기');
     this.host.insertBefore(this.renderer.domElement, this.host.firstChild);
 
-    this.camera.position.set(0, 1.12, -4.25);
-    this.camera.lookAt(0, 0.9, 0);
+    this.camera.position.set(0, 1.05, -4.55);
+    this.camera.lookAt(0, 0.92, 0);
     this.scene.add(new THREE.HemisphereLight(0xcbefff, 0x182235, 2.8));
     const key = new THREE.DirectionalLight(0xfff1dd, 4.4);
     key.position.set(-2.5, 4.6, -3.2);
@@ -92,21 +94,32 @@ export class AvatarPreview3D {
   }
 
   updateAppearance(appearance: AvatarAppearance, rank: RankId, color = 0x78dff1): void {
-    if (this.rig) {
-      this.scene.remove(this.rig.root);
-      disposeObject(this.rig.root);
-    }
-    this.rig = createPlayerRig(appearance, rank, color, false);
-    this.rig.root.rotation.y = this.yaw;
-    this.rig.root.scale.setScalar(1.12);
-    this.scene.add(this.rig.root);
+    const nextRig = createPlayerRig(appearance, rank, color, false);
+    nextRig.root.rotation.y = this.yaw;
+    nextRig.root.scale.setScalar(0.94);
+    this.replacePreview(nextRig.root);
+    this.renderer.domElement.dataset.previewKind = 'avatar';
+    delete this.renderer.domElement.dataset.turretKind;
+    delete this.renderer.domElement.dataset.skinId;
+    this.render();
+  }
+
+  updateTurret(kind: TurretKind, skinId: string): void {
+    const turret = createTurretPreviewModel(kind, skinId);
+    turret.rotation.y = this.yaw;
+    turret.position.y = 0.03;
+    turret.scale.setScalar(1.72);
+    this.replacePreview(turret);
+    this.renderer.domElement.dataset.previewKind = 'turret';
+    this.renderer.domElement.dataset.turretKind = kind;
+    this.renderer.domElement.dataset.skinId = skinId;
     this.render();
   }
 
   setView(view: AvatarView): void {
     this.yaw = VIEW_YAW[view];
     this.renderer.domElement.dataset.avatarView = view;
-    if (this.rig) this.rig.root.rotation.y = this.yaw;
+    if (this.previewObject) this.previewObject.rotation.y = this.yaw;
     this.render();
   }
 
@@ -120,10 +133,10 @@ export class AvatarPreview3D {
     this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
     this.renderer.domElement.removeEventListener('pointercancel', this.onPointerUp);
-    if (this.rig) {
-      this.scene.remove(this.rig.root);
-      disposeObject(this.rig.root);
-      this.rig = null;
+    if (this.previewObject) {
+      this.scene.remove(this.previewObject);
+      disposeObject(this.previewObject);
+      this.previewObject = null;
     }
     this.scene.traverse((object) => {
       if (object instanceof THREE.Mesh) {
@@ -139,17 +152,23 @@ export class AvatarPreview3D {
   private readonly onPointerDown = (event: PointerEvent): void => {
     this.pointerId = event.pointerId;
     this.pointerX = event.clientX;
-    this.renderer.domElement.setPointerCapture(event.pointerId);
-    this.host.classList.add('dragging');
+    this.pointerStartX = event.clientX;
+    this.pointerMoved = false;
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
-    if (event.pointerId !== this.pointerId || !this.rig) return;
+    if (event.pointerId !== this.pointerId || !this.previewObject) return;
+    if (!this.pointerMoved && Math.abs(event.clientX - this.pointerStartX) < 3) return;
+    if (!this.pointerMoved) {
+      this.pointerMoved = true;
+      this.host.classList.add('dragging');
+      this.renderer.domElement.setPointerCapture(event.pointerId);
+    }
     const dx = event.clientX - this.pointerX;
     this.pointerX = event.clientX;
     this.yaw += dx * 0.012;
     this.renderer.domElement.dataset.avatarView = 'custom';
-    this.rig.root.rotation.y = this.yaw;
+    this.previewObject.rotation.y = this.yaw;
     this.render();
   };
 
@@ -158,7 +177,19 @@ export class AvatarPreview3D {
     this.pointerId = null;
     this.host.classList.remove('dragging');
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
+    if (this.previewObject && this.previewObject.parent !== this.scene) this.scene.add(this.previewObject);
+    this.render();
   };
+
+  private replacePreview(next: THREE.Group): void {
+    const previous = this.previewObject;
+    this.previewObject = next;
+    this.scene.add(next);
+    if (previous) {
+      this.scene.remove(previous);
+      disposeObject(previous);
+    }
+  }
 
   private resize(): void {
     if (this.destroyed) return;

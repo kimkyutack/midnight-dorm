@@ -50,6 +50,9 @@ export const BALANCE = {
   door: {
     baseHp: DOOR_HP[0],
     upgradeHp: DOOR_HP,
+    passiveRegenDelaySeconds: 5,
+    passiveRegenAmount: 5,
+    passiveRegenIntervalSeconds: 1,
   },
   ghost: {
     baseHp: 760,

@@ -101,6 +101,8 @@ export interface RoomState {
   bedLevel: number;
   bedLevels: number[];
   shieldUntil: number;
+  lastDoorHitAt: number;
+  doorRegenAccumulator: number;
 }
 
 export interface BuildingState {
@@ -113,6 +115,9 @@ export interface BuildingState {
   level: number;
   cooldown: number;
   hp: number;
+  investedGold?: number;
+  investedPower?: number;
+  investmentByPlayer?: Record<string, { gold: number; power: number }>;
 }
 
 export interface GhostState {
@@ -137,9 +142,21 @@ export interface GhostState {
   healingStartHp: number;
   retreatCount: number;
   skillCooldown: number;
+  abilityCooldown: number;
+  summonerId?: string;
 }
 
-export type GhostVariant = 'wanderer' | 'swift' | 'brute' | 'caster' | 'twin-a' | 'twin-b';
+export type GhostVariant =
+  | 'wanderer'
+  | 'swift'
+  | 'brute'
+  | 'caster'
+  | 'twin-a'
+  | 'twin-b'
+  | 'teleporter'
+  | 'undead'
+  | 'giant'
+  | 'minion';
 
 export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'veteran' | 'legend';
 export type PlayMode = 'solo' | 'multiplayer';
@@ -202,6 +219,7 @@ export type GameEventKind =
   | 'gold'
   | 'power'
   | 'build'
+  | 'building-remove'
   | 'upgrade'
   | 'turret-fire'
   | 'ghost-hit'
@@ -242,10 +260,13 @@ export type ClientMessage =
   | (BaseMessage & { type: 'start' })
   | (BaseMessage & { type: 'add-bot'; difficulty: 'easy' | 'normal' | 'hard' })
   | (BaseMessage & { type: 'remove-bot'; botId: string })
+  | (BaseMessage & { type: 'leave-room' })
+  | (BaseMessage & { type: 'kick-player'; playerId: string })
   | (BaseMessage & { type: 'move'; dx: number; dy: number; inputSequence: number })
   | (BaseMessage & { type: 'interact' })
   | (BaseMessage & { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind })
   | (BaseMessage & { type: 'upgrade'; targetId: string })
+  | (BaseMessage & { type: 'remove-building'; buildingId: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
   | (BaseMessage & { type: 'rematch' })
   | (BaseMessage & { type: 'ping'; clientTime: number })
@@ -263,6 +284,7 @@ export type ServerMessage =
   | (BaseMessage & { type: 'snapshot'; snapshot: GameSnapshot; events: GameEvent[] })
   | (BaseMessage & { type: 'error'; code: string; message: string })
   | (BaseMessage & { type: 'pong'; clientTime: number; serverTime: number })
+  | (BaseMessage & { type: 'room-exit'; reason: 'left' | 'kicked' | 'room-closed' })
   | (BaseMessage & { type: 'room-closed'; reason: string });
 
 export interface JoinIdentity {

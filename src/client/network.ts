@@ -6,6 +6,7 @@ export interface NetworkEvents {
   connection: { state: 'connecting' | 'connected' | 'reconnecting' | 'closed'; attempt: number };
   error: { message: string };
   ping: { milliseconds: number };
+  roomExit: { reason: 'left' | 'kicked' | 'room-closed' };
 }
 
 type Listener<K extends keyof NetworkEvents> = (value: NetworkEvents[K]) => void;
@@ -95,10 +96,14 @@ export class GameNetwork {
   ready(ready: boolean): void { this.send({ type: 'ready', ready }); }
   start(): void { this.send({ type: 'start' }); }
   addBot(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): void { this.send({ type: 'add-bot', difficulty }); }
+  removeBot(botId: string): void { this.send({ type: 'remove-bot', botId }); }
+  leaveRoom(): void { this.send({ type: 'leave-room' }); }
+  kickPlayer(playerId: string): void { this.send({ type: 'kick-player', playerId }); }
   move(dx: number, dy: number, inputSequence: number): void { this.send({ type: 'move', dx, dy, inputSequence }); }
   interact(): void { this.send({ type: 'interact' }); }
   build(roomId: string, tile: Tile, kind: BuildingKind): void { this.send({ type: 'build', roomId, tile, kind }); }
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
+  removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
@@ -116,6 +121,11 @@ export class GameNetwork {
     } else if (message.type === 'snapshot') this.emit('snapshot', { snapshot: message.snapshot, events: message.events });
     else if (message.type === 'error') this.emit('error', { message: message.message });
     else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
+    else if (message.type === 'room-exit') {
+      this.stopped = true;
+      this.stopHeartbeat();
+      this.emit('roomExit', { reason: message.reason });
+    }
     else if (message.type === 'room-closed') this.emit('error', { message: message.reason });
   }
 

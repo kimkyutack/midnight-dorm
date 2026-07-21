@@ -100,6 +100,14 @@ test("first launch teaser leads through login to the cinematic game home and mod
     await expect(page.locator("[data-custom-preview-copy]")).toContainText("포인트는 차감되지 않습니다");
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
+    await avatarCanvas.tap();
+    await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
+    await page.getByRole("button", { name: "포탑", exact: true }).click();
+    const turretCanvas = page.locator(".custom-avatar-canvas");
+    await expect(turretCanvas).toHaveAttribute("data-preview-kind", "turret");
+    await page.locator(".cosmetic-card", { hasText: "수호포 · 호박등" }).click();
+    await expect(turretCanvas).toHaveAttribute("data-skin-id", "turret-basic-pumpkin");
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText("수호포 · 호박등");
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
@@ -213,6 +221,46 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(page.getByTestId("create-room")).toBeVisible();
   } finally {
     await context.close().catch(() => undefined);
+  }
+});
+
+test("lobby host can remove bots, transfer ownership, kick a player and close an empty room", async ({ browser }) => {
+  const firstContext = await mobileContext(browser);
+  const secondContext = await mobileContext(browser);
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    await enter(first, "교대방장", "host");
+    await first.getByTestId("create-room").click();
+    const code = (await first.getByTestId("room-code").textContent()) as string;
+
+    await first.getByRole("button", { name: "봇 추가" }).click();
+    await expect(first.getByRole("button", { name: "봇 제거" })).toBeVisible();
+    await first.getByRole("button", { name: "봇 제거" }).click();
+    await expect(first.locator(".player-card", { hasText: "서버 생존자 봇" })).toHaveCount(0);
+
+    await enter(second, "다음방장", "guest");
+    await second.getByLabel("초대 코드로 참가").fill(code);
+    await second.getByTestId("join-room").click();
+    await expect(first.locator("[data-player-id]")).toHaveCount(2);
+
+    await first.getByRole("button", { name: "방 나가기" }).click();
+    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(second.locator(".player-card", { hasText: "다음방장" })).toContainText("★");
+
+    await first.getByLabel("초대 코드로 참가").fill(code);
+    await first.getByTestId("join-room").click();
+    await expect(second.getByRole("button", { name: "추방" })).toBeVisible();
+    await second.getByRole("button", { name: "추방" }).click();
+    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(first.locator("#toast")).toContainText("방장에 의해");
+
+    await second.getByRole("button", { name: "방 나가기" }).click();
+    await expect(second.getByTestId("create-room")).toBeVisible();
+    expect((await second.request.get(`/api/rooms/${code}/status`)).status()).toBe(404);
+  } finally {
+    await firstContext.close().catch(() => undefined);
+    await secondContext.close().catch(() => undefined);
   }
 });
 

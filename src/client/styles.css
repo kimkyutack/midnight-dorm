@@ -1823,9 +1823,36 @@ select {
   font-size: 10px;
   font-weight: 900;
 }
+.member-action {
+  min-width: 54px;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px solid rgba(225, 235, 238, 0.14);
+  border-radius: 10px;
+  color: #cdeff2;
+  background: rgba(31, 48, 58, 0.82);
+  font-size: 8px;
+  font-weight: 900;
+}
+.member-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+.member-controls .ready-badge,
+.member-controls .member-action {
+  margin-left: 0;
+}
+.member-action.danger {
+  color: #ffd5df;
+  border-color: rgba(255, 120, 149, 0.28);
+  background: rgba(139, 37, 66, 0.34);
+}
 .lobby-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.3fr;
+  grid-template-columns: 0.9fr 1fr 1fr 1.35fr;
   gap: 9px;
 }
 
@@ -2465,6 +2492,23 @@ select {
   color: var(--muted);
   font-size: 10px;
   text-align: right;
+}
+.remove-building {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.remove-building span {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+.remove-building .btn {
+  width: 100%;
+  min-height: 39px;
+  font-size: 9px;
 }
 .odds-note {
   display: block;

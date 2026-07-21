@@ -176,6 +176,41 @@ export class GameRoom extends DurableObject<Env> {
       this.sendWelcome(socket, attachment);
       return;
     }
+    if (parsed.message.type === 'leave-room') {
+      const result = engine.leaveLobby(attachment.playerId);
+      if (!result.ok) {
+        this.sendError(socket, 'ACTION_REJECTED', result.error ?? '방을 나갈 수 없습니다.');
+        return;
+      }
+      this.send(socket, {
+        type: 'room-exit', sequence: engine.snapshot().serverSeq, timestamp: Date.now(), reason: result.roomEmpty ? 'room-closed' : 'left',
+      });
+      socket.close(1000, 'left room');
+      if (result.roomEmpty) await this.destroyRoom();
+      else {
+        this.broadcastSnapshot();
+        await this.persist();
+      }
+      return;
+    }
+    if (parsed.message.type === 'kick-player') {
+      const result = engine.kickPlayer(attachment.playerId, parsed.message.playerId);
+      if (!result.ok) {
+        this.sendError(socket, 'ACTION_REJECTED', result.error ?? '플레이어를 추방할 수 없습니다.');
+        return;
+      }
+      for (const targetSocket of this.ctx.getWebSockets()) {
+        const targetAttachment = targetSocket.deserializeAttachment() as ConnectionAttachment | null;
+        if (targetAttachment?.playerId !== result.removedPlayerId) continue;
+        this.send(targetSocket, {
+          type: 'room-exit', sequence: engine.snapshot().serverSeq, timestamp: Date.now(), reason: 'kicked',
+        });
+        targetSocket.close(4003, 'kicked by room host');
+      }
+      this.broadcastSnapshot();
+      await this.persist();
+      return;
+    }
     const result = engine.handle(attachment.playerId, parsed.message);
     if (!result.ok) this.sendError(socket, 'ACTION_REJECTED', result.error ?? '요청이 거부되었습니다.');
     else this.broadcastSnapshot();
@@ -289,6 +324,13 @@ export class GameRoom extends DurableObject<Env> {
 
   private async persist(): Promise<void> {
     if (this.engine) await this.ctx.storage.put('engine', this.engine.serialize());
+  }
+
+  private async destroyRoom(): Promise<void> {
+    this.stopTicking();
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.engine = null;
   }
 
   private async recordOutcomeIfNeeded(): Promise<void> {

@@ -27,6 +27,7 @@ export class SynthAudio {
     if (!context) return;
     const presets: Record<SoundName, [number, number, OscillatorType, number]> = {
       button: [520, 690, 'sine', .055], gold: [720, 1080, 'sine', .12], power: [540, 920, 'triangle', .1], build: [180, 420, 'square', .14],
+      'building-remove': [330, 85, 'square', .18],
       upgrade: [380, 880, 'triangle', .18], 'turret-fire': [220, 110, 'square', .055], 'ghost-hit': [160, 90, 'sawtooth', .08],
       'door-hit': [92, 52, 'square', .13], 'player-hit': [190, 70, 'sawtooth', .1], death: [220, 45, 'triangle', .45],
       'ghost-level-up': [120, 440, 'sawtooth', .35], 'ghost-retreat': [180, 70, 'triangle', .32],

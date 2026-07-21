@@ -1,7 +1,8 @@
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
-  'ready', 'start', 'add-bot', 'remove-bot', 'move', 'interact', 'build', 'upgrade', 'draw-item', 'rematch', 'ping', 'resync',
+  'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'upgrade',
+  'remove-building', 'draw-item', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'generator', 'repair-drone',
@@ -38,6 +39,9 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
     case 'remove-bot':
       if (typeof value.botId !== 'string') return { ok: false, error: 'invalid bot id' };
       break;
+    case 'kick-player':
+      if (typeof value.playerId !== 'string') return { ok: false, error: 'invalid player id' };
+      break;
     case 'move': {
       const vectorValid = typeof value.dx === 'number' && Number.isFinite(value.dx) && Math.abs(value.dx) <= 1
         && typeof value.dy === 'number' && Number.isFinite(value.dy) && Math.abs(value.dy) <= 1;
@@ -53,6 +57,9 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'upgrade':
       if (typeof value.targetId !== 'string') return { ok: false, error: 'invalid upgrade target' };
+      break;
+    case 'remove-building':
+      if (typeof value.buildingId !== 'string') return { ok: false, error: 'invalid building id' };
       break;
     case 'draw-item':
       if (typeof value.machineId !== 'string') return { ok: false, error: 'invalid lucky machine' };

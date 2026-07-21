@@ -261,21 +261,11 @@ const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
   turret: "포탑",
 };
 
-function avatarPreviewHtml(): string {
-  return `<div class="custom-avatar-stage" data-avatar-preview><span class="custom-preview-badge">3D FITTING ROOM</span><span class="custom-rotate-hint">↔ 캐릭터를 밀어서 회전</span><div class="custom-view-switch" aria-label="캐릭터 보는 방향"><button data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
-}
-
-function turretPreviewHtml(profile: AccountProfile): string {
-  const turrets = [
-    ["basic-turret", "수호"],
-    ["rapid-turret", "연사"],
-    ["frost-turret", "서리"],
-    ["arc-turret", "천둥"],
-  ] as const;
-  return `<div class="turret-hangar">${turrets.map(([kind, label]) => {
-    const item = cosmeticById(profile.turretSkins[kind]);
-    return `<div class="turret-preview turret-preview-${kind}" style="--turret-swatch:${item?.swatch ?? "#78dff1"}"><i></i><b></b><span>${label}</span></div>`;
-  }).join("")}</div>`;
+function modelPreviewHtml(turretMode = false): string {
+  const label = turretMode ? "3D TURRET LAB" : "3D FITTING ROOM";
+  const hint = turretMode ? "↔ 포탑을 밀어서 회전" : "↔ 캐릭터를 밀어서 회전";
+  const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
+  return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><span class="custom-preview-badge">${label}</span><span class="custom-rotate-hint">${hint}</span><div class="custom-view-switch" aria-label="${aria}"><button data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
 
 function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
@@ -293,9 +283,13 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
     .join("");
   const cards = cosmeticsForSlot(activeSlot)
     .map((item) => {
-      const selected = activeSlot === "turret"
-        ? Boolean(item.turretKind && currentAccount.turretSkins[item.turretKind] === item.id)
-        : appearance[activeSlot] === item.id;
+      const selected =
+        activeSlot === "turret"
+          ? Boolean(
+              item.turretKind &&
+              currentAccount.turretSkins[item.turretKind] === item.id,
+            )
+          : appearance[activeSlot] === item.id;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const available = cosmeticAvailable(
         item,
@@ -322,31 +316,47 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
     .join("");
   const character = cosmeticById(appearance.character);
   const turretMode = activeSlot === "turret";
+  const initialTurret = turretMode
+    ? cosmeticById(currentAccount.turretSkins["basic-turret"])
+    : undefined;
   setContent(
     "customize",
-    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${turretMode ? turretPreviewHtml(currentAccount) : avatarPreviewHtml()}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong data-custom-preview-title>${turretMode ? "방어 설비 컬렉션" : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? "종류별 외형은 다음 설치부터 적용됩니다." : "드래그하거나 앞·옆·뒤 버튼으로 확인하세요."}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
+    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? "카드를 눌러 3D 외형을 돌려보세요." : "드래그하거나 앞·옆·뒤 버튼으로 확인하세요."}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
   );
-  if (!turretMode) {
-    const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
-    if (previewHost) {
-      customAvatarPreview = new AvatarPreview3D(
-        previewHost,
-        appearance,
-        currentAccount.displayRank,
+  const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
+  if (previewHost) {
+    customAvatarPreview = new AvatarPreview3D(
+      previewHost,
+      appearance,
+      currentAccount.displayRank,
+    );
+    if (turretMode && initialTurret?.turretKind) {
+      customAvatarPreview.updateTurret(
+        initialTurret.turretKind,
+        initialTurret.id,
       );
     }
-    app.querySelectorAll<HTMLButtonElement>("[data-avatar-view]").forEach(
-      (button) =>
-        button.addEventListener("click", () => {
-          customAvatarPreview?.setView(button.dataset.avatarView as AvatarView);
-          app.querySelectorAll("[data-avatar-view]").forEach((candidate) =>
+  }
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-avatar-view]")
+    .forEach((button) =>
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        customAvatarPreview?.setView(button.dataset.avatarView as AvatarView);
+        app
+          .querySelectorAll("[data-avatar-view]")
+          .forEach((candidate) =>
             candidate.classList.toggle("active", candidate === button),
           );
-        }),
+      }),
     );
-    const showPreview = (itemId: string): void => {
-      const item = cosmeticById(itemId);
-      if (!item || item.slot === "turret") return;
+  const showPreview = (itemId: string): void => {
+    const item = cosmeticById(itemId);
+    if (!item) return;
+    if (item.slot === "turret") {
+      if (!item.turretKind) return;
+      customAvatarPreview?.updateTurret(item.turretKind, item.id);
+    } else {
       const previewAppearance: AvatarAppearance = {
         ...appearance,
         [item.slot]: item.id,
@@ -355,45 +365,53 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
         previewAppearance,
         currentAccount.displayRank,
       );
-      app.querySelectorAll("[data-cosmetic-preview]").forEach((candidate) =>
+    }
+    app
+      .querySelectorAll("[data-cosmetic-preview]")
+      .forEach((candidate) =>
         candidate.classList.toggle(
           "previewing",
           (candidate as HTMLElement).dataset.cosmeticPreview === item.id,
         ),
       );
-      setText("[data-custom-preview-title]", item.label);
-      setText(
-        "[data-custom-preview-copy]",
-        currentAccount.ownedCosmetics.includes(item.id) || item.unlock.kind === "starter"
-          ? "현재 캐릭터에 입혀 본 모습입니다."
-          : "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다.",
-      );
-    };
-    app.querySelectorAll<HTMLElement>("[data-cosmetic-preview]").forEach(
-      (card) => {
-        card.addEventListener("click", () => showPreview(card.dataset.cosmeticPreview ?? ""));
-        card.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            showPreview(card.dataset.cosmeticPreview ?? "");
-          }
-        });
-      },
+    setText("[data-custom-preview-title]", item.label);
+    setText(
+      "[data-custom-preview-copy]",
+      currentAccount.ownedCosmetics.includes(item.id) ||
+        item.unlock.kind === "starter"
+        ? "현재 캐릭터에 입혀 본 모습입니다."
+        : "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다.",
     );
-  }
+  };
+  app
+    .querySelectorAll<HTMLElement>("[data-cosmetic-preview]")
+    .forEach((card) => {
+      card.addEventListener("click", () =>
+        showPreview(card.dataset.cosmeticPreview ?? ""),
+      );
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          showPreview(card.dataset.cosmeticPreview ?? "");
+        }
+      });
+    });
   app.querySelector("[data-custom-back]")?.addEventListener("click", () => {
     if (customizeReturnView === "room-menu") roomMenu();
     else homeScreen();
   });
-  app.querySelectorAll<HTMLElement>("[data-custom-slot]").forEach((button) =>
-    button.addEventListener("click", () =>
-      customizationScreen(button.dataset.customSlot as CosmeticSlot),
-    ),
-  );
+  app
+    .querySelectorAll<HTMLElement>("[data-custom-slot]")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        customizationScreen(button.dataset.customSlot as CosmeticSlot),
+      ),
+    );
   app
     .querySelectorAll<HTMLButtonElement>("[data-cosmetic-action]")
     .forEach((button) =>
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
         const itemId = button.dataset.cosmeticId ?? "";
         const action = button.dataset.cosmeticAction;
         const originalLabel = button.textContent ?? "";
@@ -404,11 +422,19 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
             if (action === "purchase") account = await purchaseCosmetic(itemId);
             account = await equipCosmetic(itemId);
             customizationScreen(activeSlot);
-            toast(action === "purchase" ? "구매하고 바로 착용했습니다." : "착용 상태를 저장했습니다.");
+            toast(
+              action === "purchase"
+                ? "구매하고 바로 착용했습니다."
+                : "착용 상태를 저장했습니다.",
+            );
           } catch (error) {
             button.disabled = false;
             button.textContent = originalLabel;
-            toast(error instanceof Error ? error.message : "커스텀 상태를 저장하지 못했습니다.");
+            toast(
+              error instanceof Error
+                ? error.message
+                : "커스텀 상태를 저장하지 못했습니다.",
+            );
           }
         })();
       }),
@@ -654,6 +680,15 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     toast(message);
     refreshSelectionPanel(null);
   });
+  network.on("roomExit", ({ reason }) => {
+    const message =
+      reason === "kicked"
+        ? "방장에 의해 방에서 나왔습니다."
+        : reason === "room-closed"
+          ? "마지막 플레이어가 나가 방이 종료되었습니다."
+          : "방에서 나왔습니다.";
+    exitRoomToMenu(message);
+  });
   network.on("ping", ({ milliseconds }) => {
     ping = milliseconds;
     updateHud();
@@ -664,12 +699,13 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
 function lobbyScreen(state: GameSnapshot): void {
   destroyGame();
   const stage = getStage(state.stageId);
-  const roomRule = state.playMode === "multiplayer"
-    ? "방 12개 · 방마다 25칸 · 침대 2개 · 공동 건설/강화"
-    : "방 12개 · 방마다 20~25칸 · 다중 순환 경로";
+  const roomRule =
+    state.playMode === "multiplayer"
+      ? "방 12개 · 방마다 25칸 · 침대 2개 · 공동 건설/강화"
+      : "방 12개 · 방마다 20~25칸 · 다중 순환 경로";
   setContent(
     "lobby",
-    `<main class="lobby-screen"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "SOLO NIGHT" : "CO-OP NIGHT"} · ${stageThemeFor(state.stageId).label}</span><h2>새벽조 편성</h2><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><small>선택 스테이지</small><strong>${state.stageLabel}</strong><span>HP ×${stage.hpMultiplier.toFixed(2)} · 공격 ×${stage.damageMultiplier.toFixed(2)}</span></div></header><div class="lobby-code"><div><span>ROOM CODE</span><small>코드를 눌러 복사</small></div><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * .55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></footer></section></main>`,
+    `<main class="lobby-screen"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "SOLO NIGHT" : "CO-OP NIGHT"} · ${stageThemeFor(state.stageId).label}</span><h2>새벽조 편성</h2><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><small>선택 스테이지</small><strong>${state.stageLabel}</strong><span>HP ×${stage.hpMultiplier.toFixed(2)} · 공격 ×${stage.damageMultiplier.toFixed(2)}</span></div></header><div class="lobby-code"><div><span>ROOM CODE</span><small>코드를 눌러 복사</small></div><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></footer></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -688,6 +724,15 @@ function lobbyScreen(state: GameSnapshot): void {
     network?.start();
     audio.play("button");
   });
+  app
+    .querySelector<HTMLButtonElement>("[data-leave-room]")
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "나가는 중…";
+      network?.leaveRoom();
+      audio.play("button");
+    });
   updateLobby(state);
 }
 
@@ -696,14 +741,35 @@ function updateLobby(state: GameSnapshot): void {
   if (!container) return;
   container.innerHTML =
     state.players
-      .map(
-        (player) =>
-          `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong>${rankIdentityHtml(player.displayRank, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "서버 생존자 봇" : player.connected ? `개인 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : "재접속 대기"}</span></div><b class="ready-badge">${player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b></article>`,
-      )
+      .map((player) => {
+        const hostAction =
+          state.hostId === playerId && player.id !== playerId
+            ? player.isBot
+              ? `<button class="member-action" data-remove-bot="${player.id}">봇 제거</button>`
+              : `<button class="member-action danger" data-kick-player="${player.id}">추방</button>`
+            : "";
+        return `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}"><i class="player-dot" style="color:${colorHex(player.color)};background:${colorHex(player.color)}"></i><div class="player-copy"><strong>${rankIdentityHtml(player.displayRank, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "서버 생존자 봇" : player.connected ? `개인 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
+      })
       .join("") +
     (state.players.length < 4
       ? `<article class="player-card" style="opacity:.42"><i class="player-dot"></i><div class="player-copy"><strong>빈 침대</strong><span>친구 또는 봇</span></div></article>`
       : "");
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-remove-bot]")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        network?.removeBot(button.dataset.removeBot ?? ""),
+      ),
+    );
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-kick-player]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        button.disabled = true;
+        button.textContent = "추방 중…";
+        network?.kickPlayer(button.dataset.kickPlayer ?? "");
+      }),
+    );
   const me = state.players.find((player) => player.id === playerId);
   const ready = app.querySelector<HTMLButtonElement>("[data-ready]");
   if (ready) ready.textContent = me?.ready ? "준비 취소" : "준비";
@@ -723,16 +789,13 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-cancel>취소</button><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {
     network?.interact();
     audio.play("button");
   });
-  app
-    .querySelector("[data-cancel]")
-    ?.addEventListener("click", () => closeBuildPanel());
   app
     .querySelector("[data-inventory]")
     ?.addEventListener("click", showInventory);
@@ -744,6 +807,18 @@ function gameScreen(state: GameSnapshot): void {
     "dorm:target-selected",
     onTargetSelected as EventListener,
   );
+  app
+    .querySelector<HTMLElement>("#game-shell")
+    ?.addEventListener("pointerdown", (event) => {
+      const panel = app.querySelector<HTMLElement>("[data-build-panel]");
+      if (
+        !panel ||
+        panel.classList.contains("hidden") ||
+        panel.contains(event.target as Node)
+      )
+        return;
+      closeBuildPanel();
+    });
   if (!mapData) return;
   const gameRoot = app.querySelector<HTMLElement>("#game-root");
   if (!gameRoot) return;
@@ -871,7 +946,6 @@ function resultScreen(state: GameSnapshot): void {
   });
 }
 
-
 function claimAction(key: string, cooldown = ACTION_DEBOUNCE_MS): boolean {
   const now = performance.now();
   const previous = pendingActions.get(key) ?? 0;
@@ -918,7 +992,8 @@ function renderBuildPanel(tile: Tile): void {
     renderTargetPanel(selectedTarget);
     return;
   }
-  const modeRank = snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
+  const modeRank =
+    snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
   const benefits = rankBenefits(modeRank);
   const availableKinds = benefits.rareTurretUnlocked
     ? [...BUILD_KINDS, "arc-turret" as const]
@@ -971,7 +1046,10 @@ function renderTargetPanel(selection: SceneSelection): void {
       : selection.type === "door"
         ? "reinforced-door"
         : (building?.kind ?? "basic-turret");
-  const bedIndex = selection.type === "bed" ? Number(selection.targetId.split(":")[2] ?? me.bedIndex ?? 0) : 0;
+  const bedIndex =
+    selection.type === "bed"
+      ? Number(selection.targetId.split(":")[2] ?? me.bedIndex ?? 0)
+      : 0;
   const currentLevel =
     selection.type === "bed"
       ? (room?.bedLevels[bedIndex] ?? 1)
@@ -979,6 +1057,11 @@ function renderTargetPanel(selection: SceneSelection): void {
         ? (room?.doorLevel ?? 1)
         : (building?.level ?? 1);
   const definition = BALANCE.buildings[kind];
+  const modeRank =
+    snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
+  const removalMarkup = building
+    ? buildingRemovalMarkup(building, modeRank)
+    : "";
   if (kind === "lucky-machine" && building) {
     const cost = DRAW_COSTS[me.drawCount];
     const owned =
@@ -988,17 +1071,14 @@ function renderTargetPanel(selection: SceneSelection): void {
             `${escapeHtml(item.label)}${item.count > 1 ? ` ×${item.count}` : ""}`,
         )
         .join(" · ") || "아직 획득한 아이템이 없습니다.";
-    panel.innerHTML = `<h3>🎁 ${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>${me.drawCount}/4회 사용</strong><span>${owned}</span></div>${cost ? `<button class="btn gold" data-draw style="width:100%">${me.drawCount + 1}번째 뽑기 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">이번 판 4회 완료</button>'}<small class="odds-note">전설 아이템은 매우 낮은 확률로 등장하며, 장식품은 아무 효과가 없습니다.</small>`;
+    panel.innerHTML = `<h3>🎁 ${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>${me.drawCount}/4회 사용</strong><span>${owned}</span></div>${cost ? `<button class="btn gold" data-draw style="width:100%">${me.drawCount + 1}번째 뽑기 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : '<button class="btn ghost" disabled style="width:100%">이번 판 4회 완료</button>'}<small class="odds-note">전설 아이템은 매우 낮은 확률로 등장하며, 장식품은 아무 효과가 없습니다.</small>${removalMarkup}`;
     panel.classList.remove("hidden");
     panel
       .querySelector("[data-draw]")
-      ?.addEventListener("click", () => {
-        if (!claimAction(`draw:${building.id}`)) return;
-        network?.drawItem(building.id);
-      });
+      ?.addEventListener("click", () => network?.drawItem(building.id));
+    wireBuildingRemoval(panel, building.id);
     return;
   }
-  const modeRank = snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
   const benefits = rankBenefits(modeRank);
   const maxLevel = maxBuildingLevel(kind, modeRank);
   const nextLevel = currentLevel + 1;
@@ -1026,13 +1106,43 @@ function renderTargetPanel(selection: SceneSelection): void {
   const unavailableLabel = doorDestroyed
     ? "문이 파괴되어 업그레이드할 수 없습니다"
     : "최고 레벨 달성";
-  panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : `<button class="btn ghost" disabled style="width:100%">${unavailableLabel}</button>`}`;
+  panel.innerHTML = `<h3>${definition.label}</h3><p>${definition.description}</p><div class="target-level"><strong>Lv.${currentLevel} / ${maxLevel}</strong><span>${effectLabel}</span></div>${cost ? `<button class="btn primary" data-upgrade="${selection.targetId}" style="width:100%">Lv.${nextLevel} 업그레이드 · ◆ ${cost.gold} + ⚡ ${cost.power}</button>` : `<button class="btn ghost" disabled style="width:100%">${unavailableLabel}</button>`}${removalMarkup}`;
   panel.classList.remove("hidden");
   panel
     .querySelector<HTMLElement>("[data-upgrade]")
     ?.addEventListener("click", () =>
       attemptUpgrade(selection, currentLevel, cost),
     );
+  if (building) wireBuildingRemoval(panel, building.id);
+}
+
+function buildingRemovalMarkup(
+  building: GameSnapshot["buildings"][number],
+  rank: RankId,
+): string {
+  let fallbackGold = 0;
+  let fallbackPower = 0;
+  for (let level = 1; level <= building.level; level += 1) {
+    const cost = upgradeCost(building.kind, level, rank);
+    fallbackGold += cost.gold;
+    fallbackPower += cost.power;
+  }
+  const refundGold = Math.floor((building.investedGold ?? fallbackGold) * 0.7);
+  const refundPower = Math.floor(
+    (building.investedPower ?? fallbackPower) * 0.7,
+  );
+  return `<div class="remove-building"><span>철거하면 투자 재화의 70%를 각 투자자에게 돌려줍니다.</span><button class="btn danger" data-remove-building="${building.id}">철거 · ◆ ${refundGold} + ⚡ ${refundPower} 환급</button></div>`;
+}
+
+function wireBuildingRemoval(panel: HTMLElement, buildingId: string): void {
+  panel
+    .querySelector<HTMLButtonElement>(`[data-remove-building="${buildingId}"]`)
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "철거 중…";
+      network?.removeBuilding(buildingId);
+    });
 }
 
 function attemptUpgrade(
@@ -1105,6 +1215,10 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
       selectedTarget.type === "door" &&
       Boolean(previousDoor && previousDoor > 0) !==
         Boolean(nextDoor && nextDoor > 0);
+    if (selectedTarget.type === "building" && after === null) {
+      closeBuildPanel();
+      return;
+    }
     if (
       previous === null ||
       before !== after ||
@@ -1206,7 +1320,10 @@ function sendMovement(force = false): void {
     return;
   }
   if (!pendingMovementTimer) {
-    pendingMovementTimer = window.setTimeout(flushMovement, MOVEMENT_SEND_INTERVAL_MS - elapsed);
+    pendingMovementTimer = window.setTimeout(
+      flushMovement,
+      MOVEMENT_SEND_INTERVAL_MS - elapsed,
+    );
   }
 }
 
@@ -1214,6 +1331,7 @@ function playEvents(events: GameEvent[]): void {
   const interesting = events.find((event) =>
     [
       "build",
+      "building-remove",
       "upgrade",
       "turret-fire",
       "door-hit",
@@ -1363,7 +1481,8 @@ function showSettings(): void {
         return;
       }
       modal.remove();
-      leaveCurrentGame();
+      if (currentView === "lobby") network?.leaveRoom();
+      else leaveCurrentGame();
     });
   modal.querySelector("[data-close]")?.addEventListener("click", () => {
     audio.play("button");
@@ -1386,6 +1505,23 @@ function leaveCurrentGame(): void {
   resultRecorded = false;
   if (testShellMode) roomMenu();
   else homeScreen();
+}
+
+function exitRoomToMenu(message: string): void {
+  const code = network?.code;
+  network?.close();
+  network = null;
+  if (code) forgetRoom(code);
+  destroyGame();
+  snapshot = null;
+  mapData = null;
+  playerId = "";
+  selectedTile = null;
+  selectedTarget = null;
+  inputVector = { x: 0, y: 0 };
+  resultRecorded = false;
+  roomMenu();
+  toast(message);
 }
 
 function toast(message: string): void {

@@ -134,12 +134,14 @@ describe('survivor customization rules', () => {
   });
 
   it('defines a varied original catalog across survivor and turret equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(41);
+    expect(COSMETIC_CATALOG).toHaveLength(52);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'hat', 'outfit', 'accessory', 'shoes', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.hat);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'outfit')).toHaveLength(12);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'shoes')).toHaveLength(10);
   });
 
   it('separates starter, point-purchased, and rank-unlocked cosmetics', () => {
@@ -163,6 +165,33 @@ describe('survivor customization rules', () => {
 });
 
 describe('authoritative game rules', () => {
+  it('transfers lobby ownership on leave and destroys a room with no humans left', () => {
+    const { engine, ids } = setup(2);
+    const formerHost = ids[0] as string;
+    const nextHost = ids[1] as string;
+    const transfer = engine.leaveLobby(formerHost);
+    expect(transfer).toMatchObject({ ok: true, removedPlayerId: formerHost, newHostId: nextHost, roomEmpty: false });
+    expect(engine.snapshot().hostId).toBe(nextHost);
+    expect(engine.snapshot().players.some((player) => player.id === formerHost)).toBe(false);
+
+    expect(engine.addBot(nextHost, 'normal').ok).toBe(true);
+    const close = engine.leaveLobby(nextHost);
+    expect(close).toMatchObject({ ok: true, roomEmpty: true, newHostId: null });
+    expect(engine.snapshot().players).toEqual([]);
+  });
+
+  it('lets only the lobby host remove bots and kick another human', () => {
+    const { engine, ids } = setup(2);
+    const host = ids[0] as string;
+    const guest = ids[1] as string;
+    expect(engine.addBot(host, 'normal').ok).toBe(true);
+    const botId = engine.snapshot().players.find((player) => player.isBot)?.id as string;
+    expect(engine.removeBot(guest, botId).ok).toBe(false);
+    expect(engine.removeBot(host, botId).ok).toBe(true);
+    expect(engine.kickPlayer(guest, host).ok).toBe(false);
+    expect(engine.kickPlayer(host, guest)).toMatchObject({ ok: true, removedPlayerId: guest });
+  });
+
   it('keeps the ghost at spawn for a thirty-second preparation phase', () => {
     const { engine, ids } = setup(1, false);
     const ghostSpawn = { ...engine.map.ghostSpawn };
@@ -257,6 +286,27 @@ describe('authoritative game rules', () => {
     expect(engine.build(ids[0] as string, roomId, tile, 'basic-turret').ok).toBe(true);
     engine.tick(0.1);
     expect(engine.build(ids[0] as string, roomId, tile, 'floor-trap').error).toContain('사용 중');
+  });
+
+  it('removes a building, returns exactly seventy percent of all invested resources and reopens the tile', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing refund player');
+    player.gold = 1_000;
+    player.power = 100;
+    engine.restore(persisted);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+    const buildingId = engine.snapshot().buildings[0]?.id as string;
+    expect(engine.upgrade(playerId, buildingId).ok).toBe(true);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(950);
+    expect(engine.removeBuilding(playerId, buildingId).ok).toBe(true);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(985);
+    expect(engine.snapshot().buildings).toHaveLength(0);
+    expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
   });
 
   it('installs several identical generators on different tiles without substituting another building', () => {
@@ -379,6 +429,9 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage('{bad json').ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 99, dy: 0, inputSequence: 1 })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1.5, y: 2 }, kind: 'nuke' })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'kick-player', sequence: 2, timestamp: 2, playerId: 77 })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'remove-building', sequence: 3, timestamp: 2, buildingId: 'building-1' })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'leave-room', sequence: 4, timestamp: 2 })).ok).toBe(true);
   });
 
   it('restores the same player with a valid 30-second reconnect token', () => {
@@ -396,6 +449,68 @@ describe('protocol and lifecycle', () => {
     engine.disconnect(ids[0] as string, now);
     expect(engine.shouldCleanup(now + BALANCE.inactiveCleanupMs - 1)).toBe(false);
     expect(engine.shouldCleanup(now + BALANCE.inactiveCleanupMs + 1)).toBe(true);
+  });
+});
+
+describe('nine primary ghost variants', () => {
+  it('teleports to a different occupied room on its own cooldown', () => {
+    const { engine, ids } = setup(2);
+    begin(engine, ids[0] as string);
+    const state = engine.serialize();
+    const ghost = state.snapshot.ghosts[0];
+    const rooms = state.snapshot.players.map((player) => player.roomId).filter((roomId): roomId is string => Boolean(roomId));
+    if (!ghost || rooms.length < 2) throw new Error('missing teleport test setup');
+    ghost.variant = 'teleporter';
+    ghost.targetRoomId = rooms[0] as string;
+    ghost.abilityCooldown = 0;
+    state.snapshot.ghost = ghost;
+    engine.restore(state);
+    engine.tick(0.1);
+    expect(engine.snapshot().ghost.targetRoomId).toBe(rooms[1]);
+    expect(engine.drainEvents().some((event) => event.kind === 'ghost-skill' && event.label?.includes('순간이동'))).toBe(true);
+  });
+
+  it('summons level-scaled low-HP minions that never retreat', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const state = engine.serialize();
+    const ghost = state.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing undead test setup');
+    ghost.variant = 'undead';
+    ghost.level = 5;
+    ghost.abilityCooldown = 0;
+    state.snapshot.ghost = ghost;
+    engine.restore(state);
+    engine.tick(0.1);
+    const minions = engine.snapshot().ghosts.filter((candidate) => candidate.variant === 'minion');
+    expect(minions).toHaveLength(3);
+    expect(minions.every((minion) => minion.maxHp === buildingStats('basic-turret', 1).value * 3.5)).toBe(true);
+    const afterSummon = engine.serialize();
+    for (const minion of afterSummon.snapshot.ghosts.filter((candidate) => candidate.variant === 'minion')) minion.hp = 1;
+    engine.restore(afterSummon);
+    engine.tick(0.1);
+    expect(engine.snapshot().ghosts.filter((candidate) => candidate.variant === 'minion').every((minion) => !minion.retreating)).toBe(true);
+  });
+
+  it('gives the giant 2.5x damage and only thirty percent attack speed', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const state = engine.serialize();
+    const ghost = state.snapshot.ghosts[0];
+    const roomId = state.snapshot.players[0]?.roomId;
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    if (!ghost || !roomId || !mapRoom) throw new Error('missing giant test setup');
+    ghost.variant = 'giant';
+    ghost.targetRoomId = roomId;
+    ghost.position = { ...mapRoom.door };
+    ghost.attackCooldown = 0;
+    ghost.abilityCooldown = 20;
+    state.snapshot.ghost = ghost;
+    engine.restore(state);
+    engine.tick(0.1);
+    const hit = engine.drainEvents().find((event) => event.kind === 'door-hit' && event.targetId === ghost.id);
+    expect(hit?.amount).toBeCloseTo(BALANCE.ghost.baseDamage * 2.5, 5);
+    expect(engine.snapshot().ghost.attackCooldown).toBeCloseTo(BALANCE.ghost.attackInterval / 0.3, 5);
   });
 });
 
@@ -558,6 +673,33 @@ describe('requested progression and event rules', () => {
     expect(door?.doorLevel).toBe(15);
     expect(door?.doorMaxHp).toBe(5_320);
     expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(false);
+  });
+
+  it('regenerates five door HP after five quiet seconds and then every second', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!room || !ghost) throw new Error('missing passive door repair fixture');
+    room.doorHp = room.doorMaxHp - 30;
+    room.lastDoorHitAt = persisted.snapshot.elapsed;
+    room.doorRegenAccumulator = -1;
+    ghost.healing = true;
+    ghost.retreating = false;
+    ghost.healingElapsed = 0;
+    ghost.healingStartHp = ghost.hp;
+    ghost.position = { ...engine.map.ghostSpawn };
+    engine.restore(persisted);
+
+    for (let index = 0; index < 49; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(room.doorMaxHp - 30);
+    engine.tick(0.1);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(room.doorMaxHp - 25);
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(room.doorMaxHp - 20);
   });
 
   it('lets three level-one basic turrets protect a level-two door through the first retreat', () => {
@@ -886,14 +1028,16 @@ describe('requested progression and event rules', () => {
     expect(engine.drawItem(playerId, machineId).ok).toBe(false);
   });
 
-  it('can create fast, brute, caster, and twin match events', () => {
+  it('can create all nine primary ghost variants as match events', () => {
     const variants = new Set<string>();
     for (let index = 0; index < 120; index += 1) {
       const engine = new GameEngine(`EVENT${index}`, generateMap(30_000 + index), false);
       const state = engine.snapshot();
       for (const ghost of state.ghosts) variants.add(ghost.variant);
     }
-    expect(variants).toEqual(new Set(['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b']));
+    expect(variants).toEqual(new Set([
+      'wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant',
+    ]));
   });
 
   it('splits twin damage so both ghosts together equal one standard ghost attack', () => {
