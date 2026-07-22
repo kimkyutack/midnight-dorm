@@ -13,7 +13,7 @@ const MIN_CAMERA_DISTANCE_SCALE = 0.5;
 const MAX_CAMERA_DISTANCE_SCALE = 2;
 const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
-const PLAYER_HEIGHT = 1.48;
+const PLAYER_HEIGHT = 1.27;
 const FRAME_DT_MAX = 1 / 15;
 const TAP_GLOBAL_DEBOUNCE_MS = 300;
 const TAP_SAME_TILE_DEBOUNCE_MS = 520;
@@ -94,6 +94,12 @@ interface PointerDrag {
 interface MultiTouchGesture {
   distance: number;
   angle: number;
+}
+
+interface PortraitMovementDrag {
+  id: number;
+  startX: number;
+  startY: number;
 }
 
 interface TimedEffect {
@@ -267,60 +273,79 @@ export function createPlayerRig(
   const eye = new THREE.MeshPhysicalMaterial({ color: 0x17151d, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08 });
   const white = standardMaterial(0xf8f2e8, { roughness: 0.82 });
   const cheek = standardMaterial(0xe58f94, { roughness: 0.9, transparent: true, opacity: 0.64 });
+  const palm = fur.clone();
+  palm.color.offsetHSL(0, -0.08, 0.12);
 
-  const torso = mesh(new THREE.SphereGeometry(0.34, 22, 16), cloth, [0, 0.68, 0]);
-  torso.scale.set(0.98, 1.28, 0.84);
+  const torso = mesh(new THREE.SphereGeometry(0.34, 22, 16), cloth, [0, 0.51, 0]);
+  torso.scale.set(1.02, 0.78, 0.86);
   avatar.add(torso);
-  const tummy = mesh(new THREE.SphereGeometry(0.235, 18, 12), cloth.clone(), [0, 0.67, -0.185]);
-  tummy.scale.set(1, 1.08, 0.3);
+  const tummy = mesh(new THREE.SphereGeometry(0.235, 18, 12), cloth.clone(), [0, 0.5, -0.185]);
+  tummy.scale.set(1.03, 0.68, 0.3);
   (tummy.material as THREE.MeshStandardMaterial).color.offsetHSL(0, -0.08, 0.08);
   avatar.add(tummy);
-  avatar.add(createOutfitDetails(appearance.outfit, clothColor));
-  const head = mesh(new THREE.SphereGeometry(0.42, 28, 20), fur, [0, 1.18, -0.015]);
+  const outfitDetails = createOutfitDetails(appearance.outfit, clothColor);
+  outfitDetails.scale.y = 0.7;
+  outfitDetails.position.y = 0.01;
+  avatar.add(outfitDetails);
+  const head = mesh(new THREE.SphereGeometry(0.42, 28, 20), fur, [0, 0.96, -0.015]);
   head.scale.set(1.06, 0.98, 0.98);
   avatar.add(head);
-  avatar.add(createAnimalEars(animal, fur, innerEar));
-  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [-0.145, 1.205, -0.37]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [0.145, 1.205, -0.37]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [-0.164, 1.227, -0.426]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [0.126, 1.227, -0.426]));
-  const muzzle = mesh(new THREE.SphereGeometry(0.13, 18, 12), white, [0, 1.065, -0.39]);
+  const ears = createAnimalEars(animal, fur, innerEar);
+  ears.position.y = -0.22;
+  avatar.add(ears);
+  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [-0.145, 0.985, -0.37]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [0.145, 0.985, -0.37]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [-0.164, 1.007, -0.426]));
+  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [0.126, 1.007, -0.426]));
+  const muzzle = mesh(new THREE.SphereGeometry(0.13, 18, 12), white, [0, 0.845, -0.39]);
   muzzle.scale.set(1.22, 0.7, 0.62);
   avatar.add(muzzle);
-  avatar.add(mesh(new THREE.SphereGeometry(0.039, 12, 8), standardMaterial(0x684348, { roughness: 0.32 }), [0, 1.105, -0.47]));
-  const smile = mesh(new THREE.TorusGeometry(0.052, 0.01, 5, 18, Math.PI), standardMaterial(0x71464d, { roughness: 0.4 }), [0, 1.02, -0.467]);
+  avatar.add(mesh(new THREE.SphereGeometry(0.039, 12, 8), standardMaterial(0x684348, { roughness: 0.32 }), [0, 0.885, -0.47]));
+  const smile = mesh(new THREE.TorusGeometry(0.052, 0.01, 5, 18, Math.PI), standardMaterial(0x71464d, { roughness: 0.4 }), [0, 0.8, -0.467]);
   smile.rotation.z = Math.PI;
   avatar.add(smile);
-  const leftCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [-0.255, 1.09, -0.34]);
-  const rightCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [0.255, 1.09, -0.34]);
+  const leftCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [-0.255, 0.87, -0.34]);
+  const rightCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [0.255, 0.87, -0.34]);
   leftCheek.scale.y = rightCheek.scale.y = 0.52;
   avatar.add(leftCheek, rightCheek);
-  avatar.add(createAvatarHat(appearance.hat, displayRank));
-  avatar.add(createAvatarAccessory(appearance.accessory));
-  avatar.add(createAnimalTail(animal, fur));
+  const hat = createAvatarHat(appearance.hat, displayRank);
+  hat.position.y = -0.22;
+  avatar.add(hat);
+  const accessory = createAvatarAccessory(appearance.accessory);
+  accessory.scale.y = 0.72;
+  avatar.add(accessory);
+  const tail = createAnimalTail(animal, fur);
+  tail.scale.y = 0.72;
+  avatar.add(tail);
 
   const leftArm = new THREE.Group();
   const rightArm = new THREE.Group();
-  leftArm.position.set(-0.285, 0.84, 0);
-  rightArm.position.set(0.285, 0.84, 0);
+  leftArm.position.set(-0.285, 0.57, 0);
+  rightArm.position.set(0.285, 0.57, 0);
   leftArm.rotation.z = -0.08;
   rightArm.rotation.z = 0.08;
   leftArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), cloth, [0, -0.015, 0]));
   rightArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), cloth, [0, -0.015, 0]));
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.2, 5, 10), cloth, [0, -0.17, 0]));
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.2, 5, 10), cloth, [0, -0.17, 0]));
-  leftArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
-  rightArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.34, 0]));
+  leftArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), cloth, [0, -0.1, 0]));
+  rightArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), cloth, [0, -0.1, 0]));
+  leftArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.21, 0]));
+  rightArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.21, 0]));
+  const leftPalm = mesh(new THREE.SphereGeometry(0.058, 10, 7), palm, [0, -0.21, 0.065]);
+  const rightPalm = mesh(new THREE.SphereGeometry(0.058, 10, 7), palm, [0, -0.21, 0.065]);
+  leftPalm.scale.set(0.78, 0.34, 0.18);
+  rightPalm.scale.copy(leftPalm.scale);
+  leftArm.add(leftPalm);
+  rightArm.add(rightPalm);
   avatar.add(leftArm, rightArm);
 
   const leftLeg = new THREE.Group();
   const rightLeg = new THREE.Group();
-  leftLeg.position.set(-0.135, 0.4, 0);
-  rightLeg.position.set(0.135, 0.4, 0);
-  leftLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
-  rightLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.17, 3, 8), cloth, [0, -0.12, 0]));
-  const leftShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.28, -0.055]);
-  const rightShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.28, -0.055]);
+  leftLeg.position.set(-0.135, 0.32, 0);
+  rightLeg.position.set(0.135, 0.32, 0);
+  leftLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.1, 3, 8), cloth, [0, -0.08, 0]));
+  rightLeg.add(mesh(new THREE.CapsuleGeometry(0.09, 0.1, 3, 8), cloth, [0, -0.08, 0]));
+  const leftShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.2, -0.055]);
+  const rightShoe = mesh(new THREE.SphereGeometry(0.14, 14, 9), shoe, [0, -0.2, -0.055]);
   leftShoe.scale.set(0.9, 0.62, 1.25);
   rightShoe.scale.copy(leftShoe.scale);
   leftLeg.add(leftShoe);
@@ -334,6 +359,7 @@ export function createPlayerRig(
     [0, 0.025, 0],
   );
   groundRing.rotation.x = -Math.PI / 2;
+  groundRing.name = 'avatar-ground-ring';
   root.add(groundRing);
   root.scale.setScalar(0.92);
   return { root, avatar, leftArm, rightArm, leftLeg, rightLeg };
@@ -742,10 +768,10 @@ function createAvatarAccessory(accessoryId: string): THREE.Group {
   return accessory;
 }
 
-function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm' | 'rightArm'> {
+function createGhostModel(variant: GhostState['variant']): Pick<GhostView, 'body' | 'leftArm' | 'rightArm'> {
   const body = new THREE.Group();
   const palettes: Record<GhostState['variant'], { robe: number; skin: number; glow: number }> = {
-    wanderer: { robe: 0x17111d, skin: 0xbab1aa, glow: 0xff274f },
+    wanderer: { robe: 0x9a9ca1, skin: 0xd8d2cc, glow: 0xff173f },
     swift: { robe: 0x250d16, skin: 0xcbb8af, glow: 0xff9c35 },
     brute: { robe: 0x201811, skin: 0x918b78, glow: 0xff3124 },
     caster: { robe: 0x100c29, skin: 0x9995b1, glow: 0xc866ff },
@@ -756,15 +782,20 @@ function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm'
     giant: { robe: 0x1b1010, skin: 0x79695f, glow: 0xff6a32 },
     minion: { robe: 0x27321f, skin: 0xa4b98d, glow: 0xb2ff75 },
   };
-  const palette = palettes[ghost.variant];
-  const robe = standardMaterial(palette.robe, { roughness: 1, side: THREE.DoubleSide, emissive: palette.robe, emissiveIntensity: 0.48 });
+  const palette = palettes[variant];
+  const robe = standardMaterial(palette.robe, {
+    roughness: 1,
+    side: THREE.DoubleSide,
+    emissive: palette.robe,
+    emissiveIntensity: variant === 'wanderer' ? 0.08 : 0.48,
+  });
   const skin = standardMaterial(palette.skin, { roughness: 0.92 });
   const black = standardMaterial(0x050407, { roughness: 1 });
   const glow = standardMaterial(palette.glow, { emissive: palette.glow, emissiveIntensity: 3.4, roughness: 0.25 });
 
-  const brute = ghost.variant === 'brute';
-  const giant = ghost.variant === 'giant';
-  const minion = ghost.variant === 'minion';
+  const brute = variant === 'brute';
+  const giant = variant === 'giant';
+  const minion = variant === 'minion';
   const broad = brute || giant;
   const cone = mesh(new THREE.ConeGeometry(broad ? 0.7 : 0.5, broad ? 1.45 : 1.3, 7, 1, true), robe, [0, 0.68, 0]);
   cone.rotation.y = Math.PI / 7;
@@ -774,9 +805,53 @@ function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm'
   body.add(head);
   const hair = mesh(new THREE.SphereGeometry(broad ? 0.41 : 0.335, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.68), black, [0, broad ? 1.64 : 1.57, 0]);
   body.add(hair);
-  for (const x of [-0.105, 0.105]) body.add(mesh(new THREE.SphereGeometry(broad ? 0.047 : 0.038, 8, 6), glow, [x, broad ? 1.56 : 1.49, -0.265]));
-  const mouth = mesh(new THREE.BoxGeometry(broad ? 0.24 : 0.18, 0.045, 0.025), black, [0, broad ? 1.42 : 1.36, -0.27]);
-  body.add(mouth);
+  if (variant === 'wanderer') {
+    // 긴 머리 처녀귀신: 창백한 얼굴 앞까지 내려오는 머리카락과 비대칭 앞머리,
+    // 깊게 꺼진 눈·벌어진 입을 작은 홈 프리뷰에서도 읽히게 만든다.
+    const backHair = mesh(new THREE.CapsuleGeometry(0.29, 0.94, 5, 10), black, [0, 1.02, 0.11]);
+    backHair.scale.set(1.05, 1, 0.48);
+    body.add(backHair);
+    for (const [x, tilt, length] of [[-0.28, -0.11, 0.76], [0.28, 0.08, 0.9]] as const) {
+      const lock = mesh(new THREE.CapsuleGeometry(0.075, length, 4, 8), black, [x, 1.18, -0.235]);
+      lock.rotation.z = tilt;
+      lock.scale.z = 0.55;
+      body.add(lock);
+    }
+    const faceMask = mesh(new THREE.SphereGeometry(0.22, 14, 9), skin, [0, 1.47, -0.3]);
+    faceMask.scale.set(0.9, 1.12, 0.22);
+    faceMask.rotation.z = 0.08;
+    body.add(faceMask);
+    for (const [x, y, tilt] of [[-0.18, 1.55, -0.2], [0.18, 1.55, 0.23]] as const) {
+      const bang = mesh(new THREE.CapsuleGeometry(0.05, 0.34, 3, 7), black, [x, y, -0.358]);
+      bang.rotation.z = tilt;
+      bang.scale.z = 0.5;
+      body.add(bang);
+    }
+    for (const x of [-0.085, 0.085]) {
+      const socket = mesh(new THREE.SphereGeometry(0.066, 10, 7), black, [x, 1.49, -0.354]);
+      socket.scale.y = 1.18;
+      body.add(socket);
+      body.add(mesh(new THREE.SphereGeometry(0.024, 8, 6), glow, [x, 1.49, -0.408]));
+    }
+    const mouth = mesh(new THREE.SphereGeometry(0.07, 9, 7), black, [0.018, 1.345, -0.362]);
+    mouth.scale.set(0.7, 1.65, 0.34);
+    mouth.rotation.z = -0.12;
+    body.add(mouth);
+    const crack = mesh(new THREE.BoxGeometry(0.012, 0.17, 0.012), black, [-0.15, 1.39, -0.377]);
+    crack.rotation.z = -0.48;
+    body.add(crack);
+    const driedBlood = standardMaterial(0x52000d, { roughness: 0.96, emissive: 0x260006, emissiveIntensity: 0.3 });
+    for (const [x, y, size] of [[-0.12, 0.82, 0.075], [0.16, 1.02, 0.055], [0.02, 0.56, 0.045]] as const) {
+      const stain = mesh(new THREE.SphereGeometry(size, 8, 6), driedBlood, [x, y, -0.38]);
+      stain.scale.set(1, 1.5, 0.18);
+      body.add(stain);
+    }
+    head.rotation.z = 0.09;
+  } else {
+    for (const x of [-0.105, 0.105]) body.add(mesh(new THREE.SphereGeometry(broad ? 0.047 : 0.038, 8, 6), glow, [x, broad ? 1.56 : 1.49, -0.265]));
+    const mouth = mesh(new THREE.BoxGeometry(broad ? 0.24 : 0.18, 0.045, 0.025), black, [0, broad ? 1.42 : 1.36, -0.27]);
+    body.add(mouth);
+  }
 
   const leftArm = new THREE.Group();
   const rightArm = new THREE.Group();
@@ -788,17 +863,17 @@ function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm'
   rightArm.add(mesh(new THREE.CapsuleGeometry(broad ? 0.095 : 0.065, broad ? 0.72 : 0.62, 3, 7), skin, [0, -0.38, 0]));
   body.add(leftArm, rightArm);
 
-  if (ghost.variant === 'caster') {
+  if (variant === 'caster') {
     const halo = mesh(new THREE.TorusGeometry(0.52, 0.025, 8, 32), glow, [0, 1.48, 0]);
     halo.rotation.x = Math.PI / 2;
     body.add(halo);
   }
-  if (ghost.variant === 'teleporter') {
+  if (variant === 'teleporter') {
     const portal = mesh(new THREE.TorusGeometry(0.62, 0.035, 8, 36), glow, [0, 0.9, 0.18]);
     portal.rotation.x = Math.PI / 2;
     body.add(portal);
   }
-  if (ghost.variant === 'undead') {
+  if (variant === 'undead') {
     for (const x of [-0.24, 0, 0.24]) body.add(mesh(new THREE.BoxGeometry(0.055, 0.34, 0.055), skin, [x, 1.02, -0.35]));
   }
   if (giant) {
@@ -806,11 +881,24 @@ function createGhostModel(ghost: GhostState): Pick<GhostView, 'body' | 'leftArm'
     chain.rotation.x = Math.PI / 2;
     body.add(chain);
   }
-  if (ghost.variant.startsWith('twin')) body.scale.setScalar(0.78);
+  if (variant.startsWith('twin')) body.scale.setScalar(0.78);
   if (brute) body.scale.set(1.12, 1.12, 1.12);
   if (giant) body.scale.set(1.58, 1.72, 1.58);
   if (minion) body.scale.setScalar(0.42);
   return { body, leftArm, rightArm };
+}
+
+/** 홈 추격 연출과 인게임이 동일한 귀신 지오메트리를 공유한다. */
+export function createGhostPreviewModel(variant: GhostState['variant'] = 'wanderer'): {
+  root: THREE.Group;
+  body: THREE.Group;
+  leftArm: THREE.Group;
+  rightArm: THREE.Group;
+} {
+  const model = createGhostModel(variant);
+  const root = new THREE.Group();
+  root.add(model.body);
+  return { root, ...model };
 }
 
 function buildingColor(kind: BuildingKind): number {
@@ -945,10 +1033,12 @@ export class ThreeGameView {
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
   private gesture: MultiTouchGesture | null = null;
+  private portraitMovementDrag: PortraitMovementDrag | null = null;
   private followingPlayer = true;
   private focusedRoomId: string | null = null;
   private cameraDistanceScale = 1;
   private cameraYaw = Math.atan2(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
+  private portraitLayout = false;
   private lastFrame = performance.now();
   private lastSelectionAt = 0;
   private lastSelectionKey = '';
@@ -960,6 +1050,8 @@ export class ThreeGameView {
     this.mapData = payload.map;
     this.playerId = payload.playerId;
     this.snapshotData = payload.snapshot;
+    this.portraitLayout = host.clientHeight > host.clientWidth;
+    this.cameraDistanceScale = this.portraitLayout ? 1.24 : 1;
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
@@ -1014,6 +1106,12 @@ export class ThreeGameView {
   getCameraZoom(): number { return Math.round((1 / this.cameraDistanceScale) * 100) / 100; }
 
   getCameraYaw(): number { return this.cameraYaw; }
+
+  focusLocalPlayer(): void {
+    const view = this.playerViews.get(this.playerId);
+    if (!view) return;
+    this.desiredCameraTarget.set(view.root.position.x, 0, view.root.position.z);
+  }
 
   zoomBy(magnificationFactor: number): void {
     if (!Number.isFinite(magnificationFactor) || magnificationFactor <= 0) return;
@@ -1273,7 +1371,7 @@ export class ThreeGameView {
       if (!view) {
         const root = new THREE.Group();
         root.position.copy(worldPoint(ghost.position));
-        const model = createGhostModel(ghost);
+        const model = createGhostModel(ghost.variant);
         root.add(model.body);
         const label = makeBillboard();
         label.scale.set(ghost.variant === 'minion' ? 1.7 : 2.5, ghost.variant === 'minion' ? 0.46 : 0.62, 1);
@@ -1412,13 +1510,17 @@ export class ThreeGameView {
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
       if (moving && !lying) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
-      const stride = moving && !lying ? Math.sin(time * 0.011 + view.seed) * 0.68 : 0;
-      view.leftArm.rotation.x = damp(view.leftArm.rotation.x, stride, 12, dt);
-      view.rightArm.rotation.x = damp(view.rightArm.rotation.x, -stride, 12, dt);
+      const stride = moving && !lying ? Math.sin(time * 0.018 + view.seed) * 0.8 : 0;
+      const armPitch = moving && !lying
+        ? -1.18 + Math.sin(time * 0.018 + view.seed + 0.7) * 0.07
+        : 0;
+      view.leftArm.rotation.x = damp(view.leftArm.rotation.x, armPitch, 14, dt);
+      view.rightArm.rotation.x = damp(view.rightArm.rotation.x, armPitch, 14, dt);
       view.leftLeg.rotation.x = damp(view.leftLeg.rotation.x, -stride, 12, dt);
       view.rightLeg.rotation.x = damp(view.rightLeg.rotation.x, stride, 12, dt);
+      view.avatar.rotation.x = damp(view.avatar.rotation.x, moving && !lying ? -0.13 : 0, 12, dt);
       view.avatar.rotation.z = damp(view.avatar.rotation.z, lying ? Math.PI / 2 : 0, 9, dt);
-      view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (moving ? Math.abs(Math.sin(time * 0.011 + view.seed)) * 0.035 : 0), 10, dt);
+      view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (moving ? Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.055 : 0), 10, dt);
       view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : 1, 9, dt));
       view.lastPosition.copy(view.root.position);
     }
@@ -1554,6 +1656,16 @@ export class ThreeGameView {
   private resize(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
+    const portrait = height > width;
+    if (portrait !== this.portraitLayout) {
+      this.cameraDistanceScale = clamp(
+        this.cameraDistanceScale * (portrait ? 1.24 : 1 / 1.24),
+        MIN_CAMERA_DISTANCE_SCALE,
+        MAX_CAMERA_DISTANCE_SCALE,
+      );
+      this.portraitLayout = portrait;
+    }
+    this.camera.fov = portrait ? 52 : 38;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
@@ -1581,6 +1693,22 @@ export class ThreeGameView {
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+    if (
+      this.portraitLayout &&
+      local?.alive &&
+      !local.roomId &&
+      this.pointerNearLocalPlayer(event.clientX, event.clientY)
+    ) {
+      event.preventDefault();
+      this.renderer.domElement.setPointerCapture(event.pointerId);
+      this.portraitMovementDrag = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+      this.dispatchPortraitMovement(0, 0);
+      return;
+    }
     if (!local?.roomId) return;
     event.preventDefault();
     this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -1600,6 +1728,21 @@ export class ThreeGameView {
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    if (this.portraitMovementDrag?.id === event.pointerId) {
+      event.preventDefault();
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
+      let dx = event.clientX - this.portraitMovementDrag.startX;
+      let dy = event.clientY - this.portraitMovementDrag.startY;
+      const magnitude = Math.hypot(dx, dy);
+      if (magnitude > radius) {
+        dx = (dx / magnitude) * radius;
+        dy = (dy / magnitude) * radius;
+      }
+      if (magnitude < 6) this.dispatchPortraitMovement(0, 0);
+      else this.dispatchPortraitMovement(dx / radius, dy / radius);
+      return;
+    }
     if (!this.pointerPositions.has(event.pointerId)) return;
     this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointerPositions.size >= 2) {
@@ -1635,6 +1778,15 @@ export class ThreeGameView {
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
+    if (this.portraitMovementDrag?.id === event.pointerId) {
+      event.preventDefault();
+      this.portraitMovementDrag = null;
+      this.dispatchPortraitMovement(0, 0);
+      if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
+        this.renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (!this.pointerPositions.has(event.pointerId)) return;
     event.preventDefault();
     const wasGesture = this.pointerPositions.size > 1 || this.gesture !== null;
@@ -1664,6 +1816,34 @@ export class ThreeGameView {
     const dx = second.x - first.x;
     const dy = second.y - first.y;
     return { distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) };
+  }
+
+  private pointerNearLocalPlayer(clientX: number, clientY: number): boolean {
+    const view = this.playerViews.get(this.playerId);
+    if (!view) return false;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const screen = view.root.position.clone().add(new THREE.Vector3(0, 0.76, 0)).project(this.camera);
+    const x = rect.left + (screen.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-screen.y * 0.5 + 0.5) * rect.height;
+    const hitRadius = clamp(rect.width * 0.13, 46, 72);
+    return Math.hypot(clientX - x, clientY - y) <= hitRadius;
+  }
+
+  private dispatchPortraitMovement(screenX: number, screenY: number): void {
+    if (!screenX && !screenY) {
+      window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', { detail: { x: 0, y: 0 } }));
+      return;
+    }
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    forward.setY(0).normalize();
+    const world = right.multiplyScalar(screenX).addScaledVector(forward, -screenY);
+    const magnitude = Math.hypot(world.x, world.z);
+    const scale = magnitude > 1 ? 1 / magnitude : 1;
+    window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', {
+      detail: { x: world.x * scale, y: world.z * scale },
+    }));
   }
 
   private selectAt(clientX: number, clientY: number): void {

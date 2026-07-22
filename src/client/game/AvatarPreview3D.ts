@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { AvatarAppearance, RankId, TurretKind } from '../../shared/types';
-import { createPlayerRig, createTurretPreviewModel } from './ThreeGameView';
+import { createGhostPreviewModel, createPlayerRig, createTurretPreviewModel } from './ThreeGameView';
 
 export type AvatarView = 'front' | 'side' | 'back';
 
@@ -29,7 +29,11 @@ export class AvatarPreview3D {
   private readonly camera = new THREE.PerspectiveCamera(28, 1, 0.1, 30);
   private readonly renderer: THREE.WebGLRenderer;
   private readonly resizeObserver: ResizeObserver;
+  private readonly homePresentation: boolean;
   private previewObject: THREE.Group | null = null;
+  private homeRig: ReturnType<typeof createPlayerRig> | null = null;
+  private homeGhost: ReturnType<typeof createGhostPreviewModel> | null = null;
+  private animationFrame = 0;
   private yaw = 0;
   private pointerId: number | null = null;
   private pointerX = 0;
@@ -39,6 +43,7 @@ export class AvatarPreview3D {
 
   constructor(host: HTMLElement, appearance: AvatarAppearance, rank: RankId, color = 0x78dff1) {
     this.host = host;
+    this.homePresentation = host.classList.contains('home-avatar-model');
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -53,8 +58,8 @@ export class AvatarPreview3D {
     this.renderer.domElement.setAttribute('aria-label', '회전 가능한 3D 캐릭터 미리보기');
     this.host.insertBefore(this.renderer.domElement, this.host.firstChild);
 
-    this.camera.position.set(0, 1.05, -4.55);
-    this.camera.lookAt(0, 0.92, 0);
+    this.camera.position.set(0, this.homePresentation ? 0.83 : 1.01, -4.55);
+    this.camera.lookAt(0, this.homePresentation ? 0.69 : 0.86, 0);
     this.scene.add(new THREE.HemisphereLight(0xcbefff, 0x182235, 2.8));
     const key = new THREE.DirectionalLight(0xfff1dd, 4.4);
     key.position.set(-2.5, 4.6, -3.2);
@@ -74,6 +79,7 @@ export class AvatarPreview3D {
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.02;
     floor.receiveShadow = true;
+    floor.visible = !this.homePresentation;
     this.scene.add(floor);
     const halo = new THREE.Mesh(
       new THREE.RingGeometry(0.86, 0.9, 48),
@@ -81,6 +87,7 @@ export class AvatarPreview3D {
     );
     halo.rotation.x = -Math.PI / 2;
     halo.position.y = -0.01;
+    halo.visible = !this.homePresentation;
     this.scene.add(halo);
 
     this.updateAppearance(appearance, rank, color);
@@ -91,13 +98,40 @@ export class AvatarPreview3D {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.host);
     this.resize();
+    if (this.homePresentation) this.animationFrame = requestAnimationFrame(this.animateHome);
   }
 
   updateAppearance(appearance: AvatarAppearance, rank: RankId, color = 0x78dff1): void {
     const nextRig = createPlayerRig(appearance, rank, color, false);
     nextRig.root.rotation.y = this.yaw;
-    nextRig.root.scale.setScalar(0.94);
-    this.replacePreview(nextRig.root);
+    nextRig.root.scale.setScalar(this.homePresentation ? 0.435 : 0.94);
+    const groundRing = nextRig.root.getObjectByName('avatar-ground-ring');
+    if (groundRing) groundRing.visible = !this.homePresentation;
+    this.homeRig = this.homePresentation ? nextRig : null;
+    if (this.homePresentation) {
+      const chaseGroup = new THREE.Group();
+      const ghost = createGhostPreviewModel('wanderer');
+      // 이 프리뷰 카메라는 -Z에서 바라보므로 월드 X가 화면 좌우와 반대로 보인다.
+      // 도망자는 화면 왼쪽, 추격자는 충분히 떨어진 화면 오른쪽에 둔다.
+      nextRig.root.position.x = 0.9;
+      nextRig.avatar.rotation.y = -Math.PI * 0.18;
+      ghost.root.position.set(-0.92, -0.02, 0.04);
+      // 원래 홈 캐릭터의 75% 크기, 최종 캐릭터 대비 약 1.5배 높이의 귀신.
+      ghost.root.scale.setScalar(0.49);
+      ghost.body.rotation.y = -Math.PI * 0.16;
+      chaseGroup.add(nextRig.root, ghost.root);
+      this.homeGhost = ghost;
+      this.replacePreview(chaseGroup);
+      this.renderer.domElement.dataset.homePlayerScale = '0.435';
+      this.renderer.domElement.dataset.homeGhostScale = '0.49';
+      this.renderer.domElement.dataset.homeGhostVariant = 'wanderer';
+    } else {
+      this.homeGhost = null;
+      this.replacePreview(nextRig.root);
+      delete this.renderer.domElement.dataset.homePlayerScale;
+      delete this.renderer.domElement.dataset.homeGhostScale;
+      delete this.renderer.domElement.dataset.homeGhostVariant;
+    }
     this.renderer.domElement.dataset.previewKind = 'avatar';
     delete this.renderer.domElement.dataset.turretKind;
     delete this.renderer.domElement.dataset.skinId;
@@ -105,6 +139,8 @@ export class AvatarPreview3D {
   }
 
   updateTurret(kind: TurretKind, skinId: string): void {
+    this.homeRig = null;
+    this.homeGhost = null;
     const turret = createTurretPreviewModel(kind, skinId);
     turret.rotation.y = this.yaw;
     turret.position.y = 0.03;
@@ -128,6 +164,7 @@ export class AvatarPreview3D {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
@@ -137,6 +174,8 @@ export class AvatarPreview3D {
       this.scene.remove(this.previewObject);
       disposeObject(this.previewObject);
       this.previewObject = null;
+      this.homeRig = null;
+      this.homeGhost = null;
     }
     this.scene.traverse((object) => {
       if (object instanceof THREE.Mesh) {
@@ -197,6 +236,13 @@ export class AvatarPreview3D {
     const height = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
+    if (this.homePresentation) {
+      const halfFov = THREE.MathUtils.degToRad(this.camera.fov / 2);
+      const fitWidthDistance = 1.55 / Math.max(0.01, Math.tan(halfFov) * this.camera.aspect);
+      const distance = Math.max(4.35, fitWidthDistance);
+      this.camera.position.set(0, 0.83, -distance);
+      this.camera.lookAt(0, 0.69, 0);
+    }
     this.camera.updateProjectionMatrix();
     this.render();
   }
@@ -204,4 +250,30 @@ export class AvatarPreview3D {
   private render(): void {
     if (!this.destroyed) this.renderer.render(this.scene, this.camera);
   }
+
+  private readonly animateHome = (time: number): void => {
+    if (this.destroyed) return;
+    const rig = this.homeRig;
+    if (rig) {
+      const stride = Math.sin(time * 0.018) * 0.82;
+      const ninjaArms = -1.18 + Math.sin(time * 0.018 + 0.7) * 0.07;
+      rig.avatar.rotation.x = -0.13;
+      rig.avatar.rotation.y = -Math.PI * 0.18;
+      rig.avatar.rotation.z = Math.sin(time * 0.009) * 0.035;
+      rig.avatar.position.y = Math.abs(Math.sin(time * 0.018)) * 0.055;
+      rig.leftArm.rotation.x = ninjaArms;
+      rig.rightArm.rotation.x = ninjaArms;
+      rig.leftLeg.rotation.x = -stride;
+      rig.rightLeg.rotation.x = stride;
+    }
+    if (this.homeGhost) {
+      const float = Math.sin(time * 0.005) * 0.08;
+      const reach = Math.sin(time * 0.008) * 0.18;
+      this.homeGhost.body.position.y = float;
+      this.homeGhost.leftArm.rotation.x = reach;
+      this.homeGhost.rightArm.rotation.x = -reach;
+    }
+    this.render();
+    this.animationFrame = requestAnimationFrame(this.animateHome);
+  };
 }

@@ -28,6 +28,7 @@ import type {
   GameSnapshot,
   GameStatus,
   MapDefinition,
+  PlayMode,
   RankId,
   StageId,
   Tile,
@@ -78,6 +79,8 @@ let mapData: MapDefinition | null = null;
 let playerId = "";
 let account: AccountProfile | null = null;
 let customizeReturnView: "home" | "room-menu" = "home";
+let homePlayMode: PlayMode = "solo";
+const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let currentView = "";
@@ -150,6 +153,10 @@ const formatTime = (seconds: number): string =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const rankIdentityHtml = (rank: RankId, badgeClass = ""): string =>
   `<span class="rank-identity rank-${rank}"><i class="rank-badge ${badgeClass}" aria-hidden="true"><span>${rankBadgeSymbol(rank)}</span></i><b>${rankLabel(rank)}</b></span>`;
+const playerFaceHtml = (appearance: AvatarAppearance): string => {
+  const animal = appearance.character.replace("character-", "");
+  return `<span class="player-face face-${escapeHtml(animal)}" aria-hidden="true"><i class="face-ear left"></i><i class="face-ear right"></i><b class="face-eye left"></b><b class="face-eye right"></b><em></em></span>`;
+};
 
 function setContent(view: string, html: string): void {
   customAvatarPreview?.destroy();
@@ -174,7 +181,7 @@ function loadingMarkup(title: string, detail: string): string {
 function desktopNotice(): void {
   setContent(
     "desktop",
-    `<main class="screen"><section class="panel compact desktop-card"><div class="desktop-icon">📱</div><span class="eyebrow">MOBILE ONLY</span><h2>모바일 전용 게임입니다</h2><p class="subtitle">휴대폰 브라우저에서 이 주소를 열어 가로 모드로 플레이하세요. 개발 환경에서는 주소 끝에 <strong>?dev=1</strong>을 붙일 수 있습니다.</p></section></main>`,
+    `<main class="screen"><section class="panel compact desktop-card"><div class="desktop-icon">📱</div><span class="eyebrow">MOBILE ONLY</span><h2>모바일 전용 게임입니다</h2><p class="subtitle">휴대폰 브라우저에서 세로 또는 가로 모드로 플레이하세요. 개발 환경에서는 주소 끝에 <strong>?dev=1</strong>을 붙일 수 있습니다.</p></section></main>`,
   );
 }
 
@@ -227,28 +234,177 @@ function homeScreen(): void {
     return;
   }
   const currentAccount = account;
-  const benefits = rankBenefits(currentAccount.soloRank);
+  const benefits = rankBenefits(
+    homePlayMode === "solo"
+      ? currentAccount.soloRank
+      : currentAccount.multiplayerRank,
+  );
+  const stage = selectedHomeStage(currentAccount, homePlayMode);
+  const modeLabel = homePlayMode === "solo" ? "개인 플레이" : "멀티 플레이";
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀포 해금" : ""}`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-brand"><span class="eyebrow">MIDNIGHT WARD</span><h1>심야<br>병동</h1><p>작은 생존자들과 함께 문을 지키고 새벽을 맞이하세요.</p></header><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small><em>${perk}</em></div></section><button class="home-logout" data-home-logout>로그아웃</button><footer class="home-actions"><div class="home-menu"><button class="game-start" data-game-start><i>☾</i><span><small>PLAY</small>게임 시작</span></button><button class="home-custom" data-customize><i>✦</i><span><small>MY SURVIVOR</small>커스텀</span><em>${currentAccount.customPoints.toLocaleString()} P</em></button></div><p>커스텀 외형은 전투 능력치에 영향을 주지 않습니다.</p></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small></div></section><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}<span>랭킹</span></button><button data-home-settings aria-label="설정"><span>⚙</span>설정</button></div></header><section class="home-avatar-showcase" aria-label="인게임 귀신을 피해 달리는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택"><span>${stageThemeFor(stage.id).label}</span><strong>${stage.label}</strong><small>${modeLabel} · ${perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : "◎"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stage.label}</small>스테이지 시작</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
-  app.querySelector("[data-game-start]")?.addEventListener("click", () => {
+  const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
+  if (avatarHost) {
+    customAvatarPreview = new AvatarPreview3D(
+      avatarHost,
+      currentAccount.appearance,
+      currentAccount.displayRank,
+    );
+  }
+  app.querySelector("[data-stage-start]")?.addEventListener("click", () => {
     audio.play("button");
-    roomMenu();
+    void createRoom(homePlayMode === "solo", stage.id);
+  });
+  app
+    .querySelector("[data-home-mode-picker]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      showHomeModePicker();
+    });
+  app.querySelector("[data-stage-menu]")?.addEventListener("click", () => {
+    audio.play("button");
+    showHomeStagePicker();
+  });
+  app
+    .querySelector("[data-home-stage-picker]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      showHomeStagePicker();
+    });
+  app.querySelector("[data-shop]")?.addEventListener("click", () => {
+    audio.play("button");
+    shopScreen();
   });
   app.querySelector("[data-customize]")?.addEventListener("click", () => {
     audio.play("button");
     customizeReturnView = "home";
     customizationScreen();
   });
-  app.querySelector("[data-home-logout]")?.addEventListener(
-    "click",
-    () =>
-      void logoutAccount().then(() => {
-        account = null;
-        authScreen();
-      }),
+  app.querySelector("[data-ranking]")?.addEventListener("click", () => {
+    audio.play("button");
+    showRankingPreview();
+  });
+  app
+    .querySelector("[data-home-settings]")
+    ?.addEventListener("click", showSettings);
+}
+
+function homeUtilityIcon(kind: "ranking"): string {
+  if (kind === "ranking") {
+    return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="m8 15 9 8 7-13 7 13 9-8-3 22H11z"/><path d="M12 32h24M14 38h20"/><circle cx="8" cy="13" r="2"/><circle cx="24" cy="8" r="2"/><circle cx="40" cy="13" r="2"/></svg>';
+  }
+  return "";
+}
+
+function gameActionIcon(kind: "bag" | "bed"): string {
+  if (kind === "bag") {
+    return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M18 22h28l5 33H13z"/><path d="M23 24v-5c0-6 4-10 9-10s9 4 9 10v5M20 35h24M27 42h10v8H27z"/><circle cx="20" cy="29" r="2"/><circle cx="44" cy="29" r="2"/></svg>';
+  }
+  return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M9 43h46v10H9zM13 26h38c3 0 5 2 5 5v12H8V31c0-3 2-5 5-5z"/><path d="M13 26v-8h15c4 0 7 3 7 7v1M14 53v4m36-4v4"/><circle cx="19" cy="22" r="4"/></svg>';
+}
+
+function homeFooterIcon(kind: "shop" | "stage" | "custom"): string {
+  if (kind === "shop") {
+    return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M12 27h40v26H12z"/><path d="M9 26l5-15h36l5 15M16 27v26m32-26v26M8 53h48M24 53V37h16v16"/><path class="icon-accent" d="M11 26c0 5 8 5 8 0 0 5 8 5 8 0 0 5 10 5 10 0 0 5 8 5 8 0 0 5 8 5 8 0"/></svg>';
+  }
+  if (kind === "stage") {
+    return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M32 7 51 18v19c0 11-8 17-19 21-11-4-19-10-19-21V18z"/><path d="m20 43 24-24m-20-2 23 23M18 47l8-2-6-6zm28 0-8-2 6-6z"/><circle class="icon-accent" cx="32" cy="31" r="5"/></svg>';
+  }
+  return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M13 31c0-12 8-21 19-21s19 9 19 21v18c-5 5-12 8-19 8s-14-3-19-8z"/><path d="M18 17 12 8l12 5m22 4 6-9-12 5M13 31c0-12 8-21 19-21s19 9 19 21v18c-5 5-12 8-19 8s-14-3-19-8z"/><circle cx="24" cy="31" r="3"/><circle cx="40" cy="31" r="3"/><path class="icon-accent" d="M28 41c2 2 6 2 8 0m-8-4 4 3 4-3"/></svg>';
+}
+
+function selectedHomeStage(
+  currentAccount: AccountProfile,
+  mode: PlayMode,
+): ReturnType<typeof getStage> {
+  const stageIndex =
+    mode === "solo"
+      ? currentAccount.soloStageIndex
+      : currentAccount.multiplayerStageIndex;
+  const unlocked = stagesThrough(stageIndex);
+  const selected = unlocked.find(
+    (candidate) => candidate.id === homeStageSelection[mode],
+  );
+  const fallback = unlocked.at(-1) ?? getStage("easy-1");
+  homeStageSelection[mode] = (selected ?? fallback).id;
+  return selected ?? fallback;
+}
+
+function dismissibleModal(markup: string, className: string): HTMLElement {
+  const modal = document.createElement("div");
+  modal.className = `modal-backdrop ${className}`;
+  modal.innerHTML = markup;
+  modal.addEventListener("pointerdown", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+  modal
+    .querySelector("[data-modal-close]")
+    ?.addEventListener("click", () => modal.remove());
+  app.appendChild(modal);
+  return modal;
+}
+
+function showHomeModePicker(): void {
+  if (!account) return;
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mode-picker-title"><header><div><small>PLAY MODE</small><h2 id="mode-picker-title">플레이 방식 선택</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-mode-options"><button class="${homePlayMode === "solo" ? "selected" : ""}" data-home-mode="solo"><i>☾</i><span><strong>개인 플레이</strong><small>생존 봇 3명과 함께 방어합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "multiplayer" ? "selected" : ""}" data-home-mode="multiplayer"><i>◎</i><span><strong>멀티 플레이</strong><small>친구와 실시간으로 협동합니다.</small></span><b>선택</b></button></div><div class="home-invite"><label for="invite-code">친구 방 초대 코드</label><div><input class="code-input" id="invite-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-home-join>참가</button></div></div></section>`,
+    "home-picker-modal",
+  );
+  modal.querySelectorAll<HTMLElement>("[data-home-mode]").forEach((button) =>
+    button.addEventListener("click", () => {
+      homePlayMode =
+        button.dataset.homeMode === "multiplayer" ? "multiplayer" : "solo";
+      modal.remove();
+      homeScreen();
+    }),
+  );
+  modal
+    .querySelector<HTMLInputElement>("#invite-code")
+    ?.addEventListener("input", (event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      input.value = input.value.toUpperCase().replace(/[^A-Z2-9]/g, "");
+    });
+  modal
+    .querySelector("[data-home-join]")
+    ?.addEventListener("click", () => void joinRoom());
+}
+
+function showHomeStagePicker(): void {
+  if (!account) return;
+  const currentAccount = account;
+  const unlocked = stagesThrough(
+    homePlayMode === "solo"
+      ? currentAccount.soloStageIndex
+      : currentAccount.multiplayerStageIndex,
+  );
+  const selected = selectedHomeStage(currentAccount, homePlayMode);
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet stage-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="stage-picker-title"><header><div><small>STAGE</small><h2 id="stage-picker-title">도전할 스테이지</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-stage-grid">${unlocked
+      .map(
+        (stage) =>
+          `<button class="${stage.id === selected.id ? "selected" : ""}" data-home-stage="${stage.id}"><span>${stageThemeFor(stage.id).label}</span><strong>${stage.label}</strong></button>`,
+      )
+      .join("")}</div></section>`,
+    "home-picker-modal",
+  );
+  modal.querySelectorAll<HTMLElement>("[data-home-stage]").forEach((button) =>
+    button.addEventListener("click", () => {
+      homeStageSelection[homePlayMode] = button.dataset.homeStage as StageId;
+      modal.remove();
+      homeScreen();
+    }),
+  );
+}
+
+function showRankingPreview(): void {
+  if (!account) return;
+  const currentAccount = account;
+  dismissibleModal(
+    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">새벽 생존 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record"><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-sm")}</span><div><small>내 현재 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>개인 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</p></div></div><p class="ranking-notice">시즌 랭킹과 친구 순위가 이 자리에 추가될 예정입니다.</p></section>`,
+    "home-picker-modal",
   );
 }
 
@@ -268,20 +424,51 @@ function modelPreviewHtml(turretMode = false): string {
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><span class="custom-preview-badge">${label}</span><span class="custom-rotate-hint">${hint}</span><div class="custom-view-switch" aria-label="${aria}"><button data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
 
+function cosmeticEntitled(
+  item: NonNullable<ReturnType<typeof cosmeticById>>,
+  currentAccount: AccountProfile,
+): boolean {
+  return (
+    currentAccount.ownedCosmetics.includes(item.id) ||
+    item.unlock.kind === "starter" ||
+    (item.unlock.kind === "rank" &&
+      cosmeticAvailable(
+        item,
+        currentAccount.displayRank,
+        currentAccount.ownedCosmetics,
+      ))
+  );
+}
+
 function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
+  cosmeticCollectionScreen("customize", activeSlot);
+}
+
+function shopScreen(activeSlot: CosmeticSlot = "character"): void {
+  cosmeticCollectionScreen("shop", activeSlot);
+}
+
+function cosmeticCollectionScreen(
+  screen: "customize" | "shop",
+  activeSlot: CosmeticSlot,
+): void {
   if (!account) {
     authScreen();
     return;
   }
   const currentAccount = account;
   const appearance = currentAccount.appearance;
+  const shopping = screen === "shop";
   const tabs = (Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[])
     .map(
       (slot) =>
         `<button class="custom-tab ${slot === activeSlot ? "active" : ""}" data-custom-slot="${slot}">${CUSTOM_SLOT_LABELS[slot]}</button>`,
     )
     .join("");
-  const cards = cosmeticsForSlot(activeSlot)
+  const catalog = cosmeticsForSlot(activeSlot).filter(
+    (item) => shopping || cosmeticEntitled(item, currentAccount),
+  );
+  const cards = catalog
     .map((item) => {
       const selected =
         activeSlot === "turret"
@@ -291,27 +478,28 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
             )
           : appearance[activeSlot] === item.id;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
-      const available = cosmeticAvailable(
-        item,
-        currentAccount.displayRank,
-        currentAccount.ownedCosmetics,
-      );
-      let action = "equip";
-      let status = "착용";
-      let disabled = false;
-      if (selected) {
-        status = "착용 중";
-        disabled = true;
-      } else if (item.unlock.kind === "points" && !owned) {
+      const entitled = cosmeticEntitled(item, currentAccount);
+      let action: "purchase" | "equip" | null = shopping ? null : "equip";
+      let status = shopping ? "보유 중" : "착용";
+      let locked = false;
+      if (shopping && item.unlock.kind === "points" && !owned) {
         action = "purchase";
         status = `${item.unlock.price.toLocaleString()} P`;
-      } else if (item.unlock.kind === "rank" && !available) {
+      } else if (shopping && item.unlock.kind === "rank" && !entitled) {
         status = `${rankLabel(item.unlock.rank)} 해금`;
-        disabled = true;
-      } else if (item.unlock.kind === "rank") {
-        status = "등급 해금";
+        locked = true;
+      } else if (shopping && item.unlock.kind === "rank") {
+        status = "등급 보상";
+      } else if (shopping && item.unlock.kind === "starter") {
+        status = "기본 지급";
+      } else if (!shopping && selected) {
+        action = null;
+        status = "착용 중";
       }
-      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${!available && item.unlock.kind === "rank" ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div><button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}" ${disabled ? "disabled" : ""}>${status}</button></article>`;
+      const actionButton = action
+        ? `<button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
+        : `<button disabled>${status}</button>`;
+      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${locked ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div>${actionButton}</article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -320,8 +508,8 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
     ? cosmeticById(currentAccount.turretSkins["basic-turret"])
     : undefined;
   setContent(
-    "customize",
-    `<main class="custom-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${turretMode ? "TURRET WORKSHOP" : "CUSTOM SURVIVOR"}</span><h2>${turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? "카드를 눌러 3D 외형을 돌려보세요." : "드래그하거나 앞·옆·뒤 버튼으로 확인하세요."}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards}</div></section></section></main>`,
+    screen,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "NIGHT SHOP" : turretMode ? "TURRET WORKSHOP" : "MY COLLECTION"}</span><h2>${shopping ? "새벽 상점" : turretMode ? "포탑 외형 격납고" : "나만의 생존자"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><span>${rankIdentityHtml(currentAccount.displayRank, "rank-badge-xs")}</span><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${shopping ? "구매 전에도 3D 외형을 미리 볼 수 있습니다." : "보유한 외형만 골라 착용할 수 있습니다."}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards || '<p class="empty-collection">아직 보유한 아이템이 없습니다.<br>상점에서 새로운 외형을 만나보세요.</p>'}</div></section></section></main>`,
   );
   const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
   if (previewHost) {
@@ -377,10 +565,9 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
     setText("[data-custom-preview-title]", item.label);
     setText(
       "[data-custom-preview-copy]",
-      currentAccount.ownedCosmetics.includes(item.id) ||
-        item.unlock.kind === "starter"
-        ? "현재 캐릭터에 입혀 본 모습입니다."
-        : "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다.",
+      shopping && !cosmeticEntitled(item, currentAccount)
+        ? "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다."
+        : "현재 캐릭터에 입혀 본 모습입니다.",
     );
   };
   app
@@ -397,14 +584,17 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
       });
     });
   app.querySelector("[data-custom-back]")?.addEventListener("click", () => {
-    if (customizeReturnView === "room-menu") roomMenu();
+    if (!shopping && customizeReturnView === "room-menu") roomMenu();
     else homeScreen();
   });
   app
     .querySelectorAll<HTMLElement>("[data-custom-slot]")
     .forEach((button) =>
       button.addEventListener("click", () =>
-        customizationScreen(button.dataset.customSlot as CosmeticSlot),
+        cosmeticCollectionScreen(
+          screen,
+          button.dataset.customSlot as CosmeticSlot,
+        ),
       ),
     );
   app
@@ -419,14 +609,15 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
         button.textContent = "처리 중";
         void (async () => {
           try {
-            if (action === "purchase") account = await purchaseCosmetic(itemId);
-            account = await equipCosmetic(itemId);
-            customizationScreen(activeSlot);
-            toast(
-              action === "purchase"
-                ? "구매하고 바로 착용했습니다."
-                : "착용 상태를 저장했습니다.",
-            );
+            if (action === "purchase") {
+              account = await purchaseCosmetic(itemId);
+              shopScreen(activeSlot);
+              toast("구매했습니다. 커스텀 탭에서 착용할 수 있습니다.");
+            } else {
+              account = await equipCosmetic(itemId);
+              customizationScreen(activeSlot);
+              toast("착용 상태를 저장했습니다.");
+            }
           } catch (error) {
             button.disabled = false;
             button.textContent = originalLabel;
@@ -493,8 +684,7 @@ function authScreen(mode: "login" | "register" = "login"): void {
           account = next;
           profile.nickname = next.nickname;
           saveProfile(profile);
-          if (testShellMode) roomMenu();
-          else homeScreen();
+          homeScreen();
         })
         .catch((error) => {
           authScreen(mode);
@@ -569,11 +759,16 @@ function roomMenu(): void {
     });
 }
 
-async function createRoom(solo: boolean): Promise<void> {
+async function createRoom(
+  solo: boolean,
+  requestedStageId?: StageId,
+): Promise<void> {
+  const returnView = currentView === "home" ? "home" : "room-menu";
   const selector = app.querySelector(
     solo ? "[data-solo-stage]" : "[data-multi-stage]",
   ) as HTMLSelectElement | null;
-  const stageId = (selector?.value ?? "easy-1") as StageId;
+  const stageId =
+    requestedStageId ?? ((selector?.value ?? "easy-1") as StageId);
   audio.play("button");
   connectionOverlay("방을 만드는 중…");
   try {
@@ -593,7 +788,8 @@ async function createRoom(solo: boolean): Promise<void> {
     saveProfile(profile);
     connectToRoom(data.code, solo);
   } catch (error) {
-    roomMenu();
+    if (returnView === "home") homeScreen();
+    else roomMenu();
     toast(
       error instanceof Error ? error.message : "서버에 연결할 수 없습니다.",
     );
@@ -601,6 +797,7 @@ async function createRoom(solo: boolean): Promise<void> {
 }
 
 async function joinRoom(): Promise<void> {
+  const returnView = currentView === "home" ? "home" : "room-menu";
   const code =
     app
       .querySelector<HTMLInputElement>("#invite-code")
@@ -625,7 +822,8 @@ async function joinRoom(): Promise<void> {
     saveProfile(profile);
     connectToRoom(code, false);
   } catch (error) {
-    roomMenu();
+    if (returnView === "home") homeScreen();
+    else roomMenu();
     toast(error instanceof Error ? error.message : "방에 참가할 수 없습니다.");
   }
 }
@@ -703,9 +901,13 @@ function lobbyScreen(state: GameSnapshot): void {
     state.playMode === "multiplayer"
       ? "방 12개 · 방마다 25칸 · 침대 2개 · 공동 건설/강화"
       : "방 12개 · 방마다 20~25칸 · 다중 순환 경로";
+  const roomCode =
+    state.playMode === "multiplayer"
+      ? `<div class="lobby-code"><div><span>ROOM CODE</span><small>코드를 눌러 복사</small></div><strong data-copy data-testid="room-code">${state.roomCode}</strong></div>`
+      : "";
   setContent(
     "lobby",
-    `<main class="lobby-screen"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "SOLO NIGHT" : "CO-OP NIGHT"} · ${stageThemeFor(state.stageId).label}</span><h2>새벽조 편성</h2><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><small>선택 스테이지</small><strong>${state.stageLabel}</strong><span>HP ×${stage.hpMultiplier.toFixed(2)} · 공격 ×${stage.damageMultiplier.toFixed(2)}</span></div></header><div class="lobby-code"><div><span>ROOM CODE</span><small>코드를 눌러 복사</small></div><strong data-copy data-testid="room-code">${state.roomCode}</strong></div><section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">${BALANCE.countdownSeconds}초 준비 시작</button></footer></section></main>`,
+    `<main class="lobby-screen ${state.playMode === "solo" ? "solo-lobby" : "multiplayer-lobby"}"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "SOLO NIGHT" : "CO-OP NIGHT"} · ${stageThemeFor(state.stageId).label}</span><h2>새벽조 편성</h2><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><small>선택 스테이지</small><strong>${state.stageLabel}</strong></div></header>${roomCode}<section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">게임 시작</button></footer></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -778,9 +980,7 @@ function updateLobby(state: GameSnapshot): void {
   const bot = app.querySelector<HTMLButtonElement>("[data-bot]");
   if (start) {
     start.disabled = !host;
-    start.textContent = host
-      ? `${BALANCE.countdownSeconds}초 준비 시작`
-      : "방장 대기 중";
+    start.textContent = host ? "게임 시작" : "방장 대기 중";
   }
   if (bot) bot.disabled = !host || state.players.length >= 4;
 }
@@ -789,7 +989,7 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div><div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="action-stack"><button class="round-btn secondary" data-inventory>가방</button><button class="round-btn" data-interact data-testid="interact">점유 / 행동</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "개인" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>♥</i><span>HP</span><strong data-hp>0</strong></div><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {
@@ -806,6 +1006,10 @@ function gameScreen(state: GameSnapshot): void {
   window.addEventListener(
     "dorm:target-selected",
     onTargetSelected as EventListener,
+  );
+  window.addEventListener(
+    "dorm:portrait-move",
+    onPortraitMove as EventListener,
   );
   app
     .querySelector<HTMLElement>("#game-shell")
@@ -826,6 +1030,10 @@ function gameScreen(state: GameSnapshot): void {
     map: mapData,
     playerId,
     snapshot: state,
+  });
+  app.querySelector("[data-focus-player]")?.addEventListener("click", () => {
+    game?.focusLocalPlayer();
+    audio.play("button");
   });
   // Playwright의 모바일 2-client 시나리오는 같은 프로세스에서 WebGL 장면을
   // 두 개 그린다. 자동화 중에는 네트워크/게임 상태만 진행하고 렌더 루프를
@@ -865,6 +1073,15 @@ function updateHud(): void {
   if (!snapshot || currentView !== "game") return;
   const me = snapshot.players.find((player) => player.id === playerId);
   const room = snapshot.rooms.find((candidate) => candidate.id === me?.roomId);
+  app
+    .querySelector(".portrait-drag-hint")
+    ?.classList.toggle("hidden", Boolean(me?.roomId));
+  app
+    .querySelector("[data-inventory]")
+    ?.classList.toggle("hidden", !me?.roomId);
+  app
+    .querySelector("[data-interact]")
+    ?.classList.toggle("hidden", Boolean(me?.roomId));
   setText("[data-hp]", me ? `${Math.ceil(me.hp)}/${me.maxHp}` : "—");
   setText("[data-gold]", me ? Math.floor(me.gold).toString() : "0");
   setText("[data-power]", me ? Math.floor(me.power).toString() : "0");
@@ -939,8 +1156,7 @@ function resultScreen(state: GameSnapshot): void {
     void getAccount()
       .then((next) => {
         account = next;
-        if (testShellMode) roomMenu();
-        else homeScreen();
+        homeScreen();
       })
       .catch(() => authScreen());
   });
@@ -1015,9 +1231,11 @@ function renderBuildPanel(tile: Tile): void {
       const tileToBuild = { ...selectedTile };
       const actionKey = `build:${me.roomId}:${tileToBuild.x}:${tileToBuild.y}`;
       if (!claimAction(actionKey)) return;
-      panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((candidate) => {
-        candidate.disabled = true;
-      });
+      panel
+        .querySelectorAll<HTMLButtonElement>("[data-build]")
+        .forEach((candidate) => {
+          candidate.disabled = true;
+        });
       const label = button.querySelector("strong");
       if (label)
         label.textContent = `${BALANCE.buildings[kind].label} 설치 중…`;
@@ -1264,6 +1482,11 @@ function closeBuildPanel(): void {
   app.querySelector("[data-build-panel]")?.classList.add("hidden");
 }
 
+function onPortraitMove(event: CustomEvent<Vec2>): void {
+  inputVector = event.detail;
+  sendMovement(inputVector.x === 0 && inputVector.y === 0);
+}
+
 function setupJoystick(): void {
   const base = app.querySelector<HTMLElement>("[data-joystick]");
   const knob = base?.querySelector<HTMLElement>(".joystick-knob");
@@ -1448,7 +1671,10 @@ function showSettings(): void {
   const leaveAction = network
     ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>'
     : "";
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}<button class="btn primary" data-close>완료</button></div></section>`;
+  const logoutAction = account
+    ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
+    : "";
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
   modal
     .querySelector<HTMLInputElement>("[data-volume]")
@@ -1487,6 +1713,38 @@ function showSettings(): void {
       if (currentView === "lobby") network?.leaveRoom();
       else leaveCurrentGame();
     });
+  modal
+    .querySelector<HTMLButtonElement>("[data-logout-account]")
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "로그아웃 중…";
+      void logoutAccount()
+        .then(() => {
+          const code = network?.code;
+          network?.close();
+          network = null;
+          if (code) forgetRoom(code);
+          destroyGame();
+          snapshot = null;
+          mapData = null;
+          playerId = "";
+          selectedTile = null;
+          selectedTarget = null;
+          inputVector = { x: 0, y: 0 };
+          resultRecorded = false;
+          account = null;
+          modal.remove();
+          authScreen();
+        })
+        .catch((error: unknown) => {
+          button.disabled = false;
+          button.textContent = "로그아웃";
+          toast(
+            error instanceof Error ? error.message : "로그아웃하지 못했습니다.",
+          );
+        });
+    });
   modal.querySelector("[data-close]")?.addEventListener("click", () => {
     audio.play("button");
     modal.remove();
@@ -1506,8 +1764,7 @@ function leaveCurrentGame(): void {
   selectedTarget = null;
   inputVector = { x: 0, y: 0 };
   resultRecorded = false;
-  if (testShellMode) roomMenu();
-  else homeScreen();
+  homeScreen();
 }
 
 function exitRoomToMenu(message: string): void {
@@ -1523,7 +1780,7 @@ function exitRoomToMenu(message: string): void {
   selectedTarget = null;
   inputVector = { x: 0, y: 0 };
   resultRecorded = false;
-  roomMenu();
+  homeScreen();
   toast(message);
 }
 
@@ -1549,6 +1806,10 @@ function destroyGame(): void {
   window.removeEventListener(
     "dorm:target-selected",
     onTargetSelected as EventListener,
+  );
+  window.removeEventListener(
+    "dorm:portrait-move",
+    onPortraitMove as EventListener,
   );
   game?.destroy();
   game = null;
@@ -1626,8 +1887,7 @@ async function resumeOrEnter(): Promise<void> {
     !/^[A-Z2-9]{8}$/.test(code) ||
     !profile.reconnectTokens[code]
   ) {
-    if (testShellMode) roomMenu();
-    else homeScreen();
+    homeScreen();
     return;
   }
   try {
@@ -1636,7 +1896,6 @@ async function resumeOrEnter(): Promise<void> {
     connectToRoom(code, false);
   } catch {
     forgetRoom(code);
-    if (testShellMode) roomMenu();
-    else homeScreen();
+    homeScreen();
   }
 }

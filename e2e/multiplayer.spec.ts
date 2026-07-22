@@ -48,14 +48,26 @@ async function enter(
   await page.getByLabel("게임 닉네임").fill(nickname);
   await page.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
   await page.getByRole("button", { name: "계정 만들고 시작" }).click();
-  await expect(page.getByTestId("create-room")).toBeVisible();
+  await expect(page.locator(".game-home")).toBeVisible();
   return username;
 }
 
-test("first launch teaser leads through login to the cinematic game home and mode select", async ({
+async function createMultiplayerRoom(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /플레이 방식/ }).click();
+  await page.getByRole("button", { name: /멀티 플레이/ }).click();
+  await page.getByTestId("home-stage-start").click();
+}
+
+async function joinMultiplayerRoom(page: Page, code: string): Promise<void> {
+  await page.getByRole("button", { name: /플레이 방식/ }).click();
+  await page.getByLabel("친구 방 초대 코드").fill(code);
+  await page.getByRole("button", { name: "참가", exact: true }).click();
+}
+
+test("portrait home separates shop, owned customization and stage start", async ({
   browser,
 }) => {
-  const context = await mobileContext(browser);
+  const context = await portraitContext(browser);
   const page = await context.newPage();
   try {
     await page.goto("/?dev=1&fresh=1");
@@ -79,6 +91,37 @@ test("first launch teaser leads through login to the cinematic game home and mod
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
+    await expect(page.locator(".game-home h1")).toHaveCount(0);
+    await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(3);
+    await expect(page.locator("[data-home-logout]")).toHaveCount(0);
+    const avatarBounds = await page.locator(".home-avatar-showcase").boundingBox();
+    expect(avatarBounds).toBeTruthy();
+    expect(avatarBounds?.width ?? 999).toBeLessThanOrEqual(330);
+    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
+      "data-home-ghost-variant",
+      "wanderer",
+    );
+    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
+      "data-home-player-scale",
+      "0.435",
+    );
+    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
+      "data-home-ghost-scale",
+      "0.49",
+    );
+    await expect(page.locator(".home-chase-ghost")).toHaveCount(0);
+    expect(
+      await page.locator(".home-avatar-showcase").evaluate(
+        (element) => getComputedStyle(element).animationName,
+      ),
+    ).toBe("homeAvatarEscape");
+    await expect(page.locator("[data-ranking] .home-utility-icon")).toBeVisible();
+    await page.getByRole("button", { name: "스테이지 난이도 선택" }).click();
+    await expect(page.getByRole("dialog", { name: "도전할 스테이지" })).toBeVisible();
+    await page.getByRole("button", { name: "닫기" }).click();
+    await page.getByRole("button", { name: "설정" }).click();
+    await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
+    await page.getByRole("button", { name: "완료" }).click();
     const profileResponse = await page.request.get("/api/auth/me");
     expect(profileResponse).toBeOK();
     const profile = await profileResponse.json() as {
@@ -89,32 +132,61 @@ test("first launch teaser leads through login to the cinematic game home and mod
     expect(profile.profile.ownedCosmetics).toContain("hat-rank");
     expect((await page.request.post("/api/customize/purchase", { data: { itemId: "character-cat" } })).status()).toBe(409);
     expect((await page.request.post("/api/customize/equip", { data: { itemId: "character-bear" } })).status()).toBe(403);
+    await expect(page.locator("#orientation-lock")).toHaveCount(0);
+    await page.getByRole("button", { name: /상점/ }).click();
+    await expect(page.getByRole("heading", { name: "새벽 상점" })).toBeVisible();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(6);
+    await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText("달고양이 루루");
+    await expect(page.locator("[data-custom-preview-copy]")).toContainText("포인트는 차감되지 않습니다");
+    await page.getByRole("button", { name: "포탑", exact: true }).click();
+    const shopTurretCanvas = page.locator(".custom-avatar-canvas");
+    await expect(shopTurretCanvas).toHaveAttribute("data-preview-kind", "turret");
+    await page.locator(".cosmetic-card", { hasText: "수호포 · 호박등" }).click();
+    await expect(shopTurretCanvas).toHaveAttribute("data-skin-id", "turret-basic-pumpkin");
+    await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
     await expect(page.getByRole("heading", { name: "나만의 생존자" })).toBeVisible();
     const avatarCanvas = page.locator(".custom-avatar-canvas");
     await expect(avatarCanvas).toBeVisible();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");
-    await expect(page.locator(".cosmetic-card")).toHaveCount(6);
-    await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
-    await expect(page.locator("[data-custom-preview-title]")).toHaveText("달고양이 루루");
-    await expect(page.locator("[data-custom-preview-copy]")).toContainText("포인트는 차감되지 않습니다");
+    await expect(page.locator(".cosmetic-card")).toHaveCount(1);
+    await expect(page.locator(".cosmetic-card", { hasText: "달고양이 루루" })).toHaveCount(0);
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await avatarCanvas.tap();
     await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
-    await page.getByRole("button", { name: "포탑", exact: true }).click();
-    const turretCanvas = page.locator(".custom-avatar-canvas");
-    await expect(turretCanvas).toHaveAttribute("data-preview-kind", "turret");
-    await page.locator(".cosmetic-card", { hasText: "수호포 · 호박등" }).click();
-    await expect(turretCanvas).toHaveAttribute("data-skin-id", "turret-basic-pumpkin");
-    await expect(page.locator("[data-custom-preview-title]")).toHaveText("수호포 · 호박등");
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
     expect(await page.request.post("/api/auth/login", { data: { username, password } })).toBeOK();
-    await page.getByRole("button", { name: "게임 시작" }).click();
-    await expect(page.getByTestId("create-room")).toBeVisible();
-    await expect(page.locator(".mode-poster")).toHaveCount(2);
+    await page.getByRole("button", { name: /플레이 방식/ }).click();
+    await expect(page.getByRole("dialog", { name: "플레이 방식 선택" })).toBeVisible();
+    await page.getByRole("button", { name: /멀티 플레이/ }).click();
+    await expect(page.getByRole("button", { name: /플레이 방식 멀티 플레이/ })).toBeVisible();
+    await page.getByRole("button", { name: /플레이 방식/ }).click();
+    await page.getByRole("button", { name: /개인 플레이/ }).click();
+    await page.getByTestId("home-stage-start").click();
+    await expect(page.locator(".lobby-screen")).toBeVisible();
+    await page.getByTestId("start-game").click();
+    await expect(page.locator("#game-shell")).toBeVisible();
+    await expect(page.getByRole("button", { name: "내 캐릭터 위치로 카메라 이동" })).toBeVisible();
+    await expect(page.locator(".portrait-drag-hint")).toBeVisible();
+    const beforeDrag = await state(page);
+    const localBefore = beforeDrag.snapshot?.players.find((player) => player.id === beforeDrag.playerId)?.position;
+    expect(localBefore).toBeTruthy();
+    await page.mouse.move(195, 422);
+    await page.mouse.down();
+    await page.mouse.move(250, 365, { steps: 6 });
+    await page.waitForTimeout(260);
+    await page.mouse.up();
+    await expect.poll(async () => {
+      const afterDrag = await state(page);
+      const localAfter = afterDrag.snapshot?.players.find((player) => player.id === afterDrag.playerId)?.position;
+      return localAfter && localBefore
+        ? Math.hypot(localAfter.x - localBefore.x, localAfter.y - localBefore.y)
+        : 0;
+    }).toBeGreaterThan(0.08);
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -134,6 +206,16 @@ async function mobileContext(browser: Browser): Promise<BrowserContext> {
   });
 }
 
+async function portraitContext(browser: Browser): Promise<BrowserContext> {
+  return browser.newContext({
+    baseURL: "http://127.0.0.1:4173",
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 2,
+  });
+}
+
 test("three solo bots visibly pathfind through doors before the normal countdown ends", async ({
   browser,
 }) => {
@@ -141,7 +223,8 @@ test("three solo bots visibly pathfind through doors before the normal countdown
   const page = await context.newPage();
   try {
     await enter(page, "봇길검증", "p", false);
-    await page.getByRole("button", { name: "봇과 혼자 시작" }).click();
+    await page.getByTestId("home-stage-start").click();
+    await expect(page.getByTestId("room-code")).toHaveCount(0);
     await expect(page.locator("[data-player-id]")).toHaveCount(4);
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-root canvas[data-theme='hospital']")).toBeVisible();
@@ -156,7 +239,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
         );
       },
       undefined,
-      { timeout: 18_000 },
+      { timeout: 28_000 },
     );
     const snapshot = (await state(page)).snapshot;
     const bots = snapshot?.players.filter((player) => player.isBot) ?? [];
@@ -218,7 +301,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await leave.click();
     await expect(leave).toContainText("한 번 더");
     await leave.click();
-    await expect(page.getByTestId("create-room")).toBeVisible();
+    await expect(page.locator(".game-home")).toBeVisible();
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -231,7 +314,7 @@ test("lobby host can remove bots, transfer ownership, kick a player and close an
   const second = await secondContext.newPage();
   try {
     await enter(first, "교대방장", "host");
-    await first.getByTestId("create-room").click();
+    await createMultiplayerRoom(first);
     const code = (await first.getByTestId("room-code").textContent()) as string;
 
     await first.getByRole("button", { name: "봇 추가" }).click();
@@ -240,23 +323,21 @@ test("lobby host can remove bots, transfer ownership, kick a player and close an
     await expect(first.locator(".player-card", { hasText: "서버 생존자 봇" })).toHaveCount(0);
 
     await enter(second, "다음방장", "guest");
-    await second.getByLabel("초대 코드로 참가").fill(code);
-    await second.getByTestId("join-room").click();
+    await joinMultiplayerRoom(second, code);
     await expect(first.locator("[data-player-id]")).toHaveCount(2);
 
     await first.getByRole("button", { name: "방 나가기" }).click();
-    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(first.locator(".game-home")).toBeVisible();
     await expect(second.locator(".player-card", { hasText: "다음방장" })).toContainText("★");
 
-    await first.getByLabel("초대 코드로 참가").fill(code);
-    await first.getByTestId("join-room").click();
+    await joinMultiplayerRoom(first, code);
     await expect(second.getByRole("button", { name: "추방" })).toBeVisible();
     await second.getByRole("button", { name: "추방" }).click();
-    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(first.locator(".game-home")).toBeVisible();
     await expect(first.locator("#toast")).toContainText("방장에 의해");
 
     await second.getByRole("button", { name: "방 나가기" }).click();
-    await expect(second.getByTestId("create-room")).toBeVisible();
+    await expect(second.locator(".game-home")).toBeVisible();
     expect((await second.request.get(`/api/rooms/${code}/status`)).status()).toBe(404);
   } finally {
     await firstContext.close().catch(() => undefined);
@@ -274,13 +355,12 @@ test("two real browser contexts share a room, building, combat and reconnection"
 
   try {
     const firstUsername = await enter(first, "별빛하나", "a");
-    await first.getByTestId("create-room").click();
+    await createMultiplayerRoom(first);
     const code = await first.getByTestId("room-code").textContent();
     expect(code).toMatch(/^[A-Z2-9]{8}$/);
 
     await enter(second, "별빛둘", "b");
-    await second.getByLabel("초대 코드로 참가").fill(code as string);
-    await second.getByTestId("join-room").click();
+    await joinMultiplayerRoom(second, code as string);
     await expect(first.locator("[data-player-id]")).toHaveCount(2);
     await expect(second.locator("[data-player-id]")).toHaveCount(2);
 
@@ -297,6 +377,8 @@ test("two real browser contexts share a room, building, combat and reconnection"
       expect(first.getByTestId("network")).toBeVisible(),
       expect(second.getByTestId("network")).toBeVisible(),
     ]);
+    await expect(first.getByRole("button", { name: "가방" })).toBeVisible();
+    await expect(first.getByRole("button", { name: "침대 점유" })).toBeHidden();
     await expect.poll(
       async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
       { timeout: 5_000, intervals: [100] },
@@ -408,19 +490,20 @@ test("two real browser contexts share a room, building, combat and reconnection"
     });
 
     await second.reload();
-    await expect(second.getByTestId("create-room")).toBeVisible();
+    await expect(second.locator(".game-home")).toBeVisible();
 
     const manifest = await first.request.get("/manifest.webmanifest");
     expect(manifest.ok()).toBe(true);
     expect((await manifest.json()).display).toBe("fullscreen");
 
     await first.goto("/?dev=1&fresh=1&automation=1");
-    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(first.locator(".game-home")).toBeVisible();
+    await first.getByRole("button", { name: "설정" }).click();
     await first.getByRole("button", { name: "로그아웃" }).click();
     await first.getByLabel("아이디").fill(firstUsername);
     await first.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
     await first.getByRole("button", { name: "로그인하고 시작" }).click();
-    await expect(first.getByTestId("create-room")).toBeVisible();
+    await expect(first.locator(".game-home")).toBeVisible();
   } finally {
     await firstContext.close().catch(() => undefined);
     await secondContext.close().catch(() => undefined);
