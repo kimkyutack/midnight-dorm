@@ -1,10 +1,32 @@
-import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
-import { botAppearance, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
-import { isBuildTile, moveInWalkableArea } from '../shared/map';
-import { findPath } from '../shared/pathfinding';
-import { combinedItemEffects, DRAW_COSTS, RANDOM_ITEMS } from '../shared/randomItems';
-import { getStage, higherRank, isEliteRank, rankBenefits, rankLabel, type StageDefinition } from '../shared/progression';
-import { SeededRandom, hashString } from '../shared/rng';
+import {
+  BALANCE,
+  buildingStats,
+  maxBuildingLevel,
+  upgradeCost,
+} from "../shared/balance";
+import {
+  botAppearance,
+  DEFAULT_APPEARANCE,
+  DEFAULT_TURRET_SKINS,
+  normalizeAppearance,
+  normalizeTurretSkins,
+} from "../shared/customization";
+import { isBuildTile, moveInWalkableArea } from "../shared/map";
+import { findPath } from "../shared/pathfinding";
+import {
+  combinedItemEffects,
+  DRAW_COSTS,
+  RANDOM_ITEMS,
+} from "../shared/randomItems";
+import {
+  getStage,
+  higherRank,
+  isEliteRank,
+  rankBenefits,
+  rankLabel,
+  type StageDefinition,
+} from "../shared/progression";
+import { SeededRandom, hashString } from "../shared/rng";
 import type {
   BuildingKind,
   BuildingState,
@@ -22,10 +44,17 @@ import type {
   Tile,
   TurretKind,
   Vec2,
-} from '../shared/types';
-import { BOT_REACTION_SECONDS, decideBotIntent, type BotDifficulty, type BotIntent } from './bots';
+} from "../shared/types";
+import {
+  BOT_REACTION_SECONDS,
+  decideBotIntent,
+  type BotDifficulty,
+  type BotIntent,
+} from "./bots";
 
-const COLORS = [0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff] as const;
+const COLORS = [
+  0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
+] as const;
 
 interface ReconnectRecord {
   playerId: string;
@@ -64,12 +93,16 @@ export interface MatchConfig {
   playMode?: PlayMode;
 }
 
-const finite = (value: number, fallback = 0): number => Number.isFinite(value) ? value : fallback;
-const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, finite(value, min)));
+const finite = (value: number, fallback = 0): number =>
+  Number.isFinite(value) ? value : fallback;
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, finite(value, min)));
 const distance = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y);
 const normalize = (vector: Vec2): Vec2 => {
   const magnitude = Math.hypot(vector.x, vector.y);
-  return magnitude > 1 ? { x: vector.x / magnitude, y: vector.y / magnitude } : vector;
+  return magnitude > 1
+    ? { x: vector.x / magnitude, y: vector.y / magnitude }
+    : vector;
 };
 
 export class GameEngine {
@@ -90,7 +123,12 @@ export class GameEngine {
   private state: GameSnapshot;
   lastHumanActivity = Date.now();
 
-  constructor(roomCode: string, map: MapDefinition, testMode = false, config: MatchConfig = {}) {
+  constructor(
+    roomCode: string,
+    map: MapDefinition,
+    testMode = false,
+    config: MatchConfig = {},
+  ) {
     this.roomCode = roomCode;
     this.map = map;
     this.testMode = testMode;
@@ -116,26 +154,43 @@ export class GameEngine {
     }));
     const eventRoll = this.testMode ? 0 : this.rng.next();
     const variants: GhostVariant[] = this.testMode
-      ? ['wanderer']
+      ? ["wanderer"]
       : eventRoll < 0.14
-        ? ['twin-a', 'twin-b']
-        : [eventRoll < 0.28 ? 'swift'
-          : eventRoll < 0.4 ? 'caster'
-            : eventRoll < 0.52 ? 'brute'
-              : eventRoll < 0.68 ? 'teleporter'
-                : eventRoll < 0.84 ? 'undead'
-                  : eventRoll < 0.94 ? 'giant'
-                    : 'wanderer'];
-    const ghosts = variants.map((variant, index) => this.makeGhost(variant, index));
+        ? ["twin-a", "twin-b"]
+        : [
+            eventRoll < 0.28
+              ? "swift"
+              : eventRoll < 0.4
+                ? "caster"
+                : eventRoll < 0.52
+                  ? "brute"
+                  : eventRoll < 0.68
+                    ? "teleporter"
+                    : eventRoll < 0.84
+                      ? "undead"
+                      : eventRoll < 0.94
+                        ? "giant"
+                        : "wanderer",
+          ];
+    const ghosts = variants.map((variant, index) =>
+      this.makeGhost(variant, index),
+    );
     const eventNames: Record<GhostVariant, string> = {
-      wanderer: '기본 악몽', swift: '질주하는 원혼', brute: '거구의 식귀', caster: '봉인술사',
-      'twin-a': '쌍둥이 원혼', 'twin-b': '쌍둥이 원혼',
-      teleporter: '문을 바꾸는 도약귀', undead: '미니미를 부르는 언데드', giant: '묵직한 거대 귀신', minion: '언데드 미니미',
+      wanderer: "기본 악몽",
+      swift: "질주하는 원혼",
+      brute: "거구의 식귀",
+      caster: "봉인술사",
+      "twin-a": "쌍둥이 원혼",
+      "twin-b": "쌍둥이 원혼",
+      teleporter: "문을 바꾸는 도약귀",
+      undead: "미니미를 부르는 언데드",
+      giant: "묵직한 거대 귀신",
+      minion: "언데드 미니미",
     };
     return {
       matchId: crypto.randomUUID(),
       roomCode: this.roomCode,
-      status: 'LOBBY',
+      status: "LOBBY",
       hostId: null,
       seed: this.map.seed,
       serverSeq: 0,
@@ -159,17 +214,28 @@ export class GameEngine {
 
   private makeGhost(variant: GhostVariant, index: number): GhostState {
     const labels: Record<GhostVariant, string> = {
-      wanderer: '복도 순찰자', swift: '목 꺾인 질주귀', brute: '굶주린 거구', caster: '눈먼 봉인술사',
-      'twin-a': '울보 쌍둥이', 'twin-b': '웃는 쌍둥이',
-      teleporter: '문틈 도약귀', undead: '무덤의 산모', giant: '천장 닿는 거인', minion: '썩은 미니미',
+      wanderer: "복도 순찰자",
+      swift: "목 꺾인 질주귀",
+      brute: "굶주린 거구",
+      caster: "눈먼 봉인술사",
+      "twin-a": "울보 쌍둥이",
+      "twin-b": "웃는 쌍둥이",
+      teleporter: "문틈 도약귀",
+      undead: "무덤의 산모",
+      giant: "천장 닿는 거인",
+      minion: "썩은 미니미",
     };
     return {
       id: `nightmare-${variant}-${index + 1}`,
-      position: { x: this.map.ghostSpawn.x + index * 0.8, y: this.map.ghostSpawn.y },
+      position: {
+        x: this.map.ghostSpawn.x + index * 0.8,
+        y: this.map.ghostSpawn.y,
+      },
       hp: BALANCE.ghost.baseHp,
       maxHp: BALANCE.ghost.baseHp,
       level: 1,
       targetRoomId: null,
+      targetPlayerId: null,
       attackCooldown: 0,
       slowUntil: 0,
       rage: false,
@@ -184,8 +250,9 @@ export class GameEngine {
       healingElapsed: 0,
       healingStartHp: 0,
       retreatCount: 0,
-      skillCooldown: variant === 'caster' ? 8 : 20,
-      abilityCooldown: variant === 'teleporter' ? 12 : variant === 'undead' ? 10 : 20,
+      skillCooldown: variant === "caster" ? 8 : 20,
+      abilityCooldown:
+        variant === "teleporter" ? 12 : variant === "undead" ? 10 : 20,
     };
   }
 
@@ -193,7 +260,7 @@ export class GameEngine {
     this.state = structuredClone(data.snapshot);
     this.retreatGuardUntil.clear();
     this.state.ghosts ??= [this.state.ghost];
-    this.state.matchEvent ??= '기본 악몽';
+    this.state.matchEvent ??= "기본 악몽";
     this.state.matchId ??= crypto.randomUUID();
     this.state.stageId ??= this.stage.id;
     this.state.stageLabel ??= this.stage.label;
@@ -202,8 +269,9 @@ export class GameEngine {
     this.state.goldSuppressedUntil ??= 0;
     this.state.repairSuppressedUntil ??= 0;
     for (const ghost of this.state.ghosts) {
-      ghost.displayName ??= '복도 순찰자';
-      ghost.variant ??= 'wanderer';
+      ghost.displayName ??= "복도 순찰자";
+      ghost.variant ??= "wanderer";
+      ghost.targetPlayerId ??= null;
       ghost.attackCount ??= 0;
       ghost.attacksToNextLevel ??= BALANCE.ghost.firstLevelAttacks;
       ghost.retreating ??= false;
@@ -212,13 +280,21 @@ export class GameEngine {
       ghost.healingStartHp ??= ghost.hp;
       ghost.retreatCount ??= 0;
       ghost.skillCooldown ??= 20;
-      ghost.abilityCooldown ??= ghost.variant === 'teleporter' ? 12 : ghost.variant === 'undead' ? 10 : 20;
+      ghost.abilityCooldown ??=
+        ghost.variant === "teleporter"
+          ? 12
+          : ghost.variant === "undead"
+            ? 10
+            : 20;
     }
     for (const player of this.state.players) {
       player.accountId ??= null;
-      player.soloRank ??= 'beginner';
-      player.multiplayerRank ??= 'beginner';
-      player.displayRank ??= higherRank(player.soloRank, player.multiplayerRank);
+      player.soloRank ??= "beginner";
+      player.multiplayerRank ??= "beginner";
+      player.displayRank ??= higherRank(
+        player.soloRank,
+        player.multiplayerRank,
+      );
       player.appearance = normalizeAppearance(player.appearance);
       player.turretSkins = normalizeTurretSkins(player.turretSkins);
       player.bedIndex ??= null;
@@ -227,27 +303,48 @@ export class GameEngine {
     }
     for (const room of this.state.rooms) {
       room.ownerIds ??= room.ownerId ? [room.ownerId] : [];
-      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
-      room.bedLevels ??= (mapRoom?.beds ?? [mapRoom?.bed]).filter(Boolean).map((_, index) => index === 0 ? room.bedLevel : 1);
+      const mapRoom = this.map.rooms.find(
+        (candidate) => candidate.id === room.id,
+      );
+      room.bedLevels ??= (mapRoom?.beds ?? [mapRoom?.bed])
+        .filter(Boolean)
+        .map((_, index) => (index === 0 ? room.bedLevel : 1));
       room.bedLevel = room.bedLevels[0] ?? room.bedLevel ?? 1;
       room.ownerId = room.ownerIds[0] ?? room.ownerId ?? null;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
       room.doorRegenAccumulator = finite(room.doorRegenAccumulator, -1);
     }
     for (const building of this.state.buildings) {
-      building.skinId ??= DEFAULT_TURRET_SKINS[building.kind as keyof typeof DEFAULT_TURRET_SKINS] ?? '';
-      const owner = this.state.players.find((player) => player.id === building.ownerId);
-      const activeRank = this.playMode === 'solo' ? owner?.soloRank : owner?.multiplayerRank;
-      const fallback = this.investmentThroughLevel(building.kind, building.level, activeRank ?? 'beginner');
+      building.skinId ??=
+        DEFAULT_TURRET_SKINS[
+          building.kind as keyof typeof DEFAULT_TURRET_SKINS
+        ] ?? "";
+      const owner = this.state.players.find(
+        (player) => player.id === building.ownerId,
+      );
+      const activeRank =
+        this.playMode === "solo" ? owner?.soloRank : owner?.multiplayerRank;
+      const fallback = this.investmentThroughLevel(
+        building.kind,
+        building.level,
+        activeRank ?? "beginner",
+      );
       building.investedGold ??= fallback.gold;
       building.investedPower ??= fallback.power;
-      building.investmentByPlayer ??= { [building.ownerId]: { gold: building.investedGold, power: building.investedPower } };
+      building.investmentByPlayer ??= {
+        [building.ownerId]: {
+          gold: building.investedGold,
+          power: building.investedPower,
+        },
+      };
     }
     this.serverSeq = this.state.serverSeq;
     this.reconnect.clear();
-    for (const record of data.reconnect) this.reconnect.set(record.token, record);
+    for (const record of data.reconnect)
+      this.reconnect.set(record.token, record);
     this.botRuntime.clear();
-    for (const [id, runtime] of data.botRuntime) this.botRuntime.set(id, runtime);
+    for (const [id, runtime] of data.botRuntime)
+      this.botRuntime.set(id, runtime);
   }
 
   serialize(): PersistedEngine {
@@ -264,8 +361,10 @@ export class GameEngine {
   }
 
   shouldCleanup(now = Date.now()): boolean {
-    return this.state.players.every((player) => player.isBot || !player.connected)
-      && now - this.lastHumanActivity >= BALANCE.inactiveCleanupMs;
+    return (
+      this.state.players.every((player) => player.isBot || !player.connected) &&
+      now - this.lastHumanActivity >= BALANCE.inactiveCleanupMs
+    );
   }
 
   drainEvents(): GameEvent[] {
@@ -276,59 +375,114 @@ export class GameEngine {
 
   join(identity: JoinIdentity, now = Date.now()): JoinResult {
     const nickname = identity.nickname.trim().slice(0, 12);
-    if (nickname.length < 2) throw new Error('닉네임은 2자 이상이어야 합니다.');
+    if (nickname.length < 2) throw new Error("닉네임은 2자 이상이어야 합니다.");
     if (identity.reconnectToken) {
       const record = this.reconnect.get(identity.reconnectToken);
-      const player = record ? this.state.players.find((candidate) => candidate.id === record.playerId) : undefined;
-      if (record && player && record.deviceId === identity.deviceId && (player.connected || player.reconnectUntil >= now)) {
+      const player = record
+        ? this.state.players.find(
+            (candidate) => candidate.id === record.playerId,
+          )
+        : undefined;
+      if (
+        record &&
+        player &&
+        record.deviceId === identity.deviceId &&
+        (player.connected || player.reconnectUntil >= now)
+      ) {
         player.connected = true;
         player.reconnectUntil = 0;
         player.nickname = nickname;
         player.accountId = identity.accountId ?? player.accountId;
         player.soloRank = identity.soloRank ?? player.soloRank;
-        player.multiplayerRank = identity.multiplayerRank ?? player.multiplayerRank;
-        player.displayRank = higherRank(player.soloRank, player.multiplayerRank);
-        player.appearance = normalizeAppearance(identity.appearance ?? player.appearance);
-        player.turretSkins = normalizeTurretSkins(identity.turretSkins ?? player.turretSkins);
+        player.multiplayerRank =
+          identity.multiplayerRank ?? player.multiplayerRank;
+        player.displayRank = higherRank(
+          player.soloRank,
+          player.multiplayerRank,
+        );
+        player.appearance = normalizeAppearance(
+          identity.appearance ?? player.appearance,
+        );
+        player.turretSkins = normalizeTurretSkins(
+          identity.turretSkins ?? player.turretSkins,
+        );
         this.lastHumanActivity = now;
         return { player, reconnectToken: record.token, reconnected: true };
       }
     }
     const humans = this.state.players.filter((player) => !player.isBot);
-    if (humans.length >= BALANCE.maxHumanPlayers) throw new Error('이 방은 실제 플레이어 4명으로 가득 찼습니다.');
-    if (this.state.status !== 'LOBBY' && this.state.status !== 'COUNTDOWN') throw new Error('진행 중인 게임에는 새로 참가할 수 없습니다.');
+    if (humans.length >= BALANCE.maxHumanPlayers)
+      throw new Error("이 방은 실제 플레이어 4명으로 가득 찼습니다.");
+    if (this.state.status !== "LOBBY" && this.state.status !== "COUNTDOWN")
+      throw new Error("진행 중인 게임에는 새로 참가할 수 없습니다.");
     const id = crypto.randomUUID();
     const token = crypto.randomUUID();
-    const player = this.makePlayer(id, nickname, false, identity.accountId ?? null, identity.soloRank ?? 'beginner', identity.multiplayerRank ?? 'beginner', identity.appearance, identity.turretSkins);
+    const player = this.makePlayer(
+      id,
+      nickname,
+      false,
+      identity.accountId ?? null,
+      identity.soloRank ?? "beginner",
+      identity.multiplayerRank ?? "beginner",
+      identity.appearance,
+      identity.turretSkins,
+    );
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
-      this.pendingEvents.push({ kind: 'elite-join', playerId: player.id, label: `${rankLabel(player.displayRank)} ${player.nickname}님이 입장했습니다!` });
+      this.pendingEvents.push({
+        kind: "elite-join",
+        playerId: player.id,
+        label: `${rankLabel(player.displayRank)} ${player.nickname}님이 입장했습니다!`,
+      });
     }
-    this.reconnect.set(token, { playerId: id, token, deviceId: identity.deviceId });
+    this.reconnect.set(token, {
+      playerId: id,
+      token,
+      deviceId: identity.deviceId,
+    });
     this.state.hostId ??= id;
     this.lastHumanActivity = now;
     return { player, reconnectToken: token, reconnected: false };
   }
 
   disconnect(playerId: string, now = Date.now()): void {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
     if (!player || player.isBot) return;
     player.connected = false;
     player.velocity = { x: 0, y: 0 };
     player.reconnectUntil = now + BALANCE.reconnectMs;
     this.lastHumanActivity = now;
     if (this.state.hostId === playerId) {
-      this.state.hostId = this.state.players.find((candidate) => !candidate.isBot && candidate.connected && candidate.id !== playerId)?.id ?? null;
+      this.state.hostId =
+        this.state.players.find(
+          (candidate) =>
+            !candidate.isBot &&
+            candidate.connected &&
+            candidate.id !== playerId,
+        )?.id ?? null;
     }
   }
 
   addBot(requesterId: string, difficulty: BotDifficulty): ActionResult {
-    if (requesterId !== this.state.hostId) return { ok: false, error: '방장만 봇을 추가할 수 있습니다.' };
-    if (this.state.status !== 'LOBBY') return { ok: false, error: '대기실에서만 봇을 추가할 수 있습니다.' };
-    if (this.state.players.length >= BALANCE.maxPlayersWithBots) return { ok: false, error: '생존자는 최대 4명입니다.' };
+    if (requesterId !== this.state.hostId)
+      return { ok: false, error: "방장만 봇을 추가할 수 있습니다." };
+    if (this.state.status !== "LOBBY")
+      return { ok: false, error: "대기실에서만 봇을 추가할 수 있습니다." };
+    if (this.state.players.length >= BALANCE.maxPlayersWithBots)
+      return { ok: false, error: "생존자는 최대 4명입니다." };
     const id = `bot-${crypto.randomUUID()}`;
     const botIndex = this.state.players.filter((player) => player.isBot).length;
-    const bot = this.makePlayer(id, `새벽봇 ${botIndex + 1}`, true, null, 'beginner', 'beginner', botAppearance(botIndex));
+    const bot = this.makePlayer(
+      id,
+      `새벽봇 ${botIndex + 1}`,
+      true,
+      null,
+      "beginner",
+      "beginner",
+      botAppearance(botIndex),
+    );
     bot.ready = true;
     this.state.players.push(bot);
     this.botRuntime.set(id, { difficulty, reaction: this.rng.next() });
@@ -336,33 +490,53 @@ export class GameEngine {
   }
 
   removeBot(requesterId: string, botId: string): ActionResult {
-    if (requesterId !== this.state.hostId) return { ok: false, error: '방장만 봇을 제거할 수 있습니다.' };
-    if (this.state.status !== 'LOBBY') return { ok: false, error: '대기실에서만 봇을 제거할 수 있습니다.' };
-    const player = this.state.players.find((candidate) => candidate.id === botId && candidate.isBot);
-    if (!player) return { ok: false, error: '봇을 찾을 수 없습니다.' };
-    this.state.players = this.state.players.filter((candidate) => candidate.id !== botId);
+    if (requesterId !== this.state.hostId)
+      return { ok: false, error: "방장만 봇을 제거할 수 있습니다." };
+    if (this.state.status !== "LOBBY")
+      return { ok: false, error: "대기실에서만 봇을 제거할 수 있습니다." };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === botId && candidate.isBot,
+    );
+    if (!player) return { ok: false, error: "봇을 찾을 수 없습니다." };
+    this.state.players = this.state.players.filter(
+      (candidate) => candidate.id !== botId,
+    );
     this.botRuntime.delete(botId);
     return { ok: true };
   }
 
   leaveLobby(playerId: string): ActionResult {
-    if (this.state.status !== 'LOBBY') return { ok: false, error: '대기실에서만 방을 나갈 수 있습니다.' };
-    const player = this.state.players.find((candidate) => candidate.id === playerId && !candidate.isBot);
-    if (!player) return { ok: false, error: '플레이어를 찾을 수 없습니다.' };
+    if (this.state.status !== "LOBBY")
+      return { ok: false, error: "대기실에서만 방을 나갈 수 있습니다." };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId && !candidate.isBot,
+    );
+    if (!player) return { ok: false, error: "플레이어를 찾을 수 없습니다." };
     return this.removeLobbyPlayer(playerId);
   }
 
   kickPlayer(requesterId: string, targetId: string): ActionResult {
-    if (requesterId !== this.state.hostId) return { ok: false, error: '방장만 플레이어를 추방할 수 있습니다.' };
-    if (this.state.status !== 'LOBBY') return { ok: false, error: '대기실에서만 플레이어를 추방할 수 있습니다.' };
-    if (requesterId === targetId) return { ok: false, error: '자신은 방 나가기를 이용하세요.' };
-    const target = this.state.players.find((candidate) => candidate.id === targetId && !candidate.isBot);
-    if (!target) return { ok: false, error: '추방할 플레이어를 찾을 수 없습니다.' };
+    if (requesterId !== this.state.hostId)
+      return { ok: false, error: "방장만 플레이어를 추방할 수 있습니다." };
+    if (this.state.status !== "LOBBY")
+      return {
+        ok: false,
+        error: "대기실에서만 플레이어를 추방할 수 있습니다.",
+      };
+    if (requesterId === targetId)
+      return { ok: false, error: "자신은 방 나가기를 이용하세요." };
+    const target = this.state.players.find(
+      (candidate) => candidate.id === targetId && !candidate.isBot,
+    );
+    if (!target)
+      return { ok: false, error: "추방할 플레이어를 찾을 수 없습니다." };
     return this.removeLobbyPlayer(targetId);
   }
 
   private removeLobbyPlayer(playerId: string): ActionResult {
-    this.state.players = this.state.players.filter((candidate) => candidate.id !== playerId);
+    this.state.players = this.state.players.filter(
+      (candidate) => candidate.id !== playerId,
+    );
     for (const [token, record] of this.reconnect) {
       if (record.playerId === playerId) this.reconnect.delete(token);
     }
@@ -375,69 +549,115 @@ export class GameEngine {
       this.state.players = [];
       this.state.hostId = null;
       this.botRuntime.clear();
-      return { ok: true, removedPlayerId: playerId, newHostId: null, roomEmpty: true };
+      return {
+        ok: true,
+        removedPlayerId: playerId,
+        newHostId: null,
+        roomEmpty: true,
+      };
     }
-    if (this.state.hostId === playerId || !this.state.players.some((candidate) => candidate.id === this.state.hostId)) {
-      this.state.hostId = humans.find((candidate) => candidate.connected)?.id ?? humans[0]?.id ?? null;
+    if (
+      this.state.hostId === playerId ||
+      !this.state.players.some(
+        (candidate) => candidate.id === this.state.hostId,
+      )
+    ) {
+      this.state.hostId =
+        humans.find((candidate) => candidate.connected)?.id ??
+        humans[0]?.id ??
+        null;
     }
     this.lastHumanActivity = Date.now();
-    return { ok: true, removedPlayerId: playerId, newHostId: this.state.hostId, roomEmpty: false };
+    return {
+      ok: true,
+      removedPlayerId: playerId,
+      newHostId: this.state.hostId,
+      roomEmpty: false,
+    };
   }
 
   handle(playerId: string, message: ClientMessage): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    if (!player) return { ok: false, error: '플레이어를 찾을 수 없습니다.' };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) return { ok: false, error: "플레이어를 찾을 수 없습니다." };
     if (!player.isBot) this.lastHumanActivity = Date.now();
     switch (message.type) {
-      case 'ready':
-        if (this.state.status !== 'LOBBY') return { ok: false, error: '준비 상태를 바꿀 수 없습니다.' };
+      case "ready":
+        if (this.state.status !== "LOBBY")
+          return { ok: false, error: "준비 상태를 바꿀 수 없습니다." };
         player.ready = message.ready;
         return { ok: true };
-      case 'start':
+      case "start":
         return this.start(playerId);
-      case 'add-bot':
+      case "add-bot":
         return this.addBot(playerId, message.difficulty);
-      case 'remove-bot':
+      case "remove-bot":
         return this.removeBot(playerId, message.botId);
-      case 'leave-room':
+      case "leave-room":
         return this.leaveLobby(playerId);
-      case 'kick-player':
+      case "kick-player":
         return this.kickPlayer(playerId, message.playerId);
-      case 'move':
-        return this.setMovement(playerId, message.dx, message.dy, message.inputSequence);
-      case 'interact':
+      case "move":
+        return this.setMovement(
+          playerId,
+          message.dx,
+          message.dy,
+          message.inputSequence,
+        );
+      case "interact":
         return this.interact(playerId);
-      case 'build':
+      case "build":
         return this.build(playerId, message.roomId, message.tile, message.kind);
-      case 'upgrade':
+      case "upgrade":
         return this.upgrade(playerId, message.targetId);
-      case 'remove-building':
+      case "remove-building":
         return this.removeBuilding(playerId, message.buildingId);
-      case 'draw-item':
+      case "draw-item":
         return this.drawItem(playerId, message.machineId);
-      case 'rematch':
+      case "rematch":
         return this.voteRematch(playerId);
-      case 'ping':
-      case 'resync':
+      case "ping":
+      case "resync":
         return { ok: true };
     }
   }
 
   start(playerId: string): ActionResult {
-    if (this.state.hostId !== playerId) return { ok: false, error: '방장만 게임을 시작할 수 있습니다.' };
-    if (this.state.status !== 'LOBBY') return { ok: false, error: '이미 게임이 시작되었습니다.' };
-    if (this.state.players.length < 1) return { ok: false, error: '플레이어가 필요합니다.' };
-    const unreadyHuman = this.state.players.find((player) => !player.isBot && player.id !== playerId && !player.ready);
-    if (unreadyHuman) return { ok: false, error: '모든 참가자가 준비해야 합니다.' };
-    this.state.status = 'COUNTDOWN';
+    if (this.state.hostId !== playerId)
+      return { ok: false, error: "방장만 게임을 시작할 수 있습니다." };
+    if (this.state.status !== "LOBBY")
+      return { ok: false, error: "이미 게임이 시작되었습니다." };
+    if (this.state.players.length < 1)
+      return { ok: false, error: "플레이어가 필요합니다." };
+    const unreadyHuman = this.state.players.find(
+      (player) => !player.isBot && player.id !== playerId && !player.ready,
+    );
+    if (unreadyHuman)
+      return { ok: false, error: "모든 참가자가 준비해야 합니다." };
+    this.state.status = "COUNTDOWN";
     this.state.countdown = this.testMode ? 1.2 : BALANCE.countdownSeconds;
     return { ok: true };
   }
 
-  setMovement(playerId: string, dx: number, dy: number, inputSequence: number): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    if (!player || !player.alive) return { ok: false, error: '이동할 수 없습니다.' };
-    if (!Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > 1 || Math.abs(dy) > 1) return { ok: false, error: '비정상 이동 입력입니다.' };
+  setMovement(
+    playerId: string,
+    dx: number,
+    dy: number,
+    inputSequence: number,
+  ): ActionResult {
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player || !player.alive)
+      return { ok: false, error: "이동할 수 없습니다." };
+    if (
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy) ||
+      Math.abs(dx) > 1 ||
+      Math.abs(dy) > 1
+    )
+      return { ok: false, error: "비정상 이동 입력입니다." };
     if (inputSequence <= player.lastInputSeq) return { ok: true };
     if (player.roomId) {
       player.velocity = { x: 0, y: 0 };
@@ -450,21 +670,51 @@ export class GameEngine {
   }
 
   interact(playerId: string): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    if (!player || !player.alive) return { ok: false, error: '상호작용할 수 없습니다.' };
-    if (player.roomId) return { ok: false, error: '이미 침대를 점유했습니다.' };
-    if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') return { ok: false, error: '준비 시간이 시작된 뒤 침대를 점유할 수 있습니다.' };
-    const candidate = this.map.rooms.flatMap((mapRoom) => {
-      const room = this.state.rooms.find((state) => state.id === mapRoom.id);
-      if (!room) return [];
-      return mapRoom.beds.map((bed, bedIndex) => ({ mapRoom, room, bed, bedIndex }))
-        .filter(({ room: roomState, bedIndex }) => !roomState.ownerIds.some((ownerId) => {
-          const owner = this.state.players.find((candidatePlayer) => candidatePlayer.id === ownerId);
-          return owner?.bedIndex === bedIndex;
-        }));
-    }).filter(({ bed }) => distance(player.position, bed) <= BALANCE.player.interactionRange)
-      .sort((a, b) => distance(player.position, a.bed) - distance(player.position, b.bed))[0];
-    if (!candidate) return { ok: false, error: '비어 있는 침대에 더 가까이 가세요.' };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player || !player.alive)
+      return { ok: false, error: "상호작용할 수 없습니다." };
+    if (player.roomId) return { ok: false, error: "이미 침대를 점유했습니다." };
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+      return {
+        ok: false,
+        error: "준비 시간이 시작된 뒤 침대를 점유할 수 있습니다.",
+      };
+    const roomCapacity = this.playMode === "multiplayer" ? 2 : 1;
+    const candidate = this.map.rooms
+      .flatMap((mapRoom) => {
+        const room = this.state.rooms.find((state) => state.id === mapRoom.id);
+        if (!room) return [];
+        return mapRoom.beds
+          .map((bed, bedIndex) => ({ mapRoom, room, bed, bedIndex }))
+          .filter(
+            ({ room: roomState, bedIndex }) =>
+              roomState.ownerIds.length < roomCapacity &&
+              !roomState.ownerIds.some((ownerId) => {
+                const owner = this.state.players.find(
+                  (candidatePlayer) => candidatePlayer.id === ownerId,
+                );
+                return owner?.bedIndex === bedIndex;
+              }),
+          );
+      })
+      .filter(
+        ({ bed }) =>
+          distance(player.position, bed) <= BALANCE.player.interactionRange,
+      )
+      .sort(
+        (a, b) =>
+          distance(player.position, a.bed) - distance(player.position, b.bed),
+      )[0];
+    if (!candidate)
+      return {
+        ok: false,
+        error:
+          this.playMode === "multiplayer"
+            ? "비어 있는 2인 방의 침대에 더 가까이 가세요."
+            : "다른 생존자가 점유하지 않은 방의 침대에 더 가까이 가세요.",
+      };
     candidate.room.ownerIds.push(player.id);
     candidate.room.ownerId ??= player.id;
     player.roomId = candidate.room.id;
@@ -474,21 +724,53 @@ export class GameEngine {
     return { ok: true };
   }
 
-  build(playerId: string, roomId: string, tile: Tile, kind: BuildingKind): ActionResult {
-    if (kind === 'bed' || kind === 'reinforced-door') return { ok: false, error: '침대와 문은 기존 설비를 업그레이드하세요.' };
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
+  build(
+    playerId: string,
+    roomId: string,
+    tile: Tile,
+    kind: BuildingKind,
+  ): ActionResult {
+    if (kind === "bed" || kind === "reinforced-door")
+      return { ok: false, error: "침대와 문은 기존 설비를 업그레이드하세요." };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
     const room = this.state.rooms.find((candidate) => candidate.id === roomId);
-    if (!player || !player.alive || !room) return { ok: false, error: '건설할 수 없습니다.' };
-    if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') return { ok: false, error: '게임 중에만 건설할 수 있습니다.' };
-    if (!room.ownerIds.includes(playerId) || player.roomId !== roomId) return { ok: false, error: '자신이 머무는 방에만 건설할 수 있습니다.' };
-    if (!isBuildTile(this.map, roomId, tile)) return { ok: false, error: '건설 가능한 타일이 아닙니다.' };
-    if (this.state.buildings.some((building) => building.tile.x === tile.x && building.tile.y === tile.y)) return { ok: false, error: '이미 사용 중인 타일입니다.' };
-    if (kind === 'lucky-machine' && this.state.buildings.some((building) => building.ownerId === playerId && building.kind === kind)) return { ok: false, error: '랜덤 상자는 방마다 하나만 설치할 수 있습니다.' };
-    const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+    if (!player || !player.alive || !room)
+      return { ok: false, error: "건설할 수 없습니다." };
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+      return { ok: false, error: "게임 중에만 건설할 수 있습니다." };
+    if (!room.ownerIds.includes(playerId) || player.roomId !== roomId)
+      return { ok: false, error: "자신이 머무는 방에만 건설할 수 있습니다." };
+    if (!isBuildTile(this.map, roomId, tile))
+      return { ok: false, error: "건설 가능한 타일이 아닙니다." };
+    if (
+      this.state.buildings.some(
+        (building) => building.tile.x === tile.x && building.tile.y === tile.y,
+      )
+    )
+      return { ok: false, error: "이미 사용 중인 타일입니다." };
+    if (
+      kind === "lucky-machine" &&
+      this.state.buildings.some(
+        (building) => building.ownerId === playerId && building.kind === kind,
+      )
+    )
+      return {
+        ok: false,
+        error: "랜덤 상자는 방마다 하나만 설치할 수 있습니다.",
+      };
+    const activeRank =
+      this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     const benefits = rankBenefits(activeRank);
-    if (kind === 'arc-turret' && !benefits.rareTurretUnlocked) return { ok: false, error: '희귀 천둥포는 개인 등급 베테랑부터 설치할 수 있습니다.' };
+    if (kind === "arc-turret" && !benefits.rareTurretUnlocked)
+      return {
+        ok: false,
+        error: "희귀 천둥포는 싱글 등급 베테랑부터 설치할 수 있습니다.",
+      };
     const buildCost = upgradeCost(kind, 1, activeRank);
-    if (player.gold < buildCost.gold || player.power < buildCost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
+    if (player.gold < buildCost.gold || player.power < buildCost.power)
+      return { ok: false, error: "골드 또는 전력이 부족합니다." };
     player.gold -= buildCost.gold;
     player.power -= buildCost.power;
     const building: BuildingState = {
@@ -496,77 +778,130 @@ export class GameEngine {
       kind,
       roomId,
       ownerId: playerId,
-      skinId: DEFAULT_TURRET_SKINS[kind as TurretKind] ? player.turretSkins[kind as TurretKind] : '',
+      skinId: DEFAULT_TURRET_SKINS[kind as TurretKind]
+        ? player.turretSkins[kind as TurretKind]
+        : "",
       tile: { x: tile.x, y: tile.y, roomId },
       level: 1,
       cooldown: 0,
       hp: 100,
       investedGold: buildCost.gold,
       investedPower: buildCost.power,
-      investmentByPlayer: { [playerId]: { gold: buildCost.gold, power: buildCost.power } },
+      investmentByPlayer: {
+        [playerId]: { gold: buildCost.gold, power: buildCost.power },
+      },
     };
     this.state.buildings.push(building);
-    this.pendingEvents.push({ kind: 'build', position: tile, playerId });
+    this.pendingEvents.push({ kind: "build", position: tile, playerId });
     return { ok: true };
   }
 
   upgrade(playerId: string, targetId: string): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    if (!player || !player.alive || !player.roomId) return { ok: false, error: '업그레이드할 수 없습니다.' };
-    if (targetId.startsWith('bed:') || targetId.startsWith('door:')) {
-      const [target, roomId, rawBedIndex] = targetId.split(':');
-      const room = this.state.rooms.find((candidate) => candidate.id === roomId);
-      if (!room || !room.ownerIds.includes(playerId) || room.id !== player.roomId) return { ok: false, error: '같은 방의 설비만 업그레이드할 수 있습니다.' };
-      const kind: BuildingKind = target === 'bed' ? 'bed' : 'reinforced-door';
-      const bedIndex = kind === 'bed' ? Number(rawBedIndex ?? player.bedIndex ?? 0) : 0;
-      if (kind === 'bed' && (!Number.isInteger(bedIndex) || bedIndex !== player.bedIndex)) return { ok: false, error: '자신이 점유한 침대만 강화할 수 있습니다.' };
-      const level = kind === 'bed' ? room.bedLevels[bedIndex] ?? 1 : room.doorLevel;
-      if (kind === 'reinforced-door' && room.doorHp <= 0) return { ok: false, error: '파괴된 문은 업그레이드할 수 없습니다.' };
-      const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
-      if (level >= maxBuildingLevel(kind, activeRank)) return { ok: false, error: '이미 최고 단계입니다.' };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player || !player.alive || !player.roomId)
+      return { ok: false, error: "업그레이드할 수 없습니다." };
+    if (targetId.startsWith("bed:") || targetId.startsWith("door:")) {
+      const [target, roomId, rawBedIndex] = targetId.split(":");
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === roomId,
+      );
+      if (
+        !room ||
+        !room.ownerIds.includes(playerId) ||
+        room.id !== player.roomId
+      )
+        return {
+          ok: false,
+          error: "같은 방의 설비만 업그레이드할 수 있습니다.",
+        };
+      const kind: BuildingKind = target === "bed" ? "bed" : "reinforced-door";
+      const bedIndex =
+        kind === "bed" ? Number(rawBedIndex ?? player.bedIndex ?? 0) : 0;
+      if (
+        kind === "bed" &&
+        (!Number.isInteger(bedIndex) || bedIndex !== player.bedIndex)
+      )
+        return { ok: false, error: "자신이 점유한 침대만 강화할 수 있습니다." };
+      const level =
+        kind === "bed" ? (room.bedLevels[bedIndex] ?? 1) : room.doorLevel;
+      if (kind === "reinforced-door" && room.doorHp <= 0)
+        return { ok: false, error: "파괴된 문은 업그레이드할 수 없습니다." };
+      const activeRank =
+        this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+      if (level >= maxBuildingLevel(kind, activeRank))
+        return { ok: false, error: "이미 최고 단계입니다." };
       const cost = upgradeCost(kind, level + 1, activeRank);
-      if (player.gold < cost.gold || player.power < cost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
+      if (player.gold < cost.gold || player.power < cost.power)
+        return { ok: false, error: "골드 또는 전력이 부족합니다." };
       player.gold -= cost.gold;
       player.power -= cost.power;
-      if (kind === 'bed') {
+      if (kind === "bed") {
         room.bedLevels[bedIndex] = level + 1;
         room.bedLevel = room.bedLevels[0] ?? 1;
-      }
-      else {
+      } else {
         room.doorLevel += 1;
         room.doorMaxHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
         room.doorHp = room.doorMaxHp;
       }
-      this.pendingEvents.push({ kind: 'upgrade', roomId: room.id, playerId });
+      this.pendingEvents.push({ kind: "upgrade", roomId: room.id, playerId });
       return { ok: true };
     }
-    const building = this.state.buildings.find((candidate) => candidate.id === targetId);
-    const buildingRoom = building ? this.state.rooms.find((candidate) => candidate.id === building.roomId) : undefined;
-    if (!building || !buildingRoom?.ownerIds.includes(playerId) || building.roomId !== player.roomId) return { ok: false, error: '같은 방의 건물만 업그레이드할 수 있습니다.' };
-    const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
-    if (building.level >= maxBuildingLevel(building.kind, activeRank)) return { ok: false, error: '이미 최고 단계입니다.' };
+    const building = this.state.buildings.find(
+      (candidate) => candidate.id === targetId,
+    );
+    const buildingRoom = building
+      ? this.state.rooms.find((candidate) => candidate.id === building.roomId)
+      : undefined;
+    if (
+      !building ||
+      !buildingRoom?.ownerIds.includes(playerId) ||
+      building.roomId !== player.roomId
+    )
+      return { ok: false, error: "같은 방의 건물만 업그레이드할 수 있습니다." };
+    const activeRank =
+      this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+    if (building.level >= maxBuildingLevel(building.kind, activeRank))
+      return { ok: false, error: "이미 최고 단계입니다." };
     const cost = upgradeCost(building.kind, building.level + 1, activeRank);
-    if (player.gold < cost.gold || player.power < cost.power) return { ok: false, error: '골드 또는 전력이 부족합니다.' };
+    if (player.gold < cost.gold || player.power < cost.power)
+      return { ok: false, error: "골드 또는 전력이 부족합니다." };
     player.gold -= cost.gold;
     player.power -= cost.power;
     building.level += 1;
     this.addBuildingInvestment(building, playerId, cost);
-    this.pendingEvents.push({ kind: 'upgrade', position: building.tile, playerId });
+    this.pendingEvents.push({
+      kind: "upgrade",
+      position: building.tile,
+      playerId,
+    });
     return { ok: true };
   }
 
   removeBuilding(playerId: string, buildingId: string): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    const building = this.state.buildings.find((candidate) => candidate.id === buildingId);
-    const room = building ? this.state.rooms.find((candidate) => candidate.id === building.roomId) : undefined;
-    if (!player || !player.alive || !player.roomId || !building || !room) return { ok: false, error: '철거할 설비를 찾을 수 없습니다.' };
-    if ((this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') || player.roomId !== building.roomId || !room.ownerIds.includes(playerId)) {
-      return { ok: false, error: '같은 방의 설비만 철거할 수 있습니다.' };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const building = this.state.buildings.find(
+      (candidate) => candidate.id === buildingId,
+    );
+    const room = building
+      ? this.state.rooms.find((candidate) => candidate.id === building.roomId)
+      : undefined;
+    if (!player || !player.alive || !player.roomId || !building || !room)
+      return { ok: false, error: "철거할 설비를 찾을 수 없습니다." };
+    if (
+      (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING") ||
+      player.roomId !== building.roomId ||
+      !room.ownerIds.includes(playerId)
+    ) {
+      return { ok: false, error: "같은 방의 설비만 철거할 수 있습니다." };
     }
     const fallback = this.investmentThroughLevel(
       building.kind,
       building.level,
-      this.playMode === 'solo' ? player.soloRank : player.multiplayerRank,
+      this.playMode === "solo" ? player.soloRank : player.multiplayerRank,
     );
     const contributions = building.investmentByPlayer ?? {
       [building.ownerId]: {
@@ -574,11 +909,13 @@ export class GameEngine {
         power: building.investedPower ?? fallback.power,
       },
     };
-    this.refundBuildingContributions(contributions, 'gold');
-    this.refundBuildingContributions(contributions, 'power');
-    this.state.buildings = this.state.buildings.filter((candidate) => candidate.id !== buildingId);
+    this.refundBuildingContributions(contributions, "gold");
+    this.refundBuildingContributions(contributions, "power");
+    this.state.buildings = this.state.buildings.filter(
+      (candidate) => candidate.id !== buildingId,
+    );
     this.pendingEvents.push({
-      kind: 'building-remove',
+      kind: "building-remove",
       position: building.tile,
       playerId,
       buildingKind: building.kind,
@@ -587,17 +924,28 @@ export class GameEngine {
     return { ok: true };
   }
 
-  private addBuildingInvestment(building: BuildingState, playerId: string, cost: { gold: number; power: number }): void {
+  private addBuildingInvestment(
+    building: BuildingState,
+    playerId: string,
+    cost: { gold: number; power: number },
+  ): void {
     building.investedGold = (building.investedGold ?? 0) + cost.gold;
     building.investedPower = (building.investedPower ?? 0) + cost.power;
     building.investmentByPlayer ??= {};
-    const contribution = building.investmentByPlayer[playerId] ?? { gold: 0, power: 0 };
+    const contribution = building.investmentByPlayer[playerId] ?? {
+      gold: 0,
+      power: 0,
+    };
     contribution.gold += cost.gold;
     contribution.power += cost.power;
     building.investmentByPlayer[playerId] = contribution;
   }
 
-  private investmentThroughLevel(kind: BuildingKind, level: number, rank: RankId): { gold: number; power: number } {
+  private investmentThroughLevel(
+    kind: BuildingKind,
+    level: number,
+    rank: RankId,
+  ): { gold: number; power: number } {
     let gold = 0;
     let power = 0;
     for (let targetLevel = 1; targetLevel <= level; targetLevel += 1) {
@@ -608,55 +956,112 @@ export class GameEngine {
     return { gold, power };
   }
 
-  private refundBuildingContributions(contributions: Record<string, { gold: number; power: number }>, resource: 'gold' | 'power'): void {
+  private refundBuildingContributions(
+    contributions: Record<string, { gold: number; power: number }>,
+    resource: "gold" | "power",
+  ): void {
     const rows = Object.entries(contributions)
       .map(([contributorId, contribution]) => ({
         contributorId,
         exact: Math.max(0, contribution[resource]) * 0.7,
       }))
       .filter((row) => row.exact > 0);
-    const targetRefund = Math.floor(rows.reduce((total, row) => total + row.exact, 0));
-    const refunds = rows.map((row) => ({ ...row, amount: Math.floor(row.exact) }));
-    let remainder = targetRefund - refunds.reduce((total, row) => total + row.amount, 0);
-    refunds.sort((a, b) => (b.exact - Math.floor(b.exact)) - (a.exact - Math.floor(a.exact)));
+    const targetRefund = Math.floor(
+      rows.reduce((total, row) => total + row.exact, 0),
+    );
+    const refunds = rows.map((row) => ({
+      ...row,
+      amount: Math.floor(row.exact),
+    }));
+    let remainder =
+      targetRefund - refunds.reduce((total, row) => total + row.amount, 0);
+    refunds.sort(
+      (a, b) => b.exact - Math.floor(b.exact) - (a.exact - Math.floor(a.exact)),
+    );
     for (const refund of refunds) {
       if (remainder <= 0) break;
       refund.amount += 1;
       remainder -= 1;
     }
     for (const refund of refunds) {
-      const contributor = this.state.players.find((candidate) => candidate.id === refund.contributorId);
+      const contributor = this.state.players.find(
+        (candidate) => candidate.id === refund.contributorId,
+      );
       if (contributor) contributor[resource] += refund.amount;
     }
   }
 
   drawItem(playerId: string, machineId: string): ActionResult {
-    const player = this.state.players.find((candidate) => candidate.id === playerId);
-    const machine = this.state.buildings.find((candidate) => candidate.id === machineId && candidate.kind === 'lucky-machine');
-    if (!player || !player.alive || !machine || machine.ownerId !== playerId || machine.roomId !== player.roomId) return { ok: false, error: '자신의 랜덤 상자를 선택하세요.' };
-    if (this.state.status !== 'PLAYING') return { ok: false, error: '게임이 시작된 뒤 뽑을 수 있습니다.' };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const machine = this.state.buildings.find(
+      (candidate) =>
+        candidate.id === machineId && candidate.kind === "lucky-machine",
+    );
+    if (
+      !player ||
+      !player.alive ||
+      !machine ||
+      machine.ownerId !== playerId ||
+      machine.roomId !== player.roomId
+    )
+      return { ok: false, error: "자신의 랜덤 상자를 선택하세요." };
+    if (this.state.status !== "PLAYING")
+      return { ok: false, error: "게임이 시작된 뒤 뽑을 수 있습니다." };
     const cost = DRAW_COSTS[player.drawCount];
-    if (!cost) return { ok: false, error: '이번 판의 랜덤 뽑기 4회를 모두 사용했습니다.' };
-    if (player.gold < cost.gold || player.power < cost.power) return { ok: false, error: `뽑기 비용이 부족합니다. 골드 ${cost.gold}, 전력 ${cost.power}` };
+    if (!cost)
+      return {
+        ok: false,
+        error: "이번 판의 랜덤 뽑기 4회를 모두 사용했습니다.",
+      };
+    if (player.gold < cost.gold || player.power < cost.power)
+      return {
+        ok: false,
+        error: `뽑기 비용이 부족합니다. 골드 ${cost.gold}, 전력 ${cost.power}`,
+      };
     player.gold -= cost.gold;
     player.power -= cost.power;
     player.drawCount += 1;
-    const totalWeight = RANDOM_ITEMS.reduce((sum, item) => sum + item.weight, 0);
+    const totalWeight = RANDOM_ITEMS.reduce(
+      (sum, item) => sum + item.weight,
+      0,
+    );
     let roll = this.rng.next() * totalWeight;
-    const item = RANDOM_ITEMS.find((candidate) => (roll -= candidate.weight) <= 0) ?? RANDOM_ITEMS[RANDOM_ITEMS.length - 1];
-    if (!item) return { ok: false, error: '아이템 목록을 불러오지 못했습니다.' };
-    const owned = player.items.find((candidate) => candidate.itemId === item.id);
+    const item =
+      RANDOM_ITEMS.find((candidate) => (roll -= candidate.weight) <= 0) ??
+      RANDOM_ITEMS[RANDOM_ITEMS.length - 1];
+    if (!item)
+      return { ok: false, error: "아이템 목록을 불러오지 못했습니다." };
+    const owned = player.items.find(
+      (candidate) => candidate.itemId === item.id,
+    );
     if (owned) owned.count += 1;
-    else player.items.push({ itemId: item.id, label: item.label, rarity: item.rarity, count: 1 });
+    else
+      player.items.push({
+        itemId: item.id,
+        label: item.label,
+        rarity: item.rarity,
+        count: 1,
+      });
     if (item.effect.doorHpMultiplier && player.roomId) {
-      const room = this.state.rooms.find((candidate) => candidate.id === player.roomId);
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === player.roomId,
+      );
       if (room) {
         const gained = room.doorMaxHp * (item.effect.doorHpMultiplier - 1);
         room.doorMaxHp += gained;
         if (room.doorHp > 0) room.doorHp += gained;
       }
     }
-    this.pendingEvents.push({ kind: 'item-draw', playerId, itemId: item.id, label: item.label, rarity: item.rarity, position: machine.tile });
+    this.pendingEvents.push({
+      kind: "item-draw",
+      playerId,
+      itemId: item.id,
+      label: item.label,
+      rarity: item.rarity,
+      position: machine.tile,
+    });
     return { ok: true };
   }
 
@@ -666,11 +1071,11 @@ export class GameEngine {
     this.expireDisconnected(now);
     this.updatePlayers(dt);
     this.updateBots(dt);
-    if (this.state.status === 'COUNTDOWN') {
+    if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);
       this.state.countdown = Math.max(0, this.state.countdown - dt);
       if (this.state.countdown <= 0) this.beginPlaying();
-    } else if (this.state.status === 'PLAYING') {
+    } else if (this.state.status === "PLAYING") {
       this.state.elapsed += dt;
       this.updateEconomy(dt);
       this.updateBuildings(dt);
@@ -682,55 +1087,75 @@ export class GameEngine {
   }
 
   private beginPlaying(): void {
-    this.state.status = 'PLAYING';
-    const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
-    const maxHp = BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * (combatants - 1));
-    const rankPressure = Math.max(1, ...this.state.players.filter((player) => player.alive).map((player) =>
-      rankBenefits(this.playMode === 'solo' ? player.soloRank : player.multiplayerRank).ghostDifficultyMultiplier,
-    ));
+    this.state.status = "PLAYING";
+    const combatants = Math.max(
+      1,
+      this.state.players.filter((player) => player.alive).length,
+    );
+    const maxHp =
+      BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * (combatants - 1));
+    const rankPressure = Math.max(
+      1,
+      ...this.state.players
+        .filter((player) => player.alive)
+        .map(
+          (player) =>
+            rankBenefits(
+              this.playMode === "solo"
+                ? player.soloRank
+                : player.multiplayerRank,
+            ).ghostDifficultyMultiplier,
+        ),
+    );
     for (const ghost of this.state.ghosts) {
-      const variantHp = ghost.variant === 'brute' ? 1.45
-        : ghost.variant.startsWith('twin') ? 0.68
-          : ghost.variant === 'swift' ? 0.84 : 1;
-      ghost.maxHp = (this.testMode ? maxHp * 0.34 : maxHp) * variantHp * this.stage.hpMultiplier * rankPressure;
+      const variantHp =
+        ghost.variant === "brute"
+          ? 1.45
+          : ghost.variant.startsWith("twin")
+            ? 0.68
+            : ghost.variant === "swift"
+              ? 0.84
+              : 1;
+      ghost.maxHp =
+        (this.testMode ? maxHp * 0.34 : maxHp) *
+        variantHp *
+        this.stage.hpMultiplier *
+        rankPressure;
       ghost.hp = ghost.maxHp;
       ghost.position = { ...this.map.ghostSpawn };
     }
+    // 점유는 interact()만 허용한다. 준비 시간이 끝났다고 빈 침대를
+    // 강제 배정하지 않아, 미점유 생존자는 복도에서 빈 방을 직접 찾아야 한다.
     this.syncPrimaryGhost();
-    for (const player of this.state.players.filter((candidate) => !candidate.roomId)) {
-      const available = this.state.rooms.flatMap((room) => {
-        const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
-        return (mapRoom?.beds ?? []).map((bed, bedIndex) => ({ room, bed, bedIndex }))
-          .filter(({ room: roomState, bedIndex }) => !roomState.ownerIds.some((ownerId) =>
-            this.state.players.some((owner) => owner.id === ownerId && owner.bedIndex === bedIndex),
-          ));
-      })[0];
-      if (available) {
-        available.room.ownerIds.push(player.id);
-        available.room.ownerId ??= player.id;
-        player.roomId = available.room.id;
-        player.bedIndex = available.bedIndex;
-        player.position = { ...available.bed };
-      }
-    }
   }
 
   private updatePlayers(dt: number): void {
-    if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') return;
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+      return;
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
-        const bed = this.map.rooms.find((room) => room.id === player.roomId)?.beds[player.bedIndex ?? 0];
+        const bed = this.map.rooms.find((room) => room.id === player.roomId)
+          ?.beds[player.bedIndex ?? 0];
         if (bed) player.position = { ...bed };
         player.velocity = { x: 0, y: 0 };
         continue;
       }
-      const rank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
-      const speed = BALANCE.player.speed * rankBenefits(rank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
-      player.position = moveInWalkableArea(this.map, player.position, {
-        x: player.velocity.x * speed * dt,
-        y: player.velocity.y * speed * dt,
-      }, BALANCE.player.collisionRadius);
+      const rank =
+        this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+      const speed =
+        BALANCE.player.speed *
+        rankBenefits(rank).speedMultiplier *
+        combinedItemEffects(player.items).moveSpeedMultiplier;
+      player.position = moveInWalkableArea(
+        this.map,
+        player.position,
+        {
+          x: player.velocity.x * speed * dt,
+          y: player.velocity.y * speed * dt,
+        },
+        BALANCE.player.collisionRadius,
+      );
     }
   }
 
@@ -739,55 +1164,101 @@ export class GameEngine {
       const runtime = this.botRuntime.get(bot.id);
       if (!runtime) continue;
       if (!bot.roomId) {
-        this.applyBotIntent(bot.id, decideBotIntent(bot, this.state, this.map, runtime.difficulty));
+        this.applyBotIntent(
+          bot.id,
+          decideBotIntent(bot, this.state, this.map, runtime.difficulty),
+        );
         continue;
       }
       runtime.reaction -= dt;
       if (runtime.reaction > 0) continue;
-      runtime.reaction = BOT_REACTION_SECONDS[runtime.difficulty] * (0.8 + this.rng.next() * 0.45);
-      const intent = decideBotIntent(bot, this.state, this.map, runtime.difficulty);
+      runtime.reaction =
+        BOT_REACTION_SECONDS[runtime.difficulty] *
+        (0.8 + this.rng.next() * 0.45);
+      const intent = decideBotIntent(
+        bot,
+        this.state,
+        this.map,
+        runtime.difficulty,
+      );
       this.applyBotIntent(bot.id, intent);
     }
   }
 
   private applyBotIntent(botId: string, intent: BotIntent): void {
-    if (intent.type === 'move') this.setMovement(botId, intent.dx, intent.dy, this.serverSeq);
+    if (intent.type === "move")
+      this.setMovement(botId, intent.dx, intent.dy, this.serverSeq);
     else {
       const bot = this.state.players.find((player) => player.id === botId);
       if (bot) bot.velocity = { x: 0, y: 0 };
-      if (intent.type === 'interact') this.interact(botId);
-      else if (intent.type === 'build') this.build(botId, intent.roomId, intent.tile, intent.kind);
-      else if (intent.type === 'upgrade') this.upgrade(botId, intent.targetId);
+      if (intent.type === "interact") this.interact(botId);
+      else if (intent.type === "build")
+        this.build(botId, intent.roomId, intent.tile, intent.kind);
+      else if (intent.type === "upgrade") this.upgrade(botId, intent.targetId);
     }
   }
 
   private updateEconomy(dt: number): void {
     for (const player of this.state.players) {
       if (!player.alive || !player.roomId) continue;
-      const room = this.state.rooms.find((candidate) => candidate.id === player.roomId);
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === player.roomId,
+      );
       if (!room) continue;
-      const mapRoom = this.map.rooms.find((candidate) => candidate.id === player.roomId);
+      const mapRoom = this.map.rooms.find(
+        (candidate) => candidate.id === player.roomId,
+      );
       const effects = combinedItemEffects(player.items);
       const goldBefore = player.gold;
-      const activeRank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+      const activeRank =
+        this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       const bedLevel = room.bedLevels[player.bedIndex ?? 0] ?? 1;
-      const income = this.state.elapsed < this.state.goldSuppressedUntil ? 0 : (buildingStats('bed', bedLevel).value * rankBenefits(activeRank).bedGoldMultiplier + effects.goldPerSecond) * dt;
+      const income =
+        this.state.elapsed < this.state.goldSuppressedUntil
+          ? 0
+          : (buildingStats("bed", bedLevel).value *
+              rankBenefits(activeRank).bedGoldMultiplier +
+              effects.goldPerSecond) *
+            dt;
       player.gold += income;
       const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
       const playerBed = mapRoom?.beds[player.bedIndex ?? 0] ?? mapRoom?.bed;
-      if (goldGained > 0) this.pendingEvents.push({ kind: 'gold', playerId: player.id, amount: goldGained, position: playerBed ? { ...playerBed } : undefined });
-      const generators = this.state.buildings.filter((building) => building.ownerId === player.id && building.kind === 'generator');
+      if (goldGained > 0)
+        this.pendingEvents.push({
+          kind: "gold",
+          playerId: player.id,
+          amount: goldGained,
+          position: playerBed ? { ...playerBed } : undefined,
+        });
+      const generators = this.state.buildings.filter(
+        (building) =>
+          building.ownerId === player.id && building.kind === "generator",
+      );
       const powerBefore = player.power;
       for (const generator of generators) {
-        player.power += buildingStats('generator', generator.level).value * dt;
+        player.power += buildingStats("generator", generator.level).value * dt;
       }
       player.power += effects.powerPerSecond * dt;
       const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
-      if (powerGained > 0) this.pendingEvents.push({
-        kind: 'power', playerId: player.id, amount: powerGained,
-        position: generators[0] ? { ...generators[0].tile } : playerBed ? { ...playerBed } : undefined,
-      });
-      if (room.doorHp > 0 && this.state.elapsed >= this.state.repairSuppressedUntil) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + effects.doorRepairPerSecond * dt);
+      if (powerGained > 0)
+        this.pendingEvents.push({
+          kind: "power",
+          playerId: player.id,
+          amount: powerGained,
+          position: generators[0]
+            ? { ...generators[0].tile }
+            : playerBed
+              ? { ...playerBed }
+              : undefined,
+        });
+      if (
+        room.doorHp > 0 &&
+        this.state.elapsed >= this.state.repairSuppressedUntil
+      )
+        room.doorHp = Math.min(
+          room.doorMaxHp,
+          room.doorHp + effects.doorRepairPerSecond * dt,
+        );
     }
   }
 
@@ -795,59 +1266,123 @@ export class GameEngine {
     for (const building of this.state.buildings) {
       building.cooldown -= dt;
       const stats = buildingStats(building.kind, building.level);
-      const room = this.state.rooms.find((candidate) => candidate.id === building.roomId);
-      const owner = this.state.players.find((candidate) => candidate.id === building.ownerId);
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === building.roomId,
+      );
+      const owner = this.state.players.find(
+        (candidate) => candidate.id === building.ownerId,
+      );
       const effects = combinedItemEffects(owner?.items ?? []);
-      if (building.kind === 'repair-drone' && room && room.doorHp > 0 && this.state.elapsed >= this.state.repairSuppressedUntil) room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
+      if (
+        building.kind === "repair-drone" &&
+        room &&
+        room.doorHp > 0 &&
+        this.state.elapsed >= this.state.repairSuppressedUntil
+      )
+        room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
       const nearest = this.state.ghosts
         .filter((ghost) => ghost.hp > 0 && !ghost.healing)
-        .sort((a, b) => distance(a.position, building.tile) - distance(b.position, building.tile))[0];
-      if (building.kind === 'shield-device' && room && this.state.ghosts.some((ghost) => ghost.targetRoomId === room.id) && nearest && distance(nearest.position, building.tile) < 7 && building.cooldown <= 0) {
+        .sort(
+          (a, b) =>
+            distance(a.position, building.tile) -
+            distance(b.position, building.tile),
+        )[0];
+      if (
+        building.kind === "shield-device" &&
+        room &&
+        this.state.ghosts.some((ghost) => ghost.targetRoomId === room.id) &&
+        nearest &&
+        distance(nearest.position, building.tile) < 7 &&
+        building.cooldown <= 0
+      ) {
         room.shieldUntil = this.state.elapsed + stats.rate;
         building.cooldown = stats.rate + 8;
       }
-      if (building.kind === 'floor-trap') {
-        for (const ghost of this.state.ghosts.filter((candidate) => candidate.hp > 0 && distance(candidate.position, building.tile) <= stats.range)) {
+      if (building.kind === "floor-trap") {
+        for (const ghost of this.state.ghosts.filter(
+          (candidate) =>
+            candidate.hp > 0 &&
+            distance(candidate.position, building.tile) <= stats.range,
+        )) {
           ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + 0.5);
         }
       }
-      const offensive = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'electric-coil'].includes(building.kind);
+      const offensive = [
+        "basic-turret",
+        "rapid-turret",
+        "frost-turret",
+        "arc-turret",
+        "electric-coil",
+      ].includes(building.kind);
+      // Every turret starts at four tiles; range items remain an explicit
+      // exception and extend this authoritative server-side target range.
       const range = stats.range + effects.turretRangeBonus;
-      if (!offensive || !nearest || distance(nearest.position, building.tile) > range || building.cooldown > 0) continue;
-      const suppression = this.state.elapsed < this.turretSuppressedUntil ? 1.65 : 1;
-      building.cooldown = stats.rate * suppression * effects.turretRateMultiplier;
+      if (
+        !offensive ||
+        !nearest ||
+        distance(nearest.position, building.tile) > range ||
+        building.cooldown > 0
+      )
+        continue;
+      const suppression =
+        this.state.elapsed < this.turretSuppressedUntil ? 1.65 : 1;
+      building.cooldown =
+        stats.rate * suppression * effects.turretRateMultiplier;
       const damage = stats.value * effects.turretDamageMultiplier;
       const appliedDamage = this.applyGhostDamage(nearest, damage);
-      if (building.kind === 'frost-turret') nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1);
+      if (building.kind === "frost-turret")
+        nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1);
       this.pendingEvents.push({
-        kind: 'turret-fire', position: building.tile, targetPosition: { ...nearest.position }, targetId: nearest.id,
-        buildingKind: building.kind, amount: appliedDamage,
+        kind: "turret-fire",
+        position: building.tile,
+        targetPosition: { ...nearest.position },
+        targetId: nearest.id,
+        buildingKind: building.kind,
+        amount: appliedDamage,
       });
-      if (appliedDamage > 0) this.pendingEvents.push({ kind: 'ghost-hit', position: { ...nearest.position }, targetId: nearest.id, amount: appliedDamage });
+      if (appliedDamage > 0)
+        this.pendingEvents.push({
+          kind: "ghost-hit",
+          position: { ...nearest.position },
+          targetId: nearest.id,
+          amount: appliedDamage,
+        });
     }
   }
 
   private updateDoorRegeneration(dt: number): void {
     for (const room of this.state.rooms) {
-      const canRegenerate = room.ownerIds.length > 0
-        && room.doorHp > 0
-        && room.doorHp < room.doorMaxHp
-        && this.state.elapsed >= this.state.repairSuppressedUntil
-        && this.state.elapsed - room.lastDoorHitAt + 1e-6 >= BALANCE.door.passiveRegenDelaySeconds;
+      const canRegenerate =
+        room.ownerIds.length > 0 &&
+        room.doorHp > 0 &&
+        room.doorHp < room.doorMaxHp &&
+        this.state.elapsed >= this.state.repairSuppressedUntil &&
+        this.state.elapsed - room.lastDoorHitAt + 1e-6 >=
+          BALANCE.door.passiveRegenDelaySeconds;
       if (!canRegenerate) {
         room.doorRegenAccumulator = -1;
         continue;
       }
       if (room.doorRegenAccumulator < 0) {
-        room.doorHp = Math.min(room.doorMaxHp, room.doorHp + BALANCE.door.passiveRegenAmount);
+        room.doorHp = Math.min(
+          room.doorMaxHp,
+          room.doorHp + BALANCE.door.passiveRegenAmount,
+        );
         room.doorRegenAccumulator = 0;
         continue;
       }
       room.doorRegenAccumulator += dt;
-      const ticks = Math.floor((room.doorRegenAccumulator + 1e-6) / BALANCE.door.passiveRegenIntervalSeconds);
+      const ticks = Math.floor(
+        (room.doorRegenAccumulator + 1e-6) /
+          BALANCE.door.passiveRegenIntervalSeconds,
+      );
       if (ticks <= 0) continue;
-      room.doorRegenAccumulator -= ticks * BALANCE.door.passiveRegenIntervalSeconds;
-      room.doorHp = Math.min(room.doorMaxHp, room.doorHp + ticks * BALANCE.door.passiveRegenAmount);
+      room.doorRegenAccumulator -=
+        ticks * BALANCE.door.passiveRegenIntervalSeconds;
+      room.doorHp = Math.min(
+        room.doorMaxHp,
+        room.doorHp + ticks * BALANCE.door.passiveRegenAmount,
+      );
       if (room.doorHp >= room.doorMaxHp) room.doorRegenAccumulator = -1;
     }
   }
@@ -855,32 +1390,47 @@ export class GameEngine {
   private applyGhostDamage(ghost: GhostState, damage: number): number {
     // 리스폰 지점의 7초 회복은 보장한다. 후퇴 중에는 계속 포탑 피해를 받아 처치될 수 있다.
     if (ghost.healing) return 0;
-    if (this.state.elapsed < (this.retreatGuardUntil.get(ghost.id) ?? 0)) return 0;
+    if (this.state.elapsed < (this.retreatGuardUntil.get(ghost.id) ?? 0))
+      return 0;
     const before = ghost.hp;
     // 도망치는 동안은 방어선의 집중 사격에 노출되어, 충분한 화력이 있으면 회복 전에 처치할 수 있다.
-    const appliedDamage = damage * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
+    const appliedDamage =
+      damage * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
     const next = Math.max(0, before - appliedDamage);
-    const crossesRetreatLine = ghost.variant !== 'minion' && !ghost.retreating && !ghost.healing
-      && before / ghost.maxHp > BALANCE.ghost.retreatThreshold
-      && next / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
+    const crossesRetreatLine =
+      ghost.variant !== "minion" &&
+      !ghost.retreating &&
+      !ghost.healing &&
+      before / ghost.maxHp > BALANCE.ghost.retreatThreshold &&
+      next / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
     if (crossesRetreatLine) {
       ghost.hp = Math.max(1, next);
       ghost.retreating = true;
       ghost.retreatCount += 1;
       ghost.targetRoomId = null;
+      ghost.targetPlayerId = null;
       ghost.path = [];
       this.retreatGuardUntil.set(ghost.id, this.state.elapsed + 0.35);
-      this.pendingEvents.push({ kind: 'ghost-retreat', position: { ...ghost.position }, targetId: ghost.id });
+      this.pendingEvents.push({
+        kind: "ghost-retreat",
+        position: { ...ghost.position },
+        targetId: ghost.id,
+      });
     } else ghost.hp = next;
     return Math.max(0, before - ghost.hp);
   }
 
   private updateGhosts(dt: number): void {
     for (const ghost of this.state.ghosts) this.updateGhost(ghost, dt);
-    const deadMinions = this.state.ghosts.filter((ghost) => ghost.variant === 'minion' && ghost.hp <= 0);
+    const deadMinions = this.state.ghosts.filter(
+      (ghost) => ghost.variant === "minion" && ghost.hp <= 0,
+    );
     if (deadMinions.length > 0) {
-      for (const minion of deadMinions) this.retreatGuardUntil.delete(minion.id);
-      this.state.ghosts = this.state.ghosts.filter((ghost) => ghost.variant !== 'minion' || ghost.hp > 0);
+      for (const minion of deadMinions)
+        this.retreatGuardUntil.delete(minion.id);
+      this.state.ghosts = this.state.ghosts.filter(
+        (ghost) => ghost.variant !== "minion" || ghost.hp > 0,
+      );
     }
     this.syncPrimaryGhost();
   }
@@ -888,19 +1438,32 @@ export class GameEngine {
   private updateGhost(ghost: GhostState, dt: number): void {
     if (ghost.hp <= 0) return;
     ghost.phase = ghost.level;
-    ghost.rage = ghost.variant !== 'minion' && (ghost.level >= 5 || ghost.hp / ghost.maxHp <= 0.3);
+    ghost.rage =
+      ghost.variant !== "minion" &&
+      (ghost.level >= 5 || ghost.hp / ghost.maxHp <= 0.3);
     ghost.skillCooldown -= dt;
     ghost.abilityCooldown -= dt;
 
-    if (ghost.variant !== 'minion' && !ghost.retreating && !ghost.healing && ghost.hp / ghost.maxHp <= BALANCE.ghost.retreatThreshold) {
+    if (
+      ghost.variant !== "minion" &&
+      !ghost.retreating &&
+      !ghost.healing &&
+      ghost.hp / ghost.maxHp <= BALANCE.ghost.retreatThreshold
+    ) {
       ghost.retreating = true;
       ghost.retreatCount += 1;
       ghost.targetRoomId = null;
+      ghost.targetPlayerId = null;
       ghost.path = [];
-      this.pendingEvents.push({ kind: 'ghost-retreat', position: { ...ghost.position }, targetId: ghost.id });
+      this.pendingEvents.push({
+        kind: "ghost-retreat",
+        position: { ...ghost.position },
+        targetId: ghost.id,
+      });
     }
     if (ghost.retreating) {
-      if (distance(ghost.position, this.map.ghostSpawn) > 0.5) this.moveGhostToward(ghost, this.map.ghostSpawn, dt);
+      if (distance(ghost.position, this.map.ghostSpawn) > 0.5)
+        this.moveGhostToward(ghost, this.map.ghostSpawn, dt);
       else {
         ghost.retreating = false;
         ghost.healing = true;
@@ -911,92 +1474,216 @@ export class GameEngine {
       return;
     }
     if (ghost.healing) {
-      ghost.healingElapsed = Math.min(BALANCE.ghost.healDurationSeconds, ghost.healingElapsed + dt);
-      const recoveryProgress = ghost.healingElapsed / BALANCE.ghost.healDurationSeconds;
-      ghost.hp = ghost.healingStartHp + (ghost.maxHp - ghost.healingStartHp) * recoveryProgress;
+      ghost.healingElapsed = Math.min(
+        BALANCE.ghost.healDurationSeconds,
+        ghost.healingElapsed + dt,
+      );
+      const recoveryProgress =
+        ghost.healingElapsed / BALANCE.ghost.healDurationSeconds;
+      ghost.hp =
+        ghost.healingStartHp +
+        (ghost.maxHp - ghost.healingStartHp) * recoveryProgress;
       if (recoveryProgress >= 1 - 1e-9) {
         ghost.hp = ghost.maxHp;
         ghost.healing = false;
         ghost.healingElapsed = 0;
         ghost.healingStartHp = ghost.hp;
+        ghost.targetPlayerId = null;
         ghost.targetRoomId = this.selectGhostTarget(ghost);
-        this.pendingEvents.push({ kind: 'ghost-return', position: { ...ghost.position }, targetId: ghost.id });
+        this.pendingEvents.push({
+          kind: "ghost-return",
+          position: { ...ghost.position },
+          targetId: ghost.id,
+        });
       }
       return;
     }
 
     if (ghost.abilityCooldown <= 0) {
-      if (ghost.variant === 'teleporter') this.teleportToAnotherDoor(ghost);
-      else if (ghost.variant === 'undead') this.summonMinions(ghost);
+      if (ghost.variant === "teleporter") this.teleportToAnotherDoor(ghost);
+      else if (ghost.variant === "undead") this.summonMinions(ghost);
       else ghost.abilityCooldown = 20;
     }
 
     if (ghost.skillCooldown <= 0) {
-      if (ghost.variant === 'minion') ghost.skillCooldown = 20;
+      if (ghost.variant === "minion") ghost.skillCooldown = 20;
       else if (this.stage.skills.length > 0) this.useStageSkill(ghost);
-      else if (ghost.variant === 'caster') {
+      else if (ghost.variant === "caster") {
         this.turretSuppressedUntil = this.state.elapsed + 5;
         ghost.skillCooldown = Math.max(12, 25 - ghost.level);
-        this.pendingEvents.push({ kind: 'ghost-skill', position: { ...ghost.position }, targetId: ghost.id, label: '포탑 침묵 5초' });
+        this.pendingEvents.push({
+          kind: "ghost-skill",
+          position: { ...ghost.position },
+          targetId: ghost.id,
+          label: "포탑 침묵 5초",
+        });
       } else ghost.skillCooldown = 20;
     }
+    const outsideTarget = this.selectOutsideTarget(ghost);
+    if (outsideTarget) {
+      if (ghost.targetPlayerId !== outsideTarget.id) {
+        ghost.targetPlayerId = outsideTarget.id;
+        ghost.targetRoomId = null;
+        ghost.path = [];
+      }
+      if (distance(ghost.position, outsideTarget.position) > 0.52) {
+        this.moveGhostToward(
+          ghost,
+          outsideTarget.position,
+          dt,
+          BALANCE.ghost.outsideTargetSpeedMultiplier,
+        );
+        return;
+      }
+      ghost.attackCooldown -= dt;
+      if (ghost.attackCooldown > 0) return;
+      const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
+      ghost.attackCooldown =
+        BALANCE.ghost.attackInterval /
+        (attackSpeed * (ghost.rage ? 1.5 : 1));
+      this.eliminatePlayer(ghost, outsideTarget);
+      return;
+    }
+    ghost.targetPlayerId = null;
     if (!ghost.targetRoomId) {
       ghost.targetRoomId = this.selectGhostTarget(ghost);
       ghost.path = [];
     }
-    const room = this.state.rooms.find((candidate) => candidate.id === ghost.targetRoomId);
-    const mapRoom = this.map.rooms.find((candidate) => candidate.id === ghost.targetRoomId);
+    const room = this.state.rooms.find(
+      (candidate) => candidate.id === ghost.targetRoomId,
+    );
+    const mapRoom = this.map.rooms.find(
+      (candidate) => candidate.id === ghost.targetRoomId,
+    );
     if (!room || !mapRoom) {
       ghost.targetRoomId = null;
       return;
     }
-    const targetPlayer = room.ownerIds.map((ownerId) => this.state.players.find((player) => player.id === ownerId && player.alive))
+    const targetPlayer = room.ownerIds
+      .map((ownerId) =>
+        this.state.players.find(
+          (player) => player.id === ownerId && player.alive,
+        ),
+      )
       .filter((player): player is PlayerState => Boolean(player))
-      .sort((a, b) => distance(ghost.position, a.position) - distance(ghost.position, b.position))[0];
-    const destination = room.doorHp > 0 ? mapRoom.door : targetPlayer?.position ?? mapRoom.bed;
+      .sort(
+        (a, b) =>
+          distance(ghost.position, a.position) -
+          distance(ghost.position, b.position),
+      )[0];
+    const destination =
+      room.doorHp > 0 ? mapRoom.door : (targetPlayer?.position ?? mapRoom.bed);
     if (distance(ghost.position, destination) > 0.72) {
       this.moveGhostToward(ghost, destination, dt);
       return;
     }
     ghost.attackCooldown -= dt;
     if (ghost.attackCooldown > 0) return;
-    const combatants = Math.max(1, this.state.players.filter((player) => player.alive).length);
-    const rankPressure = Math.max(1, ...this.state.players.filter((player) => player.alive).map((player) =>
-      rankBenefits(this.playMode === 'solo' ? player.soloRank : player.multiplayerRank).ghostDifficultyMultiplier,
-    ));
+    const combatants = Math.max(
+      1,
+      this.state.players.filter((player) => player.alive).length,
+    );
+    const rankPressure = Math.max(
+      1,
+      ...this.state.players
+        .filter((player) => player.alive)
+        .map(
+          (player) =>
+            rankBenefits(
+              this.playMode === "solo"
+                ? player.soloRank
+                : player.multiplayerRank,
+            ).ghostDifficultyMultiplier,
+        ),
+    );
     // 쌍둥이 둘의 합산 문 피해가 일반 귀신 한 마리와 같도록 정확히 절반씩 나눈다.
-    const variantDamage = ghost.variant === 'giant' ? 2.5
-      : ghost.variant === 'minion' ? 0.3
-        : ghost.variant === 'brute' ? 1.3
-          : ghost.variant.startsWith('twin') ? 0.5 : 1;
-    const damageScale = (1 + BALANCE.ghost.damagePerPlayer * (combatants - 1)
-      + (ghost.level - 1) * (BALANCE.ghost.damageGrowthPerLevel + this.stage.levelDamageGrowth))
-      * variantDamage * this.stage.damageMultiplier * rankPressure;
-    const attackSpeed = ghost.variant === 'giant' ? 0.3 : 1;
-    ghost.attackCooldown = BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1));
+    const variantDamage =
+      ghost.variant === "giant"
+        ? 2.5
+        : ghost.variant === "minion"
+          ? 0.3
+          : ghost.variant === "brute"
+            ? 1.3
+            : ghost.variant.startsWith("twin")
+              ? 0.5
+              : 1;
+    const damageScale =
+      (1 +
+        BALANCE.ghost.damagePerPlayer * (combatants - 1) +
+        (ghost.level - 1) *
+          (BALANCE.ghost.damageGrowthPerLevel + this.stage.levelDamageGrowth)) *
+      variantDamage *
+      this.stage.damageMultiplier *
+      rankPressure;
+    const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
+    ghost.attackCooldown =
+      BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1));
     if (room.doorHp > 0) {
-      const rawShieldReduction = this.state.elapsed < room.shieldUntil
-        ? this.state.buildings.filter((building) => building.roomId === room.id && building.kind === 'shield-device')
-            .reduce((best, building) => Math.max(best, buildingStats(building.kind, building.level).value), 0)
-        : 0;
-      const shieldReduction = rawShieldReduction * Math.max(0.15, 1 - (ghost.level - 1) * BALANCE.ghost.shieldPenetrationPerLevel);
-      const damage = BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction);
+      const rawShieldReduction =
+        this.state.elapsed < room.shieldUntil
+          ? this.state.buildings
+              .filter(
+                (building) =>
+                  building.roomId === room.id &&
+                  building.kind === "shield-device",
+              )
+              .reduce(
+                (best, building) =>
+                  Math.max(
+                    best,
+                    buildingStats(building.kind, building.level).value,
+                  ),
+                0,
+              )
+          : 0;
+      const shieldReduction =
+        rawShieldReduction *
+        Math.max(
+          0.15,
+          1 - (ghost.level - 1) * BALANCE.ghost.shieldPenetrationPerLevel,
+        );
+      const damage =
+        BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction);
       room.doorHp = Math.max(0, room.doorHp - damage);
       room.lastDoorHitAt = this.state.elapsed;
       room.doorRegenAccumulator = -1;
-      if (ghost.variant !== 'minion') ghost.attackCount += 1;
-      this.pendingEvents.push({ kind: 'door-hit', position: mapRoom.door, roomId: room.id, targetId: ghost.id, amount: damage });
-      if (ghost.variant !== 'minion' && ghost.attackCount >= ghost.attacksToNextLevel) this.levelUpGhost(ghost);
-    } else if (targetPlayer) {
-      const damage = targetPlayer.hp;
-      targetPlayer.hp = 0;
-      this.pendingEvents.push({ kind: 'player-hit', position: targetPlayer.position, playerId: targetPlayer.id, targetId: ghost.id, amount: damage });
-      targetPlayer.alive = false;
-      targetPlayer.spectator = true;
-      targetPlayer.velocity = { x: 0, y: 0 };
-      this.pendingEvents.push({ kind: 'death', position: targetPlayer.position, playerId: targetPlayer.id });
-      ghost.targetRoomId = null;
-    }
+      if (ghost.variant !== "minion") ghost.attackCount += 1;
+      this.pendingEvents.push({
+        kind: "door-hit",
+        position: mapRoom.door,
+        roomId: room.id,
+        targetId: ghost.id,
+        amount: damage,
+      });
+      if (
+        ghost.variant !== "minion" &&
+        ghost.attackCount >= ghost.attacksToNextLevel
+      )
+        this.levelUpGhost(ghost);
+    } else if (targetPlayer) this.eliminatePlayer(ghost, targetPlayer);
+  }
+
+  private eliminatePlayer(ghost: GhostState, player: PlayerState): void {
+    const damage = player.hp;
+    player.hp = 0;
+    this.pendingEvents.push({
+      kind: "player-hit",
+      position: player.position,
+      playerId: player.id,
+      targetId: ghost.id,
+      amount: damage,
+    });
+    player.alive = false;
+    player.spectator = true;
+    player.velocity = { x: 0, y: 0 };
+    this.pendingEvents.push({
+      kind: "death",
+      position: player.position,
+      playerId: player.id,
+    });
+    ghost.targetRoomId = null;
+    ghost.targetPlayerId = null;
+    ghost.path = [];
   }
 
   private levelUpGhost(ghost: GhostState): void {
@@ -1004,67 +1691,103 @@ export class GameEngine {
     ghost.level += 1;
     ghost.phase = ghost.level;
     ghost.attackCount = 0;
-    ghost.attacksToNextLevel += BALANCE.ghost.attacksAddedPerLevel + ghost.level - 1;
+    ghost.attacksToNextLevel +=
+      BALANCE.ghost.attacksAddedPerLevel + ghost.level - 1;
     ghost.maxHp = Math.round(ghost.maxHp * (1 + this.stage.levelHpGrowth));
     ghost.hp += ghost.maxHp - previousMax;
-    this.pendingEvents.push({ kind: 'ghost-level-up', position: { ...ghost.position }, targetId: ghost.id, amount: ghost.level });
+    this.pendingEvents.push({
+      kind: "ghost-level-up",
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      amount: ghost.level,
+    });
   }
 
   private useStageSkill(ghost: GhostState): void {
-    const skill = this.stage.skills[this.rng.int(0, this.stage.skills.length - 1)];
-    let label = '';
-    if (skill === 'turret-jam') {
+    const skill =
+      this.stage.skills[this.rng.int(0, this.stage.skills.length - 1)];
+    let label = "";
+    if (skill === "turret-jam") {
       this.turretSuppressedUntil = this.state.elapsed + 3;
-      label = '포탑 무효화 3초';
-    } else if (skill === 'gold-lock') {
+      label = "포탑 무효화 3초";
+    } else if (skill === "gold-lock") {
       this.state.goldSuppressedUntil = this.state.elapsed + 5;
-      label = '골드 획득 봉인 5초';
-    } else if (skill === 'repair-lock') {
+      label = "골드 획득 봉인 5초";
+    } else if (skill === "repair-lock") {
       this.state.repairSuppressedUntil = this.state.elapsed + 5;
-      label = '문 수리 봉인 5초';
-    } else if (skill === 'door-crush') {
-      const room = this.state.rooms.find((candidate) => candidate.id === ghost.targetRoomId);
+      label = "문 수리 봉인 5초";
+    } else if (skill === "door-crush") {
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === ghost.targetRoomId,
+      );
       if (room?.doorHp) {
         room.doorHp = Math.max(0, room.doorHp - room.doorMaxHp * 0.08);
         room.lastDoorHitAt = this.state.elapsed;
         room.doorRegenAccumulator = -1;
       }
-      label = '문 내구도 8% 파쇄';
+      label = "문 내구도 8% 파쇄";
     }
-    ghost.skillCooldown = Math.max(7, this.stage.skillInterval - Math.min(5, ghost.level));
-    this.pendingEvents.push({ kind: 'ghost-skill', position: { ...ghost.position }, targetId: ghost.id, label });
+    ghost.skillCooldown = Math.max(
+      7,
+      this.stage.skillInterval - Math.min(5, ghost.level),
+    );
+    this.pendingEvents.push({
+      kind: "ghost-skill",
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      label,
+    });
   }
 
   private teleportToAnotherDoor(ghost: GhostState): void {
-    const occupied = this.state.rooms.filter((room) => room.ownerIds.some((ownerId) =>
-      this.state.players.some((player) => player.id === ownerId && player.alive),
-    ));
-    const alternatives = occupied.filter((room) => room.id !== ghost.targetRoomId);
+    const occupied = this.state.rooms.filter((room) =>
+      room.ownerIds.some((ownerId) =>
+        this.state.players.some(
+          (player) => player.id === ownerId && player.alive,
+        ),
+      ),
+    );
+    const alternatives = occupied.filter(
+      (room) => room.id !== ghost.targetRoomId,
+    );
     const pool = alternatives.length > 0 ? alternatives : occupied;
     if (pool.length === 0) {
       ghost.abilityCooldown = 6;
       return;
     }
     const target = pool[this.rng.int(0, pool.length - 1)];
-    const mapRoom = target ? this.map.rooms.find((room) => room.id === target.id) : undefined;
+    const mapRoom = target
+      ? this.map.rooms.find((room) => room.id === target.id)
+      : undefined;
     if (target && mapRoom) {
-      const approach = [...this.map.corridorTiles]
-        .sort((a, b) => distance(a, mapRoom.door) - distance(b, mapRoom.door))[0] ?? mapRoom.door;
+      const approach =
+        [...this.map.corridorTiles].sort(
+          (a, b) => distance(a, mapRoom.door) - distance(b, mapRoom.door),
+        )[0] ?? mapRoom.door;
       ghost.position = { x: approach.x, y: approach.y };
       ghost.targetRoomId = target.id;
+      ghost.targetPlayerId = null;
       ghost.path = [];
       ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.6);
-      this.pendingEvents.push({ kind: 'ghost-skill', position: { ...ghost.position }, targetId: ghost.id, roomId: target.id, label: '다른 방문으로 순간이동' });
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        position: { ...ghost.position },
+        targetId: ghost.id,
+        roomId: target.id,
+        label: "다른 방문으로 순간이동",
+      });
     }
     ghost.abilityCooldown = Math.max(7, 14 - Math.min(4, ghost.level * 0.5));
   }
 
   private summonMinions(ghost: GhostState): void {
-    const livingMinions = this.state.ghosts.filter((candidate) => candidate.variant === 'minion' && candidate.hp > 0);
+    const livingMinions = this.state.ghosts.filter(
+      (candidate) => candidate.variant === "minion" && candidate.hp > 0,
+    );
     const requested = Math.min(6, Math.max(1, Math.ceil(ghost.level / 2)));
     const count = Math.min(requested, Math.max(0, 12 - livingMinions.length));
     for (let index = 0; index < count; index += 1) {
-      const minion = this.makeGhost('minion', this.state.ghosts.length + index);
+      const minion = this.makeGhost("minion", this.state.ghosts.length + index);
       minion.id = `nightmare-minion-${crypto.randomUUID()}`;
       minion.position = {
         x: ghost.position.x + ((index % 3) - 1) * 0.34,
@@ -1072,7 +1795,7 @@ export class GameEngine {
       };
       minion.level = ghost.level;
       minion.phase = ghost.level;
-      minion.maxHp = buildingStats('basic-turret', 1).value * 3.5;
+      minion.maxHp = buildingStats("basic-turret", 1).value * 3.5;
       minion.hp = minion.maxHp;
       minion.targetRoomId = this.selectGhostTarget(minion);
       minion.summonerId = ghost.id;
@@ -1080,78 +1803,183 @@ export class GameEngine {
       this.state.ghosts.push(minion);
     }
     ghost.abilityCooldown = Math.max(7, 13 - Math.min(4, ghost.level * 0.45));
-    if (count > 0) this.pendingEvents.push({ kind: 'ghost-skill', position: { ...ghost.position }, targetId: ghost.id, amount: count, label: `미니미 ${count}마리 소환` });
+    if (count > 0)
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        position: { ...ghost.position },
+        targetId: ghost.id,
+        amount: count,
+        label: `미니미 ${count}마리 소환`,
+      });
   }
 
-  private moveGhostToward(ghost: GhostState, destination: Vec2, dt: number): void {
+  private moveGhostToward(
+    ghost: GhostState,
+    destination: Vec2,
+    dt: number,
+    speedMultiplier = 1,
+  ): void {
     if (ghost.path.length === 0 || this.serverSeq % 20 === 0) {
       ghost.path = findPath(this.map, ghost.position, destination);
       const start = ghost.path[0];
-      if (start && start.x === Math.round(ghost.position.x) && start.y === Math.round(ghost.position.y)) ghost.path.shift();
+      if (
+        start &&
+        start.x === Math.round(ghost.position.x) &&
+        start.y === Math.round(ghost.position.y)
+      )
+        ghost.path.shift();
     }
-    while (ghost.path.length > 0 && distance(ghost.position, ghost.path[0] as Tile) < 0.3) ghost.path.shift();
+    while (
+      ghost.path.length > 0 &&
+      distance(ghost.position, ghost.path[0] as Tile) < 0.3
+    )
+      ghost.path.shift();
     const next = ghost.path[0] ?? destination;
-    const direction = normalize({ x: next.x - ghost.position.x, y: next.y - ghost.position.y });
-    const variantSpeed = ghost.variant === 'swift' ? 1.65
-      : ghost.variant === 'brute' ? 0.78
-        : ghost.variant === 'minion' ? 1.22
-          : ghost.variant.startsWith('twin') ? 1.15 : 1;
+    const direction = normalize({
+      x: next.x - ghost.position.x,
+      y: next.y - ghost.position.y,
+    });
+    const variantSpeed =
+      ghost.variant === "swift"
+        ? 1.65
+        : ghost.variant === "brute"
+          ? 0.78
+          : ghost.variant === "minion"
+            ? 1.22
+            : ghost.variant.startsWith("twin")
+              ? 1.15
+              : 1;
     const slowed = this.state.elapsed < ghost.slowUntil;
     const slowMultiplier = slowed ? (ghost.retreating ? 0.9 : 0.76) : 1;
-    let speed = BALANCE.ghost.speed * this.stage.speedMultiplier * variantSpeed * (ghost.rage ? 1.32 : 1) * slowMultiplier;
-    if (ghost.retreating) speed *= 1.12;
-    const radius = ghost.variant === 'giant' ? 0.38 : ghost.variant === 'minion' ? 0.16 : BALANCE.ghost.collisionRadius;
-    ghost.position = moveInWalkableArea(this.map, ghost.position, {
-      x: direction.x * speed * dt,
-      y: direction.y * speed * dt,
-    }, radius);
+    let speed =
+      BALANCE.ghost.speed *
+      this.stage.speedMultiplier *
+      variantSpeed *
+      speedMultiplier *
+      (ghost.rage ? 1.32 : 1) *
+      slowMultiplier;
+    if (ghost.retreating) speed *= BALANCE.ghost.retreatSpeedMultiplier;
+    const radius =
+      ghost.variant === "giant"
+        ? 0.38
+        : ghost.variant === "minion"
+          ? 0.16
+          : BALANCE.ghost.collisionRadius;
+    ghost.position = moveInWalkableArea(
+      this.map,
+      ghost.position,
+      {
+        x: direction.x * speed * dt,
+        y: direction.y * speed * dt,
+      },
+      radius,
+    );
   }
 
   private selectGhostTarget(ghost: GhostState): string | null {
     const candidates = this.state.rooms.filter((room) => {
-      return room.ownerIds.some((ownerId) => this.state.players.some((player) => player.id === ownerId && player.alive));
+      return room.ownerIds.some((ownerId) =>
+        this.state.players.some(
+          (player) => player.id === ownerId && player.alive,
+        ),
+      );
     });
     if (candidates.length === 0) return null;
-    const otherTwinTargets = ghost.variant.startsWith('twin')
-      ? new Set(this.state.ghosts.filter((candidate) => candidate.id !== ghost.id && candidate.variant.startsWith('twin')).map((candidate) => candidate.targetRoomId).filter(Boolean))
+    const otherTwinTargets = ghost.variant.startsWith("twin")
+      ? new Set(
+          this.state.ghosts
+            .filter(
+              (candidate) =>
+                candidate.id !== ghost.id &&
+                candidate.variant.startsWith("twin"),
+            )
+            .map((candidate) => candidate.targetRoomId)
+            .filter(Boolean),
+        )
       : new Set<string>();
-    const diversified = candidates.length > 1 ? candidates.filter((room) => !otherTwinTargets.has(room.id)) : candidates;
+    const diversified =
+      candidates.length > 1
+        ? candidates.filter((room) => !otherTwinTargets.has(room.id))
+        : candidates;
     const pool = diversified.length > 0 ? diversified : candidates;
     return pool[this.rng.int(0, pool.length - 1)]?.id ?? null;
   }
 
+  private selectOutsideTarget(ghost: GhostState): PlayerState | null {
+    return (
+      this.state.players
+        .filter(
+          (player) => player.alive && player.connected && !player.roomId,
+        )
+        .sort((first, second) => {
+          // 실제 생존자가 복도에 있다면 서버 봇보다 먼저 추적한다.
+          if (first.isBot !== second.isBot)
+            return Number(first.isBot) - Number(second.isBot);
+          return (
+            distance(ghost.position, first.position) -
+            distance(ghost.position, second.position)
+          );
+        })[0] ?? null
+    );
+  }
+
   private syncPrimaryGhost(): void {
-    this.state.ghost = this.state.ghosts.find((ghost) => ghost.variant !== 'minion' && ghost.hp > 0)
-      ?? this.state.ghosts.find((ghost) => ghost.hp > 0)
-      ?? this.state.ghosts[0] as GhostState;
+    this.state.ghost =
+      this.state.ghosts.find(
+        (ghost) => ghost.variant !== "minion" && ghost.hp > 0,
+      ) ??
+      this.state.ghosts.find((ghost) => ghost.hp > 0) ??
+      (this.state.ghosts[0] as GhostState);
   }
 
   private evaluateOutcome(): void {
     if (this.state.ghosts.every((ghost) => ghost.hp <= 0)) {
-      this.state.status = 'VICTORY';
-      this.state.winner = 'survivors';
-      this.pendingEvents.push({ kind: 'victory', position: this.state.ghosts[0]?.position ?? this.map.ghostSpawn });
+      this.state.status = "VICTORY";
+      this.state.winner = "survivors";
+      this.pendingEvents.push({
+        kind: "victory",
+        position: this.state.ghosts[0]?.position ?? this.map.ghostSpawn,
+      });
       return;
     }
-    if (this.state.players.length > 0 && this.state.players.every((player) => !player.alive)) {
-      this.state.status = 'DEFEAT';
-      this.state.winner = 'ghost';
-      this.pendingEvents.push({ kind: 'defeat', position: this.state.ghost.position });
+    if (
+      this.state.players.length > 0 &&
+      this.state.players.every((player) => !player.alive)
+    ) {
+      this.state.status = "DEFEAT";
+      this.state.winner = "ghost";
+      this.pendingEvents.push({
+        kind: "defeat",
+        position: this.state.ghost.position,
+      });
     }
   }
 
   private voteRematch(playerId: string): ActionResult {
-    if (this.state.status !== 'VICTORY' && this.state.status !== 'DEFEAT') return { ok: false, error: '결과 화면에서만 재대결할 수 있습니다.' };
+    if (this.state.status !== "VICTORY" && this.state.status !== "DEFEAT")
+      return { ok: false, error: "결과 화면에서만 재대결할 수 있습니다." };
     this.rematchVotes.add(playerId);
-    const humans = this.state.players.filter((player) => !player.isBot && player.connected);
-    if (humans.every((player) => this.rematchVotes.has(player.id))) this.resetForRematch();
+    const humans = this.state.players.filter(
+      (player) => !player.isBot && player.connected,
+    );
+    if (humans.every((player) => this.rematchVotes.has(player.id)))
+      this.resetForRematch();
     return { ok: true };
   }
 
   private resetForRematch(): void {
     const hostId = this.state.hostId;
     const players = this.state.players.map((player) => ({
-      ...this.makePlayer(player.id, player.nickname, player.isBot, player.accountId, player.soloRank, player.multiplayerRank, player.appearance, player.turretSkins),
+      ...this.makePlayer(
+        player.id,
+        player.nickname,
+        player.isBot,
+        player.accountId,
+        player.soloRank,
+        player.multiplayerRank,
+        player.appearance,
+        player.turretSkins,
+      ),
       connected: player.connected,
       ready: player.isBot,
     }));
@@ -1162,11 +1990,23 @@ export class GameEngine {
   }
 
   private expireDisconnected(now: number): void {
-    if (this.state.status === 'LOBBY') {
-      const expired = this.state.players.filter((player) => !player.isBot && !player.connected && player.reconnectUntil > 0 && player.reconnectUntil < now);
+    if (this.state.status === "LOBBY") {
+      const expired = this.state.players.filter(
+        (player) =>
+          !player.isBot &&
+          !player.connected &&
+          player.reconnectUntil > 0 &&
+          player.reconnectUntil < now,
+      );
       for (const player of expired) {
-        this.state.players = this.state.players.filter((candidate) => candidate.id !== player.id);
-        if (this.state.hostId === player.id) this.state.hostId = this.state.players.find((candidate) => !candidate.isBot && candidate.connected)?.id ?? null;
+        this.state.players = this.state.players.filter(
+          (candidate) => candidate.id !== player.id,
+        );
+        if (this.state.hostId === player.id)
+          this.state.hostId =
+            this.state.players.find(
+              (candidate) => !candidate.isBot && candidate.connected,
+            )?.id ?? null;
       }
     }
   }
@@ -1177,13 +2017,26 @@ export class GameEngine {
       player.power = clamp(player.power, 0, 999_999);
       player.hp = clamp(player.hp, 0, player.maxHp);
     }
-    for (const room of this.state.rooms) room.doorHp = clamp(room.doorHp, 0, room.doorMaxHp);
-    for (const ghost of this.state.ghosts) ghost.hp = clamp(ghost.hp, 0, ghost.maxHp);
+    for (const room of this.state.rooms)
+      room.doorHp = clamp(room.doorHp, 0, room.doorMaxHp);
+    for (const ghost of this.state.ghosts)
+      ghost.hp = clamp(ghost.hp, 0, ghost.maxHp);
     this.syncPrimaryGhost();
   }
 
-  private makePlayer(id: string, nickname: string, isBot: boolean, accountId: string | null, soloRank: RankId, multiplayerRank: RankId, appearance = DEFAULT_APPEARANCE, turretSkins = DEFAULT_TURRET_SKINS): PlayerState {
-    const benefits = rankBenefits(this.playMode === 'solo' ? soloRank : multiplayerRank);
+  private makePlayer(
+    id: string,
+    nickname: string,
+    isBot: boolean,
+    accountId: string | null,
+    soloRank: RankId,
+    multiplayerRank: RankId,
+    appearance = DEFAULT_APPEARANCE,
+    turretSkins = DEFAULT_TURRET_SKINS,
+  ): PlayerState {
+    const benefits = rankBenefits(
+      this.playMode === "solo" ? soloRank : multiplayerRank,
+    );
     return {
       id,
       accountId,

@@ -41,12 +41,16 @@ export function decideBotIntent(
   if (!bot.alive || (snapshot.status !== 'COUNTDOWN' && snapshot.status !== 'PLAYING')) return { type: 'idle' };
 
   if (!bot.roomId) {
+    const roomCapacity = snapshot.playMode === 'multiplayer' ? 2 : 1;
     const available = map.rooms.flatMap((room) => {
       const roomState = snapshot.rooms.find((state) => state.id === room.id);
       return room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex }))
-        .filter(({ bedIndex }) => !roomState?.ownerIds.some((ownerId) =>
-          snapshot.players.some((player) => player.id === ownerId && player.bedIndex === bedIndex),
-        ));
+        .filter(({ bedIndex }) =>
+          (roomState?.ownerIds.length ?? 0) < roomCapacity &&
+          !roomState?.ownerIds.some((ownerId) =>
+            snapshot.players.some((player) => player.id === ownerId && player.bedIndex === bedIndex),
+          ),
+        );
     }).sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed))[0];
     if (!available) return { type: 'idle' };
     if (distance(bot.position, available.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };

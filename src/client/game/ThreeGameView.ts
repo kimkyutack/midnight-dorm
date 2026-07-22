@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BALANCE } from '../../shared/balance';
+import { BALANCE, maxBuildingLevel, upgradeCost } from '../../shared/balance';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
 import { moveInWalkableArea } from '../../shared/map';
 import { combinedItemEffects } from '../../shared/randomItems';
@@ -51,7 +51,6 @@ export interface PlayerRig {
 
 interface PlayerView extends PlayerRig {
   label: THREE.Sprite;
-  hp: THREE.Sprite;
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
   seed: number;
@@ -72,6 +71,7 @@ interface BuildingView {
   root: THREE.Group;
   barrel: THREE.Group | null;
   level: THREE.Sprite;
+  upgrade: THREE.Sprite;
 }
 
 interface DoorView {
@@ -1042,6 +1042,7 @@ export class ThreeGameView {
   private lastFrame = performance.now();
   private lastSelectionAt = 0;
   private lastSelectionKey = '';
+  private selectionBlockedUntil = 0;
   private paused = false;
   private destroyed = false;
 
@@ -1108,9 +1109,30 @@ export class ThreeGameView {
   getCameraYaw(): number { return this.cameraYaw; }
 
   focusLocalPlayer(): void {
-    const view = this.playerViews.get(this.playerId);
+    this.focusPlayer(this.playerId);
+  }
+
+  focusPlayer(playerId: string): void {
+    const view = this.playerViews.get(playerId);
     if (!view) return;
+
+    // 침대를 점유한 뒤에는 동료 초상화로 카메라를 자유롭게 옮길 수 있다.
+    // 점유 전에는 기존 규칙대로 내 캐릭터 추적을 유지한다.
+    const localPlayer = this.snapshotData?.players.find((player) => player.id === this.playerId);
+    if (playerId !== this.playerId && localPlayer?.roomId) {
+      this.followingPlayer = false;
+    }
     this.desiredCameraTarget.set(view.root.position.x, 0, view.root.position.z);
+  }
+
+  suppressSelections(milliseconds = 650): void {
+    const duration = Math.max(0, milliseconds);
+    this.selectionBlockedUntil = Math.max(
+      this.selectionBlockedUntil,
+      performance.now() + duration,
+    );
+    this.lastSelectionAt = performance.now();
+    this.lastSelectionKey = '';
   }
 
   zoomBy(magnificationFactor: number): void {
@@ -1143,15 +1165,19 @@ export class ThreeGameView {
     this.snapshotData = snapshot;
     this.syncPlayers(snapshot.players);
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
-    this.syncBuildings(snapshot.buildings);
+    this.syncBuildings(snapshot);
     this.syncDoors(snapshot);
     for (const event of events) this.playEvent(event);
 
     const local = snapshot.players.find((player) => player.id === this.playerId);
-    if (local && !local.roomId) {
+    if (!local?.alive) {
+      // 사망 뒤에는 관전 상태이므로 마지막 위치에 카메라를 고정하지 않는다.
+      this.followingPlayer = false;
+      this.focusedRoomId = null;
+    } else if (!local.roomId) {
       this.followingPlayer = true;
       this.focusedRoomId = null;
-    } else if (local?.roomId) {
+    } else if (local.roomId) {
       const roomChanged = this.focusedRoomId !== local.roomId;
       this.followingPlayer = false;
       if (roomChanged) {
@@ -1343,18 +1369,25 @@ export class ThreeGameView {
         const label = makeBillboard();
         label.scale.set(2.35, 0.59, 1);
         label.position.y = PLAYER_HEIGHT + 0.36;
-        const hp = makeBillboard();
-        hp.scale.set(1.55, 0.39, 1);
-        hp.position.y = PLAYER_HEIGHT + 0.02;
-        rig.root.add(label, hp);
+        rig.root.add(label);
         this.scene.add(rig.root);
-        view = { ...rig, label, hp, target: worldPoint(player.position), lastPosition: worldPoint(player.position), seed: player.id.length * 0.71 };
+        view = { ...rig, label, target: worldPoint(player.position), lastPosition: worldPoint(player.position), seed: player.id.length * 0.71 };
         this.playerViews.set(player.id, view);
       }
       view.target.copy(worldPoint(player.position));
+      // 점유 순간에는 서버가 침대 좌표로 이동시키므로, 벽 충돌을 거치는
+      // 일반 보간을 사용하면 복도에 남은 채 누워 보일 수 있다. 점유자는
+      // 항상 침대 좌표로 즉시 맞춰 렌더링 상태와 서버 점유 상태를 일치시킨다.
+      if (
+        player.alive &&
+        player.roomId &&
+        view.root.position.distanceToSquared(view.target) > 0.0001
+      ) {
+        view.root.position.copy(view.target);
+        view.lastPosition.copy(view.target);
+      }
       const elite = isEliteRank(player.displayRank);
       updateTextBillboard(view.label, `${player.displayRank}:${player.nickname}`, `${rankBadgeSymbol(player.displayRank)} ${rankLabel(player.displayRank)} · ${player.nickname}`, elite ? '#ecc9ff' : '#ffffff');
-      updateBarBillboard(view.hp, `${Math.ceil(player.hp)}:${player.maxHp}`, player.hp / Math.max(1, player.maxHp), `${Math.ceil(player.hp)} / ${player.maxHp}`, player.hp / player.maxHp > 0.35 ? '#55dfa0' : '#ff5578');
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
     for (const [id, view] of this.playerViews) {
@@ -1400,7 +1433,10 @@ export class ThreeGameView {
     }
   }
 
-  private syncBuildings(buildings: BuildingState[]): void {
+  private syncBuildings(snapshot: GameSnapshot): void {
+    const buildings = snapshot.buildings;
+    const local = snapshot.players.find((player) => player.id === this.playerId);
+    const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const active = new Set(buildings.map((building) => building.id));
     for (const building of buildings) {
       let view = this.buildingViews.get(building.id);
@@ -1410,12 +1446,38 @@ export class ThreeGameView {
         const level = makeBillboard();
         level.scale.set(0.8, 0.28, 1);
         level.position.set(0.35, 0.9, 0);
-        model.root.add(level);
+        const upgrade = makeBillboard();
+        upgrade.scale.set(0.43, 0.24, 1);
+        upgrade.position.set(-0.3, 1.1, 0);
+        model.root.add(level, upgrade);
         this.scene.add(model.root);
-        view = { root: model.root, barrel: model.barrel, level };
+        view = { root: model.root, barrel: model.barrel, level, upgrade };
         this.buildingViews.set(building.id, view);
       }
       updateTextBillboard(view.level, `${building.level}`, `Lv.${building.level}`, '#ffffff', 'rgba(8,12,24,.9)');
+      const nextCost =
+        building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
+          ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
+          : null;
+      const isUpgradeable = Boolean(
+        nextCost && local?.alive && local.roomId === building.roomId,
+      );
+      const canAffordUpgrade = Boolean(
+        nextCost &&
+          local &&
+          local.gold >= nextCost.gold &&
+          local.power >= nextCost.power,
+      );
+      view.upgrade.visible = isUpgradeable;
+      if (isUpgradeable) {
+        updateTextBillboard(
+          view.upgrade,
+          `${building.level}:${canAffordUpgrade}`,
+          '↑',
+          canAffordUpgrade ? '#fff1a6' : '#b9c7df',
+          canAffordUpgrade ? 'rgba(72, 54, 10, .94)' : 'rgba(18, 31, 55, .9)',
+        );
+      }
     }
     for (const [id, view] of this.buildingViews) {
       if (active.has(id)) continue;
@@ -1486,6 +1548,7 @@ export class ThreeGameView {
       const player = this.snapshotData.players.find((candidate) => candidate.id === id);
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
+      const defeated = !player.alive;
       const isLocal = id === this.playerId;
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
       if (hasLocalInput) {
@@ -1510,18 +1573,18 @@ export class ThreeGameView {
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
       if (moving && !lying) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
-      const stride = moving && !lying ? Math.sin(time * 0.018 + view.seed) * 0.8 : 0;
-      const armPitch = moving && !lying
+      const stride = moving && !lying && !defeated ? Math.sin(time * 0.018 + view.seed) * 0.8 : 0;
+      const armPitch = moving && !lying && !defeated
         ? -1.18 + Math.sin(time * 0.018 + view.seed + 0.7) * 0.07
-        : 0;
+        : (defeated ? -0.68 : 0);
       view.leftArm.rotation.x = damp(view.leftArm.rotation.x, armPitch, 14, dt);
       view.rightArm.rotation.x = damp(view.rightArm.rotation.x, armPitch, 14, dt);
-      view.leftLeg.rotation.x = damp(view.leftLeg.rotation.x, -stride, 12, dt);
-      view.rightLeg.rotation.x = damp(view.rightLeg.rotation.x, stride, 12, dt);
-      view.avatar.rotation.x = damp(view.avatar.rotation.x, moving && !lying ? -0.13 : 0, 12, dt);
-      view.avatar.rotation.z = damp(view.avatar.rotation.z, lying ? Math.PI / 2 : 0, 9, dt);
-      view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (moving ? Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.055 : 0), 10, dt);
-      view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : 1, 9, dt));
+      view.leftLeg.rotation.x = damp(view.leftLeg.rotation.x, defeated ? 0.18 : -stride, 12, dt);
+      view.rightLeg.rotation.x = damp(view.rightLeg.rotation.x, defeated ? -0.14 : stride, 12, dt);
+      view.avatar.rotation.x = damp(view.avatar.rotation.x, moving && !lying && !defeated ? -0.13 : (defeated ? -0.24 : 0), 12, dt);
+      view.avatar.rotation.z = damp(view.avatar.rotation.z, lying || defeated ? Math.PI / 2 : 0, 9, dt);
+      view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (defeated ? 0.24 : (moving ? Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.055 : 0)), 10, dt);
+      view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : (defeated ? 0.82 : 1), 9, dt));
       view.lastPosition.copy(view.root.position);
     }
   }
@@ -1709,7 +1772,9 @@ export class ThreeGameView {
       this.dispatchPortraitMovement(0, 0);
       return;
     }
-    if (!local?.roomId) return;
+    // 점유 전의 생존자는 카메라가 본인을 추적한다. 사망 뒤에는 관전용으로
+    // 드래그/핀치 카메라를 열어 둔다.
+    if (!local || (local.alive && !local.roomId)) return;
     event.preventDefault();
     this.renderer.domElement.setPointerCapture(event.pointerId);
     this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -1848,6 +1913,7 @@ export class ThreeGameView {
 
   private selectAt(clientX: number, clientY: number): void {
     const now = performance.now();
+    if (now < this.selectionBlockedUntil) return;
     if (now - this.lastSelectionAt < TAP_GLOBAL_DEBOUNCE_MS) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);

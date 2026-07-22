@@ -267,11 +267,19 @@ export class AvatarPreview3D {
       rig.rightLeg.rotation.x = stride;
     }
     if (this.homeGhost) {
-      const float = Math.sin(time * 0.005) * 0.08;
-      const reach = Math.sin(time * 0.008) * 0.18;
-      this.homeGhost.body.position.y = float;
-      this.homeGhost.leftArm.rotation.x = reach;
-      this.homeGhost.rightArm.rotation.x = -reach;
+      const runCycle = Math.sin(time * 0.016);
+      // 화면 기준 왼쪽으로 추격하므로 팔을 월드 +X(카메라에서 보이는 진행 방향)로 뻗는다.
+      // 어깨가 번갈아 흔들려 단순 부유가 아니라 붙잡으려 달리는 실루엣으로 보인다.
+      this.homeGhost.body.position.y = Math.abs(runCycle) * 0.065;
+      this.homeGhost.body.rotation.z = runCycle * 0.035;
+      this.homeGhost.leftArm.position.y = 1.2;
+      this.homeGhost.rightArm.position.y = 1.08;
+      this.homeGhost.leftArm.position.z = -0.38;
+      this.homeGhost.rightArm.position.z = -0.42;
+      this.homeGhost.leftArm.rotation.z = 1.02 - runCycle * 0.1;
+      this.homeGhost.rightArm.rotation.z = 2.06 + runCycle * 0.1;
+      this.homeGhost.leftArm.rotation.x = 0.04 - runCycle * 0.05;
+      this.homeGhost.rightArm.rotation.x = -0.04 + runCycle * 0.05;
     }
     this.render();
     this.animationFrame = requestAnimationFrame(this.animateHome);

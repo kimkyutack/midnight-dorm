@@ -127,6 +127,8 @@ export interface GhostState {
   maxHp: number;
   level: number;
   targetRoomId: string | null;
+  /** 방을 점유하지 못한 생존자는 문보다 먼저 직접 추적한다. */
+  targetPlayerId: string | null;
   attackCooldown: number;
   slowUntil: number;
   rage: boolean;

@@ -9,7 +9,11 @@ import {
 interface TestState {
   map: {
     walkable: Array<{ x: number; y: number }>;
-    rooms: Array<{ id: string; bed: { x: number; y: number }; beds: Array<{ x: number; y: number }> }>;
+    rooms: Array<{
+      id: string;
+      bed: { x: number; y: number };
+      beds: Array<{ x: number; y: number }>;
+    }>;
   } | null;
   snapshot: {
     seed: number;
@@ -23,7 +27,11 @@ interface TestState {
       roomId: string | null;
       bedIndex: number | null;
     }>;
-    buildings: Array<{ id: string; kind: string; tile: { x: number; y: number } }>;
+    buildings: Array<{
+      id: string;
+      kind: string;
+      tile: { x: number; y: number };
+    }>;
     rooms: Array<{ doorHp: number; doorMaxHp: number }>;
     ghost: { hp: number };
   } | null;
@@ -46,7 +54,9 @@ async function enter(
   const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
   await page.getByLabel("아이디").fill(username);
   await page.getByLabel("게임 닉네임").fill(nickname);
-  await page.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
+  await page
+    .getByRole("textbox", { name: "비밀번호" })
+    .fill("midnight-test-2026");
   await page.getByRole("button", { name: "계정 만들고 시작" }).click();
   await expect(page.locator(".game-home")).toBeVisible();
   return username;
@@ -72,11 +82,16 @@ test("portrait home separates shop, owned customization and stage start", async 
   try {
     await page.goto("/?dev=1&fresh=1");
     await expect(page.locator(".opening-teaser")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "심야 병동" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "심야 병동" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "건너뛰기" }).click();
     await page.getByRole("button", { name: "새 계정" }).click();
     const passwordInput = page.getByRole("textbox", { name: "비밀번호" });
-    await expect(page.getByLabel("아이디")).toHaveAttribute("autocapitalize", "off");
+    await expect(page.getByLabel("아이디")).toHaveAttribute(
+      "autocapitalize",
+      "off",
+    );
     await expect(passwordInput).toHaveAttribute("autocapitalize", "off");
     await expect(passwordInput).toHaveAttribute("autocorrect", "off");
     await expect(passwordInput).toHaveAttribute("spellcheck", "false");
@@ -92,9 +107,13 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
-    await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(3);
+    await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
+      3,
+    );
     await expect(page.locator("[data-home-logout]")).toHaveCount(0);
-    const avatarBounds = await page.locator(".home-avatar-showcase").boundingBox();
+    const avatarBounds = await page
+      .locator(".home-avatar-showcase")
+      .boundingBox();
     expect(avatarBounds).toBeTruthy();
     expect(avatarBounds?.width ?? 999).toBeLessThanOrEqual(330);
     await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
@@ -111,47 +130,86 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await expect(page.locator(".home-chase-ghost")).toHaveCount(0);
     expect(
-      await page.locator(".home-avatar-showcase").evaluate(
-        (element) => getComputedStyle(element).animationName,
-      ),
+      await page
+        .locator(".home-avatar-showcase")
+        .evaluate((element) => getComputedStyle(element).animationName),
     ).toBe("homeAvatarEscape");
-    await expect(page.locator("[data-ranking] .home-utility-icon")).toBeVisible();
+    const summaryLayout = await page
+      .locator(".home-stage-summary small")
+      .evaluate((summary) => ({
+        overflow: getComputedStyle(summary).overflow,
+        whitespace: getComputedStyle(summary).whiteSpace,
+      }));
+    expect(summaryLayout.overflow).toBe("visible");
+    expect(summaryLayout.whitespace).toBe("normal");
+    await expect(
+      page.locator("[data-ranking] .home-utility-icon"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "스테이지 난이도 선택" }).click();
-    await expect(page.getByRole("dialog", { name: "도전할 스테이지" })).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "도전할 스테이지" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "닫기" }).click();
     await page.getByRole("button", { name: "설정" }).click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
     await page.getByRole("button", { name: "완료" }).click();
     const profileResponse = await page.request.get("/api/auth/me");
     expect(profileResponse).toBeOK();
-    const profile = await profileResponse.json() as {
-      profile: { customPoints: number; appearance: { character: string }; ownedCosmetics: string[] };
+    const profile = (await profileResponse.json()) as {
+      profile: {
+        customPoints: number;
+        appearance: { character: string };
+        ownedCosmetics: string[];
+      };
     };
     expect(profile.profile.customPoints).toBe(0);
     expect(profile.profile.appearance.character).toBe("character-bunny");
     expect(profile.profile.ownedCosmetics).toContain("hat-rank");
-    expect((await page.request.post("/api/customize/purchase", { data: { itemId: "character-cat" } })).status()).toBe(409);
-    expect((await page.request.post("/api/customize/equip", { data: { itemId: "character-bear" } })).status()).toBe(403);
+    expect(
+      (
+        await page.request.post("/api/customize/purchase", {
+          data: { itemId: "character-cat" },
+        })
+      ).status(),
+    ).toBe(409);
+    expect(
+      (
+        await page.request.post("/api/customize/equip", {
+          data: { itemId: "character-bear" },
+        })
+      ).status(),
+    ).toBe(403);
     await expect(page.locator("#orientation-lock")).toHaveCount(0);
     await page.getByRole("button", { name: /상점/ }).click();
-    await expect(page.getByRole("heading", { name: "새벽 상점" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "스토어" })).toBeVisible();
     await expect(page.locator(".cosmetic-card")).toHaveCount(6);
     await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
-    await expect(page.locator("[data-custom-preview-title]")).toHaveText("달고양이 루루");
-    await expect(page.locator("[data-custom-preview-copy]")).toContainText("포인트는 차감되지 않습니다");
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText(
+      "달고양이 루루",
+    );
     await page.getByRole("button", { name: "포탑", exact: true }).click();
     const shopTurretCanvas = page.locator(".custom-avatar-canvas");
-    await expect(shopTurretCanvas).toHaveAttribute("data-preview-kind", "turret");
-    await page.locator(".cosmetic-card", { hasText: "수호포 · 호박등" }).click();
-    await expect(shopTurretCanvas).toHaveAttribute("data-skin-id", "turret-basic-pumpkin");
+    await expect(shopTurretCanvas).toHaveAttribute(
+      "data-preview-kind",
+      "turret",
+    );
+    await page
+      .locator(".cosmetic-card", { hasText: "수호포 · 호박등" })
+      .click();
+    await expect(shopTurretCanvas).toHaveAttribute(
+      "data-skin-id",
+      "turret-basic-pumpkin",
+    );
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
-    await expect(page.getByRole("heading", { name: "나만의 생존자" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "커스텀" })).toBeVisible();
     const avatarCanvas = page.locator(".custom-avatar-canvas");
     await expect(avatarCanvas).toBeVisible();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");
     await expect(page.locator(".cosmetic-card")).toHaveCount(1);
-    await expect(page.locator(".cosmetic-card", { hasText: "달고양이 루루" })).toHaveCount(0);
+    await expect(
+      page.locator(".cosmetic-card", { hasText: "달고양이 루루" }),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await avatarCanvas.tap();
@@ -159,34 +217,74 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
-    expect(await page.request.post("/api/auth/login", { data: { username, password } })).toBeOK();
+    expect(
+      await page.request.post("/api/auth/login", {
+        data: { username, password },
+      }),
+    ).toBeOK();
     await page.getByRole("button", { name: /플레이 방식/ }).click();
-    await expect(page.getByRole("dialog", { name: "플레이 방식 선택" })).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "플레이 방식 선택" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: /멀티 플레이/ }).click();
-    await expect(page.getByRole("button", { name: /플레이 방식 멀티 플레이/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /플레이 방식 멀티 플레이/ }),
+    ).toBeVisible();
     await page.getByRole("button", { name: /플레이 방식/ }).click();
-    await page.getByRole("button", { name: /개인 플레이/ }).click();
+    await page.getByRole("button", { name: /싱글 플레이/ }).click();
     await page.getByTestId("home-stage-start").click();
     await expect(page.locator(".lobby-screen")).toBeVisible();
+    const lobbyLayout = await page.locator(".lobby-shell").evaluate((shell) => {
+      const stage = shell.querySelector(".lobby-stage");
+      const content = shell.querySelector(".lobby-content");
+      const players = shell.querySelector(".players");
+      const first = shell.querySelector(".player-card");
+      return {
+        stageTextAlign: stage ? getComputedStyle(stage).textAlign : "",
+        contentWidth: content?.getBoundingClientRect().width ?? 0,
+        playersWidth: players?.getBoundingClientRect().width ?? 0,
+        firstHeight: first?.getBoundingClientRect().height ?? 0,
+        faces: shell.querySelectorAll(".player-card .player-face").length,
+        legacyDots: shell.querySelectorAll(".player-card .player-dot").length,
+      };
+    });
+    expect(lobbyLayout.stageTextAlign).toBe("center");
+    expect(lobbyLayout.playersWidth).toBeGreaterThanOrEqual(
+      lobbyLayout.contentWidth - 1,
+    );
+    expect(lobbyLayout.firstHeight).toBeLessThanOrEqual(62);
+    expect(lobbyLayout.faces).toBeGreaterThan(0);
+    expect(lobbyLayout.legacyDots).toBe(0);
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-shell")).toBeVisible();
-    await expect(page.getByRole("button", { name: "내 캐릭터 위치로 카메라 이동" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "내 캐릭터 위치로 카메라 이동" }),
+    ).toBeVisible();
     await expect(page.locator(".portrait-drag-hint")).toBeVisible();
     const beforeDrag = await state(page);
-    const localBefore = beforeDrag.snapshot?.players.find((player) => player.id === beforeDrag.playerId)?.position;
+    const localBefore = beforeDrag.snapshot?.players.find(
+      (player) => player.id === beforeDrag.playerId,
+    )?.position;
     expect(localBefore).toBeTruthy();
     await page.mouse.move(195, 422);
     await page.mouse.down();
     await page.mouse.move(250, 365, { steps: 6 });
     await page.waitForTimeout(260);
     await page.mouse.up();
-    await expect.poll(async () => {
-      const afterDrag = await state(page);
-      const localAfter = afterDrag.snapshot?.players.find((player) => player.id === afterDrag.playerId)?.position;
-      return localAfter && localBefore
-        ? Math.hypot(localAfter.x - localBefore.x, localAfter.y - localBefore.y)
-        : 0;
-    }).toBeGreaterThan(0.08);
+    await expect
+      .poll(async () => {
+        const afterDrag = await state(page);
+        const localAfter = afterDrag.snapshot?.players.find(
+          (player) => player.id === afterDrag.playerId,
+        )?.position;
+        return localAfter && localBefore
+          ? Math.hypot(
+              localAfter.x - localBefore.x,
+              localAfter.y - localBefore.y,
+            )
+          : 0;
+      })
+      .toBeGreaterThan(0.08);
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -227,7 +325,9 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(page.getByTestId("room-code")).toHaveCount(0);
     await expect(page.locator("[data-player-id]")).toHaveCount(4);
     await page.getByTestId("start-game").click();
-    await expect(page.locator("#game-root canvas[data-theme='hospital']")).toBeVisible();
+    await expect(
+      page.locator("#game-root canvas[data-theme='hospital']"),
+    ).toBeVisible();
     await expect(page.locator(".stage-chip .rank-badge")).toBeVisible();
     await page.waitForFunction(
       () => {
@@ -248,11 +348,17 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "follow",
     );
-    const initialYaw = await page.evaluate(() => window.__DORM_TEST__?.cameraYaw());
+    const initialYaw = await page.evaluate(() =>
+      window.__DORM_TEST__?.cameraYaw(),
+    );
     await page.getByRole("button", { name: "카메라 확대" }).click();
-    expect(await page.evaluate(() => window.__DORM_TEST__?.cameraZoom())).toBeCloseTo(Math.SQRT2, 1);
+    expect(
+      await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),
+    ).toBeCloseTo(Math.SQRT2, 1);
     await page.getByRole("button", { name: "카메라 오른쪽 회전" }).click();
-    expect(await page.evaluate(() => window.__DORM_TEST__?.cameraYaw())).not.toBeCloseTo(initialYaw ?? 0, 3);
+    expect(
+      await page.evaluate(() => window.__DORM_TEST__?.cameraYaw()),
+    ).not.toBeCloseTo(initialYaw ?? 0, 3);
 
     await page.getByRole("button", { name: "설정" }).click();
     const vibration = page.locator("[data-vibration]");
@@ -307,7 +413,9 @@ test("three solo bots visibly pathfind through doors before the normal countdown
   }
 });
 
-test("lobby host can remove bots, transfer ownership, kick a player and close an empty room", async ({ browser }) => {
+test("lobby host can remove bots, transfer ownership, kick a player and close an empty room", async ({
+  browser,
+}) => {
   const firstContext = await mobileContext(browser);
   const secondContext = await mobileContext(browser);
   const first = await firstContext.newPage();
@@ -320,7 +428,9 @@ test("lobby host can remove bots, transfer ownership, kick a player and close an
     await first.getByRole("button", { name: "봇 추가" }).click();
     await expect(first.getByRole("button", { name: "봇 제거" })).toBeVisible();
     await first.getByRole("button", { name: "봇 제거" }).click();
-    await expect(first.locator(".player-card", { hasText: "서버 생존자 봇" })).toHaveCount(0);
+    await expect(
+      first.locator(".player-card", { hasText: "서버 생존자 봇" }),
+    ).toHaveCount(0);
 
     await enter(second, "다음방장", "guest");
     await joinMultiplayerRoom(second, code);
@@ -328,7 +438,9 @@ test("lobby host can remove bots, transfer ownership, kick a player and close an
 
     await first.getByRole("button", { name: "방 나가기" }).click();
     await expect(first.locator(".game-home")).toBeVisible();
-    await expect(second.locator(".player-card", { hasText: "다음방장" })).toContainText("★");
+    await expect(
+      second.locator(".player-card", { hasText: "다음방장" }),
+    ).toContainText("★");
 
     await joinMultiplayerRoom(first, code);
     await expect(second.getByRole("button", { name: "추방" })).toBeVisible();
@@ -338,7 +450,9 @@ test("lobby host can remove bots, transfer ownership, kick a player and close an
 
     await second.getByRole("button", { name: "방 나가기" }).click();
     await expect(second.locator(".game-home")).toBeVisible();
-    expect((await second.request.get(`/api/rooms/${code}/status`)).status()).toBe(404);
+    expect(
+      (await second.request.get(`/api/rooms/${code}/status`)).status(),
+    ).toBe(404);
   } finally {
     await firstContext.close().catch(() => undefined);
     await secondContext.close().catch(() => undefined);
@@ -370,8 +484,18 @@ test("two real browser contexts share a room, building, combat and reconnection"
     ).toContainText("READY");
     await first.getByTestId("start-game").click();
     await Promise.all([
-      expect.poll(async () => (await state(first)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
-      expect.poll(async () => (await state(second)).snapshot?.status, { timeout: 15_000, intervals: [100] }).toBe("PLAYING"),
+      expect
+        .poll(async () => (await state(first)).snapshot?.status, {
+          timeout: 15_000,
+          intervals: [100],
+        })
+        .toBe("PLAYING"),
+      expect
+        .poll(async () => (await state(second)).snapshot?.status, {
+          timeout: 15_000,
+          intervals: [100],
+        })
+        .toBe("PLAYING"),
     ]);
     await Promise.all([
       expect(first.getByTestId("network")).toBeVisible(),
@@ -379,10 +503,12 @@ test("two real browser contexts share a room, building, combat and reconnection"
     ]);
     await expect(first.getByRole("button", { name: "가방" })).toBeVisible();
     await expect(first.getByRole("button", { name: "침대 점유" })).toBeHidden();
-    await expect.poll(
-      async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
-      { timeout: 5_000, intervals: [100] },
-    ).toBe("free");
+    await expect
+      .poll(
+        async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
+        { timeout: 5_000, intervals: [100] },
+      )
+      .toBe("free");
 
     const firstState = await state(first);
     const secondState = await state(second);
@@ -401,10 +527,12 @@ test("two real browser contexts share a room, building, combat and reconnection"
         window.__DORM_TEST__?.buildFirst("basic-turret"),
       ),
     ).toBe(true);
-    await expect.poll(
-      async () => (await state(second)).snapshot?.buildings.length ?? 0,
-      { timeout: 5_000, intervals: [50] },
-    ).toBeGreaterThanOrEqual(1);
+    await expect
+      .poll(async () => (await state(second)).snapshot?.buildings.length ?? 0, {
+        timeout: 5_000,
+        intervals: [50],
+      })
+      .toBeGreaterThanOrEqual(1);
     const builtFirst = await state(first);
     const builtSecond = await state(second);
     expect(builtFirst.snapshot?.buildings.length).toBe(
@@ -416,18 +544,23 @@ test("two real browser contexts share a room, building, combat and reconnection"
     ).toBeLessThan(goldBefore);
 
     await first.waitForTimeout(400);
-    const beforeRapidBuilds = (await state(first)).snapshot?.buildings.length ?? 0;
+    const beforeRapidBuilds =
+      (await state(first)).snapshot?.buildings.length ?? 0;
     await first.evaluate(() => {
       window.__DORM_TEST__?.buildFirst("generator");
       window.__DORM_TEST__?.buildFirst("floor-trap");
     });
-    await expect.poll(
-      async () => (await state(first)).snapshot?.buildings.length ?? 0,
-      { timeout: 5_000, intervals: [50] },
-    ).toBe(beforeRapidBuilds + 1);
+    await expect
+      .poll(async () => (await state(first)).snapshot?.buildings.length ?? 0, {
+        timeout: 5_000,
+        intervals: [50],
+      })
+      .toBe(beforeRapidBuilds + 1);
     await first.waitForTimeout(500);
     const afterRapidBuilds = await state(first);
-    expect(afterRapidBuilds.snapshot?.buildings).toHaveLength(beforeRapidBuilds + 1);
+    expect(afterRapidBuilds.snapshot?.buildings).toHaveLength(
+      beforeRapidBuilds + 1,
+    );
     expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe("generator");
 
     const secondId = (await state(second)).playerId;
@@ -457,14 +590,24 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(afterMoveAttempt?.position).toEqual(occupiedBed);
 
     await Promise.all([
-      expect.poll(
-        async () => (await state(first)).snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp),
-        { timeout: 35_000, intervals: [100] },
-      ).toBe(true),
-      expect.poll(
-        async () => (await state(second)).snapshot?.rooms.some((room) => room.doorHp < room.doorMaxHp),
-        { timeout: 35_000, intervals: [100] },
-      ).toBe(true),
+      expect
+        .poll(
+          async () =>
+            (await state(first)).snapshot?.rooms.some(
+              (room) => room.doorHp < room.doorMaxHp,
+            ),
+          { timeout: 35_000, intervals: [100] },
+        )
+        .toBe(true),
+      expect
+        .poll(
+          async () =>
+            (await state(second)).snapshot?.rooms.some(
+              (room) => room.doorHp < room.doorMaxHp,
+            ),
+          { timeout: 35_000, intervals: [100] },
+        )
+        .toBe(true),
     ]);
     const [combatFirst, combatSecond] = await Promise.all([
       state(first),
@@ -481,7 +624,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
         (combatFirst.snapshot?.ghost.hp ?? 0) -
           (combatSecond.snapshot?.ghost.hp ?? 0),
       ),
-    // 10Hz 스냅샷 경계에서 한 클라이언트만 1발(기본 피해 13)을 먼저 볼 수 있다.
+      // 10Hz 스냅샷 경계에서 한 클라이언트만 1발(기본 피해 13)을 먼저 볼 수 있다.
     ).toBeLessThanOrEqual(13);
 
     await expect(first.getByTestId("rematch")).toBeVisible({ timeout: 45_000 });
@@ -501,7 +644,9 @@ test("two real browser contexts share a room, building, combat and reconnection"
     await first.getByRole("button", { name: "설정" }).click();
     await first.getByRole("button", { name: "로그아웃" }).click();
     await first.getByLabel("아이디").fill(firstUsername);
-    await first.getByRole("textbox", { name: "비밀번호" }).fill("midnight-test-2026");
+    await first
+      .getByRole("textbox", { name: "비밀번호" })
+      .fill("midnight-test-2026");
     await first.getByRole("button", { name: "로그인하고 시작" }).click();
     await expect(first.locator(".game-home")).toBeVisible();
   } finally {

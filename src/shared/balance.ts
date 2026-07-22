@@ -59,15 +59,21 @@ export const BALANCE = {
     baseHp: 760,
     collisionRadius: 0.28,
     hpPerPlayer: 0.1,
-    baseDamage: 4,
+    // 노말 초반에도 문을 실제로 압박하도록 기존 4에서 15%만 올린다.
+    baseDamage: 4.6,
     damagePerPlayer: 0.13,
     damageGrowthPerLevel: 0.58,
     shieldPenetrationPerLevel: 0.15,
     speed: 3.55,
+    // 미점유 생존자는 즉시 방을 찾아야 하므로 기존 1.5배의 정확히 두 배다.
+    outsideTargetSpeedMultiplier: 3,
     attackInterval: 1.25,
-    retreatThreshold: 0.2,
+    retreatThreshold: 0.23,
     healDurationSeconds: 7,
-    retreatDamageMultiplier: 2.6,
+    // 후퇴를 시작한 귀신이 포탑 네 대에 곧바로 삭제되지 않도록 집중 사격 보정을 낮춘다.
+    retreatDamageMultiplier: 1.45,
+    // 회복 구역으로 복귀 중에도 포탑이 마무리 공격을 할 수 있도록 속도를 제한한다.
+    retreatSpeedMultiplier: 1.3,
     firstLevelAttacks: 30,
     attacksAddedPerLevel: 15,
   },
@@ -88,25 +94,25 @@ export const BALANCE = {
       label: '수호 포탑',
       description: '포탄을 발사하는 15단계 기본 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 0, 13, 1, 9.5)],
+      levels: [level(10, 0, 13, 1, 4)],
     },
     'rapid-turret': {
       label: '반딧불 연사포',
       description: '빠른 탄환을 연속으로 발사하는 15단계 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 1, 6, 0.34, 9)],
+      levels: [level(10, 1, 6, 0.34, 4)],
     },
     'frost-turret': {
       label: '서리 레이저',
       description: '귀신을 느리게 하는 레이저 포탑입니다.',
       maxLevel: 15,
-      levels: [level(10, 2, 9, 1.1, 8.5)],
+      levels: [level(10, 2, 9, 1.1, 4)],
     },
     'arc-turret': {
       label: '희귀 천둥포',
       description: '베테랑부터 설치할 수 있는 고위력 희귀 포탑입니다.',
       maxLevel: 15,
-      levels: [level(250, 25, 38, 1.55, 8.5)],
+      levels: [level(250, 25, 38, 1.55, 4)],
     },
     generator: {
       label: '달빛 발전기',
@@ -181,7 +187,9 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
     power: cost.power,
     value: Math.round(base.value * scale * 10) / 10,
     rate: Math.round(base.rate * rateScale * 100) / 100,
-    range: Math.round((base.range + Math.floor((safeLevel - 1) / 3) * 0.5) * 10) / 10,
+    // Turret reach is intentionally fixed so upgrading improves damage and fire rate,
+    // not the ability to shoot through an entire room.
+    range: base.range,
   };
 }
 

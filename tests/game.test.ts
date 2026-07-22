@@ -34,6 +34,21 @@ function envelope(message: Intent, sequence = 1): ClientMessage {
 
 function begin(engine: GameEngine, hostId: string): GameSnapshot {
   expect(engine.start(hostId).ok).toBe(true);
+  const beds = engine.map.rooms.flatMap((room) =>
+    room.beds.map((bed) => ({ roomId: room.id, bed })),
+  );
+  for (const [index, player] of engine.snapshot().players.entries()) {
+    const target = beds[index];
+    if (!target) throw new Error('not enough test beds');
+    const persisted = engine.serialize();
+    const candidate = persisted.snapshot.players.find(
+      (entry) => entry.id === player.id,
+    );
+    if (!candidate) throw new Error('missing test player');
+    candidate.position = { ...target.bed };
+    engine.restore(persisted);
+    expect(engine.interact(player.id).ok).toBe(true);
+  }
   for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
   expect(engine.snapshot().status).toBe('PLAYING');
   return engine.snapshot();
@@ -245,12 +260,66 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().status).toBe('PLAYING');
   });
 
-  it('never assigns the same room to two players', () => {
+  it('keeps explicitly claimed solo beds in distinct rooms', () => {
     const { engine, ids } = setup(4);
     const state = begin(engine, ids[0] as string);
     const occupied = state.players.map((player) => player.roomId);
     expect(new Set(occupied).size).toBe(occupied.length);
     expect(state.rooms.filter((room) => room.ownerId).length).toBe(4);
+  });
+
+  it('does not allow a solo survivor to enter a room already claimed by a bot', () => {
+    const { engine, ids } = setup(1, false);
+    const hostId = ids[0] as string;
+    expect(engine.addBot(hostId, 'normal').ok).toBe(true);
+    expect(engine.start(hostId).ok).toBe(true);
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    const mapRoom = engine.map.rooms[0];
+    const firstBed = mapRoom?.beds[0];
+    const secondBed = mapRoom?.beds[1] ?? firstBed;
+    if (!bot || !mapRoom || !firstBed || !secondBed)
+      throw new Error('missing bot occupancy fixture');
+
+    const persisted = engine.serialize();
+    const host = persisted.snapshot.players.find((player) => player.id === hostId);
+    const savedBot = persisted.snapshot.players.find((player) => player.id === bot.id);
+    if (!host || !savedBot) throw new Error('missing players');
+    savedBot.position = { ...firstBed };
+    host.position = { ...secondBed };
+    engine.restore(persisted);
+
+    expect(engine.interact(bot.id).ok).toBe(true);
+    const occupiedBot = engine.snapshot().players.find((player) => player.id === bot.id);
+    expect(occupiedBot?.roomId).toBe(mapRoom.id);
+    expect(occupiedBot?.bedIndex).toBe(0);
+    expect(occupiedBot?.position).toEqual(firstBed);
+    const result = engine.interact(hostId);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('다른 생존자가 점유하지 않은 방');
+    expect(engine.snapshot().players.find((player) => player.id === hostId)?.roomId).toBeNull();
+  });
+
+  it('never auto-occupies a bed and pursues an unoccupied survivor at 3x speed', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    for (let index = 0; index < 12; index += 1) engine.tick(0.1);
+    const before = engine.snapshot();
+    const player = before.players.find((candidate) => candidate.id === playerId);
+    expect(before.status).toBe('PLAYING');
+    expect(player?.roomId).toBeNull();
+    expect(player?.position).toEqual(engine.map.playerSpawn);
+    const ghostPosition = { ...before.ghost.position };
+    engine.tick(0.1);
+    const after = engine.snapshot();
+    const moved = Math.hypot(
+      after.ghost.position.x - ghostPosition.x,
+      after.ghost.position.y - ghostPosition.y,
+    );
+    expect(after.ghost.targetPlayerId).toBe(playerId);
+    expect(BALANCE.ghost.outsideTargetSpeedMultiplier).toBe(3);
+    expect(BALANCE.ghost.retreatSpeedMultiplier).toBeCloseTo(1.3, 5);
+    expect(moved).toBeGreaterThan(BALANCE.ghost.speed * 0.14);
   });
 
   it('lets two multiplayer survivors share one room while keeping income ownership personal', () => {
@@ -668,6 +737,75 @@ describe('requested progression and event rules', () => {
     }
   });
 
+  it('keeps every turret level at the four-tile base firing range', () => {
+    for (const kind of ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'] as const) {
+      for (let level = 1; level <= 17; level += 1) {
+        expect(buildingStats(kind, level).range).toBe(4);
+      }
+    }
+  });
+
+  it('authoritatively prevents base turret fire beyond four tiles', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+
+    const distantTile = engine.map.walkable.find((candidate) => {
+      const distanceToTurret = Math.hypot(candidate.x - tile.x, candidate.y - tile.y);
+      return distanceToTurret > 4.1 && distanceToTurret < 6;
+    });
+    if (!distantTile) throw new Error('missing distant turret fixture');
+
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing distant ghost fixture');
+    ghost.position = { ...distantTile };
+    ghost.hp = ghost.maxHp;
+    ghost.healing = false;
+    ghost.retreating = false;
+    ghost.path = [];
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    engine.drainEvents();
+
+    engine.tick(0.1);
+    expect(engine.drainEvents().some((event) => event.kind === 'turret-fire')).toBe(false);
+  });
+
+  it('lets the long-scope random item extend authoritative turret range by two tiles', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+
+    const distantTile = engine.map.walkable.find((candidate) => {
+      const distanceToTurret = Math.hypot(candidate.x - tile.x, candidate.y - tile.y);
+      return distanceToTurret > 4.1 && distanceToTurret < 6;
+    });
+    const scope = RANDOM_ITEMS.find((item) => item.id === 'long-scope');
+    if (!distantTile || !scope) throw new Error('missing long-scope range fixture');
+
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !ghost) throw new Error('missing long-scope player fixture');
+    player.items = [{ itemId: scope.id, label: scope.label, rarity: scope.rarity, count: 1 }];
+    ghost.position = { ...distantTile };
+    ghost.hp = ghost.maxHp;
+    ghost.healing = false;
+    ghost.retreating = false;
+    ghost.path = [];
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    engine.drainEvents();
+
+    engine.tick(0.1);
+    expect(engine.drainEvents().some((event) => event.kind === 'turret-fire')).toBe(true);
+  });
+
   it('lets an authoritative turret reach level 15 but never level 16', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -808,13 +946,13 @@ describe('requested progression and event rules', () => {
     expect(door?.doorHp).toBeGreaterThan(0);
   });
 
-  it('lets four basic turrets placed across the room keep at least half of a level-two door through the first retreat', () => {
+  it('lets four basic turrets within door range keep at least half of a level-two door through the first retreat', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     begin(engine, playerId);
     const { roomId } = assigned(engine, playerId);
     const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
-    const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) => Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)) - Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0)));
+    const tiles = [...(mapRoom?.buildTiles ?? [])].sort((a, b) => Math.hypot(a.x - (mapRoom?.door.x ?? 0), a.y - (mapRoom?.door.y ?? 0)) - Math.hypot(b.x - (mapRoom?.door.x ?? 0), b.y - (mapRoom?.door.y ?? 0)));
     for (const tile of tiles.slice(0, 4)) expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
     expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
     let retreatSeen = false;
@@ -951,7 +1089,7 @@ describe('requested progression and event rules', () => {
     expect(buildingStats('repair-drone', 3).value).toBe(6);
   });
 
-  it('retreats toward the respawn area below twenty percent HP', () => {
+  it('retreats toward the respawn area below twenty-three percent HP', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
     const persisted = engine.serialize();
@@ -959,7 +1097,7 @@ describe('requested progression and event rules', () => {
     expect(ghost).toBeDefined();
     if (!ghost) return;
     ghost.position = { ...engine.map.playerSpawn };
-    ghost.hp = ghost.maxHp * .19;
+    ghost.hp = ghost.maxHp * .22;
     persisted.snapshot.ghost = ghost;
     engine.restore(persisted);
     const before = Math.hypot(ghost.position.x - engine.map.ghostSpawn.x, ghost.position.y - engine.map.ghostSpawn.y);
@@ -980,7 +1118,7 @@ describe('requested progression and event rules', () => {
     const ghost = persisted.snapshot.ghosts[0];
     if (!ghost) throw new Error('missing frost retreat fixture');
     ghost.position = { ...tile };
-    ghost.hp = ghost.maxHp * .205;
+    ghost.hp = ghost.maxHp * .235;
     ghost.retreating = false;
     ghost.healing = false;
     ghost.retreatCount = 0;
