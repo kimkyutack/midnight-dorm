@@ -56,7 +56,10 @@ import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { hydrateCatalogArt } from "./game/CatalogThumbnail3D";
 import { GameNetwork } from "./network";
 import { loadProfile, saveProfile } from "./storage";
+import { setupMobileViewportCompatibility } from "./viewport";
 import "./styles.css";
+
+setupMobileViewportCompatibility();
 
 declare global {
   interface Window {

@@ -14,6 +14,7 @@ import { stageThemeFor } from '../src/shared/stageThemes';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
+import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -67,6 +68,35 @@ function assigned(engine: GameEngine, playerId: string): { roomId: string; tile:
   if (!tile) throw new Error('room has no build tile');
   return { roomId, tile };
 }
+
+describe('mobile viewport compatibility', () => {
+  it('normalizes only touch portrait viewports forced to desktop width', () => {
+    expect(mobileViewportCompatibilityScale({
+      width: 980,
+      height: 2394,
+      coarsePointer: true,
+      maxTouchPoints: 5,
+    })).toBeCloseTo(980 / 390);
+    expect(mobileViewportCompatibilityScale({
+      width: 390,
+      height: 844,
+      coarsePointer: true,
+      maxTouchPoints: 5,
+    })).toBeNull();
+    expect(mobileViewportCompatibilityScale({
+      width: 980,
+      height: 2394,
+      coarsePointer: false,
+      maxTouchPoints: 0,
+    })).toBeNull();
+    expect(mobileViewportCompatibilityScale({
+      width: 2394,
+      height: 980,
+      coarsePointer: true,
+      maxTouchPoints: 5,
+    })).toBeNull();
+  });
+});
 
 describe('deterministic shared world', () => {
   it('replays a seeded random sequence exactly', () => {

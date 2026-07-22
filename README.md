@@ -13,6 +13,8 @@ npm run dev
 
 로컬 브라우저에서는 `http://localhost:5173/?dev=1`로 접속합니다. 실제 모바일 기기는 터미널에 표시되는 같은 Wi-Fi의 Network URL로 접속합니다. 일반 URL은 데스크톱을 차단하며 `?dev=1`만 개발용 데스크톱 실행을 허용합니다.
 
+세로 모바일 UI의 기준 논리 폭은 390px입니다. Android 브라우저가 데스크톱 사이트 호환 모드에서 980px 가상 viewport를 사용해도 터치 세로 화면은 자동으로 같은 390px 레이아웃으로 보정합니다.
+
 기본 `npm run dev`도 Cloudflare의 원격 `midnight-dorm-accounts` D1을 사용하므로 Studio에서 계정 변화를 바로 확인할 수 있습니다. `npm run test:e2e`만 `CLOUDFLARE_ENV=e2e` 환경을 선택해 `.wrangler/state`의 로컬 D1을 사용하며 운영 계정 테이블을 오염시키지 않습니다.
 
 ## 게임 흐름

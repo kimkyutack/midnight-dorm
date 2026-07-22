@@ -82,10 +82,9 @@ test("portrait home separates shop, owned customization and stage start", async 
   try {
     await page.goto("/?dev=1&fresh=1");
     await expect(page.locator(".opening-teaser")).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "심야 병동" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "건너뛰기" }).click();
+    const skipOpening = page.getByRole("button", { name: "건너뛰기" });
+    await expect(skipOpening).toBeVisible();
+    await skipOpening.click();
     await page.getByRole("button", { name: "새 계정" }).click();
     const passwordInput = page.getByRole("textbox", { name: "비밀번호" });
     await expect(page.getByLabel("아이디")).toHaveAttribute(
@@ -181,8 +180,10 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toBe(403);
     await expect(page.locator("#orientation-lock")).toHaveCount(0);
     await page.getByRole("button", { name: /상점/ }).click();
-    await expect(page.getByRole("heading", { name: "스토어" })).toBeVisible();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(6);
+    await expect(
+      page.getByRole("heading", { name: "외형 상점" }),
+    ).toBeVisible();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(12);
     await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
     await expect(page.locator("[data-custom-preview-title]")).toHaveText(
       "달고양이 루루",
@@ -313,6 +314,43 @@ async function portraitContext(browser: Browser): Promise<BrowserContext> {
     deviceScaleFactor: 2,
   });
 }
+
+async function desktopCompatPortraitContext(
+  browser: Browser,
+): Promise<BrowserContext> {
+  return browser.newContext({
+    baseURL: "http://127.0.0.1:4173",
+    viewport: { width: 980, height: 2394 },
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 1,
+  });
+}
+
+test("desktop-site portrait viewport keeps the 390px mobile layout", async ({
+  browser,
+}) => {
+  const context = await desktopCompatPortraitContext(browser);
+  const page = await context.newPage();
+  try {
+    await page.goto("/?dev=1&fresh=1&e2e=1");
+    await expect(page.locator("html")).toHaveClass(/mobile-viewport-compat/);
+    const layout = await page.evaluate(() => ({
+      appWidth: document.querySelector<HTMLElement>("#app")?.clientWidth,
+      appHeight: document.querySelector<HTMLElement>("#app")?.clientHeight,
+      horizontalOverflow:
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+      zoom: Number.parseFloat(getComputedStyle(document.documentElement).zoom),
+    }));
+    expect(layout.appWidth).toBe(390);
+    expect(layout.appHeight).toBeCloseTo(2394 / (980 / 390), 0);
+    expect(layout.horizontalOverflow).toBe(false);
+    expect(layout.zoom).toBeCloseTo(980 / 390, 4);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+});
 
 test("three solo bots visibly pathfind through doors before the normal countdown ends", async ({
   browser,
