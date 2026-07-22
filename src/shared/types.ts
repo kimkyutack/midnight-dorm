@@ -42,6 +42,7 @@ export type BuildingKind =
   | 'rapid-turret'
   | 'frost-turret'
   | 'arc-turret'
+  | 'golden-turret'
   | 'generator'
   | 'repair-drone'
   | 'electric-coil'
@@ -52,7 +53,7 @@ export type BuildingKind =
 export type TurretKind = 'basic-turret' | 'rapid-turret' | 'frost-turret' | 'arc-turret';
 export type TurretSkinLoadout = Record<TurretKind, string>;
 
-export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
 export interface OwnedItem {
   itemId: string;
@@ -131,6 +132,8 @@ export interface GhostState {
   targetPlayerId: string | null;
   attackCooldown: number;
   slowUntil: number;
+  /** 활성 감속 배율. 그림자 덫의 레벨별 감속 효과를 서버가 권한 있게 보존한다. */
+  slowMultiplier: number;
   rage: boolean;
   phase: number;
   path: Tile[];

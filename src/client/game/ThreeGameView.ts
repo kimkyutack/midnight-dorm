@@ -909,6 +909,7 @@ function buildingColor(kind: BuildingKind): number {
     'rapid-turret': 0xffc85f,
     'frost-turret': 0x91efff,
     'arc-turret': 0xcf79ff,
+    'golden-turret': 0xffd15c,
     generator: 0x68efa4,
     'repair-drone': 0xff7ca7,
     'electric-coil': 0xbd80ff,
@@ -941,17 +942,26 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
   root.add(mesh(new THREE.CylinderGeometry(0.36, 0.42, 0.18, 12), baseMaterial, [0, 0.1, 0]));
   root.add(mesh(new THREE.CylinderGeometry(0.27, 0.32, 0.28, 12), accent, [0, 0.29, 0]));
 
-  const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'].includes(building.kind);
+  const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret'].includes(building.kind);
   let barrel: THREE.Group | null = null;
   if (turret) {
     barrel = new THREE.Group();
     barrel.position.y = 0.52;
-    const barrelMesh = mesh(new THREE.CylinderGeometry(0.055, 0.075, building.kind === 'rapid-turret' ? 0.62 : 0.72, 9), accent, [0, 0, -0.31]);
+    const barrelLength = building.kind === 'golden-turret' ? 0.9 : building.kind === 'rapid-turret' ? 0.62 : 0.72;
+    const barrelMesh = mesh(new THREE.CylinderGeometry(building.kind === 'golden-turret' ? 0.07 : 0.055, building.kind === 'golden-turret' ? 0.09 : 0.075, barrelLength, 9), accent, [0, 0, -barrelLength * 0.44]);
     barrelMesh.rotation.x = Math.PI / 2;
     barrel.add(barrelMesh);
     barrel.add(mesh(new THREE.SphereGeometry(0.17, 12, 8), dark, [0, 0, 0]));
     root.add(barrel);
-    if (building.skinId.includes('pumpkin')) {
+    if (building.kind === 'golden-turret') {
+      const crown = new THREE.Group();
+      crown.position.y = 0.68;
+      for (const x of [-0.18, 0, 0.18]) crown.add(mesh(new THREE.ConeGeometry(0.075, 0.28, 5), accent, [x, 0.13, 0]));
+      const halo = mesh(new THREE.TorusGeometry(0.36, 0.035, 8, 28), accent, [0, 0.12, 0]);
+      halo.rotation.x = Math.PI / 2;
+      crown.add(halo);
+      root.add(crown);
+    } else if (building.skinId.includes('pumpkin')) {
       root.add(mesh(new THREE.SphereGeometry(0.24, 12, 9), accent, [0, 0.48, 0]));
       root.add(mesh(new THREE.ConeGeometry(0.055, 0.18, 7), standardMaterial(0x68a054), [0, 0.76, 0]));
     } else if (building.skinId.includes('toy') || building.skinId.includes('candy')) {

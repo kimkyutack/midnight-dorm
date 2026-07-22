@@ -4,7 +4,7 @@ import {
   maxBuildingLevel,
   upgradeCost,
 } from "../shared/balance";
-import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
+import { combinedItemEffects, DRAW_COSTS, getRandomItem } from "../shared/randomItems";
 import {
   cosmeticAvailable,
   cosmeticById,
@@ -124,6 +124,7 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "rapid-turret": "✦",
   "frost-turret": "❄",
   "arc-turret": "ϟ",
+  "golden-turret": "♛",
   generator: "⚡",
   "repair-drone": "✚",
   "electric-coil": "⌁",
@@ -1337,18 +1338,32 @@ function renderBuildPanel(tile: Tile): void {
   const modeRank =
     snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
   const benefits = rankBenefits(modeRank);
-  const availableKinds = benefits.rareTurretUnlocked
-    ? [...BUILD_KINDS, "arc-turret" as const]
-    : BUILD_KINDS;
+  const availableKinds: BuildingKind[] = [...BUILD_KINDS];
+  if (benefits.rareTurretUnlocked) availableKinds.push("arc-turret");
+  const goldenTicketCount = combinedItemEffects(me.items).goldenTurretTickets;
+  const goldenTurretCount = snapshot.buildings.filter(
+    (building) => building.ownerId === me.id && building.kind === "golden-turret",
+  ).length;
+  if (goldenTicketCount > goldenTurretCount)
+    availableKinds.push("golden-turret");
+  const buildNotes = [
+    !benefits.rareTurretUnlocked
+      ? "희귀 천둥포는 싱글 등급 베테랑부터 해금됩니다."
+      : "",
+    goldenTicketCount > 0
+      ? `황금 티켓 ${goldenTicketCount}장 · 황금 심판 포탑 ${goldenTurretCount}/${goldenTicketCount}대 설치`
+      : "",
+  ].filter(Boolean).map((note) => `<small class="odds-note">${note}</small>`).join("");
   panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><div class="build-grid">${availableKinds
     .map((kind) => {
       const definition = BALANCE.buildings[kind];
       const cost = upgradeCost(kind, 1, modeRank);
-      return `<button class="build-card ${kind === "arc-turret" ? "rare-build" : ""}" type="button" data-build="${kind}">${buildingIconMarkup(kind)}<span class="build-card-copy"><strong>${definition.label}</strong><small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+      const tierClass = kind === "golden-turret" ? "mythic-build" : kind === "arc-turret" ? "rare-build" : "";
+      return `<button class="build-card ${tierClass}" type="button" data-build="${kind}">${buildingIconMarkup(kind)}<span class="build-card-copy"><strong>${definition.label}</strong><small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
     })
     .join(
       "",
-    )}</div>${!benefits.rareTurretUnlocked ? '<small class="odds-note">희귀 천둥포는 싱글 등급 베테랑부터 해금됩니다.</small>' : ""}`;
+    )}</div>${buildNotes}`;
   panel.classList.remove("hidden");
   wireBuildPanelClose(panel);
   panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((button) => {
@@ -1423,7 +1438,7 @@ function renderTargetPanel(selection: SceneSelection): void {
             `${escapeHtml(item.label)}${item.count > 1 ? ` ×${item.count}` : ""}`,
         )
         .join(" · ") || "아직 획득한 아이템이 없습니다.";
-    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / 4회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta" type="button" data-draw><span>${me.drawCount + 1}번째 랜덤 뽑기</span><strong>${resourceCostMarkup(cost)}</strong></button>` : '<button class="btn ghost panel-disabled" disabled>이번 판 4회 완료</button>'}<small class="odds-note">전설 아이템은 매우 낮은 확률로 등장하며, 장식품은 아무 효과가 없습니다.</small>${removalMarkup}`;
+    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / 4회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta" type="button" data-draw><span>${me.drawCount + 1}번째 랜덤 뽑기</span><strong>${resourceCostMarkup(cost)}</strong></button>` : '<button class="btn ghost panel-disabled" disabled>이번 판 4회 완료</button>'}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
     panel.classList.remove("hidden");
     wireBuildPanelClose(panel);
     panel
@@ -1453,6 +1468,7 @@ function renderTargetPanel(selection: SceneSelection): void {
               "rapid-turret",
               "frost-turret",
               "arc-turret",
+              "golden-turret",
             ].includes(kind)
           ? `공격력 ${current.value} · 사거리 ${current.range}`
           : `효과 수치 ${current.value}`;

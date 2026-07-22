@@ -238,6 +238,7 @@ export class GameEngine {
       targetPlayerId: null,
       attackCooldown: 0,
       slowUntil: 0,
+      slowMultiplier: 1,
       rage: false,
       phase: 1,
       path: [],
@@ -272,6 +273,7 @@ export class GameEngine {
       ghost.displayName ??= "복도 순찰자";
       ghost.variant ??= "wanderer";
       ghost.targetPlayerId ??= null;
+      ghost.slowMultiplier ??= 1;
       ghost.attackCount ??= 0;
       ghost.attacksToNextLevel ??= BALANCE.ghost.firstLevelAttacks;
       ghost.retreating ??= false;
@@ -768,6 +770,18 @@ export class GameEngine {
         ok: false,
         error: "희귀 천둥포는 싱글 등급 베테랑부터 설치할 수 있습니다.",
       };
+    if (kind === "golden-turret") {
+      const ticketCount = combinedItemEffects(player.items).goldenTurretTickets;
+      const installedCount = this.state.buildings.filter(
+        (building) =>
+          building.ownerId === playerId && building.kind === "golden-turret",
+      ).length;
+      if (installedCount >= ticketCount)
+        return {
+          ok: false,
+          error: "황금 티켓 1장당 황금 심판 포탑은 한 대만 설치할 수 있습니다.",
+        };
+    }
     const buildCost = upgradeCost(kind, 1, activeRank);
     if (player.gold < buildCost.gold || player.power < buildCost.power)
       return { ok: false, error: "골드 또는 전력이 부족합니다." };
@@ -1304,7 +1318,13 @@ export class GameEngine {
             candidate.hp > 0 &&
             distance(candidate.position, building.tile) <= stats.range,
         )) {
-          ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + 0.5);
+          // value는 이동속도 감소율(24/34/45%)이다. 후퇴 상태에도 같은
+          // 감속을 유지해 리스폰으로 전력 질주하는 귀신을 실제로 붙잡는다.
+          this.applyGhostSlow(
+            ghost,
+            stats.rate,
+            Math.max(0.35, 1 - stats.value),
+          );
         }
       }
       const offensive = [
@@ -1312,10 +1332,11 @@ export class GameEngine {
         "rapid-turret",
         "frost-turret",
         "arc-turret",
+        "golden-turret",
         "electric-coil",
       ].includes(building.kind);
-      // Every turret starts at four tiles; range items remain an explicit
-      // exception and extend this authoritative server-side target range.
+      // 일반 포탑은 4칸 기본 사거리이며, 황금 심판 포탑과 사거리 아이템만
+      // 이 서버 권한 타깃 사거리에 예외 보정을 더한다.
       const range = stats.range + effects.turretRangeBonus;
       if (
         !offensive ||
@@ -1331,7 +1352,7 @@ export class GameEngine {
       const damage = stats.value * effects.turretDamageMultiplier;
       const appliedDamage = this.applyGhostDamage(nearest, damage);
       if (building.kind === "frost-turret")
-        nearest.slowUntil = Math.max(nearest.slowUntil, this.state.elapsed + 1);
+        this.applyGhostSlow(nearest, 1, 0.76);
       this.pendingEvents.push({
         kind: "turret-fire",
         position: building.tile,
@@ -1348,6 +1369,22 @@ export class GameEngine {
           amount: appliedDamage,
         });
     }
+  }
+
+  private applyGhostSlow(
+    ghost: GhostState,
+    duration: number,
+    multiplier: number,
+  ): void {
+    const normalizedMultiplier = clamp(multiplier, 0.35, 1);
+    if (this.state.elapsed >= ghost.slowUntil)
+      ghost.slowMultiplier = normalizedMultiplier;
+    else
+      ghost.slowMultiplier = Math.min(
+        ghost.slowMultiplier ?? 1,
+        normalizedMultiplier,
+      );
+    ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + duration);
   }
 
   private updateDoorRegeneration(dt: number): void {
@@ -1850,7 +1887,7 @@ export class GameEngine {
               ? 1.15
               : 1;
     const slowed = this.state.elapsed < ghost.slowUntil;
-    const slowMultiplier = slowed ? (ghost.retreating ? 0.9 : 0.76) : 1;
+    const slowMultiplier = slowed ? clamp(ghost.slowMultiplier ?? 0.76, 0.35, 1) : 1;
     let speed =
       BALANCE.ghost.speed *
       this.stage.speedMultiplier *

@@ -5,7 +5,7 @@ const clientTypes = new Set([
   'remove-building', 'draw-item', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
-  'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'generator', 'repair-drone',
+  'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
   'electric-coil', 'floor-trap', 'shield-device', 'lucky-machine',
 ]);
 

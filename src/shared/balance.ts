@@ -114,6 +114,12 @@ export const BALANCE = {
       maxLevel: 15,
       levels: [level(250, 25, 38, 1.55, 4)],
     },
+    'golden-turret': {
+      label: '황금 심판 포탑',
+      description: '황금 티켓 1장당 한 대만 설치할 수 있는 10단계 신화 포탑입니다.',
+      maxLevel: 10,
+      levels: [level(0, 0, 170, 0.25, 5.5)],
+    },
     generator: {
       label: '달빛 발전기',
       description: '매초 전력을 생산합니다.',
@@ -153,17 +159,24 @@ export const BALANCE = {
   } satisfies Record<BuildingKind, BuildingDefinition>,
 } as const;
 
-const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret']);
+const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret']);
+const RANK_TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret']);
 
 export function maxBuildingLevel(kind: BuildingKind, soloRank: RankId = 'beginner'): number {
   const benefits = rankBenefits(soloRank);
   if (kind === 'reinforced-door') return BALANCE.buildings[kind].maxLevel;
-  if (TURRETS.has(kind)) return BALANCE.buildings[kind].maxLevel + benefits.turretLevelBonus;
+  if (RANK_TURRETS.has(kind)) return BALANCE.buildings[kind].maxLevel + benefits.turretLevelBonus;
   return BALANCE.buildings[kind].maxLevel;
 }
 
 export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: RankId = 'beginner'): { gold: number; power: number } {
   const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind, soloRank), Math.floor(targetLevel)));
+  if (kind === 'golden-turret') {
+    return {
+      gold: safeLevel === 1 ? 0 : 150 * safeLevel * safeLevel,
+      power: safeLevel === 1 ? 0 : safeLevel,
+    };
+  }
   if (TURRETS.has(kind)) {
     const baseGold = kind === 'arc-turret' ? 250 : 10;
     const discount = kind === 'arc-turret' ? 1 - rankBenefits(soloRank).rareTurretDiscount : 1;
@@ -174,11 +187,23 @@ export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: R
 }
 
 export function buildingStats(kind: BuildingKind, requestedLevel: number): BuildingLevelStats {
-  const absoluteMax = TURRETS.has(kind) ? BALANCE.buildings[kind].maxLevel + 2 : BALANCE.buildings[kind].maxLevel;
+  const absoluteMax = RANK_TURRETS.has(kind) ? BALANCE.buildings[kind].maxLevel + 2 : BALANCE.buildings[kind].maxLevel;
   const safeLevel = Math.max(1, Math.min(absoluteMax, Math.floor(requestedLevel)));
   const definition = BALANCE.buildings[kind];
   if (!TURRETS.has(kind)) return definition.levels[safeLevel - 1] as BuildingLevelStats;
   const base = definition.levels[0] as BuildingLevelStats;
+  if (kind === 'golden-turret') {
+    const scale = 1 + (safeLevel - 1) * 0.5;
+    const rateScale = Math.max(0.1, 1 - (safeLevel - 1) * 0.065);
+    const cost = upgradeCostWithoutStats(kind, safeLevel, base.power);
+    return {
+      gold: cost.gold,
+      power: cost.power,
+      value: Math.round(base.value * scale),
+      rate: Math.round(base.rate * rateScale * 100) / 100,
+      range: base.range,
+    };
+  }
   const scale = 1 + (safeLevel - 1) * 0.34;
   const rateScale = Math.max(0.42, 1 - (safeLevel - 1) * 0.035);
   const cost = upgradeCostWithoutStats(kind, safeLevel, base.power);
@@ -194,6 +219,12 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
 }
 
 function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number, initialPower: number): { gold: number; power: number } {
+  if (kind === 'golden-turret') {
+    return {
+      gold: safeLevel === 1 ? 0 : 150 * safeLevel * safeLevel,
+      power: safeLevel === 1 ? 0 : safeLevel,
+    };
+  }
   if (!TURRETS.has(kind)) {
     const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
     return { gold: stats.gold, power: stats.power };

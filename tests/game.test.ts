@@ -745,6 +745,59 @@ describe('requested progression and event rules', () => {
     }
   });
 
+  it('limits golden judgment turrets by golden ticket count and grants their distinct ten-level power curve', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    const ticket = RANDOM_ITEMS.find((item) => item.id === 'golden-ticket');
+    if (!ticket || tiles.length < 2) throw new Error('missing golden ticket fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing golden ticket owner');
+    player.items = [{ itemId: ticket.id, label: ticket.label, rarity: ticket.rarity, count: 1 }];
+    player.gold = 100_000;
+    player.power = 1_000;
+    engine.restore(persisted);
+
+    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'golden-turret').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'golden-turret').ok).toBe(false);
+    expect(maxBuildingLevel('golden-turret')).toBe(10);
+    expect(buildingStats('golden-turret', 1).value).toBeGreaterThan(buildingStats('basic-turret', 15).value);
+    expect(buildingStats('golden-turret', 1).rate).toBeLessThan(buildingStats('rapid-turret', 1).rate);
+
+    const turretId = engine.snapshot().buildings.find((building) => building.kind === 'golden-turret')?.id;
+    if (!turretId) throw new Error('missing golden turret');
+    for (let level = 2; level <= 10; level += 1) expect(engine.upgrade(playerId, turretId).ok).toBe(true);
+    expect(engine.upgrade(playerId, turretId).ok).toBe(false);
+
+    const secondTicket = engine.serialize();
+    const ticketOwner = secondTicket.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!ticketOwner) throw new Error('missing second golden ticket owner');
+    ticketOwner.items[0]!.count = 2;
+    engine.restore(secondTicket);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'golden-turret').ok).toBe(true);
+  });
+
+  it('lets one level-one golden judgment turret finish a normal-stage ghost', () => {
+    const engine = new GameEngine('GOLDENNORMAL', generateMap(82_700), false, { stageId: 'normal-5', playMode: 'solo' });
+    const player = engine.join({ nickname: '황금수호자', deviceId: 'golden-normal' });
+    begin(engine, player.player.id);
+    const { roomId, tile } = assigned(engine, player.player.id);
+    const ticket = RANDOM_ITEMS.find((item) => item.id === 'golden-ticket');
+    if (!ticket) throw new Error('missing golden ticket definition');
+    const persisted = engine.serialize();
+    const owner = persisted.snapshot.players.find((candidate) => candidate.id === player.player.id);
+    if (!owner) throw new Error('missing golden normal owner');
+    owner.items = [{ itemId: ticket.id, label: ticket.label, rarity: ticket.rarity, count: 1 }];
+    engine.restore(persisted);
+    expect(engine.build(player.player.id, roomId, tile, 'golden-turret').ok).toBe(true);
+    for (let index = 0; index < 1_400 && engine.snapshot().status === 'PLAYING'; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('VICTORY');
+    expect(engine.snapshot().ghost.hp).toBe(0);
+  });
+
   it('authoritatively prevents base turret fire beyond four tiles', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
@@ -1139,6 +1192,31 @@ describe('requested progression and event rules', () => {
     expect(events.filter((event) => event.kind === 'ghost-retreat')).toHaveLength(1);
   });
 
+  it('applies each shadow trap level\'s full slow strength while a ghost retreats', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing shadow trap ghost');
+    ghost.position = { ...tile };
+    ghost.hp = ghost.maxHp * 0.22;
+    ghost.retreating = false;
+    ghost.healing = false;
+    persisted.snapshot.ghost = ghost;
+    persisted.snapshot.buildings.push({
+      id: 'shadow-trap-max', kind: 'floor-trap', roomId, ownerId: playerId,
+      tile: { ...tile }, level: 3, cooldown: 0, hp: 100, skinId: '',
+    });
+    engine.restore(persisted);
+    engine.tick(0.1);
+    const retreater = engine.snapshot().ghosts[0];
+    expect(retreater?.retreating).toBe(true);
+    expect(retreater?.slowMultiplier).toBeCloseTo(0.55, 5);
+    expect(retreater?.slowUntil).toBeGreaterThan(engine.snapshot().elapsed);
+  });
+
   it('heals completely for seven seconds at respawn and repeats the retreat cycle', () => {
     const { engine, ids } = setup(1, false);
     begin(engine, ids[0] as string);
@@ -1181,11 +1259,16 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().ghosts[0]?.retreatCount).toBe(2);
   });
 
-  it('offers exactly thirty weighted items and enforces the four draw costs', () => {
+  it('offers thirty weighted items with only two blanks and enforces the four draw costs', () => {
     expect(RANDOM_ITEMS).toHaveLength(30);
+    expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0)).toHaveLength(2);
+    expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0).map((item) => item.id).sort()).toEqual(['cracked-mirror', 'wet-socks']);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.effect).toMatchObject({ goldPerSecond: 500, powerPerSecond: 150 });
+    expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.rarity).toBe('mythic');
+    expect(RANDOM_ITEMS.find((item) => item.id === 'golden-ticket')?.effect.goldenTurretTickets).toBe(1);
     expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
     expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
-    expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'paper-crown')?.weight ?? 0);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
     expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 10 }, { gold: 120, power: 20 }, { gold: 200, power: 40 }]);
 
     const { engine, ids } = setup();
