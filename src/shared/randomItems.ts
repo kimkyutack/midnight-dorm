@@ -26,6 +26,10 @@ export const DRAW_COSTS = [
   { gold: 60, power: 10 },
   { gold: 120, power: 20 },
   { gold: 200, power: 40 },
+  // 별여우의 고유 특성으로만 열리는 다섯 번째 뽑기 비용.
+  { gold: 300, power: 60 },
+  // 달원숭이의 고유 특성으로만 열리는 여섯 번째 뽑기 비용.
+  { gold: 420, power: 90 },
 ] as const;
 
 export const RANDOM_ITEMS: readonly RandomItemDefinition[] = [

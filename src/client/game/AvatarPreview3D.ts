@@ -104,7 +104,8 @@ export class AvatarPreview3D {
   updateAppearance(appearance: AvatarAppearance, rank: RankId, color = 0x78dff1): void {
     const nextRig = createPlayerRig(appearance, rank, color, false);
     nextRig.root.rotation.y = this.yaw;
-    nextRig.root.scale.setScalar(this.homePresentation ? 0.435 : 0.94);
+    // 피팅룸·로비 모두 머리/귀가 프레임에 닿지 않도록 실제 리그보다 여유 있게 잡는다.
+    nextRig.root.scale.setScalar(this.homePresentation ? 0.4 : 0.82);
     const groundRing = nextRig.root.getObjectByName('avatar-ground-ring');
     if (groundRing) groundRing.visible = !this.homePresentation;
     this.homeRig = this.homePresentation ? nextRig : null;

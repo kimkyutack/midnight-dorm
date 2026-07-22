@@ -24,6 +24,12 @@ export const COSMETIC_CATALOG = [
   { id: 'character-bear', slot: 'character', label: '도토리곰 밤이', description: '고수 등급이 인정한 든든한 생존자', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'rank', rank: 'expert' } },
   { id: 'character-fox', slot: 'character', label: '별여우 초롱', description: '초고수만 만날 수 있는 별빛 여우', symbol: '여', swatch: '#d9784d', unlock: { kind: 'rank', rank: 'master' } },
   { id: 'character-hamster', slot: 'character', label: '유령햄스터 콩', description: '볼이 빵빵한 야간 정찰대원', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 900 } },
+  { id: 'character-crocodile', slot: 'character', label: '늪악어 크로크', description: '늪지의 턱힘으로 포탑 피해를 크게 높인다', symbol: '악', swatch: '#5d9b61', unlock: { kind: 'points', price: 1_500 } },
+  { id: 'character-duck', slot: 'character', label: '달오리 꽥', description: '달빛 동전을 물어오는 부유한 정찰대원', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 1_350 } },
+  { id: 'character-tiger', slot: 'character', label: '달호랑이 라온', description: '호랑이의 도약으로 누구보다 빠르게 방을 찾아간다', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 1_800 } },
+  { id: 'character-dinosaur', slot: 'character', label: '별공룡 라그', description: '포탑의 과충전 발사를 지휘하는 작은 공룡', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_000 } },
+  { id: 'character-monkey', slot: 'character', label: '달원숭이 몽키', description: '행운의 손재주로 램프를 두 번 더 돌린다', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_400 } },
+  { id: 'character-gorilla', slot: 'character', label: '요새고릴라 콩', description: '든든한 시야로 모든 포탑의 사거리를 넓힌다', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_600 } },
 
   { id: 'hat-rank', slot: 'hat', label: '등급 대표 모자', description: '현재 최고 등급에 맞춰 자동 진화', symbol: '등', swatch: '#d8c887', unlock: { kind: 'starter' } },
   { id: 'hat-beanie', slot: 'hat', label: '새벽 비니', description: '귀를 포근하게 덮는 니트 모자', symbol: '비', swatch: '#7d668f', unlock: { kind: 'points', price: 250 } },
@@ -112,7 +118,10 @@ export function normalizeAppearance(value: unknown): AvatarAppearance {
   const source = value && typeof value === 'object' ? value as Partial<Record<keyof AvatarAppearance, unknown>> : {};
   const result = { ...DEFAULT_APPEARANCE };
   for (const slot of Object.keys(result) as Array<keyof AvatarAppearance>) {
-    const id = typeof source[slot] === 'string' ? source[slot] as string : '';
+    const rawId = typeof source[slot] === 'string' ? source[slot] as string : '';
+    // 초기 고가 캐릭터의 독수리 표기는 달호랑이로 교체했다. 이미 저장된
+    // 프리뷰 선택값도 다음 로그인부터 자연스럽게 새 외형으로 이어진다.
+    const id = rawId === 'character-eagle' ? 'character-tiger' : rawId;
     if (cosmeticById(id)?.slot === slot) result[slot] = id;
   }
   return result;

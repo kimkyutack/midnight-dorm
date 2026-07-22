@@ -1,5 +1,5 @@
 import { SeededRandom } from './rng';
-import type { MapDefinition, MapRoom, PlayMode, Tile, Vec2 } from './types';
+import type { MapDefinition, MapRoom, PlayMode, RoomState, Tile, Vec2 } from './types';
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
 
@@ -257,7 +257,35 @@ export function isWalkable(map: MapDefinition, x: number, y: number): boolean {
   return walkableKeysFor(map).has(tileKey(Math.round(x), Math.round(y)));
 }
 
-export function isWalkableArea(map: MapDefinition, x: number, y: number, radius: number): boolean {
+/**
+ * Returns the floor tiles that cannot be entered by an unclaimed survivor.
+ * Doors intentionally remain walkable: a player may reach a full room's door,
+ * but can never cross its threshold or become an invalid intruder inside it.
+ */
+export function fullRoomFloorKeys(
+  map: MapDefinition,
+  rooms: ReadonlyArray<Pick<RoomState, 'id' | 'ownerIds'>>,
+  capacity: number,
+): Set<string> {
+  const fullRoomIds = new Set(
+    rooms
+      .filter((room) => room.ownerIds.length >= capacity)
+      .map((room) => room.id),
+  );
+  return new Set(
+    map.rooms
+      .filter((room) => fullRoomIds.has(room.id))
+      .flatMap((room) => room.floorTiles.map((tile) => tileKey(tile.x, tile.y))),
+  );
+}
+
+export function isWalkableArea(
+  map: MapDefinition,
+  x: number,
+  y: number,
+  radius: number,
+  blockedTileKeys?: ReadonlySet<string>,
+): boolean {
   const keys = walkableKeysFor(map);
   const samples = [
     [x, y],
@@ -266,7 +294,10 @@ export function isWalkableArea(map: MapDefinition, x: number, y: number, radius:
     [x - radius, y + radius],
     [x + radius, y + radius],
   ] as const;
-  return samples.every(([sampleX, sampleY]) => keys.has(tileKey(Math.round(sampleX), Math.round(sampleY))));
+  return samples.every(([sampleX, sampleY]) => {
+    const key = tileKey(Math.round(sampleX), Math.round(sampleY));
+    return keys.has(key) && !blockedTileKeys?.has(key);
+  });
 }
 
 /**
@@ -280,6 +311,7 @@ export function moveInWalkableArea(
   delta: Vec2,
   radius: number,
   maxStep = 0.12,
+  blockedTileKeys?: ReadonlySet<string>,
 ): Vec2 {
   if (![position.x, position.y, delta.x, delta.y, radius, maxStep].every(Number.isFinite)) return { ...position };
   const distance = Math.hypot(delta.x, delta.y);
@@ -290,9 +322,9 @@ export function moveInWalkableArea(
   let y = position.y;
   for (let step = 0; step < steps; step += 1) {
     const nextX = x + stepX;
-    if (isWalkableArea(map, nextX, y, radius)) x = nextX;
+    if (isWalkableArea(map, nextX, y, radius, blockedTileKeys)) x = nextX;
     const nextY = y + stepY;
-    if (isWalkableArea(map, x, nextY, radius)) y = nextY;
+    if (isWalkableArea(map, x, nextY, radius, blockedTileKeys)) y = nextY;
   }
   return { x, y };
 }

@@ -1,6 +1,7 @@
 import { getStage, higherRank, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
-import type { AccountProfile, AvatarAppearance, CosmeticSlot, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
+import { shopConsumableById } from '../shared/shopConsumables';
+import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -30,6 +31,11 @@ interface CustomizationRow {
 
 interface TurretLoadoutRow {
   skins: string;
+}
+
+interface ConsumableRow {
+  item_id: ConsumableId;
+  quantity: number;
 }
 
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
@@ -68,6 +74,10 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare(`CREATE TABLE IF NOT EXISTS account_cosmetics (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, purchased_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_cosmetics_account ON account_cosmetics(account_id)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_turret_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, skins TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_consumables (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0), updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS match_consumable_uses (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, used_at INTEGER NOT NULL, target TEXT NOT NULL DEFAULT '{}', UNIQUE (match_id, account_id, item_id))`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_match_consumable_uses_match ON match_consumable_uses(match_id, account_id)'),
   ]);
   await ensureLegacyAuthColumns(db);
 }
@@ -116,6 +126,7 @@ function profileFromRow(
   customization: CustomizationRow | null,
   purchasedCosmetics: string[],
   turretLoadout: TurretLoadoutRow | null,
+  consumables: OwnedConsumable[],
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
@@ -135,6 +146,7 @@ function profileFromRow(
     ownedCosmetics: [...new Set([...STARTER_COSMETICS, ...purchasedCosmetics])],
     appearance: normalizeAppearance(parseAppearance(customization?.appearance)),
     turretSkins: parseTurretSkins(turretLoadout?.skins),
+    consumables,
     createdAt: row.created_at,
   };
 }
@@ -158,15 +170,23 @@ function parseAppearance(value: string | undefined): AvatarAppearance {
 }
 
 async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountProfile> {
-  const [customization, cosmetics, turretLoadout] = await Promise.all([
+  const [customization, cosmetics, turretLoadout, consumables] = await Promise.all([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id).first<CustomizationRow>(),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
       .bind(row.id).all<{ item_id: string }>(),
     db.prepare('SELECT skins FROM account_turret_loadouts WHERE account_id = ?')
       .bind(row.id).first<TurretLoadoutRow>(),
+    db.prepare('SELECT item_id, quantity FROM account_consumables WHERE account_id = ? AND quantity > 0 ORDER BY updated_at DESC')
+      .bind(row.id).all<ConsumableRow>(),
   ]);
-  return profileFromRow(row, customization, cosmetics.results?.map((item) => item.item_id) ?? [], turretLoadout);
+  return profileFromRow(
+    row,
+    customization,
+    cosmetics.results?.map((item) => item.item_id) ?? [],
+    turretLoadout,
+    (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
+  );
 }
 
 function cookieValue(request: Request): string | null {
@@ -351,9 +371,81 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
   return Response.json({ profile: await profileForRow(db, row) });
 }
 
+async function purchaseConsumable(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { itemId?: string; quantity?: number };
+  try { body = await request.json(); } catch { return Response.json({ error: '아이템을 확인해주세요.' }, { status: 400 }); }
+  const item = shopConsumableById(body.itemId ?? '');
+  const quantity = body.quantity === 5 ? 5 : body.quantity === 1 ? 1 : 0;
+  if (!item || !quantity) return Response.json({ error: '구매할 전술 보급을 확인해주세요.' }, { status: 404 });
+  const total = item.price * quantity;
+  const now = Date.now();
+  await db.prepare(`INSERT OR IGNORE INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+    .bind(row.id, JSON.stringify(DEFAULT_APPEARANCE), now).run();
+  const current = await db.prepare('SELECT custom_points FROM account_customization WHERE account_id = ?')
+    .bind(row.id).first<{ custom_points: number }>();
+  if ((current?.custom_points ?? 0) < total) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
+  try {
+    // 첫 UPDATE의 CHECK 제약이 실패하면 batch 전체가 되돌아가므로 포인트와
+    // 재고가 어긋나지 않는다. 클라이언트 잔액은 신뢰하지 않는다.
+    await db.batch([
+      db.prepare('UPDATE account_customization SET custom_points = custom_points - ?, updated_at = ? WHERE account_id = ?')
+        .bind(total, now, row.id),
+      db.prepare(`INSERT INTO account_consumables (account_id, item_id, quantity, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(account_id, item_id) DO UPDATE SET quantity = quantity + excluded.quantity, updated_at = excluded.updated_at`)
+        .bind(row.id, item.id, quantity, now),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/CHECK constraint failed|constraint/i.test(message)) {
+      return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
+    }
+    throw error;
+  }
+  return Response.json({ profile: await profileForRow(db, row) });
+}
+
+/**
+ * 게임 방에서 실제 사용에 성공할 때만 한 판 1회 기록과 계정 재고 차감을
+ * 같은 D1 batch로 처리한다. 같은 match/account/item 재전송은 새 UUID가
+ * 기록되지 않아 차감도 일어나지 않는다.
+ */
+export async function consumeMatchConsumable(
+  db: D1Database,
+  input: { matchId: string; accountId: string; itemId: ConsumableId; target: unknown },
+  bootstrapSchema = false,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const item = shopConsumableById(input.itemId);
+  if (!item) return { ok: false, error: '존재하지 않는 전술 보급입니다.' };
+  const useId = crypto.randomUUID();
+  const now = Date.now();
+  const target = JSON.stringify(input.target).slice(0, 1_500);
+  const [record, decrement] = await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO match_consumable_uses (id, match_id, account_id, item_id, used_at, target)
+      SELECT ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM account_consumables
+        WHERE account_id = ? AND item_id = ? AND quantity > 0
+      )`)
+      .bind(useId, input.matchId, input.accountId, item.id, now, target, input.accountId, item.id),
+    db.prepare(`UPDATE account_consumables SET quantity = quantity - 1, updated_at = ?
+      WHERE account_id = ? AND item_id = ? AND quantity > 0
+      AND EXISTS (SELECT 1 FROM match_consumable_uses WHERE id = ?)`)
+      .bind(now, input.accountId, item.id, useId),
+  ]);
+  if ((record?.meta.changes ?? 0) === 1 && (decrement?.meta.changes ?? 0) === 1) return { ok: true };
+  if ((record?.meta.changes ?? 0) === 1) {
+    await db.prepare('DELETE FROM match_consumable_uses WHERE id = ?').bind(useId).run();
+  }
+  return { ok: false, error: '보급 재고가 없거나 이번 판에 이미 사용했습니다.' };
+}
+
 export async function routeAuth(request: Request, db: D1Database, bootstrapSchema = false): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/api/auth/') && !url.pathname.startsWith('/api/customize/')) return null;
+  if (!url.pathname.startsWith('/api/auth/') && !url.pathname.startsWith('/api/customize/') && !url.pathname.startsWith('/api/shop/')) return null;
   try {
     if (bootstrapSchema) await ensureAuthSchema(db);
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
@@ -361,6 +453,7 @@ export async function routeAuth(request: Request, db: D1Database, bootstrapSchem
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
+    if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);
     if (url.pathname === '/api/auth/me' && request.method === 'GET') {
       const profile = await authenticatedProfileFromReadySchema(request, db);
       return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });

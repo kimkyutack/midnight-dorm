@@ -1,8 +1,9 @@
+import { SHOP_CONSUMABLE_IDS } from './shopConsumables';
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
   'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'upgrade',
-  'remove-building', 'draw-item', 'rematch', 'ping', 'resync',
+  'remove-building', 'draw-item', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
@@ -63,6 +64,21 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'draw-item':
       if (typeof value.machineId !== 'string') return { ok: false, error: 'invalid lucky machine' };
+      break;
+    case 'set-consumable-loadout':
+      if (!Array.isArray(value.itemIds) || value.itemIds.length > 3 || new Set(value.itemIds).size !== value.itemIds.length
+        || !value.itemIds.every((itemId) => typeof itemId === 'string' && SHOP_CONSUMABLE_IDS.has(itemId as never))) {
+        return { ok: false, error: 'invalid consumable loadout' };
+      }
+      break;
+    case 'use-consumable':
+      if (typeof value.itemId !== 'string' || !SHOP_CONSUMABLE_IDS.has(value.itemId as never))
+        return { ok: false, error: 'invalid consumable item' };
+      if (value.roomId !== undefined && typeof value.roomId !== 'string') return { ok: false, error: 'invalid consumable room' };
+      if (value.targetId !== undefined && typeof value.targetId !== 'string') return { ok: false, error: 'invalid consumable target' };
+      if (value.tile !== undefined && (!isRecord(value.tile) || !Number.isInteger(value.tile.x) || !Number.isInteger(value.tile.y))) {
+        return { ok: false, error: 'invalid consumable tile' };
+      }
       break;
     case 'ping':
       if (typeof value.clientTime !== 'number' || !Number.isFinite(value.clientTime)) return { ok: false, error: 'invalid ping' };

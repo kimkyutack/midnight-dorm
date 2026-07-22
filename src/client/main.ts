@@ -5,6 +5,12 @@ import {
   upgradeCost,
 } from "../shared/balance";
 import { combinedItemEffects, DRAW_COSTS, getRandomItem } from "../shared/randomItems";
+import { SHOP_CONSUMABLES, shopConsumableById } from "../shared/shopConsumables";
+import {
+  characterTrait,
+  drawLimitForCharacter,
+} from "../shared/characterTraits";
+import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
   cosmeticAvailable,
   cosmeticById,
@@ -24,6 +30,7 @@ import type {
   AvatarAppearance,
   BuildingKind,
   CosmeticSlot,
+  ConsumableId,
   GameEvent,
   GameSnapshot,
   GameStatus,
@@ -41,10 +48,12 @@ import {
   loginAccount,
   logoutAccount,
   purchaseCosmetic,
+  purchaseConsumable,
   registerAccount,
 } from "./auth";
 import { ThreeGameView, type SceneSelection } from "./game/ThreeGameView";
 import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
+import { hydrateCatalogArt } from "./game/CatalogThumbnail3D";
 import { GameNetwork } from "./network";
 import { loadProfile, saveProfile } from "./storage";
 import "./styles.css";
@@ -366,6 +375,23 @@ function dismissibleModal(markup: string, className: string): HTMLElement {
   return modal;
 }
 
+function confirmPointPurchase(options: {
+  label: string;
+  quantity?: number;
+  pointCost: number;
+  onConfirm: () => void;
+}): void {
+  const quantity = options.quantity ?? 1;
+  const modal = dismissibleModal(
+    `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true" aria-labelledby="purchase-confirm-title"><span class="eyebrow">POINT PURCHASE</span><h2 id="purchase-confirm-title">구매하시겠습니까?</h2><p class="subtitle"><strong>${escapeHtml(options.label)}</strong>${quantity > 1 ? ` ${quantity}개` : ""}을(를) 구매합니다.</p><div class="purchase-confirm-cost">✦ ${options.pointCost.toLocaleString()} P</div><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn gold" data-purchase-confirm>구매하기</button></div></section>`,
+    "purchase-confirm-modal",
+  );
+  modal.querySelector<HTMLButtonElement>("[data-purchase-confirm]")?.addEventListener("click", () => {
+    modal.remove();
+    options.onConfirm();
+  });
+}
+
 function showHomeModePicker(): void {
   if (!account) return;
   const modal = dismissibleModal(
@@ -465,6 +491,53 @@ function shopScreen(activeSlot: CosmeticSlot = "character"): void {
   cosmeticCollectionScreen("shop", activeSlot);
 }
 
+function supplyShopScreen(): void {
+  if (!account) {
+    authScreen();
+    return;
+  }
+  const currentAccount = account;
+  const cards = SHOP_CONSUMABLES.map((item) => {
+    const quantity = currentAccount.consumables.find((owned) => owned.itemId === item.id)?.quantity ?? 0;
+    return `<article class="supply-card catalog-card supply-${item.category}"><div class="catalog-art supply-art"><img data-supply-art="${item.id}" alt="${escapeHtml(item.label)} 3D 상품 이미지" /></div><div class="supply-copy"><span>${item.category === "scout" ? "정찰" : item.category === "survival" ? "생존" : "건설"}</span><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.description)}</p></div><div class="supply-actions"><small>보유 ${quantity}개</small><div><button data-supply-buy="${item.id}" data-supply-quantity="1">${item.price.toLocaleString()} P</button><button data-supply-buy="${item.id}" data-supply-quantity="5">5개</button></div></div></article>`;
+  }).join("");
+  setContent(
+    "shop",
+    `<main class="custom-screen shop-screen supply-shop-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-supply-back aria-label="스토어로 돌아가기">‹</button><div><span>TACTICAL SUPPLY</span><h2>전술 보급</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="supply-brief"><div><span class="eyebrow">MATCH CONSUMABLES</span><h3>구매한 수량만큼, 실제 사용 때만 차감됩니다.</h3><p>각 보급품은 한 판에 한 번만 장착·사용할 수 있으며 랜덤 뽑기 보상과 중복되지 않습니다.</p></div><button class="btn ghost" data-cosmetic-store>외형 상점</button></section><section class="supply-grid">${cards}</section></main>`,
+  );
+  hydrateCatalogArt(app, {
+    appearance: currentAccount.appearance,
+    rank: currentAccount.displayRank,
+    turretSkins: currentAccount.turretSkins,
+  });
+  app.querySelector("[data-supply-back]")?.addEventListener("click", () => shopScreen());
+  app.querySelector("[data-cosmetic-store]")?.addEventListener("click", () => shopScreen());
+  app.querySelectorAll<HTMLButtonElement>("[data-supply-buy]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const itemId = button.dataset.supplyBuy ?? "";
+      const quantity = Number(button.dataset.supplyQuantity) as 1 | 5;
+      const item = shopConsumableById(itemId);
+      if (!item) return;
+      confirmPointPurchase({
+        label: item.label,
+        quantity,
+        pointCost: item.price * quantity,
+        onConfirm: () => {
+          void (async () => {
+            try {
+              account = await purchaseConsumable(itemId, quantity);
+              supplyShopScreen();
+              toast(`${quantity}개를 보급함에 넣었습니다.`);
+            } catch (error) {
+              toast(error instanceof Error ? error.message : "보급품을 구매하지 못했습니다.");
+            }
+          })();
+        },
+      });
+    }),
+  );
+}
+
 function cosmeticCollectionScreen(
   screen: "customize" | "shop",
   activeSlot: CosmeticSlot,
@@ -516,7 +589,15 @@ function cosmeticCollectionScreen(
       const actionButton = action
         ? `<button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
         : `<button disabled>${status}</button>`;
-      return `<article class="cosmetic-card ${selected ? "selected" : ""} ${locked ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="cosmetic-swatch" style="--swatch:${item.swatch}"><span>${escapeHtml(item.symbol)}</span></div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div>${actionButton}</article>`;
+      const characterTraitInfo = item.slot === "character" ? characterTrait(item.id) : null;
+      const turretTraitInfo = item.slot === "turret" ? turretSkinTrait(item.id, item.turretKind) : null;
+      const traitLabel = characterTraitInfo && characterTraitInfo.id !== "none"
+        ? characterTraitInfo.label
+        : turretTraitInfo && item.unlock.kind !== "starter"
+          ? turretTraitInfo.label
+          : "";
+      const traitDescription = characterTraitInfo?.description ?? turretTraitInfo?.description ?? item.description;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -524,10 +605,20 @@ function cosmeticCollectionScreen(
   const initialTurret = turretMode
     ? cosmeticById(currentAccount.turretSkins["basic-turret"])
     : undefined;
+  const initialTrait = characterTrait(appearance.character);
+  const initialTurretTrait = initialTurret?.turretKind
+    ? turretSkinTrait(initialTurret.id, initialTurret.turretKind)
+    : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "CUSTOM"}</span><h2>${shopping ? "스토어" : turretMode ? "포탑 외형 격납고" : "커스텀"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards || '<p class="empty-collection">아직 보유한 아이템이 없습니다.<br>상점에서 새로운 외형을 만나보세요.</p>'}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "CUSTOM"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "커스텀"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards || '<p class="empty-collection">아직 보유한 아이템이 없습니다.<br>상점에서 새로운 외형을 만나보세요.</p>'}</div></section></section></main>`,
   );
+  hydrateCatalogArt(app, {
+    appearance,
+    rank: currentAccount.displayRank,
+    turretSkins: currentAccount.turretSkins,
+  });
+  app.querySelector("[data-open-supplies]")?.addEventListener("click", supplyShopScreen);
   const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
   if (previewHost) {
     customAvatarPreview = new AvatarPreview3D(
@@ -582,9 +673,13 @@ function cosmeticCollectionScreen(
     setText("[data-custom-preview-title]", item.label);
     setText(
       "[data-custom-preview-copy]",
-      shopping && !cosmeticEntitled(item, currentAccount)
-        ? "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다."
-        : "현재 캐릭터에 입혀 본 모습입니다.",
+      item.slot === "character"
+        ? characterTrait(item.id).description
+        : item.slot === "turret"
+          ? turretSkinTrait(item.id, item.turretKind).description
+          : shopping && !cosmeticEntitled(item, currentAccount)
+            ? "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다."
+            : item.description,
     );
   };
   app
@@ -621,20 +716,38 @@ function cosmeticCollectionScreen(
         event.stopPropagation();
         const itemId = button.dataset.cosmeticId ?? "";
         const action = button.dataset.cosmeticAction;
+        const item = cosmeticById(itemId);
+        if (!item) return;
+        if (action === "purchase" && item.unlock.kind === "points") {
+          confirmPointPurchase({
+            label: item.label,
+            pointCost: item.unlock.price,
+            onConfirm: () => {
+              void (async () => {
+                try {
+                  account = await purchaseCosmetic(itemId);
+                  shopScreen(activeSlot);
+                  toast("구매했습니다. 커스텀 탭에서 착용할 수 있습니다.");
+                } catch (error) {
+                  toast(
+                    error instanceof Error
+                      ? error.message
+                      : "외형을 구매하지 못했습니다.",
+                  );
+                }
+              })();
+            },
+          });
+          return;
+        }
         const originalLabel = button.textContent ?? "";
         button.disabled = true;
         button.textContent = "처리 중";
         void (async () => {
           try {
-            if (action === "purchase") {
-              account = await purchaseCosmetic(itemId);
-              shopScreen(activeSlot);
-              toast("구매했습니다. 커스텀 탭에서 착용할 수 있습니다.");
-            } else {
-              account = await equipCosmetic(itemId);
-              customizationScreen(activeSlot);
-              toast("착용 상태를 저장했습니다.");
-            }
+            account = await equipCosmetic(itemId);
+            customizationScreen(activeSlot);
+            toast("착용 상태를 저장했습니다.");
           } catch (error) {
             button.disabled = false;
             button.textContent = originalLabel;
@@ -924,7 +1037,7 @@ function lobbyScreen(state: GameSnapshot): void {
       : "";
   setContent(
     "lobby",
-    `<main class="lobby-screen ${state.playMode === "solo" ? "solo-lobby" : "multiplayer-lobby"}"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "싱글 플레이" : "멀티 플레이"} · ${stageThemeFor(state.stageId).label}</span><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><strong>${state.stageLabel}</strong></div></header>${roomCode}<section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">게임 시작</button></footer></section></main>`,
+    `<main class="lobby-screen ${state.playMode === "solo" ? "solo-lobby" : "multiplayer-lobby"}"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${state.playMode === "solo" ? "싱글 플레이" : "멀티 플레이"} · ${stageThemeFor(state.stageId).label}</span><p>${state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><strong>${state.stageLabel}</strong></div></header>${roomCode}<section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>NIGHT BRIEF</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><section class="lobby-loadout" data-lobby-loadout></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button><button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">게임 시작</button></footer></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -1000,13 +1113,37 @@ function updateLobby(state: GameSnapshot): void {
     start.textContent = host ? "게임 시작" : "방장 대기 중";
   }
   if (bot) bot.disabled = !host || state.players.length >= 4;
+  const loadout = app.querySelector<HTMLElement>("[data-lobby-loadout]");
+  if (!loadout || !me) return;
+  const owned = me.consumables
+    .map((entry) => ({ entry, definition: shopConsumableById(entry.itemId) }))
+    .filter((entry): entry is { entry: typeof me.consumables[number]; definition: NonNullable<ReturnType<typeof shopConsumableById>> } => Boolean(entry.definition));
+  const selected = new Set(me.consumableLoadout);
+  loadout.innerHTML = `<header><div><span class="eyebrow">TACTICAL LOADOUT</span><strong>전술 보급 장착 <small>${selected.size}/3</small></strong></div><button class="btn ghost" data-open-supply-shop>상점</button></header>${owned.length ? `<div class="loadout-items">${owned.map(({ entry, definition }) => `<button class="loadout-item ${selected.has(definition.id) ? "selected" : ""}" data-loadout-id="${definition.id}" aria-pressed="${selected.has(definition.id)}"><i>${definition.icon}</i><span><strong>${escapeHtml(definition.label)}</strong><small>${entry.quantity}개 보유 · ${escapeHtml(definition.description)}</small></span><b>${selected.has(definition.id) ? "장착" : "선택"}</b></button>`).join("")}</div><p>장착한 보급품은 한 판에 각각 한 번만 사용할 수 있습니다.</p>` : `<div class="loadout-empty"><span>아직 구매한 전술 보급이 없습니다.</span><button class="btn primary" data-open-supply-shop>전술 보급 상점</button></div>`}`;
+  loadout.querySelectorAll<HTMLButtonElement>("[data-open-supply-shop]").forEach((button) =>
+    button.addEventListener("click", supplyShopScreen),
+  );
+  loadout.querySelectorAll<HTMLButtonElement>("[data-loadout-id]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const itemId = button.dataset.loadoutId as ConsumableId;
+      const next = [...me.consumableLoadout];
+      const index = next.indexOf(itemId);
+      if (index >= 0) next.splice(index, 1);
+      else if (next.length >= 3) {
+        toast("전술 보급은 최대 3개까지 장착할 수 있습니다.");
+        return;
+      } else next.push(itemId);
+      network?.setConsumableLoadout(next);
+      audio.play("button");
+    }),
+  );
 }
 
 function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "싱글" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/4</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "싱글" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${drawLimitForCharacter(me?.appearance.character ?? "")}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   setupJoystick();
   app.querySelector("[data-interact]")?.addEventListener("click", () => {
@@ -1095,7 +1232,10 @@ function updateHud(): void {
     ?.classList.toggle("hidden", Boolean(me?.roomId) || !me?.alive);
   app
     .querySelector("[data-inventory]")
-    ?.classList.toggle("hidden", !me?.roomId || !me?.alive);
+    ?.classList.toggle(
+      "hidden",
+      !me?.alive || (!me?.items.length && !me?.consumableLoadout.length),
+    );
   app
     .querySelector("[data-interact]")
     ?.classList.toggle("hidden", Boolean(me?.roomId) || !me?.alive);
@@ -1109,7 +1249,10 @@ function updateHud(): void {
     "[data-ghost]",
     `${aliveGhosts.length > 1 ? `${aliveGhosts.length}명 · ` : ""}Lv.${leadGhost.level} ${leadGhost.attackCount}/${leadGhost.attacksToNextLevel}`,
   );
-  setText("[data-draw]", `${me?.drawCount ?? 0}/4`);
+  setText(
+    "[data-draw]",
+    `${me?.drawCount ?? 0}/${drawLimitForCharacter(me?.appearance.character ?? "")}`,
+  );
   setText("[data-time]", formatTime(snapshot.elapsed));
   const retreating = snapshot.ghosts.some(
     (ghost) => ghost.retreating || ghost.healing,
@@ -1359,12 +1502,17 @@ function renderBuildPanel(tile: Tile): void {
       const definition = BALANCE.buildings[kind];
       const cost = upgradeCost(kind, 1, modeRank);
       const tierClass = kind === "golden-turret" ? "mythic-build" : kind === "arc-turret" ? "rare-build" : "";
-      return `<button class="build-card ${tierClass}" type="button" data-build="${kind}">${buildingIconMarkup(kind)}<span class="build-card-copy"><strong>${definition.label}</strong><small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+      return `<button class="build-card catalog-card ${tierClass}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 3D 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong><small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
     })
     .join(
       "",
     )}</div>${buildNotes}`;
   panel.classList.remove("hidden");
+  hydrateCatalogArt(panel, {
+    appearance: me.appearance,
+    rank: me.displayRank,
+    turretSkins: me.turretSkins,
+  });
   wireBuildPanelClose(panel);
   panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((button) => {
     wirePanelAction(button, () => {
@@ -1430,7 +1578,8 @@ function renderTargetPanel(selection: SceneSelection): void {
     ? buildingRemovalMarkup(building, modeRank)
     : "";
   if (kind === "lucky-machine" && building) {
-    const cost = DRAW_COSTS[me.drawCount];
+    const drawLimit = drawLimitForCharacter(me.appearance.character);
+    const cost = me.drawCount < drawLimit ? DRAW_COSTS[me.drawCount] : undefined;
     const owned =
       me.items
         .map(
@@ -1438,7 +1587,7 @@ function renderTargetPanel(selection: SceneSelection): void {
             `${escapeHtml(item.label)}${item.count > 1 ? ` ×${item.count}` : ""}`,
         )
         .join(" · ") || "아직 획득한 아이템이 없습니다.";
-    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / 4회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta" type="button" data-draw><span>${me.drawCount + 1}번째 랜덤 뽑기</span><strong>${resourceCostMarkup(cost)}</strong></button>` : '<button class="btn ghost panel-disabled" disabled>이번 판 4회 완료</button>'}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
+    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / ${drawLimit}회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta" type="button" data-draw><span>${me.drawCount + 1}번째 랜덤 뽑기</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>이번 판 ${drawLimit}회 완료</button>`}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
     panel.classList.remove("hidden");
     wireBuildPanelClose(panel);
     panel
@@ -1726,6 +1875,7 @@ function playEvents(events: GameEvent[]): void {
       "ghost-return",
       "ghost-skill",
       "item-draw",
+      "consumable-use",
       "elite-join",
       "victory",
       "defeat",
@@ -1740,6 +1890,10 @@ function playEvents(events: GameEvent[]): void {
     (event) => event.kind === "item-draw" && event.playerId === playerId,
   );
   if (draw?.itemId) showItemReveal(draw.itemId);
+  const consumable = events.find(
+    (event) => event.kind === "consumable-use" && event.playerId === playerId,
+  );
+  if (consumable?.label) toast(`${consumable.label} 사용`);
   const levelUp = events.find((event) => event.kind === "ghost-level-up");
   if (levelUp)
     toast(
@@ -1770,7 +1924,7 @@ function showInventory(): void {
   const me = snapshot.players.find((player) => player.id === playerId);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
-  const cards = me?.items.length
+  const randomCards = me?.items.length
     ? me.items
         .map((owned) => {
           const item = getRandomItem(owned.itemId);
@@ -1778,11 +1932,61 @@ function showInventory(): void {
         })
         .join("")
     : '<p class="subtitle">랜덤 상자를 설치하고 아이템을 뽑아보세요.</p>';
-  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH ITEMS · ${me?.drawCount ?? 0}/4</span><h2>이번 판 가방</h2><div class="item-grid">${cards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
+  const supplies = me?.consumableLoadout
+    .map((itemId) => {
+      const item = shopConsumableById(itemId);
+      if (!item) return "";
+      const quantity = me.consumables.find((owned) => owned.itemId === itemId)?.quantity ?? 0;
+      const used = me.usedConsumables.includes(itemId);
+      const targetHint =
+        item.target === "tile"
+          ? "먼저 복도 타일을 선택하세요"
+          : item.target === "building"
+            ? "먼저 설비를 선택하세요"
+            : item.target === "door"
+              ? "현재 방의 문에 사용"
+              : item.target === "room"
+                ? "현재 방에 사용"
+                : "즉시 사용";
+      return `<article class="item-card supply-item ${used ? "spent" : ""}"><i>${item.icon}</i><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>${targetHint} · ${used ? "이번 판 사용 완료" : `남은 재고 ${quantity}개`}</small><button ${used || quantity <= 0 ? "disabled" : ""} data-use-consumable="${item.id}">${used ? "사용 완료" : "사용"}</button></article>`;
+    })
+    .join("");
+  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH BAG · ${me?.drawCount ?? 0}/${drawLimitForCharacter(me?.appearance.character ?? "")}</span><h2>이번 판 가방</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">랜덤 획득품</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
   app.appendChild(modal);
   modal
     .querySelector("[data-close]")
     ?.addEventListener("click", () => modal.remove());
+  modal.querySelectorAll<HTMLButtonElement>("[data-use-consumable]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const itemId = button.dataset.useConsumable as ConsumableId;
+      const item = shopConsumableById(itemId);
+      if (!item || !me) return;
+      let target: { roomId?: string; targetId?: string; tile?: Tile } = {};
+      if (item.target === "tile") {
+        if (!selectedTile) {
+          toast("복도 타일을 먼저 선택한 뒤 사용하세요.");
+          return;
+        }
+        target = { tile: selectedTile };
+      } else if (item.target === "building") {
+        if (!selectedTarget || selectedTarget.type !== "building") {
+          toast("할인할 설비를 먼저 선택하세요.");
+          return;
+        }
+        target = { targetId: selectedTarget.targetId };
+      } else if (item.target === "room" || item.target === "door") {
+        if (!me.roomId) {
+          toast("방을 점유한 뒤 사용할 수 있습니다.");
+          return;
+        }
+        target = { roomId: me.roomId };
+      }
+      button.disabled = true;
+      network?.useConsumable(itemId, target);
+      audio.play("button");
+      modal.remove();
+    }),
+  );
 }
 
 function showItemReveal(itemId: string): void {
@@ -1829,10 +2033,15 @@ function showSettings(): void {
   audio.play("button");
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
+  // Logging out in the middle of a live match would abandon the active room
+  // without giving the player the dedicated leave-game confirmation flow.
+  // Keep account actions available everywhere else, but omit them while play
+  // is actually underway.
+  const isActiveMatch = currentView === "game" && snapshot?.status === "PLAYING";
   const leaveAction = network
     ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>'
     : "";
-  const logoutAction = account
+  const logoutAction = account && !isActiveMatch
     ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
     : "";
   modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;

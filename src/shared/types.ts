@@ -55,6 +55,45 @@ export type TurretSkinLoadout = Record<TurretKind, string>;
 
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
+export type ConsumableId =
+  | 'scout-flare'
+  | 'path-chalk'
+  | 'adrenal-shot'
+  | 'quiet-slippers'
+  | 'room-beacon'
+  | 'quick-mortar'
+  | 'hinge-brace'
+  | 'ward-seal'
+  | 'repair-window'
+  | 'last-latch'
+  | 'emergency-bedroll'
+  | 'toolbelt-voucher'
+  | 'echo-lens'
+  | 'moon-compass'
+  | 'sprint-candy'
+  | 'mist-cape'
+  | 'rescue-whistle'
+  | 'patch-paste'
+  | 'steel-rivet'
+  | 'ice-seal'
+  | 'rewind-clock'
+  | 'calibrator-key'
+  | 'turret-grease'
+  | 'pulse-solder'
+  | 'spare-gears'
+  | 'copper-coil'
+  | 'lens-kit'
+  | 'welding-gel'
+  | 'blueprint-chip'
+  | 'field-crane';
+
+export type ConsumableTarget = 'self' | 'tile' | 'room' | 'door' | 'building';
+
+export interface OwnedConsumable {
+  itemId: ConsumableId;
+  quantity: number;
+}
+
 export interface OwnedItem {
   itemId: string;
   label: string;
@@ -90,6 +129,14 @@ export interface PlayerState {
   score: number;
   drawCount: number;
   items: OwnedItem[];
+  consumables: OwnedConsumable[];
+  consumableLoadout: ConsumableId[];
+  usedConsumables: ConsumableId[];
+  speedBoostUntil: number;
+  stealthUntil: number;
+  bedrollUntil: number;
+  upgradeDiscountTargetId: string | null;
+  upgradeDiscountRate: number;
 }
 
 export interface RoomState {
@@ -102,6 +149,11 @@ export interface RoomState {
   bedLevel: number;
   bedLevels: number[];
   shieldUntil: number;
+  beaconUntil: number;
+  doorBraceUntil: number;
+  doorWardUntil: number;
+  lastLatchArmedBy: string | null;
+  lastLatchUntil: number;
   lastDoorHitAt: number;
   doorRegenAccumulator: number;
 }
@@ -193,6 +245,7 @@ export interface AccountProfile {
   ownedCosmetics: string[];
   appearance: AvatarAppearance;
   turretSkins: TurretSkinLoadout;
+  consumables: OwnedConsumable[];
   createdAt: number;
 }
 
@@ -236,6 +289,7 @@ export type GameEventKind =
   | 'ghost-return'
   | 'ghost-skill'
   | 'item-draw'
+  | 'consumable-use'
   | 'elite-join'
   | 'victory'
   | 'defeat';
@@ -273,6 +327,8 @@ export type ClientMessage =
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
+  | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })
+  | (BaseMessage & { type: 'use-consumable'; itemId: ConsumableId; roomId?: string; targetId?: string; tile?: Tile })
   | (BaseMessage & { type: 'rematch' })
   | (BaseMessage & { type: 'ping'; clientTime: number })
   | (BaseMessage & { type: 'resync' });
@@ -301,4 +357,5 @@ export interface JoinIdentity {
   multiplayerRank?: RankId;
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
+  consumables?: OwnedConsumable[];
 }

@@ -25,6 +25,10 @@ export const equipCosmetic = (itemId: string): Promise<AccountProfile> => authRe
   method: 'POST', body: JSON.stringify({ itemId }),
 });
 
+export const purchaseConsumable = (itemId: string, quantity: 1 | 5): Promise<AccountProfile> => authRequest('/api/shop/consumables/purchase', {
+  method: 'POST', body: JSON.stringify({ itemId, quantity }),
+});
+
 export async function logoutAccount(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' } });
 }

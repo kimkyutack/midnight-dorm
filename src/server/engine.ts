@@ -11,7 +11,12 @@ import {
   normalizeAppearance,
   normalizeTurretSkins,
 } from "../shared/customization";
-import { isBuildTile, moveInWalkableArea } from "../shared/map";
+import {
+  characterTrait,
+  drawLimitForCharacter,
+} from "../shared/characterTraits";
+import { turretSkinTrait } from "../shared/turretSkinTraits";
+import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea } from "../shared/map";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -31,6 +36,7 @@ import type {
   BuildingKind,
   BuildingState,
   ClientMessage,
+  ConsumableId,
   GameEvent,
   GameSnapshot,
   GhostState,
@@ -45,6 +51,7 @@ import type {
   TurretKind,
   Vec2,
 } from "../shared/types";
+import { shopConsumableById } from "../shared/shopConsumables";
 import {
   BOT_REACTION_SECONDS,
   decideBotIntent,
@@ -55,6 +62,44 @@ import {
 const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
 ] as const;
+
+const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
+  'adrenal-shot': 4,
+  'sprint-candy': 6,
+};
+const SUPPLY_STEALTH_SECONDS: Partial<Record<ConsumableId, number>> = {
+  'quiet-slippers': 6,
+  'mist-cape': 8,
+};
+const SUPPLY_BEDROLL_SECONDS: Partial<Record<ConsumableId, number>> = {
+  'emergency-bedroll': 8,
+  'rescue-whistle': 12,
+};
+const SUPPLY_DOOR_HEAL: Partial<Record<ConsumableId, number>> = {
+  'quick-mortar': 70,
+  'patch-paste': 120,
+};
+const SUPPLY_DOOR_BRACE_SECONDS: Partial<Record<ConsumableId, number>> = {
+  'hinge-brace': 15,
+  'steel-rivet': 20,
+};
+const SUPPLY_DOOR_WARD_SECONDS: Partial<Record<ConsumableId, number>> = {
+  'ward-seal': 3,
+  'ice-seal': 5,
+};
+const SUPPLY_REGEN_RESET = new Set<ConsumableId>(['repair-window', 'rewind-clock']);
+const SUPPLY_BUILD_DISCOUNT: Partial<Record<ConsumableId, number>> = {
+  'toolbelt-voucher': 0.35,
+  'calibrator-key': 0.15,
+  'turret-grease': 0.25,
+  'pulse-solder': 0.3,
+  'spare-gears': 0.32,
+  'copper-coil': 0.38,
+  'lens-kit': 0.4,
+  'welding-gel': 0.45,
+  'blueprint-chip': 0.5,
+  'field-crane': 0.6,
+};
 
 interface ReconnectRecord {
   playerId: string;
@@ -149,6 +194,11 @@ export class GameEngine {
       bedLevel: 1,
       bedLevels: room.beds.map(() => 1),
       shieldUntil: 0,
+      beaconUntil: 0,
+      doorBraceUntil: 0,
+      doorWardUntil: 0,
+      lastLatchArmedBy: null,
+      lastLatchUntil: 0,
       lastDoorHitAt: -1_000_000,
       doorRegenAccumulator: -1,
     }));
@@ -302,6 +352,14 @@ export class GameEngine {
       player.bedIndex ??= null;
       player.drawCount ??= 0;
       player.items ??= [];
+      player.consumables ??= [];
+      player.consumableLoadout ??= [];
+      player.usedConsumables ??= [];
+      player.speedBoostUntil ??= 0;
+      player.stealthUntil ??= 0;
+      player.bedrollUntil ??= 0;
+      player.upgradeDiscountTargetId ??= null;
+      player.upgradeDiscountRate ??= 0;
     }
     for (const room of this.state.rooms) {
       room.ownerIds ??= room.ownerId ? [room.ownerId] : [];
@@ -313,6 +371,11 @@ export class GameEngine {
         .map((_, index) => (index === 0 ? room.bedLevel : 1));
       room.bedLevel = room.bedLevels[0] ?? room.bedLevel ?? 1;
       room.ownerId = room.ownerIds[0] ?? room.ownerId ?? null;
+      room.beaconUntil ??= 0;
+      room.doorBraceUntil ??= 0;
+      room.doorWardUntil ??= 0;
+      room.lastLatchArmedBy ??= null;
+      room.lastLatchUntil ??= 0;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
       room.doorRegenAccumulator = finite(room.doorRegenAccumulator, -1);
     }
@@ -408,6 +471,12 @@ export class GameEngine {
         player.turretSkins = normalizeTurretSkins(
           identity.turretSkins ?? player.turretSkins,
         );
+        player.consumables = (identity.consumables ?? player.consumables)
+          .filter((item) => shopConsumableById(item.itemId) && Number.isInteger(item.quantity) && item.quantity > 0)
+          .map((item) => ({ itemId: item.itemId, quantity: item.quantity }));
+        player.consumableLoadout = player.consumableLoadout.filter((itemId) =>
+          player.consumables.some((owned) => owned.itemId === itemId && owned.quantity > 0),
+        );
         this.lastHumanActivity = now;
         return { player, reconnectToken: record.token, reconnected: true };
       }
@@ -428,6 +497,7 @@ export class GameEngine {
       identity.multiplayerRank ?? "beginner",
       identity.appearance,
       identity.turretSkins,
+      identity.consumables,
     );
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
@@ -617,6 +687,10 @@ export class GameEngine {
         return this.removeBuilding(playerId, message.buildingId);
       case "draw-item":
         return this.drawItem(playerId, message.machineId);
+      case "set-consumable-loadout":
+        return this.setConsumableLoadout(playerId, message.itemIds);
+      case "use-consumable":
+        return this.useConsumable(playerId, message);
       case "rematch":
         return this.voteRematch(playerId);
       case "ping":
@@ -639,6 +713,123 @@ export class GameEngine {
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
     this.state.status = "COUNTDOWN";
     this.state.countdown = this.testMode ? 1.2 : BALANCE.countdownSeconds;
+    return { ok: true };
+  }
+
+  setConsumableLoadout(playerId: string, itemIds: ConsumableId[]): ActionResult {
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    if (!player) return { ok: false, error: '플레이어를 찾을 수 없습니다.' };
+    if (this.state.status !== 'LOBBY') return { ok: false, error: '보급품은 대기실에서만 선택할 수 있습니다.' };
+    const unique = [...new Set(itemIds)];
+    if (unique.length !== itemIds.length || unique.length > 3) return { ok: false, error: '서로 다른 보급품을 최대 3종 선택할 수 있습니다.' };
+    if (!unique.every((itemId) => player.consumables.some((owned) => owned.itemId === itemId && owned.quantity > 0))) {
+      return { ok: false, error: '보유하지 않은 보급품은 장착할 수 없습니다.' };
+    }
+    player.consumableLoadout = unique;
+    return { ok: true };
+  }
+
+  validateConsumableUse(
+    playerId: string,
+    message: Extract<ClientMessage, { type: 'use-consumable' }>,
+  ): ActionResult {
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    const item = shopConsumableById(message.itemId);
+    if (!player || !item || !player.alive) return { ok: false, error: '전술 보급을 사용할 수 없습니다.' };
+    if (this.state.status !== 'PLAYING') return { ok: false, error: '전술 보급은 귀신이 움직인 뒤 사용할 수 있습니다.' };
+    if (!player.consumableLoadout.includes(item.id)) return { ok: false, error: '대기실에서 선택한 보급품만 사용할 수 있습니다.' };
+    if (player.usedConsumables.includes(item.id)) return { ok: false, error: '이 보급품은 이번 판에 이미 사용했습니다.' };
+    if (!player.consumables.some((owned) => owned.itemId === item.id && owned.quantity > 0)) return { ok: false, error: '보급 재고가 없습니다.' };
+
+    const ownedRoom = player.roomId
+      ? this.state.rooms.find((room) => room.id === player.roomId)
+      : undefined;
+    if (item.target === 'self') {
+      const outsideOnly = Boolean(
+        SUPPLY_SPEED_SECONDS[item.id] ||
+        SUPPLY_STEALTH_SECONDS[item.id] ||
+        SUPPLY_BEDROLL_SECONDS[item.id],
+      );
+      if (outsideOnly && player.roomId) {
+        return { ok: false, error: '복도에 있을 때만 사용할 수 있습니다.' };
+      }
+      return { ok: true };
+    }
+    if (item.target === 'tile') {
+      const tile = message.tile;
+      const corridor = tile && this.map.corridorTiles.some((candidate) => candidate.x === tile.x && candidate.y === tile.y);
+      if (!tile || !corridor || distance(player.position, tile) > 8) return { ok: false, error: '8칸 안의 복도 타일을 선택하세요.' };
+      return { ok: true };
+    }
+    if (!ownedRoom) return { ok: false, error: '방을 점유한 뒤 사용할 수 있습니다.' };
+    if (item.target === 'room' || item.target === 'door') {
+      if (message.roomId && message.roomId !== ownedRoom.id) return { ok: false, error: '자신이 점유한 방에만 사용할 수 있습니다.' };
+      if (item.target === 'door' && ownedRoom.doorHp <= 0) return { ok: false, error: '파괴된 문에는 사용할 수 없습니다.' };
+      if (item.id === 'last-latch' && ownedRoom.lastLatchArmedBy) return { ok: false, error: '이 문의 최후의 걸쇠는 이미 장착되어 있습니다.' };
+      return { ok: true };
+    }
+    const building = this.state.buildings.find((candidate) => candidate.id === message.targetId);
+    if (!building || building.roomId !== ownedRoom.id) return { ok: false, error: '같은 방의 설비를 선택하세요.' };
+    return { ok: true };
+  }
+
+  useConsumable(
+    playerId: string,
+    message: Extract<ClientMessage, { type: 'use-consumable' }>,
+  ): ActionResult {
+    const validation = this.validateConsumableUse(playerId, message);
+    if (!validation.ok) return validation;
+    const player = this.state.players.find((candidate) => candidate.id === playerId) as PlayerState;
+    const item = shopConsumableById(message.itemId)!;
+    const owned = player.consumables.find((candidate) => candidate.itemId === item.id)!;
+    const room = player.roomId ? this.state.rooms.find((candidate) => candidate.id === player.roomId) : undefined;
+
+    if (item.id === 'scout-flare' || item.id === 'echo-lens') {
+      // 귀신 위치는 서버 스냅샷으로 이미 동기화한다. 효과 시간은 클라이언트가
+      // 이 이벤트를 받아 강조 링과 이동 경로 힌트를 그리는 데 사용한다.
+    } else if (item.id === 'path-chalk' || item.id === 'moon-compass') {
+      // 현재 맵·빈 침대 정보는 스냅샷에 있으므로 클라이언트가 즉시 경로를 표시한다.
+    } else if (SUPPLY_SPEED_SECONDS[item.id]) {
+      if (player.roomId) return { ok: false, error: '침대를 점유한 뒤에는 사용할 수 없습니다.' };
+      player.speedBoostUntil = this.state.elapsed + (SUPPLY_SPEED_SECONDS[item.id] as number);
+    } else if (SUPPLY_STEALTH_SECONDS[item.id]) {
+      if (player.roomId) return { ok: false, error: '복도에 있을 때만 사용할 수 있습니다.' };
+      player.stealthUntil = this.state.elapsed + (SUPPLY_STEALTH_SECONDS[item.id] as number);
+    } else if (item.id === 'room-beacon' && room) {
+      room.beaconUntil = this.state.elapsed + 10;
+    } else if (SUPPLY_DOOR_HEAL[item.id] && room) {
+      room.doorHp = Math.min(room.doorMaxHp, room.doorHp + (SUPPLY_DOOR_HEAL[item.id] as number));
+    } else if (SUPPLY_DOOR_BRACE_SECONDS[item.id] && room) {
+      room.doorBraceUntil = this.state.elapsed + (SUPPLY_DOOR_BRACE_SECONDS[item.id] as number);
+    } else if (SUPPLY_DOOR_WARD_SECONDS[item.id] && room) {
+      room.doorWardUntil = this.state.elapsed + (SUPPLY_DOOR_WARD_SECONDS[item.id] as number);
+    } else if (SUPPLY_REGEN_RESET.has(item.id) && room) {
+      room.lastDoorHitAt = this.state.elapsed - BALANCE.door.passiveRegenDelaySeconds;
+      room.doorRegenAccumulator = -1;
+    } else if (item.id === 'last-latch' && room) {
+      if (room.lastLatchArmedBy) return { ok: false, error: '이 문의 최후의 걸쇠는 이미 장착되어 있습니다.' };
+      room.lastLatchArmedBy = player.id;
+    } else if (SUPPLY_BEDROLL_SECONDS[item.id]) {
+      if (player.roomId) return { ok: false, error: '침대를 점유한 뒤에는 사용할 수 없습니다.' };
+      player.bedrollUntil = this.state.elapsed + (SUPPLY_BEDROLL_SECONDS[item.id] as number);
+    } else if (SUPPLY_BUILD_DISCOUNT[item.id]) {
+      const building = this.state.buildings.find((candidate) => candidate.id === message.targetId);
+      if (!building) return { ok: false, error: '설비를 찾을 수 없습니다.' };
+      player.upgradeDiscountTargetId = building.id;
+      player.upgradeDiscountRate = SUPPLY_BUILD_DISCOUNT[item.id] as number;
+    }
+
+    owned.quantity -= 1;
+    if (owned.quantity <= 0) player.consumables = player.consumables.filter((candidate) => candidate !== owned);
+    player.usedConsumables.push(item.id);
+    this.pendingEvents.push({
+      kind: 'consumable-use',
+      playerId,
+      roomId: room?.id,
+      itemId: item.id,
+      label: item.label,
+      position: message.tile ?? (room ? this.map.rooms.find((candidate) => candidate.id === room.id)?.door : player.position),
+    });
     return { ok: true };
   }
 
@@ -703,7 +894,10 @@ export class GameEngine {
       })
       .filter(
         ({ bed }) =>
-          distance(player.position, bed) <= BALANCE.player.interactionRange,
+          distance(player.position, bed) <=
+          (this.state.elapsed < player.bedrollUntil
+            ? 1.5
+            : BALANCE.player.interactionRange),
       )
       .sort(
         (a, b) =>
@@ -878,13 +1072,24 @@ export class GameEngine {
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (building.level >= maxBuildingLevel(building.kind, activeRank))
       return { ok: false, error: "이미 최고 단계입니다." };
-    const cost = upgradeCost(building.kind, building.level + 1, activeRank);
+    const baseCost = upgradeCost(building.kind, building.level + 1, activeRank);
+    const discounted = player.upgradeDiscountTargetId === building.id;
+    const discountRate = discounted
+      ? clamp(player.upgradeDiscountRate || 0.35, 0.05, 0.8)
+      : 0;
+    const cost = discounted
+      ? { gold: Math.ceil(baseCost.gold * (1 - discountRate)), power: baseCost.power }
+      : baseCost;
     if (player.gold < cost.gold || player.power < cost.power)
       return { ok: false, error: "골드 또는 전력이 부족합니다." };
     player.gold -= cost.gold;
     player.power -= cost.power;
     building.level += 1;
     this.addBuildingInvestment(building, playerId, cost);
+    if (discounted) {
+      player.upgradeDiscountTargetId = null;
+      player.upgradeDiscountRate = 0;
+    }
     this.pendingEvents.push({
       kind: "upgrade",
       position: building.tile,
@@ -1023,11 +1228,12 @@ export class GameEngine {
       return { ok: false, error: "자신의 랜덤 상자를 선택하세요." };
     if (this.state.status !== "PLAYING")
       return { ok: false, error: "게임이 시작된 뒤 뽑을 수 있습니다." };
+    const drawLimit = drawLimitForCharacter(player.appearance.character);
     const cost = DRAW_COSTS[player.drawCount];
-    if (!cost)
+    if (player.drawCount >= drawLimit || !cost)
       return {
         ok: false,
-        error: "이번 판의 랜덤 뽑기 4회를 모두 사용했습니다.",
+        error: `이번 판의 랜덤 뽑기 ${drawLimit}회를 모두 사용했습니다.`,
       };
     if (player.gold < cost.gold || player.power < cost.power)
       return {
@@ -1146,6 +1352,12 @@ export class GameEngine {
   private updatePlayers(dt: number): void {
     if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
       return;
+    const roomCapacity = this.playMode === "multiplayer" ? 2 : 1;
+    const blockedRoomFloorTiles = fullRoomFloorKeys(
+      this.map,
+      this.state.rooms,
+      roomCapacity,
+    );
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
@@ -1155,12 +1367,57 @@ export class GameEngine {
         player.velocity = { x: 0, y: 0 };
         continue;
       }
+      // A room may become full while another survivor is already walking
+      // across its floor.  Put that intruder just outside the entrance instead
+      // of trapping it against the new boundary; the next bot/human input can
+      // then continue toward an actually available room.
+      const fullRoomContainingPlayer = this.map.rooms.find((mapRoom) => {
+        const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
+        return Boolean(
+          room &&
+          room.ownerIds.length >= roomCapacity &&
+          mapRoom.floorTiles.some(
+            (tile) =>
+              tile.x === Math.round(player.position.x) &&
+              tile.y === Math.round(player.position.y),
+          ),
+        );
+      });
+      if (fullRoomContainingPlayer) {
+        const entrance = fullRoomContainingPlayer.floorTiles.find(
+          (tile) =>
+            Math.abs(tile.x - fullRoomContainingPlayer.door.x) +
+              Math.abs(tile.y - fullRoomContainingPlayer.door.y) ===
+            1,
+        );
+        const exit = entrance
+          ? {
+              x:
+                fullRoomContainingPlayer.door.x +
+                (fullRoomContainingPlayer.door.x - entrance.x),
+              y:
+                fullRoomContainingPlayer.door.y +
+                (fullRoomContainingPlayer.door.y - entrance.y),
+            }
+          : fullRoomContainingPlayer.door;
+        const hasExit = this.map.corridorTiles.some(
+          (tile) => tile.x === exit.x && tile.y === exit.y,
+        );
+        player.position = hasExit
+          ? { ...exit }
+          : { ...fullRoomContainingPlayer.door };
+        player.velocity = { x: 0, y: 0 };
+        continue;
+      }
       const rank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       const speed =
         BALANCE.player.speed *
         rankBenefits(rank).speedMultiplier *
-        combinedItemEffects(player.items).moveSpeedMultiplier;
+        combinedItemEffects(player.items).moveSpeedMultiplier *
+        characterTrait(player.appearance.character)
+          .unclaimedMoveSpeedMultiplier *
+        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);
       player.position = moveInWalkableArea(
         this.map,
         player.position,
@@ -1169,6 +1426,8 @@ export class GameEngine {
           y: player.velocity.y * speed * dt,
         },
         BALANCE.player.collisionRadius,
+        0.12,
+        blockedRoomFloorTiles,
       );
     }
   }
@@ -1223,6 +1482,7 @@ export class GameEngine {
         (candidate) => candidate.id === player.roomId,
       );
       const effects = combinedItemEffects(player.items);
+      const trait = characterTrait(player.appearance.character);
       const goldBefore = player.gold;
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
@@ -1232,7 +1492,8 @@ export class GameEngine {
           ? 0
           : (buildingStats("bed", bedLevel).value *
               rankBenefits(activeRank).bedGoldMultiplier +
-              effects.goldPerSecond) *
+              effects.goldPerSecond +
+              trait.goldPerSecond) *
             dt;
       player.gold += income;
       const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
@@ -1335,9 +1596,19 @@ export class GameEngine {
         "golden-turret",
         "electric-coil",
       ].includes(building.kind);
+      const trait = characterTrait(owner?.appearance.character ?? '');
+      const skinTrait = turretSkinTrait(
+        building.skinId,
+        building.kind === 'basic-turret' ||
+          building.kind === 'rapid-turret' ||
+          building.kind === 'frost-turret' ||
+          building.kind === 'arc-turret'
+          ? building.kind
+          : undefined,
+      );
       // 일반 포탑은 4칸 기본 사거리이며, 황금 심판 포탑과 사거리 아이템만
       // 이 서버 권한 타깃 사거리에 예외 보정을 더한다.
-      const range = stats.range + effects.turretRangeBonus;
+      const range = stats.range + effects.turretRangeBonus + trait.turretRangeBonus;
       if (
         !offensive ||
         !nearest ||
@@ -1349,10 +1620,20 @@ export class GameEngine {
         this.state.elapsed < this.turretSuppressedUntil ? 1.65 : 1;
       building.cooldown =
         stats.rate * suppression * effects.turretRateMultiplier;
-      const damage = stats.value * effects.turretDamageMultiplier;
+      building.cooldown *= trait.turretRateMultiplier;
+      building.cooldown *= skinTrait.rateMultiplier;
+      const damage =
+        stats.value *
+        effects.turretDamageMultiplier *
+        trait.turretDamageMultiplier *
+        skinTrait.damageMultiplier;
       const appliedDamage = this.applyGhostDamage(nearest, damage);
       if (building.kind === "frost-turret")
-        this.applyGhostSlow(nearest, 1, 0.76);
+        this.applyGhostSlow(
+          nearest,
+          1,
+          1 - (1 - 0.76) * skinTrait.frostSlowStrengthMultiplier,
+        );
       this.pendingEvents.push({
         kind: "turret-fire",
         position: building.tile,
@@ -1610,7 +1891,15 @@ export class GameEngine {
       )[0];
     const destination =
       room.doorHp > 0 ? mapRoom.door : (targetPlayer?.position ?? mapRoom.bed);
-    if (distance(ghost.position, destination) > 0.72) {
+    const canStrikePlayer = Boolean(
+      room.doorHp <= 0 &&
+      targetPlayer &&
+      this.canGhostStrikePlayerInRoom(ghost, targetPlayer, mapRoom.floorTiles),
+    );
+    // A breached door opens a path, not a through-wall melee range.  The ghost
+    // must first place its collision center on a room floor tile and reach the
+    // survivor through a one-step path inside the room.
+    if (distance(ghost.position, destination) > 0.72 || (room.doorHp <= 0 && !canStrikePlayer)) {
       this.moveGhostToward(ghost, destination, dt);
       return;
     }
@@ -1679,9 +1968,36 @@ export class GameEngine {
           0.15,
           1 - (ghost.level - 1) * BALANCE.ghost.shieldPenetrationPerLevel,
         );
+      if (this.state.elapsed < room.doorWardUntil || this.state.elapsed < room.lastLatchUntil) {
+        this.pendingEvents.push({
+          kind: 'consumable-use',
+          position: mapRoom.door,
+          roomId: room.id,
+          targetId: ghost.id,
+          label: this.state.elapsed < room.doorWardUntil ? '결계가 공격을 막았습니다' : '최후의 걸쇠가 버티고 있습니다',
+        });
+        return;
+      }
       const damage =
-        BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction);
-      room.doorHp = Math.max(0, room.doorHp - damage);
+        BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction) *
+        (this.state.elapsed < room.doorBraceUntil ? 0.75 : 1);
+      const nextDoorHp = Math.max(0, room.doorHp - damage);
+      const triggersLastLatch = Boolean(
+        room.lastLatchArmedBy &&
+        room.doorHp / room.doorMaxHp > 0.15 &&
+        nextDoorHp / room.doorMaxHp <= 0.15,
+      );
+      if (triggersLastLatch) {
+        room.lastLatchUntil = this.state.elapsed + 4;
+        room.lastLatchArmedBy = null;
+        room.doorHp = Math.max(1, nextDoorHp);
+        this.pendingEvents.push({
+          kind: 'consumable-use',
+          position: mapRoom.door,
+          roomId: room.id,
+          label: '최후의 걸쇠 발동 · 4초 보호',
+        });
+      } else room.doorHp = nextDoorHp;
       room.lastDoorHitAt = this.state.elapsed;
       room.doorRegenAccumulator = -1;
       if (ghost.variant !== "minion") ghost.attackCount += 1;
@@ -1697,7 +2013,28 @@ export class GameEngine {
         ghost.attackCount >= ghost.attacksToNextLevel
       )
         this.levelUpGhost(ghost);
-    } else if (targetPlayer) this.eliminatePlayer(ghost, targetPlayer);
+    } else if (targetPlayer && canStrikePlayer)
+      this.eliminatePlayer(ghost, targetPlayer);
+  }
+
+  private canGhostStrikePlayerInRoom(
+    ghost: GhostState,
+    player: PlayerState,
+    floorTiles: readonly Tile[],
+  ): boolean {
+    const ghostTileX = Math.round(ghost.position.x);
+    const ghostTileY = Math.round(ghost.position.y);
+    if (
+      !floorTiles.some(
+        (tile) => tile.x === ghostTileX && tile.y === ghostTileY,
+      )
+    )
+      return false;
+    if (distance(ghost.position, player.position) > 0.72) return false;
+    // Euclidean distance alone can be short across a wall corner.  A direct
+    // in-room route of at most one tile is required for a melee elimination.
+    const route = findPath(this.map, ghost.position, player.position);
+    return route.length > 0 && route.length <= 2;
   }
 
   private eliminatePlayer(ghost: GhostState, player: PlayerState): void {
@@ -1914,13 +2251,14 @@ export class GameEngine {
   }
 
   private selectGhostTarget(ghost: GhostState): string | null {
-    const candidates = this.state.rooms.filter((room) => {
+    const occupied = this.state.rooms.filter((room) => {
       return room.ownerIds.some((ownerId) =>
         this.state.players.some(
           (player) => player.id === ownerId && player.alive,
         ),
       );
     });
+    const candidates = occupied.filter((room) => room.beaconUntil <= this.state.elapsed);
     if (candidates.length === 0) return null;
     const otherTwinTargets = ghost.variant.startsWith("twin")
       ? new Set(
@@ -1946,7 +2284,11 @@ export class GameEngine {
     return (
       this.state.players
         .filter(
-          (player) => player.alive && player.connected && !player.roomId,
+          (player) =>
+            player.alive &&
+            player.connected &&
+            !player.roomId &&
+            player.stealthUntil <= this.state.elapsed,
         )
         .sort((first, second) => {
           // 실제 생존자가 복도에 있다면 서버 봇보다 먼저 추적한다.
@@ -2006,8 +2348,8 @@ export class GameEngine {
 
   private resetForRematch(): void {
     const hostId = this.state.hostId;
-    const players = this.state.players.map((player) => ({
-      ...this.makePlayer(
+    const players = this.state.players.map((player) => {
+      const next = this.makePlayer(
         player.id,
         player.nickname,
         player.isBot,
@@ -2016,10 +2358,11 @@ export class GameEngine {
         player.multiplayerRank,
         player.appearance,
         player.turretSkins,
-      ),
-      connected: player.connected,
-      ready: player.isBot,
-    }));
+        player.consumables,
+      );
+      next.consumableLoadout = [...player.consumableLoadout];
+      return { ...next, connected: player.connected, ready: player.isBot };
+    });
     this.state = this.createInitialState();
     this.state.players = players;
     this.state.hostId = hostId;
@@ -2070,6 +2413,7 @@ export class GameEngine {
     multiplayerRank: RankId,
     appearance = DEFAULT_APPEARANCE,
     turretSkins = DEFAULT_TURRET_SKINS,
+    consumables: PlayerState['consumables'] = [],
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -2102,6 +2446,16 @@ export class GameEngine {
       score: 0,
       drawCount: 0,
       items: [],
+      consumables: consumables
+        .filter((item) => shopConsumableById(item.itemId) && Number.isInteger(item.quantity) && item.quantity > 0)
+        .map((item) => ({ itemId: item.itemId, quantity: item.quantity })),
+      consumableLoadout: [],
+      usedConsumables: [],
+      speedBoostUntil: 0,
+      stealthUntil: 0,
+      bedrollUntil: 0,
+      upgradeDiscountTargetId: null,
+      upgradeDiscountRate: 0,
     };
   }
 }

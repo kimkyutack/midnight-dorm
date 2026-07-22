@@ -1,5 +1,5 @@
 import { BALANCE } from '../shared/balance';
-import type { BuildingKind, ClientMessage, GameEvent, GameSnapshot, MapDefinition, ServerMessage, Tile } from '../shared/types';
+import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, MapDefinition, ServerMessage, Tile } from '../shared/types';
 
 export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
@@ -112,6 +112,10 @@ export class GameNetwork {
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }
+  setConsumableLoadout(itemIds: ConsumableId[]): void { this.send({ type: 'set-consumable-loadout', itemIds }); }
+  useConsumable(itemId: ConsumableId, target: { roomId?: string; targetId?: string; tile?: Tile } = {}): void {
+    this.send({ type: 'use-consumable', itemId, ...target });
+  }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 

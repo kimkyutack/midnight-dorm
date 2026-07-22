@@ -3,9 +3,9 @@ import { BALANCE } from '../shared/balance';
 import { normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
-import type { ServerMessage } from '../shared/types';
-import type { PlayMode, RankId, StageId } from '../shared/types';
-import { recordMatchResult } from './auth';
+import type { ConsumableId, OwnedConsumable, PlayMode, RankId, ServerMessage, StageId } from '../shared/types';
+import { consumeMatchConsumable, recordMatchResult } from './auth';
+import { shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
 import type { Env } from './worker';
 
@@ -108,6 +108,7 @@ export class GameRoom extends DurableObject<Env> {
     const multiplayerRank = (request.headers.get('x-multiplayer-rank') ?? 'beginner') as RankId;
     const appearanceHeader = request.headers.get('x-avatar-appearance');
     const turretSkinsHeader = request.headers.get('x-turret-skins');
+    const consumablesHeader = request.headers.get('x-consumable-inventory');
     let appearance = normalizeAppearance(undefined);
     if (appearanceHeader) {
       try { appearance = normalizeAppearance(JSON.parse(decodeURIComponent(appearanceHeader))); } catch { appearance = normalizeAppearance(undefined); }
@@ -116,12 +117,26 @@ export class GameRoom extends DurableObject<Env> {
     if (turretSkinsHeader) {
       try { turretSkins = normalizeTurretSkins(JSON.parse(decodeURIComponent(turretSkinsHeader))); } catch { turretSkins = normalizeTurretSkins(undefined); }
     }
+    let consumables: OwnedConsumable[] = [];
+    if (consumablesHeader) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(consumablesHeader));
+        if (Array.isArray(parsed)) {
+          consumables = parsed
+            .filter((item): item is { itemId: string; quantity: number } =>
+              Boolean(item) && typeof item.itemId === 'string' && Number.isInteger(item.quantity),
+            )
+            .filter((item) => shopConsumableById(item.itemId) && item.quantity > 0)
+            .map((item) => ({ itemId: item.itemId as ConsumableId, quantity: item.quantity }));
+        }
+      } catch { consumables = []; }
+    }
     const deviceId = url.searchParams.get('deviceId') ?? '';
     const reconnectToken = url.searchParams.get('reconnectToken') ?? undefined;
     if (!/^[a-zA-Z0-9-]{8,80}$/.test(deviceId)) return Response.json({ error: '기기 세션이 올바르지 않습니다.' }, { status: 400 });
     let result;
     try {
-      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank, appearance, turretSkins });
+      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank, appearance, turretSkins, consumables });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : '참가할 수 없습니다.' }, { status: 409 });
     }
@@ -185,6 +200,33 @@ export class GameRoom extends DurableObject<Env> {
     }
     if (parsed.message.type === 'resync') {
       this.sendWelcome(socket, attachment);
+      return;
+    }
+    if (parsed.message.type === 'use-consumable') {
+      const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
+      const definition = shopConsumableById(parsed.message.itemId);
+      const validation = engine.validateConsumableUse(attachment.playerId, parsed.message);
+      if (!player?.accountId || !definition || !validation.ok) {
+        this.sendError(socket, 'ACTION_REJECTED', validation.error ?? '전술 보급을 사용할 수 없습니다.');
+        return;
+      }
+      const consumed = await consumeMatchConsumable(this.env.DB, {
+        matchId: engine.snapshot().matchId,
+        accountId: player.accountId,
+        itemId: definition.id,
+        target: { roomId: parsed.message.roomId, targetId: parsed.message.targetId, tile: parsed.message.tile },
+      }, this.env.DATA_ENV === 'local-e2e');
+      if (!consumed.ok) {
+        this.sendError(socket, 'ACTION_REJECTED', consumed.error);
+        return;
+      }
+      const result = engine.useConsumable(attachment.playerId, parsed.message);
+      if (!result.ok) {
+        this.sendError(socket, 'ACTION_REJECTED', result.error ?? '전술 보급 효과를 적용하지 못했습니다.');
+        return;
+      }
+      this.broadcastSnapshot();
+      await this.persist();
       return;
     }
     if (parsed.message.type === 'leave-room') {

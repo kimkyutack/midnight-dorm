@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
-import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
+import { CHARACTER_TRAITS, characterTrait, drawLimitForCharacter } from '../src/shared/characterTraits';
+import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
+import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
+import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
@@ -145,6 +148,17 @@ describe('deterministic shared world', () => {
     expect(Math.hypot(moved.x - start.x, moved.y - start.y)).toBeLessThan(0.5);
   });
 
+  it('keeps a full room floor closed while leaving its doorway reachable', () => {
+    const map = generateMap(4_204);
+    const room = map.rooms[0];
+    if (!room) throw new Error('missing room fixture');
+    const blocked = fullRoomFloorKeys(map, [{ id: room.id, ownerIds: ['owner'] }], 1);
+    const floor = room.floorTiles[0];
+    expect(floor).toBeDefined();
+    expect(blocked.has(`${floor?.x},${floor?.y}`)).toBe(true);
+    expect(blocked.has(`${room.door.x},${room.door.y}`)).toBe(false);
+  });
+
   it('creates twenty-five-tile multiplayer rooms with two beds each', () => {
     const map = generateMap(7_707, 'multiplayer');
     expect(validateMap(map)).toBe(true);
@@ -190,7 +204,7 @@ describe('survivor customization rules', () => {
   });
 
   it('defines a varied original catalog across survivor and turret equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(52);
+    expect(COSMETIC_CATALOG).toHaveLength(58);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'hat', 'outfit', 'accessory', 'shoes', 'turret']),
     );
@@ -198,6 +212,38 @@ describe('survivor customization rules', () => {
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.hat);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'outfit')).toHaveLength(12);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'shoes')).toHaveLength(10);
+  });
+
+  it('gives every non-default survivor exactly one distinct gameplay trait', () => {
+    const characters = COSMETIC_CATALOG.filter((item) => item.slot === 'character');
+    expect(characterTrait('character-bunny').id).toBe('none');
+    const special = characters
+      .filter((item) => item.id !== 'character-bunny')
+      .map((item) => CHARACTER_TRAITS[item.id]);
+    expect(special.every((trait) => trait && trait.id !== 'none')).toBe(true);
+    expect(new Set(special.map((trait) => trait?.id)).size).toBe(special.length);
+    expect(characterTrait('character-bear').turretDamageMultiplier).toBe(1.1);
+    expect(characterTrait('character-cat').turretRateMultiplier).toBeCloseTo(1 / 1.15, 6);
+    expect(characterTrait('character-puppy').goldPerSecond).toBe(1);
+    expect(drawLimitForCharacter('character-fox')).toBe(5);
+    expect(characterTrait('character-hamster').unclaimedMoveSpeedMultiplier).toBe(1.5);
+    expect(characterTrait('character-crocodile').turretDamageMultiplier).toBe(1.35);
+    expect(characterTrait('character-duck').goldPerSecond).toBe(3);
+    expect(characterTrait('character-tiger').unclaimedMoveSpeedMultiplier).toBe(2);
+    expect(characterTrait('character-dinosaur').turretRateMultiplier).toBeCloseTo(1 / 1.4, 6);
+    expect(drawLimitForCharacter('character-monkey')).toBe(6);
+    expect(characterTrait('character-gorilla').turretRangeBonus).toBe(1);
+  });
+
+  it('gives every purchased turret skin a matching server combat trait', () => {
+    const turretSkins = COSMETIC_CATALOG.filter((item) => item.slot === 'turret');
+    expect(turretSkins.every((item) => Boolean(TURRET_SKIN_TRAITS[item.id]))).toBe(true);
+    expect(turretSkinTrait('turret-basic-ward').damageMultiplier).toBe(1);
+    expect(turretSkinTrait('turret-basic-toy').damageMultiplier).toBe(1.08);
+    expect(turretSkinTrait('turret-basic-pumpkin').damageMultiplier).toBe(1.18);
+    expect(turretSkinTrait('turret-rapid-dragon').rateMultiplier).toBeCloseTo(1 / 1.22, 6);
+    expect(turretSkinTrait('turret-frost-crystal').frostSlowStrengthMultiplier).toBe(1.5);
+    expect(turretSkinTrait('turret-arc-crown').damageMultiplier).toBe(1.28);
   });
 
   it('separates starter, point-purchased, and rank-unlocked cosmetics', () => {
@@ -213,10 +259,41 @@ describe('survivor customization rules', () => {
 
   it('normalizes invalid equipment and scales clear rewards from 80 to 500 points', () => {
     expect(normalizeAppearance({ character: 'hat-beanie', shoes: 'invalid' })).toEqual(DEFAULT_APPEARANCE);
+    expect(normalizeAppearance({ character: 'character-eagle' }).character).toBe('character-tiger');
     expect(customizationReward(0)).toBe(80);
     expect(customizationReward(5)).toBe(100);
     expect(customizationReward(105)).toBe(500);
     expect(customizationReward(999)).toBe(500);
+  });
+});
+
+describe('shop consumable rules', () => {
+  it('keeps thirty tactical supplies separate from lamp rewards', () => {
+    expect(SHOP_CONSUMABLES).toHaveLength(30);
+    expect(new Set(SHOP_CONSUMABLES.map((item) => item.id)).size).toBe(SHOP_CONSUMABLES.length);
+    expect(SHOP_CONSUMABLES.every((item) => !RANDOM_ITEMS.some((random) => random.id === item.id))).toBe(true);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'scout')).toHaveLength(10);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'survival')).toHaveLength(10);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'construction')).toHaveLength(10);
+  });
+
+  it('allows a selected supply once per match and retains the remaining account inventory', () => {
+    const engine = new GameEngine('SUPPLYROOM', generateMap(9_078), true);
+    const joined = engine.join({
+      nickname: 'SupplyTester',
+      deviceId: 'device-supply-tester',
+      consumables: [{ itemId: 'adrenal-shot', quantity: 2 }],
+    });
+    expect(engine.handle(joined.player.id, envelope({ type: 'set-consumable-loadout', itemIds: ['adrenal-shot'] })).ok).toBe(true);
+    expect(engine.start(joined.player.id).ok).toBe(true);
+    for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('PLAYING');
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'adrenal-shot' }, 2)).ok).toBe(true);
+    const player = engine.snapshot().players.find((candidate) => candidate.id === joined.player.id);
+    expect(player?.consumables).toEqual([{ itemId: 'adrenal-shot', quantity: 1 }]);
+    expect(player?.usedConsumables).toEqual(['adrenal-shot']);
+    expect(player?.speedBoostUntil).toBeGreaterThan(engine.snapshot().elapsed);
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'adrenal-shot' }, 3)).ok).toBe(false);
   });
 });
 
@@ -1049,6 +1126,79 @@ describe('requested progression and event rules', () => {
     expect(destroyed?.doorHp).toBe(0);
   });
 
+  it('keeps an unclaimed survivor out of a full solo room', () => {
+    const { engine, ids } = setup(2);
+    const hostId = ids[0] as string;
+    const intruderId = ids[1] as string;
+    expect(engine.start(hostId).ok).toBe(true);
+    const mapRoom = engine.map.rooms[0];
+    if (!mapRoom) throw new Error('missing room fixture');
+    const entrance = mapRoom.floorTiles.find(
+      (tile) => Math.abs(tile.x - mapRoom.door.x) + Math.abs(tile.y - mapRoom.door.y) === 1,
+    );
+    if (!entrance) throw new Error('missing room entrance fixture');
+    const persisted = engine.serialize();
+    const owner = persisted.snapshot.players.find((player) => player.id === hostId);
+    const intruder = persisted.snapshot.players.find((player) => player.id === intruderId);
+    if (!owner || !intruder) throw new Error('missing survivor fixture');
+    owner.position = { ...(mapRoom.beds[0] as Tile) };
+    intruder.position = { ...mapRoom.door };
+    engine.restore(persisted);
+    expect(engine.interact(hostId).ok).toBe(true);
+    expect(
+      engine.setMovement(
+        intruderId,
+        entrance.x - mapRoom.door.x,
+        entrance.y - mapRoom.door.y,
+        1,
+      ).ok,
+    ).toBe(true);
+    for (let index = 0; index < 8; index += 1) engine.tick(0.1);
+    const after = engine.snapshot().players.find((player) => player.id === intruderId);
+    expect(after?.roomId).toBeNull();
+    expect(
+      mapRoom.floorTiles.some(
+        (tile) => tile.x === Math.round(after?.position.x ?? Number.NaN) && tile.y === Math.round(after?.position.y ?? Number.NaN),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not allow a breached ghost to strike through a room wall', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === player?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === player?.roomId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !room || !mapRoom || !ghost) throw new Error('missing wall-strike fixture');
+    const entrance = mapRoom.floorTiles.find(
+      (tile) => Math.abs(tile.x - mapRoom.door.x) + Math.abs(tile.y - mapRoom.door.y) === 1,
+    );
+    if (!entrance) throw new Error('missing entrance fixture');
+    mapRoom.bed = { ...entrance };
+    mapRoom.beds[0] = { ...entrance };
+    room.doorHp = 0;
+    player.position = { ...entrance };
+    ghost.position = {
+      x: mapRoom.door.x + (entrance.x - mapRoom.door.x) * 0.4,
+      y: mapRoom.door.y + (entrance.y - mapRoom.door.y) * 0.4,
+    };
+    ghost.targetRoomId = room.id;
+    ghost.attackCooldown = 0;
+    ghost.retreating = false;
+    ghost.healing = false;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    engine.drainEvents();
+    engine.tick(0.01);
+    const after = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    const events = engine.drainEvents();
+    expect(after?.alive).toBe(true);
+    expect(events.some((event) => event.kind === 'player-hit' && event.playerId === playerId)).toBe(false);
+  });
+
   it('has a breached ghost attack the player instead of the door and kill in one hit', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1259,7 +1409,7 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().ghosts[0]?.retreatCount).toBe(2);
   });
 
-  it('offers thirty weighted items with only two blanks and enforces the four draw costs', () => {
+  it('offers thirty weighted items with only two blanks and keeps the fifth draw fox-exclusive', () => {
     expect(RANDOM_ITEMS).toHaveLength(30);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0)).toHaveLength(2);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0).map((item) => item.id).sort()).toEqual(['cracked-mirror', 'wet-socks']);
@@ -1269,7 +1419,7 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
     expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
-    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 10 }, { gold: 120, power: 20 }, { gold: 200, power: 40 }]);
+    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 10 }, { gold: 120, power: 20 }, { gold: 200, power: 40 }, { gold: 300, power: 60 }, { gold: 420, power: 90 }]);
 
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1288,6 +1438,134 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().players[0]?.gold).toBe(580);
     expect(engine.snapshot().players[0]?.power).toBe(930);
     expect(engine.drawItem(playerId, machineId).ok).toBe(false);
+  });
+
+  it('applies survivor economy, turret damage, fire-rate, and extra-draw traits on the server', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+
+    const puppyState = engine.serialize();
+    const puppy = puppyState.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!puppy) throw new Error('missing trait owner');
+    puppy.appearance = { ...puppy.appearance, character: 'character-puppy' };
+    const goldBefore = puppy.gold;
+    engine.restore(puppyState);
+    engine.tick(0.1);
+    engine.tick(0.1);
+    engine.tick(0.05);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBeCloseTo(goldBefore + 2, 5);
+
+    const bearState = engine.serialize();
+    const bear = bearState.snapshot.players.find((candidate) => candidate.id === playerId);
+    const ghost = bearState.snapshot.ghosts[0];
+    const turret = bearState.snapshot.buildings.find((building) => building.kind === 'basic-turret');
+    if (!bear || !ghost || !turret) throw new Error('missing turret trait fixture');
+    bear.appearance = { ...bear.appearance, character: 'character-bear' };
+    ghost.position = { ...turret.tile };
+    ghost.hp = ghost.maxHp = 10_000;
+    ghost.retreating = false;
+    ghost.healing = false;
+    turret.cooldown = 0;
+    bearState.snapshot.ghost = ghost;
+    engine.restore(bearState);
+    engine.tick(0.01);
+    const bearFire = engine.drainEvents().find((event) => event.kind === 'turret-fire');
+    expect(bearFire?.amount).toBeCloseTo(buildingStats('basic-turret', 1).value * 1.1, 5);
+
+    const catState = engine.serialize();
+    const cat = catState.snapshot.players.find((candidate) => candidate.id === playerId);
+    const catGhost = catState.snapshot.ghosts[0];
+    const catTurret = catState.snapshot.buildings.find((building) => building.kind === 'basic-turret');
+    if (!cat || !catGhost || !catTurret) throw new Error('missing fire-rate trait fixture');
+    cat.appearance = { ...cat.appearance, character: 'character-cat' };
+    catGhost.position = { ...catTurret.tile };
+    catGhost.hp = catGhost.maxHp = 10_000;
+    catGhost.retreating = false;
+    catGhost.healing = false;
+    catTurret.cooldown = 0;
+    catState.snapshot.ghost = catGhost;
+    engine.restore(catState);
+    engine.tick(0.01);
+    expect(engine.snapshot().buildings.find((building) => building.id === catTurret.id)?.cooldown)
+      .toBeCloseTo(buildingStats('basic-turret', 1).rate / 1.15, 5);
+
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    const machineTile = tiles.find((candidate) => candidate.x !== tile.x || candidate.y !== tile.y);
+    if (!machineTile) throw new Error('missing lucky machine tile');
+    const foxState = engine.serialize();
+    const fox = foxState.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!fox) throw new Error('missing fox trait owner');
+    fox.appearance = { ...fox.appearance, character: 'character-fox' };
+    fox.gold = 10_000;
+    fox.power = 10_000;
+    engine.restore(foxState);
+    expect(engine.build(playerId, roomId, machineTile, 'lucky-machine').ok).toBe(true);
+    const machine = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine');
+    if (!machine) throw new Error('missing lucky machine');
+    for (let index = 0; index < 5; index += 1) expect(engine.drawItem(playerId, machine.id).ok).toBe(true);
+    expect(engine.drawItem(playerId, machine.id).ok).toBe(false);
+  });
+
+  it('applies equipped turret-skin damage, fire-rate, and frost-slow traits on the server', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const configured = engine.serialize();
+    const owner = configured.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!owner) throw new Error('missing turret-skin owner');
+    owner.gold = 10_000;
+    owner.power = 10_000;
+    owner.turretSkins = { ...owner.turretSkins, 'basic-turret': 'turret-basic-pumpkin' };
+    engine.restore(configured);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+
+    const pumpkinState = engine.serialize();
+    const pumpkin = pumpkinState.snapshot.buildings.find((building) => building.kind === 'basic-turret');
+    const ghost = pumpkinState.snapshot.ghosts[0];
+    if (!pumpkin || !ghost) throw new Error('missing pumpkin turret fixture');
+    expect(pumpkin.skinId).toBe('turret-basic-pumpkin');
+    ghost.position = { ...pumpkin.tile };
+    ghost.hp = ghost.maxHp = 10_000;
+    ghost.retreating = false;
+    ghost.healing = false;
+    pumpkin.cooldown = 0;
+    pumpkinState.snapshot.ghost = ghost;
+    engine.restore(pumpkinState);
+    engine.tick(0.01);
+    const fire = engine.drainEvents().find((event) => event.kind === 'turret-fire');
+    expect(fire?.amount).toBeCloseTo(buildingStats('basic-turret', 1).value * 1.18, 5);
+    expect(engine.snapshot().buildings.find((building) => building.id === pumpkin.id)?.cooldown)
+      .toBeCloseTo(buildingStats('basic-turret', 1).rate / 1.02, 5);
+
+    const frostSetup = setup();
+    const frostPlayerId = frostSetup.ids[0] as string;
+    begin(frostSetup.engine, frostPlayerId);
+    const frostRoom = assigned(frostSetup.engine, frostPlayerId);
+    const frostState = frostSetup.engine.serialize();
+    const frostOwner = frostState.snapshot.players.find((candidate) => candidate.id === frostPlayerId);
+    if (!frostOwner) throw new Error('missing frost turret owner');
+    frostOwner.gold = 10_000;
+    frostOwner.power = 10_000;
+    frostOwner.turretSkins = { ...frostOwner.turretSkins, 'frost-turret': 'turret-frost-crystal' };
+    frostSetup.engine.restore(frostState);
+    expect(frostSetup.engine.build(frostPlayerId, frostRoom.roomId, frostRoom.tile, 'frost-turret').ok).toBe(true);
+    const crystalState = frostSetup.engine.serialize();
+    const crystal = crystalState.snapshot.buildings.find((building) => building.kind === 'frost-turret');
+    const frostGhost = crystalState.snapshot.ghosts[0];
+    if (!crystal || !frostGhost) throw new Error('missing crystal frost fixture');
+    frostGhost.position = { ...crystal.tile };
+    frostGhost.hp = frostGhost.maxHp = 10_000;
+    frostGhost.retreating = false;
+    frostGhost.healing = false;
+    crystal.cooldown = 0;
+    crystalState.snapshot.ghost = frostGhost;
+    frostSetup.engine.restore(crystalState);
+    frostSetup.engine.tick(0.01);
+    expect(frostSetup.engine.snapshot().ghosts[0]?.slowMultiplier).toBeCloseTo(0.64, 5);
   });
 
   it('can create all nine primary ghost variants as match events', () => {

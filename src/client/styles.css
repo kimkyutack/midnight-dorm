@@ -294,6 +294,133 @@
   color: #f0d78d;
   font-size: 12px;
 }
+.custom-header:has(.custom-shop-switch) {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+.custom-shop-switch {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(132, 215, 223, 0.35);
+  border-radius: 10px;
+  color: #a9edf1;
+  background: rgba(12, 34, 42, 0.72);
+  font-size: 9px;
+  font-weight: 900;
+}
+.supply-shop-screen {
+  overflow: auto;
+}
+.supply-brief,
+.supply-grid {
+  position: relative;
+  z-index: 1;
+  width: min(1060px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+.supply-brief {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  margin-bottom: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(143, 222, 230, 0.18);
+  border-radius: 17px;
+  background: rgba(7, 16, 24, 0.86);
+}
+.supply-brief h3 {
+  margin: 5px 0 4px;
+  font-size: 16px;
+}
+.supply-brief p,
+.lobby-loadout > p {
+  margin: 0;
+  color: rgba(221, 234, 236, 0.56);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.supply-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-bottom: 24px;
+}
+.supply-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 102px;
+  padding: 11px;
+  border: 1px solid rgba(220, 237, 239, 0.14);
+  border-radius: 16px;
+  background: rgba(10, 20, 29, 0.88);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
+}
+.supply-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  color: #c6f3f5;
+  background: rgba(42, 120, 129, 0.32);
+  font-size: 21px;
+}
+.supply-survival .supply-icon {
+  color: #ffdf9b;
+  background: rgba(154, 112, 43, 0.27);
+}
+.supply-construction .supply-icon {
+  color: #ccaaff;
+  background: rgba(98, 66, 137, 0.3);
+}
+.supply-copy {
+  min-width: 0;
+}
+.supply-copy > span {
+  color: #8ee1e8;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+}
+.supply-copy strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+}
+.supply-copy p {
+  margin: 3px 0 0;
+  color: rgba(222, 233, 235, 0.56);
+  font-size: 9px;
+  line-height: 1.38;
+}
+.supply-actions {
+  min-width: 96px;
+  text-align: right;
+}
+.supply-actions > small {
+  display: block;
+  margin-bottom: 5px;
+  color: #f0d78d;
+  font-size: 8px;
+}
+.supply-actions > div {
+  display: grid;
+  gap: 4px;
+}
+.supply-actions button {
+  min-height: 26px;
+  padding: 0 6px;
+  border: 1px solid rgba(231, 206, 137, 0.34);
+  border-radius: 8px;
+  color: #ffe6a8;
+  background: rgba(72, 57, 27, 0.56);
+  font-size: 8px;
+  font-weight: 900;
+}
 .custom-layout {
   position: relative;
   z-index: 1;
@@ -1890,6 +2017,312 @@
   }
 }
 
+/* Image-first catalogs: the same 3D models used in-game are rendered into cards. */
+.catalog-art {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 50% 62%,
+      color-mix(in srgb, var(--swatch, #72ddea) 30%, transparent),
+      transparent 46%
+    ),
+    linear-gradient(155deg, rgba(31, 53, 67, 0.92), rgba(6, 13, 21, 0.98));
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 -24px 38px rgba(0, 0, 0, 0.24);
+}
+.catalog-art::after {
+  position: absolute;
+  right: 10%;
+  bottom: 8%;
+  left: 10%;
+  height: 12%;
+  border-radius: 50%;
+  background: rgba(72, 222, 235, 0.16);
+  filter: blur(7px);
+  content: "";
+}
+.catalog-art img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+.catalog-art img.ready {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+.trait-ribbon {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  left: 5px;
+  z-index: 2;
+  overflow: hidden;
+  padding: 4px 5px;
+  border: 1px solid rgba(255, 225, 141, 0.32);
+  border-radius: 8px;
+  color: #ffe29b;
+  background: rgba(8, 13, 22, 0.82);
+  font-size: 7px;
+  font-weight: 950;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cosmetic-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.cosmetic-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 7px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border-radius: 16px;
+}
+.cosmetic-art {
+  aspect-ratio: 1 / 0.9;
+  flex: 0 0 auto;
+}
+.cosmetic-copy {
+  min-height: 37px;
+  text-align: center;
+}
+.cosmetic-copy strong {
+  font-size: 10px;
+}
+.cosmetic-copy small {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 7px;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.cosmetic-card > button {
+  width: 100%;
+  min-height: 30px;
+  margin-top: auto;
+}
+
+.supply-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.supply-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  border-radius: 18px;
+}
+.supply-art {
+  aspect-ratio: 1 / 0.82;
+  flex: 0 0 auto;
+}
+.supply-scout .supply-art {
+  --swatch: #58dfe8;
+}
+.supply-survival .supply-art {
+  --swatch: #f0bd66;
+}
+.supply-construction .supply-art {
+  --swatch: #be89ef;
+}
+.supply-copy {
+  text-align: center;
+}
+.supply-copy strong {
+  min-height: 29px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.supply-copy p {
+  display: -webkit-box;
+  min-height: 36px;
+  overflow: hidden;
+  font-size: 8px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.supply-actions {
+  width: 100%;
+  min-width: 0;
+  margin-top: auto;
+  text-align: center;
+}
+.supply-actions > div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.supply-actions button {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+/* 전술 보급 헤더는 일반 커스텀 헤더보다 넓은 목록 화면에 맞춰 좌·우 끝을 고정한다. */
+.supply-shop-screen .custom-header {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 8px;
+  justify-content: space-between;
+  gap: 12px;
+}
+.supply-shop-screen .custom-header > :nth-child(2) {
+  min-width: 0;
+  margin-right: auto;
+}
+.supply-shop-screen .custom-header .custom-wallet {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.build-grid,
+#app[data-view="game"] .build-grid {
+  display: grid;
+  max-height: min(56vh, 510px);
+  padding: 1px 2px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+.build-card,
+#app[data-view="game"] .build-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 7px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  border-radius: 16px;
+  text-align: center;
+}
+.build-art {
+  aspect-ratio: 1 / 0.82;
+  flex: 0 0 auto;
+  --swatch: #70dce9;
+}
+.build-card.rare-build .build-art {
+  --swatch: #c77df1;
+}
+.build-card.mythic-build .build-art {
+  --swatch: #f2bf53;
+}
+.build-card-copy {
+  min-height: 34px;
+}
+.build-card strong,
+#app[data-view="game"] .build-card strong {
+  margin: 0;
+  font-size: 10px;
+  text-align: center;
+}
+.build-card small,
+#app[data-view="game"] .build-card small {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 7px;
+  line-height: 1.25;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.build-card-cost {
+  grid-column: auto;
+  min-height: 18px;
+  margin-top: auto;
+  justify-content: center;
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  .custom-layout {
+    grid-template-rows: minmax(155px, 30%) minmax(0, 1fr);
+  }
+  .cosmetic-grid,
+  .supply-grid,
+  #app[data-view="game"] .build-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cosmetic-card,
+  .supply-card,
+  #app[data-view="game"] .build-card {
+    min-height: 0;
+    padding: 5px;
+    gap: 4px;
+  }
+  .cosmetic-copy strong,
+  .supply-copy strong,
+  #app[data-view="game"] .build-card strong {
+    font-size: 9px;
+  }
+  .cosmetic-copy small,
+  .supply-copy p,
+  #app[data-view="game"] .build-card small {
+    font-size: 6.5px;
+  }
+  .supply-brief {
+    display: none;
+  }
+  .supply-grid {
+    padding-top: 8px;
+    padding-bottom: 16px;
+  }
+  .supply-actions > small {
+    margin-bottom: 3px;
+  }
+  .supply-actions button {
+    min-height: 28px;
+    padding: 0 4px;
+    font-size: 7px;
+  }
+  .trait-ribbon {
+    right: 3px;
+    bottom: 3px;
+    left: 3px;
+    padding: 3px;
+    font-size: 6px;
+  }
+  #app[data-view="game"] .build-panel {
+    overflow: hidden;
+  }
+  #app[data-view="game"] .build-grid {
+    max-height: min(58vh, 480px);
+  }
+}
+
 /* Turret workshop */
 .turret-hangar {
   align-self: center;
@@ -2148,6 +2581,108 @@
 .lobby-brief small {
   color: rgba(225, 234, 236, 0.38);
   font-size: 7px;
+}
+.lobby-loadout {
+  margin-top: 11px;
+  padding: 10px;
+  border: 1px solid rgba(132, 215, 223, 0.16);
+  border-radius: 14px;
+  background: rgba(9, 19, 26, 0.66);
+}
+.lobby-loadout > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.lobby-loadout > header .eyebrow {
+  display: block;
+  color: #87dfe7;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+.lobby-loadout > header strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.lobby-loadout > header strong small {
+  color: #f0d78d;
+  font-size: 9px;
+}
+.lobby-loadout > header .btn {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 9px;
+}
+.loadout-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.loadout-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(229, 238, 240, 0.11);
+  border-radius: 10px;
+  color: #edf4f5;
+  background: rgba(21, 34, 43, 0.68);
+  text-align: left;
+}
+.loadout-item.selected {
+  border-color: rgba(121, 226, 236, 0.6);
+  background: rgba(32, 83, 91, 0.58);
+}
+.loadout-item i {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #a8f2f4;
+  background: rgba(70, 142, 151, 0.28);
+  font-style: normal;
+}
+.loadout-item span {
+  min-width: 0;
+}
+.loadout-item strong,
+.loadout-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loadout-item strong {
+  font-size: 9px;
+}
+.loadout-item small {
+  margin-top: 2px;
+  color: rgba(223, 234, 236, 0.48);
+  font-size: 7px;
+}
+.loadout-item b {
+  display: none;
+}
+.loadout-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(223, 234, 236, 0.6);
+  font-size: 9px;
+}
+.loadout-empty .btn {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 9px;
 }
 .lobby-actions {
   margin-top: 12px;
@@ -3991,7 +4526,11 @@ select {
 }
 .build-card.mythic-build {
   border-color: rgba(255, 218, 117, 0.78);
-  background: linear-gradient(135deg, rgba(92, 63, 11, 0.86), rgba(60, 40, 92, 0.78));
+  background: linear-gradient(
+    135deg,
+    rgba(92, 63, 11, 0.86),
+    rgba(60, 40, 92, 0.78)
+  );
   box-shadow: inset 0 0 20px rgba(255, 202, 71, 0.12);
 }
 .building-panel-icon.kind-frost-turret,
@@ -4337,8 +4876,48 @@ select {
   background: rgba(4, 5, 16, 0.72);
   backdrop-filter: blur(8px);
 }
+.purchase-confirm-modal {
+  z-index: 80;
+}
+.purchase-confirm {
+  width: min(86vw, 350px);
+  padding: 22px;
+  text-align: center;
+}
+.purchase-confirm h2 {
+  margin: 6px 0 8px;
+}
+.purchase-confirm .subtitle strong {
+  color: #ffe09a;
+}
+.purchase-confirm-cost {
+  display: grid;
+  min-height: 48px;
+  margin: 16px 0;
+  place-items: center;
+  border: 1px solid rgba(255, 211, 112, 0.4);
+  border-radius: 13px;
+  color: #ffe09a;
+  background: rgba(91, 66, 20, 0.42);
+  font-size: 17px;
+  font-weight: 950;
+}
+.purchase-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.purchase-confirm-actions .btn {
+  min-height: 44px;
+}
 .inventory-panel {
   width: min(92vw, 660px);
+}
+.inventory-subtitle {
+  margin: 13px 0 -7px;
+  color: #9ce7ec;
+  font-size: 10px;
+  letter-spacing: 0.08em;
 }
 .item-grid {
   display: grid;
@@ -4374,6 +4953,42 @@ select {
   font-size: 7px;
   font-weight: 900;
   letter-spacing: 0.12em;
+}
+.item-card.supply-item {
+  grid-template-columns: 1fr;
+  min-height: 124px;
+}
+.item-card.supply-item > i {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #9cf2f4;
+  background: rgba(61, 145, 152, 0.28);
+  font-style: normal;
+  font-size: 14px;
+}
+.item-card.supply-item small {
+  margin-top: 5px;
+  color: rgba(223, 235, 237, 0.6);
+}
+.item-card.supply-item > button {
+  width: 100%;
+  min-height: 28px;
+  margin-top: 7px;
+  border: 1px solid rgba(121, 226, 236, 0.36);
+  border-radius: 8px;
+  color: #aef4f5;
+  background: rgba(23, 81, 87, 0.64);
+  font-size: 9px;
+  font-weight: 900;
+}
+.item-card.supply-item.spent {
+  opacity: 0.55;
+}
+.item-card.supply-item > button:disabled {
+  color: rgba(226, 235, 237, 0.45);
 }
 .rarity-uncommon {
   border-color: rgba(104, 239, 164, 0.65) !important;
@@ -4901,7 +5516,7 @@ select {
 }
 .auth-control label {
   color: rgba(231, 236, 238, 0.7);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 750;
 }
 .auth-control > div {
@@ -4952,7 +5567,7 @@ select {
   color: #101214;
   background: #f1f1ed;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
 }
 .auth-submit:active {
@@ -4971,7 +5586,7 @@ select {
   border: 0;
   color: rgba(229, 234, 236, 0.56);
   background: transparent;
-  font-size: 9px;
+  font-size: 12px;
 }
 .auth-switch strong {
   color: #fff;
@@ -4983,7 +5598,7 @@ select {
   z-index: 1;
   width: min(42vw, 400px);
   color: rgba(225, 231, 233, 0.38);
-  font-size: 7px;
+  font-size: 10px;
   text-align: center;
 }
 .boot-backdrop {
@@ -5085,12 +5700,39 @@ select {
 }
 
 @media (max-width: 700px) {
+  .teaser-film {
+    inset: 0;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(1, 4, 9, 0.04),
+        transparent 58%,
+        rgba(1, 4, 9, 0.34)
+      ),
+      url("/assets/cinematic/opening-chase.webp") center / cover no-repeat;
+  }
+  .teaser-title {
+    display: none;
+  }
+  .auth-backdrop {
+    inset: 0;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(2, 4, 6, 0.03) 0 32%,
+        rgba(2, 4, 6, 0.16) 48%,
+        rgba(2, 4, 6, 0.66) 100%
+      ),
+      url("/assets/cinematic/opening-chase.webp") center / cover no-repeat;
+    filter: saturate(0.72) contrast(1.05);
+  }
   .auth-logo {
     display: none;
   }
   .auth-sheet {
     left: 50%;
     right: auto;
+    top: 58%;
     width: min(86vw, 400px);
     transform: translate(-50%, -50%);
   }
@@ -5934,6 +6576,54 @@ select {
 
 /* Portrait gameplay panels: tall, legible cards instead of compressed controls. */
 @media (orientation: portrait) and (max-width: 900px) {
+  .custom-header:has(.custom-shop-switch) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-wallet {
+    grid-column: 2 / 4;
+  }
+  .custom-shop-switch {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 8px;
+  }
+  .supply-brief {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-top: 10px;
+    padding: 13px;
+  }
+  .supply-brief h3 {
+    font-size: 14px;
+  }
+  .supply-grid {
+    grid-template-columns: 1fr;
+    padding-bottom: 16px;
+  }
+  .supply-card {
+    min-height: 87px;
+    grid-template-columns: 35px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 9px;
+  }
+  .supply-icon {
+    width: 35px;
+    height: 35px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  .supply-copy p {
+    font-size: 8px;
+  }
+  .supply-actions {
+    min-width: 86px;
+  }
+  .loadout-items {
+    grid-template-columns: 1fr;
+  }
+  .lobby-loadout {
+    margin-top: 8px;
+  }
   #app[data-view="game"] .build-panel {
     top: 50%;
     right: auto;
@@ -5992,5 +6682,259 @@ select {
   #app[data-view="game"] .remove-building .btn {
     min-height: 44px;
     font-size: 10px;
+  }
+}
+
+/* Keep image catalogs authoritative over earlier responsive legacy cards. */
+.cosmetic-grid,
+.supply-grid,
+.build-grid,
+#app[data-view="game"] .build-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cosmetic-card,
+.supply-card,
+.build-card,
+#app[data-view="game"] .build-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+}
+.supply-actions {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+.supply-actions > div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+@media (orientation: portrait) and (max-width: 900px) {
+  .supply-brief {
+    display: none;
+  }
+  .supply-grid,
+  .cosmetic-grid,
+  #app[data-view="game"] .build-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .supply-card,
+  .cosmetic-card,
+  #app[data-view="game"] .build-card {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    padding: 5px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  #app[data-view="game"] .build-grid {
+    max-height: min(58vh, 480px);
+    overflow-y: auto;
+  }
+  #app[data-view="game"] .build-panel {
+    overflow: hidden;
+  }
+  .supply-actions {
+    min-width: 0;
+  }
+}
+
+/* Portrait store: keep wallet visible and make only the catalog scroll. */
+@media (orientation: portrait) and (max-width: 900px) {
+  .custom-header:has(.custom-shop-switch) {
+    grid-template-columns: 40px minmax(0, 1fr) auto auto;
+    gap: 6px;
+    height: 54px;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-back {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 24px;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-wallet {
+    grid-column: auto;
+    display: grid;
+    min-width: 58px;
+    min-height: 30px;
+    padding: 4px 6px;
+    place-items: center;
+    border-radius: 10px;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-wallet small {
+    display: none;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-wallet strong {
+    margin: 0;
+    font-size: 8px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .custom-header:has(.custom-shop-switch) .custom-shop-switch {
+    min-width: 50px;
+    min-height: 30px;
+    padding: 0 5px;
+    border-radius: 10px;
+    font-size: 7px;
+    white-space: nowrap;
+  }
+
+  .custom-screen.supply-shop-screen {
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+  }
+  .supply-shop-screen .custom-header {
+    flex: 0 0 54px;
+  }
+  .supply-shop-screen .supply-grid {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 6px 1px calc(18px + env(safe-area-inset-bottom));
+    flex: 1 1 auto;
+    grid-auto-rows: 165px;
+    gap: 7px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    align-content: start;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .supply-shop-screen .supply-card {
+    min-height: 165px;
+    padding: 6px;
+    grid-template-rows: 56px minmax(0, 1fr) 36px;
+    gap: 5px;
+  }
+  .supply-shop-screen .supply-art {
+    width: 100%;
+    height: 56px;
+    aspect-ratio: auto;
+  }
+  .supply-shop-screen .supply-copy {
+    display: grid;
+    min-height: 0;
+    grid-template-rows: 10px 20px minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .supply-shop-screen .supply-copy > span {
+    display: block;
+    overflow: hidden;
+    color: #8ee1e8;
+    font-size: 6px;
+    line-height: 10px;
+    letter-spacing: 0.08em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .supply-shop-screen .supply-copy strong {
+    display: -webkit-box;
+    min-height: 0;
+    overflow: hidden;
+    color: #f4f8ff;
+    font-size: 9px;
+    line-height: 10px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .supply-shop-screen .supply-copy p {
+    min-height: 0;
+    margin: 0;
+    color: rgba(222, 233, 235, 0.7);
+    font-size: 7px;
+    line-height: 9px;
+    -webkit-line-clamp: 2;
+  }
+  .supply-shop-screen .supply-actions {
+    display: grid;
+    min-height: 36px;
+    gap: 3px;
+    grid-template-rows: 9px 25px;
+    margin: 0;
+  }
+  .supply-shop-screen .supply-actions > small {
+    margin: 0;
+    color: #f0d78d;
+    font-size: 7px;
+    line-height: 9px;
+  }
+  .supply-shop-screen .supply-actions > div {
+    gap: 3px;
+  }
+  .supply-shop-screen .supply-actions button {
+    min-height: 25px;
+    padding: 0 3px;
+    font-size: 7px;
+  }
+}
+
+/* Each cosmetic card owns a reserved purchase footer.  The old flexible
+ * layout let long trait copy expand downward over the price button on narrow
+ * portrait screens. */
+.cosmetic-card {
+  display: grid;
+  min-height: 150px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 80px minmax(30px, 1fr) 30px;
+  gap: 5px;
+}
+.cosmetic-card .cosmetic-art {
+  height: 80px;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.cosmetic-card .cosmetic-copy {
+  min-height: 30px;
+  overflow: hidden;
+}
+.cosmetic-card-action {
+  display: flex;
+  min-width: 0;
+  min-height: 30px;
+}
+.cosmetic-card-action > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 5px;
+  border: 1px solid rgba(226, 235, 238, 0.16);
+  border-radius: 9px;
+  color: #edf2f2;
+  background: rgba(4, 9, 14, 0.68);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+.cosmetic-card-action > button:disabled {
+  color: rgba(226, 235, 237, 0.55);
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  .cosmetic-card {
+    min-height: 132px;
+    padding: 5px;
+    grid-template-rows: 64px minmax(28px, 1fr) 27px;
+    gap: 4px;
+  }
+  .cosmetic-card .cosmetic-art {
+    height: 64px;
+  }
+  .cosmetic-card .cosmetic-copy {
+    min-height: 28px;
+  }
+  .cosmetic-card-action,
+  .cosmetic-card-action > button {
+    min-height: 27px;
+  }
+  .cosmetic-card-action > button {
+    padding: 0 3px;
+    font-size: 7px;
   }
 }

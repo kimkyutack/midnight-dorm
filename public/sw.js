@@ -1,4 +1,4 @@
-const CACHE = 'midnight-dorm-shell-v2';
+const CACHE = 'midnight-dorm-shell-v3';
 const SHELL = [
   '/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-maskable.svg',
   '/assets/cinematic/opening-chase.webp', '/assets/cinematic/dorm-home.webp', '/assets/cinematic/ghost-roster.webp',

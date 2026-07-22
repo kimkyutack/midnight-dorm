@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { BALANCE, maxBuildingLevel, upgradeCost } from '../../shared/balance';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
-import { moveInWalkableArea } from '../../shared/map';
+import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
+import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects } from '../../shared/randomItems';
+import { characterTrait } from '../../shared/characterTraits';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { dampFacingYaw, movementFacingYaw } from './avatarMath';
@@ -224,6 +226,12 @@ export function createPlayerRig(
     bear: 0x8f6248,
     fox: 0xcf6843,
     hamster: 0xcfaa75,
+    crocodile: 0x5f9c61,
+    duck: 0xf2d66a,
+    tiger: 0xe29a4d,
+    dinosaur: 0x72b45a,
+    monkey: 0x8d5b3f,
+    gorilla: 0x56616d,
   };
   const outfitColors: Record<string, number> = {
     'outfit-pajamas': 0x6879aa,
@@ -288,26 +296,45 @@ export function createPlayerRig(
   outfitDetails.position.y = 0.01;
   avatar.add(outfitDetails);
   const head = mesh(new THREE.SphereGeometry(0.42, 28, 20), fur, [0, 0.96, -0.015]);
-  head.scale.set(1.06, 0.98, 0.98);
+  const headScale: Record<string, [number, number, number]> = {
+    crocodile: [1.26, 0.8, 1.08],
+    duck: [0.98, 1.02, 0.97],
+    tiger: [1.08, 1, 1],
+    dinosaur: [1.18, 0.9, 1.04],
+    monkey: [1.04, 0.98, 0.98],
+    gorilla: [1.24, 0.94, 1.04],
+  };
+  head.scale.set(...(headScale[animal] ?? [1.06, 0.98, 0.98]));
   avatar.add(head);
   const ears = createAnimalEars(animal, fur, innerEar);
   ears.position.y = -0.22;
   avatar.add(ears);
-  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [-0.145, 0.985, -0.37]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.066, 16, 12), eye, [0.145, 0.985, -0.37]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [-0.164, 1.007, -0.426]));
-  avatar.add(mesh(new THREE.SphereGeometry(0.019, 8, 6), white, [0.126, 1.007, -0.426]));
-  const muzzle = mesh(new THREE.SphereGeometry(0.13, 18, 12), white, [0, 0.845, -0.39]);
-  muzzle.scale.set(1.22, 0.7, 0.62);
-  avatar.add(muzzle);
-  avatar.add(mesh(new THREE.SphereGeometry(0.039, 12, 8), standardMaterial(0x684348, { roughness: 0.32 }), [0, 0.885, -0.47]));
-  const smile = mesh(new THREE.TorusGeometry(0.052, 0.01, 5, 18, Math.PI), standardMaterial(0x71464d, { roughness: 0.4 }), [0, 0.8, -0.467]);
-  smile.rotation.z = Math.PI;
-  avatar.add(smile);
-  const leftCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [-0.255, 0.87, -0.34]);
-  const rightCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [0.255, 0.87, -0.34]);
-  leftCheek.scale.y = rightCheek.scale.y = 0.52;
-  avatar.add(leftCheek, rightCheek);
+  const eyeLayout = animal === 'crocodile'
+    ? { x: 0.225, y: 1.08, z: -0.405, radius: 0.055, highlight: 0.016 }
+    : animal === 'gorilla'
+      ? { x: 0.17, y: 1.005, z: -0.405, radius: 0.061, highlight: 0.018 }
+      : { x: 0.145, y: 0.985, z: -0.37, radius: 0.066, highlight: 0.019 };
+  for (const x of [-eyeLayout.x, eyeLayout.x]) {
+    avatar.add(mesh(new THREE.SphereGeometry(eyeLayout.radius, 16, 12), eye, [x, eyeLayout.y, eyeLayout.z]));
+    avatar.add(mesh(new THREE.SphereGeometry(eyeLayout.highlight, 8, 6), white, [x - 0.018, eyeLayout.y + 0.022, eyeLayout.z - 0.056]));
+  }
+  const detailedAnimalFace = ['crocodile', 'duck', 'tiger', 'dinosaur', 'monkey', 'gorilla'].includes(animal);
+  if (!detailedAnimalFace) {
+    const muzzle = mesh(new THREE.SphereGeometry(0.13, 18, 12), white, [0, 0.845, -0.39]);
+    muzzle.scale.set(1.22, 0.7, 0.62);
+    avatar.add(muzzle);
+    avatar.add(mesh(new THREE.SphereGeometry(0.039, 12, 8), standardMaterial(0x684348, { roughness: 0.32 }), [0, 0.885, -0.47]));
+    const smile = mesh(new THREE.TorusGeometry(0.052, 0.01, 5, 18, Math.PI), standardMaterial(0x71464d, { roughness: 0.4 }), [0, 0.8, -0.467]);
+    smile.rotation.z = Math.PI;
+    avatar.add(smile);
+  }
+  avatar.add(createAnimalFaceDetails(animal));
+  if (!detailedAnimalFace) {
+    const leftCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [-0.255, 0.87, -0.34]);
+    const rightCheek = mesh(new THREE.SphereGeometry(0.053, 10, 8), cheek, [0.255, 0.87, -0.34]);
+    leftCheek.scale.y = rightCheek.scale.y = 0.52;
+    avatar.add(leftCheek, rightCheek);
+  }
   const hat = createAvatarHat(appearance.hat, displayRank);
   hat.position.y = -0.22;
   avatar.add(hat);
@@ -317,17 +344,25 @@ export function createPlayerRig(
   const tail = createAnimalTail(animal, fur);
   tail.scale.y = 0.72;
   avatar.add(tail);
+  avatar.add(createAnimalBodyDetails(animal));
 
   const leftArm = new THREE.Group();
   const rightArm = new THREE.Group();
   leftArm.position.set(-0.285, 0.57, 0);
   rightArm.position.set(0.285, 0.57, 0);
+  if (animal === 'gorilla') {
+    leftArm.position.x = -0.38;
+    rightArm.position.x = 0.38;
+    leftArm.scale.set(1.34, 1.42, 1.18);
+    rightArm.scale.copy(leftArm.scale);
+  }
   leftArm.rotation.z = -0.08;
   rightArm.rotation.z = 0.08;
-  leftArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), cloth, [0, -0.015, 0]));
-  rightArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), cloth, [0, -0.015, 0]));
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), cloth, [0, -0.1, 0]));
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), cloth, [0, -0.1, 0]));
+  const armMaterial = animal === 'gorilla' ? fur : cloth;
+  leftArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), armMaterial, [0, -0.015, 0]));
+  rightArm.add(mesh(new THREE.SphereGeometry(0.105, 12, 9), armMaterial, [0, -0.015, 0]));
+  leftArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), armMaterial, [0, -0.1, 0]));
+  rightArm.add(mesh(new THREE.CapsuleGeometry(0.082, 0.08, 5, 10), armMaterial, [0, -0.1, 0]));
   leftArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.21, 0]));
   rightArm.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), fur, [0, -0.21, 0]));
   const leftPalm = mesh(new THREE.SphereGeometry(0.058, 10, 7), palm, [0, -0.21, 0.065]);
@@ -548,8 +583,42 @@ function createAnimalTail(animal: string, fur: THREE.Material): THREE.Group {
     tail.add(mesh(new THREE.SphereGeometry(0.15, 14, 10), fur, [0, 0.68, 0.28]));
   } else if (animal === 'bear' || animal === 'hamster') {
     tail.add(mesh(new THREE.SphereGeometry(animal === 'hamster' ? 0.1 : 0.085, 12, 8), fur, [0, 0.7, 0.27]));
+  } else if (animal === 'crocodile' || animal === 'dinosaur') {
+    const length = animal === 'crocodile' ? 0.66 : 0.74;
+    const tailMesh = mesh(new THREE.ConeGeometry(0.13, length, 10), fur, [0, 0.65, 0.34]);
+    tailMesh.rotation.x = Math.PI / 2.45;
+    tail.add(tailMesh);
+    if (animal === 'dinosaur') {
+      const spike = standardMaterial(0xe4dcae, { roughness: 0.8 });
+      for (const [x, y, z] of [[0, 0.82, 0.26], [0, 0.73, 0.43], [0, 0.61, 0.58]] as Array<[number, number, number]>) {
+        const horn = mesh(new THREE.ConeGeometry(0.045, 0.13, 5), spike, [x, y, z]);
+        horn.rotation.x = Math.PI / 2.4;
+        tail.add(horn);
+      }
+    }
+  } else if (animal === 'duck') {
+    const feather = standardMaterial(0xf6f0c9, { roughness: 0.82 });
+    for (const x of [-0.07, 0.07]) {
+      const plume = mesh(new THREE.ConeGeometry(0.075, 0.28, 6), feather, [x, 0.67, 0.29]);
+      plume.rotation.x = Math.PI / 2.1;
+      plume.rotation.z = x * 1.4;
+      tail.add(plume);
+    }
+  } else if (animal === 'monkey') {
+    const points = [[0.15, 0.61, 0.24], [0.29, 0.73, 0.3], [0.34, 0.92, 0.26], [0.24, 1.07, 0.19]]
+      .map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const from = points[index] as THREE.Vector3;
+      const to = points[index + 1] as THREE.Vector3;
+      const direction = to.clone().sub(from);
+      const segment = mesh(new THREE.CapsuleGeometry(0.048, Math.max(0.015, direction.length() - 0.075), 5, 10), fur);
+      segment.position.copy(from).lerp(to, 0.5);
+      segment.quaternion.setFromUnitVectors(up, direction.normalize());
+      tail.add(segment);
+    }
   } else {
-    const radius = animal === 'fox' ? 0.085 : animal === 'puppy' ? 0.068 : 0.058;
+    const radius = animal === 'tiger' ? 0.082 : animal === 'fox' ? 0.085 : animal === 'puppy' ? 0.068 : 0.058;
     const points = (animal === 'puppy'
       ? [[0.17, 0.63, 0.23], [0.27, 0.71, 0.26], [0.25, 0.82, 0.27]]
       : [[0.16, 0.57, 0.22], [0.27, 0.66, 0.25], [0.32, 0.8, 0.27], [0.27, 0.94, 0.26]])
@@ -574,17 +643,47 @@ function createAnimalTail(animal: string, fur: THREE.Material): THREE.Group {
       fur,
       (points[points.length - 1] as THREE.Vector3).toArray() as [number, number, number],
     ));
+    if (animal === 'tiger') {
+      const stripe = standardMaterial(0x342024, { roughness: 0.72 });
+      for (const point of points.slice(1)) {
+        const band = mesh(new THREE.BoxGeometry(0.18, 0.035, 0.052), stripe, point.toArray() as [number, number, number]);
+        band.rotation.z = -0.48;
+        tail.add(band);
+      }
+    }
   }
   return tail;
 }
 
 function createAnimalEars(animal: string, fur: THREE.Material, inner: THREE.Material): THREE.Group {
   const ears = new THREE.Group();
-  if (animal === 'cat' || animal === 'fox') {
+  if (animal === 'crocodile') {
+    const eyeBump = standardMaterial(0x8cc676, { roughness: 0.76 });
+    for (const x of [-0.22, 0.22]) ears.add(mesh(new THREE.SphereGeometry(0.105, 10, 8), eyeBump, [x, 1.37, -0.2]));
+  } else if (animal === 'dinosaur') {
+    const horn = standardMaterial(0xe6deae, { roughness: 0.8 });
+    for (const x of [-0.18, 0.18]) {
+      const spike = mesh(new THREE.ConeGeometry(0.075, 0.24, 5), horn, [x, 1.43, 0.02]);
+      spike.rotation.z = x < 0 ? 0.2 : -0.2;
+      ears.add(spike);
+    }
+  } else if (animal === 'duck') {
+    const feather = standardMaterial(0xfbedd1, { roughness: 0.84 });
+    for (const x of [-0.12, 0.12]) {
+      const tuft = mesh(new THREE.ConeGeometry(0.075, 0.17, 5), feather, [x, 1.44, 0.03]);
+      tuft.rotation.z = x < 0 ? 0.25 : -0.25;
+      ears.add(tuft);
+    }
+  } else if (animal === 'cat' || animal === 'fox' || animal === 'tiger') {
     for (const x of [-0.24, 0.24]) {
-      const ear = mesh(new THREE.ConeGeometry(0.15, animal === 'fox' ? 0.36 : 0.29, 4), fur, [x, 1.53, 0]);
+      const ear = mesh(new THREE.ConeGeometry(0.15, animal === 'fox' ? 0.36 : animal === 'tiger' ? 0.34 : 0.29, 4), fur, [x, 1.53, 0]);
       ear.rotation.z = x < 0 ? 0.14 : -0.14;
       ears.add(ear);
+      if (animal === 'tiger') {
+        const inset = mesh(new THREE.ConeGeometry(0.068, 0.2, 4), inner, [x, 1.535, -0.065]);
+        inset.rotation.z = ear.rotation.z;
+        ears.add(inset);
+      }
     }
   } else if (animal === 'puppy') {
     for (const x of [-0.32, 0.32]) {
@@ -592,9 +691,33 @@ function createAnimalEars(animal: string, fur: THREE.Material, inner: THREE.Mate
       ear.rotation.z = x < 0 ? -0.42 : 0.42;
       ears.add(ear);
     }
+  } else if (animal === 'monkey') {
+    const peach = standardMaterial(0xf0bd90, { roughness: 0.82 });
+    for (const x of [-0.35, 0.35]) {
+      ears.add(mesh(new THREE.SphereGeometry(0.23, 12, 9), fur, [x, 1.4, 0]));
+      const innerEar = mesh(new THREE.SphereGeometry(0.135, 10, 8), peach, [x, 1.4, -0.15]);
+      innerEar.scale.set(0.95, 1.06, 0.3);
+      ears.add(innerEar);
+    }
+    const tuft = standardMaterial(0x603829, { roughness: 0.8 });
+    for (const [x, y] of [[-0.12, 1.49], [0, 1.56], [0.12, 1.49]] as Array<[number, number]>) {
+      const hair = mesh(new THREE.ConeGeometry(0.075, 0.2, 5), tuft, [x, y, -0.035]);
+      hair.rotation.z = x * -1.5;
+      ears.add(hair);
+    }
+  } else if (animal === 'gorilla') {
+    const gorillaInner = standardMaterial(0x7f8995, { roughness: 0.82 });
+    for (const x of [-0.32, 0.32]) {
+      ears.add(mesh(new THREE.SphereGeometry(0.15, 10, 8), fur, [x, 1.38, 0]));
+      ears.add(mesh(new THREE.SphereGeometry(0.085, 8, 6), gorillaInner, [x, 1.38, -0.105]));
+    }
+    const crest = mesh(new THREE.SphereGeometry(0.17, 12, 8), fur, [0, 1.43, 0.06]);
+    crest.scale.set(1.28, 0.8, 0.7);
+    ears.add(crest);
   } else if (animal === 'bear' || animal === 'hamster') {
     for (const x of [-0.27, 0.27]) {
-      ears.add(mesh(new THREE.SphereGeometry(animal === 'hamster' ? 0.14 : 0.16, 10, 8), fur, [x, 1.44, 0]));
+      const radius = animal === 'hamster' ? 0.14 : 0.16;
+      ears.add(mesh(new THREE.SphereGeometry(radius, 10, 8), fur, [x, 1.44, 0]));
       ears.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), inner, [x, 1.44, -0.11]));
     }
   } else {
@@ -608,6 +731,113 @@ function createAnimalEars(animal: string, fur: THREE.Material, inner: THREE.Mate
     }
   }
   return ears;
+}
+
+function createAnimalFaceDetails(animal: string): THREE.Group {
+  const details = new THREE.Group();
+  const dark = standardMaterial(0x1d1b21, { roughness: 0.45 });
+  const cream = standardMaterial(0xf5e9c8, { roughness: 0.82 });
+  const orange = standardMaterial(0xf09238, { roughness: 0.72 });
+  if (animal === 'duck') {
+    const bill = mesh(new THREE.SphereGeometry(0.15, 16, 10), orange, [0, 0.84, -0.51]);
+    bill.scale.set(1.5, 0.5, 0.62);
+    details.add(bill);
+    for (const x of [-0.052, 0.052]) details.add(mesh(new THREE.SphereGeometry(0.012, 8, 6), dark, [x, 0.855, -0.574]));
+    const wingMaterial = standardMaterial(0xf4eac5, { roughness: 0.82 });
+    for (const x of [-0.34, 0.34]) {
+      const wing = mesh(new THREE.SphereGeometry(0.17, 14, 10), wingMaterial, [x, 0.56, 0.02]);
+      wing.scale.set(0.62, 1.05, 0.56);
+      wing.rotation.z = x < 0 ? -0.24 : 0.24;
+      details.add(wing);
+    }
+  } else if (animal === 'tiger') {
+    const muzzle = mesh(new THREE.SphereGeometry(0.17, 18, 12), cream, [0, 0.84, -0.47]);
+    muzzle.scale.set(1.36, 0.58, 0.6);
+    details.add(muzzle, mesh(new THREE.SphereGeometry(0.043, 12, 8), dark, [0, 0.89, -0.57]));
+    // 눈가에는 선을 두지 않는다. 작은 화면에서 줄무늬가 눈/수염으로 겹쳐 보이는 것을 막는다.
+    for (const [x, y, width, rotation] of [[0, 1.28, 0.09, 0], [-0.22, 1.2, 0.13, -0.62], [0.22, 1.2, 0.13, 0.62]] as Array<[number, number, number, number]>) {
+      const stripe = mesh(new THREE.BoxGeometry(width, 0.04, 0.035), dark, [x, y, -0.43]);
+      stripe.rotation.z = rotation;
+      details.add(stripe);
+    }
+  } else if (animal === 'crocodile') {
+    const snout = mesh(new THREE.SphereGeometry(0.22, 18, 12), standardMaterial(0x83bc72, { roughness: 0.8 }), [0, 0.76, -0.54]);
+    snout.scale.set(1.62, 0.38, 0.85);
+    details.add(snout);
+    for (const x of [-0.2, -0.07, 0.07, 0.2]) {
+      const tooth = mesh(new THREE.ConeGeometry(0.026, 0.07, 5), cream, [x, 0.69, -0.605]);
+      tooth.rotation.x = Math.PI;
+      details.add(tooth);
+    }
+    for (const x of [-0.15, 0.15]) details.add(mesh(new THREE.SphereGeometry(0.02, 8, 6), dark, [x, 0.79, -0.66]));
+  } else if (animal === 'dinosaur') {
+    const horn = standardMaterial(0xf0ddae, { roughness: 0.8 });
+    const muzzle = mesh(new THREE.SphereGeometry(0.16, 16, 10), standardMaterial(0xb7d68a, { roughness: 0.76 }), [0, 0.84, -0.47]);
+    muzzle.scale.set(1.35, 0.62, 0.65);
+    details.add(muzzle);
+    for (const x of [-0.06, 0.06]) details.add(mesh(new THREE.SphereGeometry(0.016, 8, 6), dark, [x, 0.88, -0.57]));
+    for (const x of [-0.18, 0.18]) {
+      const cheekHorn = mesh(new THREE.ConeGeometry(0.036, 0.12, 5), horn, [x, 0.88, -0.43]);
+      cheekHorn.rotation.x = -Math.PI / 2.25;
+      details.add(cheekHorn);
+    }
+  } else if (animal === 'monkey') {
+    const face = mesh(new THREE.SphereGeometry(0.28, 18, 12), standardMaterial(0xf0bd90, { roughness: 0.82 }), [0, 0.9, -0.35]);
+    face.scale.set(1.18, 0.94, 0.35);
+    const muzzle = mesh(new THREE.SphereGeometry(0.16, 16, 10), standardMaterial(0xf7cf9f, { roughness: 0.8 }), [0, 0.79, -0.48]);
+    muzzle.scale.set(1.28, 0.58, 0.58);
+    details.add(face, muzzle, mesh(new THREE.SphereGeometry(0.04, 12, 8), dark, [0, 0.84, -0.58]));
+  } else if (animal === 'gorilla') {
+    const muzzle = mesh(new THREE.SphereGeometry(0.22, 16, 10), standardMaterial(0x9faab1, { roughness: 0.78 }), [0, 0.82, -0.5]);
+    muzzle.scale.set(1.35, 0.7, 0.64);
+    details.add(muzzle, mesh(new THREE.SphereGeometry(0.047, 12, 8), dark, [0, 0.88, -0.62]));
+    for (const x of [-0.18, 0.18]) {
+      const brow = mesh(new THREE.BoxGeometry(0.19, 0.065, 0.055), dark, [x, 1.12, -0.45]);
+      brow.rotation.z = x < 0 ? 0.11 : -0.11;
+      details.add(brow);
+    }
+  }
+  return details;
+}
+
+function createAnimalBodyDetails(animal: string): THREE.Group {
+  const details = new THREE.Group();
+  const dark = standardMaterial(0x30232a, { roughness: 0.76 });
+  const cream = standardMaterial(0xf3e4bf, { roughness: 0.82 });
+  if (animal === 'crocodile' || animal === 'dinosaur') {
+    const plate = animal === 'crocodile'
+      ? standardMaterial(0x3f7b4c, { roughness: 0.78 })
+      : standardMaterial(0xf0ddae, { roughness: 0.8 });
+    for (const [y, z, size] of [[0.77, 0.19, 0.09], [0.62, 0.23, 0.1], [0.48, 0.24, 0.08]] as Array<[number, number, number]>) {
+      const spike = mesh(new THREE.ConeGeometry(size, size * 2.2, 5), plate, [0, y, z]);
+      spike.rotation.x = -0.16;
+      details.add(spike);
+    }
+  } else if (animal === 'tiger') {
+    for (const [y, width] of [[0.64, 0.34], [0.49, 0.28], [0.39, 0.22]] as Array<[number, number]>) {
+      details.add(mesh(new THREE.BoxGeometry(width, 0.045, 0.035), dark, [0, y, -0.3]));
+    }
+  } else if (animal === 'monkey') {
+    const belly = mesh(new THREE.SphereGeometry(0.2, 14, 10), standardMaterial(0xd9ad87, { roughness: 0.82 }), [0, 0.5, -0.27]);
+    belly.scale.set(1.06, 0.78, 0.28);
+    const banana = standardMaterial(0xf4cc45, { roughness: 0.78 });
+    const bananaTip = standardMaterial(0x69412d, { roughness: 0.82 });
+    const bananaArc = mesh(new THREE.TorusGeometry(0.13, 0.035, 7, 18, Math.PI * 1.15), banana, [0.22, 0.53, -0.37]);
+    bananaArc.rotation.z = -0.55;
+    details.add(belly, bananaArc, mesh(new THREE.SphereGeometry(0.035, 8, 6), bananaTip, [0.31, 0.44, -0.39]));
+  } else if (animal === 'gorilla') {
+    const shoulder = standardMaterial(0x424c5a, { roughness: 0.78 });
+    for (const x of [-0.36, 0.36]) {
+      const armMass = mesh(new THREE.SphereGeometry(0.18, 12, 9), shoulder, [x, 0.65, 0.02]);
+      armMass.scale.set(1.42, 0.92, 0.98);
+      details.add(armMass);
+    }
+    const chest = mesh(new THREE.SphereGeometry(0.24, 14, 10), cream, [0, 0.53, -0.3]);
+    chest.scale.set(1.34, 0.78, 0.3);
+    const chestLine = mesh(new THREE.BoxGeometry(0.03, 0.25, 0.04), dark, [0, 0.53, -0.39]);
+    details.add(chest, chestLine);
+  }
+  return details;
 }
 
 function createRankHat(rank: RankId): THREE.Group {
@@ -1553,36 +1783,68 @@ export class ThreeGameView {
     const localRank = this.snapshotData.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const localSpeed = BALANCE.player.speed
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
-      * combinedItemEffects(local?.items ?? []).moveSpeedMultiplier;
+      * combinedItemEffects(local?.items ?? []).moveSpeedMultiplier
+      * characterTrait(local?.appearance.character ?? '').unclaimedMoveSpeedMultiplier
+      * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
+    // The authoritative worker blocks full-room floor tiles for unclaimed
+    // survivors.  Applying the exact same boundary to prediction prevents the
+    // doorway rubber-banding that occurred while a player pressed into a room
+    // already occupied by a bot or another survivor.
+    const blockedRoomFloorTiles = fullRoomFloorKeys(
+      this.mapData,
+      this.snapshotData.rooms,
+      this.snapshotData.playMode === 'multiplayer' ? 2 : 1,
+    );
     for (const [id, view] of this.playerViews) {
       const player = this.snapshotData.players.find((candidate) => candidate.id === id);
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
       const defeated = !player.alive;
       const isLocal = id === this.playerId;
+      const shouldSnapOutOfFullRoom =
+        isLocal &&
+        !lying &&
+        blockedRoomFloorTiles.has(
+          tileKey(Math.round(view.root.position.x), Math.round(view.root.position.z)),
+        ) &&
+        !blockedRoomFloorTiles.has(
+          tileKey(Math.round(view.target.x), Math.round(view.target.z)),
+        );
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
-      if (hasLocalInput) {
+      if (shouldSnapOutOfFullRoom) {
+        // The server ejects an intruder that lost a room race to the outside
+        // door.  A regular collision-aware correction cannot start from a
+        // newly blocked floor tile, so sync this one authoritative transition
+        // directly instead of visibly stuttering against the doorway wall.
+        view.root.position.copy(view.target);
+      } else if (hasLocalInput) {
         const predicted = moveInWalkableArea(this.mapData, {
           x: view.root.position.x,
           y: view.root.position.z,
         }, {
           x: this.localInput.x * localSpeed * dt,
           y: this.localInput.y * localSpeed * dt,
-        }, BALANCE.player.collisionRadius);
+        }, BALANCE.player.collisionRadius, 0.12, blockedRoomFloorTiles);
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const serverError = Math.hypot(view.target.x - predicted.x, view.target.z - predicted.y);
         if (serverError > LOCAL_HARD_RECONCILE_DISTANCE) {
-          this.reconcilePlayerPosition(view, 16, dt);
+          this.reconcilePlayerPosition(view, 16, dt, blockedRoomFloorTiles);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE) {
-          this.reconcilePlayerPosition(view, 1.4, dt);
+          this.reconcilePlayerPosition(view, 1.4, dt, blockedRoomFloorTiles);
         }
       } else {
-        this.reconcilePlayerPosition(view, isLocal ? 13 : 10.5, dt);
+        this.reconcilePlayerPosition(
+          view,
+          isLocal ? 13 : 10.5,
+          dt,
+          isLocal && !lying ? blockedRoomFloorTiles : undefined,
+        );
       }
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (moving && !lying) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
+      if (lying) view.avatar.rotation.y = damp(view.avatar.rotation.y, 0, 12, dt);
+      else if (moving) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
       const stride = moving && !lying && !defeated ? Math.sin(time * 0.018 + view.seed) * 0.8 : 0;
       const armPitch = moving && !lying && !defeated
         ? -1.18 + Math.sin(time * 0.018 + view.seed + 0.7) * 0.07
@@ -1592,14 +1854,30 @@ export class ThreeGameView {
       view.leftLeg.rotation.x = damp(view.leftLeg.rotation.x, defeated ? 0.18 : -stride, 12, dt);
       view.rightLeg.rotation.x = damp(view.rightLeg.rotation.x, defeated ? -0.14 : stride, 12, dt);
       view.avatar.rotation.x = damp(view.avatar.rotation.x, moving && !lying && !defeated ? -0.13 : (defeated ? -0.24 : 0), 12, dt);
-      view.avatar.rotation.z = damp(view.avatar.rotation.z, lying || defeated ? Math.PI / 2 : 0, 9, dt);
+      const bedIndex = player.bedIndex ?? 0;
+      const lyingOnReversedBed = bedIndex % 2 === 1;
+      const lieRotation = lying
+        ? (lyingOnReversedBed ? -Math.PI / 2 : Math.PI / 2)
+        : (defeated ? Math.PI / 2 : 0);
+      // Bed pillows sit at the head end of the frame.  Offset and orient the
+      // compact avatar per bed direction so its head rests on that pillow,
+      // rather than rotating around the middle of the mattress.
+      const lieOffsetX = lying ? (lyingOnReversedBed ? -0.13 : 0.13) : 0;
+      view.avatar.rotation.z = damp(view.avatar.rotation.z, lieRotation, 9, dt);
+      view.avatar.position.x = damp(view.avatar.position.x, lieOffsetX, 12, dt);
+      view.avatar.position.z = damp(view.avatar.position.z, 0, 12, dt);
       view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (defeated ? 0.24 : (moving ? Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.055 : 0)), 10, dt);
       view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : (defeated ? 0.82 : 1), 9, dt));
       view.lastPosition.copy(view.root.position);
     }
   }
 
-  private reconcilePlayerPosition(view: PlayerView, speed: number, dt: number): void {
+  private reconcilePlayerPosition(
+    view: PlayerView,
+    speed: number,
+    dt: number,
+    blockedTileKeys?: ReadonlySet<string>,
+  ): void {
     const amount = 1 - Math.exp(-speed * dt);
     const corrected = moveInWalkableArea(this.mapData, {
       x: view.root.position.x,
@@ -1607,7 +1885,7 @@ export class ThreeGameView {
     }, {
       x: (view.target.x - view.root.position.x) * amount,
       y: (view.target.z - view.root.position.z) * amount,
-    }, BALANCE.player.collisionRadius);
+    }, BALANCE.player.collisionRadius, 0.12, blockedTileKeys);
     view.root.position.x = corrected.x;
     view.root.position.z = corrected.y;
   }
@@ -1685,6 +1963,48 @@ export class ThreeGameView {
       });
       return;
     }
+    if (event.kind === 'consumable-use' && event.position) {
+      const duration = event.itemId === 'echo-lens'
+        ? 10_000
+        : event.itemId === 'scout-flare'
+          ? 8_000
+          : event.itemId === 'moon-compass'
+            ? 18_000
+            : event.itemId === 'path-chalk'
+              ? 12_000
+              : 720;
+      const color = event.itemId === 'ward-seal' || event.itemId === 'last-latch'
+        ? 0xb99aff
+        : event.itemId === 'quick-mortar' || event.itemId === 'repair-window'
+          ? 0x76f0b0
+          : 0x74ecf2;
+      const ring = mesh(
+        new THREE.RingGeometry(0.2, event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 1.25 : 0.48, 32),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
+        [event.position.x, 0.1, event.position.y],
+      );
+      ring.rotation.x = -Math.PI / 2;
+      this.scene.add(ring);
+      this.effects.push({ object: ring, born: performance.now(), duration, baseScale: ring.scale.clone(), scaleGrowth: event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 0.4 : 0.14 });
+
+      if ((event.itemId === 'path-chalk' || event.itemId === 'moon-compass') && event.playerId && this.snapshotData) {
+        const player = this.snapshotData.players.find((candidate) => candidate.id === event.playerId);
+        const occupiedRooms = new Set(this.snapshotData.rooms.filter((room) => room.ownerIds.length > 0).map((room) => room.id));
+        const target = this.mapData.rooms.find((room) => !occupiedRooms.has(room.id));
+        if (player && target) {
+          const path = findPath(this.mapData, player.position, target.bed);
+          if (path.length > 1) {
+            const route = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(path.map((tile) => worldPoint(tile, 0.075))),
+              new THREE.LineBasicMaterial({ color: 0x93ffbd, transparent: true, opacity: 0.78 }),
+            );
+            this.scene.add(route);
+            this.effects.push({ object: route, born: performance.now(), duration, baseScale: route.scale.clone(), scaleGrowth: 0 });
+          }
+        }
+      }
+      return;
+    }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
@@ -1724,6 +2044,15 @@ export class ThreeGameView {
       this.cameraTarget.z + Math.cos(this.cameraYaw) * horizontalDistance,
     );
     this.camera.lookAt(this.cameraTarget.x, CAMERA_TARGET_HEIGHT, this.cameraTarget.z);
+
+    // 카메라만 멀어지고 안개 거리는 고정이면 축소할수록 타일이 안개색에
+    // 잠겨 급격히 어두워진다. 조명을 증폭하지 않고 가시거리만 비례해
+    // 넓혀 가까운 화면의 명암과 최대 축소 화면의 판독성을 함께 지킨다.
+    if (this.scene.fog instanceof THREE.Fog) {
+      const visibilityScale = 1 + Math.max(0, this.cameraDistanceScale - 1) * 0.85;
+      this.scene.fog.near = this.theme.fogNear * visibilityScale;
+      this.scene.fog.far = this.theme.fogFar * visibilityScale;
+    }
   }
 
   private resize(): void {
