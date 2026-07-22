@@ -41,7 +41,7 @@ import type {
   Tile,
   Vec2,
 } from "../shared/types";
-import { SynthAudio } from "./audio";
+import { SynthAudio, type BackgroundTrack } from "./audio";
 import {
   equipCosmetic,
   getAccount,
@@ -80,6 +80,8 @@ if (!app) throw new Error("App root is missing");
 const profile = loadProfile();
 const audio = new SynthAudio();
 audio.setVolume(profile.volume);
+audio.setMusicVolume(profile.musicVolume);
+audio.setMusicMuted(!profile.musicEnabled);
 let network: GameNetwork | null = null;
 let game: ThreeGameView | null = null;
 let customAvatarPreview: AvatarPreview3D | null = null;
@@ -186,10 +188,25 @@ const playerFaceHtml = (appearance: AvatarAppearance): string => {
   return `<span class="player-face face-${escapeHtml(animal)}" aria-hidden="true"><i class="face-ear left"></i><i class="face-ear right"></i><b class="face-eye left"></b><b class="face-eye right"></b><em></em></span>`;
 };
 
+function backgroundTrackForView(view: string): BackgroundTrack | null {
+  if (view === "game") return "ingame";
+  if (
+    view === "home" ||
+    view === "shop" ||
+    view === "room-menu" ||
+    view === "lobby" ||
+    view === "result"
+  ) {
+    return "main";
+  }
+  return null;
+}
+
 function setContent(view: string, html: string): void {
   customAvatarPreview?.destroy();
   customAvatarPreview = null;
   currentView = view;
+  audio.setBackgroundTrack(backgroundTrackForView(view));
   app.dataset.view = view;
   app.innerHTML = `${html}<button class="btn icon-btn" data-settings aria-label="설정">⚙</button><div class="toast" id="toast"></div>`;
   app.querySelector("[data-settings]")?.addEventListener("click", showSettings);
@@ -219,6 +236,7 @@ function openingTeaser(complete: () => void): void {
     return;
   }
   currentView = "opening";
+  audio.setBackgroundTrack(null);
   app.dataset.view = "opening";
   app.innerHTML = `<main class="opening-teaser"><div class="teaser-film"></div><section class="teaser-title"><span class="eyebrow">A MIDNIGHT SURVIVAL</span><h1>심야 병동</h1><p data-teaser-copy>문이 닫히기 전에, 살아남을 방을 찾아라.</p></section><button class="teaser-skip" data-teaser-skip>건너뛰기</button><div class="teaser-progress"><i></i></div></main>`;
   const copy = app.querySelector<HTMLElement>("[data-teaser-copy]");
@@ -2044,8 +2062,31 @@ function showSettings(): void {
   const logoutAction = account && !isActiveMatch
     ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
     : "";
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
+  modal
+    .querySelector<HTMLInputElement>("[data-music-volume]")
+    ?.addEventListener("input", (event) => {
+      profile.musicVolume = Number(
+        (event.currentTarget as HTMLInputElement).value,
+      );
+      audio.setMusicVolume(profile.musicVolume);
+      saveProfile(profile);
+    });
+  modal
+    .querySelector<HTMLButtonElement>("[data-music-toggle]")
+    ?.addEventListener("click", (event) => {
+      profile.musicEnabled = !profile.musicEnabled;
+      audio.setMusicMuted(!profile.musicEnabled);
+      saveProfile(profile);
+      const button = event.currentTarget as HTMLButtonElement;
+      button.classList.toggle("on", profile.musicEnabled);
+      button.classList.toggle("off", !profile.musicEnabled);
+      button.setAttribute("aria-pressed", String(profile.musicEnabled));
+      button.textContent = profile.musicEnabled ? "켜짐" : "꺼짐";
+      const slider = modal.querySelector<HTMLInputElement>("[data-music-volume]");
+      if (slider) slider.disabled = !profile.musicEnabled;
+    });
   modal
     .querySelector<HTMLInputElement>("[data-volume]")
     ?.addEventListener("input", (event) => {

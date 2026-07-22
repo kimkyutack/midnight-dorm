@@ -4,17 +4,26 @@ import { deflateSync } from 'node:zlib';
 const icon = (size, maskable = false) => `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#171a42"/><stop offset="1" stop-color="#090b1a"/></linearGradient>
-    <linearGradient id="moon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d4c2ff"/><stop offset="1" stop-color="#5be5ff"/></linearGradient>
-    <filter id="glow"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#15294a"/><stop offset="1" stop-color="#050814"/></linearGradient>
+    <radialGradient id="halo" cx="50%" cy="35%" r="62%"><stop stop-color="#2f6b94" stop-opacity=".72"/><stop offset="1" stop-color="#0b1125" stop-opacity="0"/></radialGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fffdf6"/><stop offset="1" stop-color="#dce5ee"/></linearGradient>
+    <filter id="softGlow"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
-  <rect width="512" height="512" rx="${maskable ? 0 : 112}" fill="url(#sky)"/>
-  <circle cx="380" cy="126" r="74" fill="url(#moon)" filter="url(#glow)"/>
-  <path d="M77 404V211l179-92 179 92v193H77Z" fill="#2b305d" stroke="#9b8ae8" stroke-width="16" stroke-linejoin="round"/>
-  <path d="M214 404V276h84v128" fill="#10132d" stroke="#5be5ff" stroke-width="12"/>
-  <path d="M130 243h58v66h-58zm194 0h58v66h-58z" fill="#ffd36f" stroke="#14172f" stroke-width="10"/>
-  <path d="M186 174c22-45 104-45 126 0-12 20-31 31-63 31s-51-11-63-31Z" fill="#7765b5"/>
-  <ellipse cx="225" cy="174" rx="9" ry="13" fill="#ff668c"/><ellipse cx="278" cy="174" rx="9" ry="13" fill="#ff668c"/>
+  <rect width="512" height="512" rx="${maskable ? 0 : 112}" fill="url(#night)"/>
+  <rect width="512" height="512" rx="${maskable ? 0 : 112}" fill="url(#halo)"/>
+  <circle cx="385" cy="130" r="82" fill="#9cecff" opacity=".22" filter="url(#softGlow)"/>
+  <path d="M382 235c-53 0-89 41-89 96v96l26-22 25 25 38-27 39 27 25-25 26 22v-96c0-55-36-96-90-96Z" fill="#ff627f" opacity=".88"/>
+  <circle cx="350" cy="327" r="12" fill="#2a1535"/><circle cx="416" cy="327" r="12" fill="#2a1535"/>
+  <path d="M173 251 151 91c-5-37 56-49 69-11l39 143M339 223l39-143c13-38 74-26 69 11l-22 160" fill="url(#fur)" stroke="#25324a" stroke-width="15" stroke-linejoin="round"/>
+  <path d="M180 175 169 111c-3-18 27-23 33-6l22 76m109 0 22-76c6-17 36-12 33 6l-11 64" fill="#f6a5b8" opacity=".82"/>
+  <ellipse cx="256" cy="306" rx="143" ry="126" fill="url(#fur)" stroke="#25324a" stroke-width="15"/>
+  <path d="M137 253c24-60 213-69 238 0l-16 36H153z" fill="#63cae5" stroke="#25324a" stroke-width="15" stroke-linejoin="round"/>
+  <path d="M178 246c19-38 136-44 157 0" fill="none" stroke="#e6f8ff" stroke-width="15" stroke-linecap="round"/>
+  <ellipse cx="207" cy="304" rx="17" ry="23" fill="#172238"/><ellipse cx="305" cy="304" rx="17" ry="23" fill="#172238"/>
+  <circle cx="202" cy="297" r="6" fill="#fff"/><circle cx="300" cy="297" r="6" fill="#fff"/>
+  <ellipse cx="256" cy="344" rx="24" ry="18" fill="#f5a6b7" stroke="#25324a" stroke-width="8"/>
+  <path d="M237 367c12 12 26 12 38 0" fill="none" stroke="#25324a" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="158" cy="350" rx="22" ry="12" fill="#f5a6b7" opacity=".75"/><ellipse cx="354" cy="350" rx="22" ry="12" fill="#f5a6b7" opacity=".75"/>
 </svg>`;
 
 await mkdir('public/icons', { recursive: true });
@@ -36,22 +45,34 @@ function makePng(size) {
   const circle = (cx, cy, radius, color) => {
     for (let y = -radius; y <= radius; y += 1) for (let x = -radius; x <= radius; x += 1) if (x * x + y * y <= radius * radius) put(cx + x, cy + y, color);
   };
+  const ellipse = (cx, cy, rx, ry, color) => {
+    for (let y = -ry; y <= ry; y += 1) for (let x = -rx; x <= rx; x += 1) if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1) put(cx + x, cy + y, color);
+  };
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       const t = (x + y) / (size * 2);
-      put(x, y, [Math.floor(18 - t * 9), Math.floor(22 - t * 11), Math.floor(54 - t * 28), 255]);
+      put(x, y, [Math.floor(23 - t * 13), Math.floor(43 - t * 28), Math.floor(76 - t * 49), 255]);
     }
   }
   const unit = size / 512;
-  circle(Math.floor(382 * unit), Math.floor(124 * unit), Math.floor(70 * unit), [139, 221, 244, 255]);
-  circle(Math.floor(360 * unit), Math.floor(105 * unit), Math.floor(61 * unit), [205, 188, 255, 255]);
-  rectangle(76 * unit, 210 * unit, 360 * unit, 195 * unit, [43, 48, 93, 255]);
-  rectangle(95 * unit, 230 * unit, 322 * unit, 175 * unit, [54, 58, 111, 255]);
-  rectangle(214 * unit, 278 * unit, 84 * unit, 127 * unit, [12, 16, 44, 255]);
-  rectangle(130 * unit, 248 * unit, 58 * unit, 65 * unit, [255, 211, 111, 255]);
-  rectangle(324 * unit, 248 * unit, 58 * unit, 65 * unit, [255, 211, 111, 255]);
-  circle(Math.floor(226 * unit), Math.floor(179 * unit), Math.max(2, Math.floor(9 * unit)), [255, 102, 140, 255]);
-  circle(Math.floor(280 * unit), Math.floor(179 * unit), Math.max(2, Math.floor(9 * unit)), [255, 102, 140, 255]);
+  const s = (value) => Math.max(1, Math.round(value * unit));
+  circle(s(385), s(130), s(86), [85, 177, 215, 86]);
+  circle(s(385), s(332), s(88), [236, 83, 116, 255]);
+  rectangle(s(297), s(330), s(176), s(91), [236, 83, 116, 255]);
+  circle(s(350), s(327), s(12), [40, 19, 50, 255]);
+  circle(s(416), s(327), s(12), [40, 19, 50, 255]);
+  ellipse(s(183), s(177), s(42), s(100), [223, 232, 238, 255]);
+  ellipse(s(329), s(177), s(42), s(100), [223, 232, 238, 255]);
+  ellipse(s(256), s(306), s(145), s(129), [242, 246, 244, 255]);
+  rectangle(s(135), s(251), s(242), s(42), [93, 196, 224, 255]);
+  ellipse(s(256), s(252), s(121), s(42), [99, 202, 229, 255]);
+  ellipse(s(207), s(304), s(18), s(24), [23, 34, 56, 255]);
+  ellipse(s(305), s(304), s(18), s(24), [23, 34, 56, 255]);
+  circle(s(202), s(297), s(6), [255, 255, 255, 255]);
+  circle(s(300), s(297), s(6), [255, 255, 255, 255]);
+  ellipse(s(256), s(344), s(25), s(19), [245, 166, 183, 255]);
+  ellipse(s(158), s(350), s(23), s(12), [245, 166, 183, 150]);
+  ellipse(s(354), s(350), s(23), s(12), [245, 166, 183, 150]);
 
   const scanlines = Buffer.alloc(size * (size * 4 + 1));
   for (let y = 0; y < size; y += 1) pixels.copy(scanlines, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);

@@ -2,6 +2,8 @@ export interface LocalProfile {
   nickname: string;
   deviceId: string;
   volume: number;
+  musicVolume: number;
+  musicEnabled: boolean;
   vibration: boolean;
   bestSurvivalSeconds: number;
   victories: number;
@@ -19,6 +21,8 @@ const defaults = (): LocalProfile => ({
   nickname: '',
   deviceId: crypto.randomUUID(),
   volume: 0.65,
+  musicVolume: 0.42,
+  musicEnabled: true,
   vibration: true,
   bestSurvivalSeconds: 0,
   victories: 0,

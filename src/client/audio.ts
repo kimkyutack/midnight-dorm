@@ -1,11 +1,28 @@
 import type { GameEventKind } from '../shared/types';
 
 type SoundName = GameEventKind | 'button';
+export type BackgroundTrack = 'main' | 'ingame';
 
 export class SynthAudio {
   private context: AudioContext | null = null;
   private muted = false;
+  private readonly background: Partial<Record<BackgroundTrack, HTMLAudioElement>>;
+  private activeBackground: BackgroundTrack | null = null;
+  private backgroundUnlockArmed = false;
+  private musicMuted = false;
   volume = 0.65;
+  musicVolume = 0.42;
+
+  constructor() {
+    if (typeof Audio === 'undefined') {
+      this.background = {};
+      return;
+    }
+    this.background = {
+      main: this.createBackground('/audio/main.mp3'),
+      ingame: this.createBackground('/audio/ingame.mp3'),
+    };
+  }
 
   unlock(): void {
     this.context ??= new AudioContext();
@@ -18,6 +35,40 @@ export class SynthAudio {
 
   setMuted(value: boolean): void {
     this.muted = value;
+  }
+
+  setMusicVolume(value: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, value));
+    Object.values(this.background).forEach((track) => {
+      if (track) track.volume = this.musicVolume;
+    });
+  }
+
+  setMusicMuted(value: boolean): void {
+    this.musicMuted = value;
+    if (value) {
+      Object.values(this.background).forEach((track) => track?.pause());
+      return;
+    }
+    if (this.activeBackground) void this.playBackground(this.activeBackground);
+  }
+
+  setBackgroundTrack(track: BackgroundTrack | null): void {
+    if (this.activeBackground === track) {
+      if (track && !this.musicMuted) void this.playBackground(track);
+      return;
+    }
+
+    const previous = this.activeBackground
+      ? this.background[this.activeBackground]
+      : undefined;
+    previous?.pause();
+    this.activeBackground = track;
+
+    if (!track || this.musicMuted) return;
+    const next = this.background[track];
+    if (next) next.currentTime = 0;
+    void this.playBackground(track);
   }
 
   play(name: SoundName): void {
@@ -47,5 +98,40 @@ export class SynthAudio {
     oscillator.connect(gain).connect(context.destination);
     oscillator.start();
     oscillator.stop(context.currentTime + duration);
+  }
+
+  private createBackground(source: string): HTMLAudioElement {
+    const track = new Audio(source);
+    track.loop = true;
+    track.preload = 'auto';
+    track.volume = this.musicVolume;
+    return track;
+  }
+
+  private async playBackground(trackName: BackgroundTrack): Promise<void> {
+    if (this.musicMuted || this.activeBackground !== trackName) return;
+    const track = this.background[trackName];
+    if (!track) return;
+    track.volume = this.musicVolume;
+    try {
+      await track.play();
+    } catch {
+      this.armBackgroundUnlock();
+    }
+  }
+
+  private armBackgroundUnlock(): void {
+    if (this.backgroundUnlockArmed || typeof document === 'undefined') return;
+    this.backgroundUnlockArmed = true;
+    const resume = (): void => {
+      document.removeEventListener('pointerdown', resume, true);
+      document.removeEventListener('keydown', resume, true);
+      this.backgroundUnlockArmed = false;
+      if (this.activeBackground && !this.musicMuted) {
+        void this.playBackground(this.activeBackground);
+      }
+    };
+    document.addEventListener('pointerdown', resume, { once: true, capture: true });
+    document.addEventListener('keydown', resume, { once: true, capture: true });
   }
 }

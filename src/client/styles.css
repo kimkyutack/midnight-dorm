@@ -5036,6 +5036,10 @@ select {
   width: 46%;
   accent-color: var(--violet);
 }
+.setting-row input:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
 .vibration-toggle {
   min-width: 72px;
   min-height: 36px;
