@@ -23,7 +23,7 @@ interface TestState {
       roomId: string | null;
       bedIndex: number | null;
     }>;
-    buildings: unknown[];
+    buildings: Array<{ id: string; kind: string; tile: { x: number; y: number } }>;
     rooms: Array<{ doorHp: number; doorMaxHp: number }>;
     ghost: { hp: number };
   } | null;
@@ -332,6 +332,21 @@ test("two real browser contexts share a room, building, combat and reconnection"
       builtFirst.snapshot?.players.find((player) => player.id === movingId)
         ?.gold ?? goldBefore,
     ).toBeLessThan(goldBefore);
+
+    await first.waitForTimeout(400);
+    const beforeRapidBuilds = (await state(first)).snapshot?.buildings.length ?? 0;
+    await first.evaluate(() => {
+      window.__DORM_TEST__?.buildFirst("generator");
+      window.__DORM_TEST__?.buildFirst("floor-trap");
+    });
+    await expect.poll(
+      async () => (await state(first)).snapshot?.buildings.length ?? 0,
+      { timeout: 5_000, intervals: [50] },
+    ).toBe(beforeRapidBuilds + 1);
+    await first.waitForTimeout(500);
+    const afterRapidBuilds = await state(first);
+    expect(afterRapidBuilds.snapshot?.buildings).toHaveLength(beforeRapidBuilds + 1);
+    expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe("generator");
 
     const secondId = (await state(second)).playerId;
     await second.reload();

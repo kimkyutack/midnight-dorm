@@ -33,7 +33,8 @@ const BED_LEVELS = BED_UPGRADE_GOLD.map((gold, index) =>
 
 export const BALANCE = {
   tickRate: 20,
-  snapshotRate: 10,
+  snapshotRate: 15,
+  buildInputCooldownMs: 350,
   maxHumanPlayers: 4,
   maxPlayersWithBots: 4,
   reconnectMs: 30_000,
@@ -45,7 +46,7 @@ export const BALANCE = {
     startingGold: 100,
     startingPower: 18,
     interactionRange: 1.7,
-    collisionRadius: 0.28,
+    collisionRadius: 0.36,
   },
   door: {
     baseHp: DOOR_HP[0],
@@ -56,6 +57,7 @@ export const BALANCE = {
   },
   ghost: {
     baseHp: 760,
+    collisionRadius: 0.28,
     hpPerPlayer: 0.1,
     baseDamage: 4,
     damagePerPlayer: 0.13,

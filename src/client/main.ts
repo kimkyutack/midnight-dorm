@@ -1012,13 +1012,16 @@ function renderBuildPanel(tile: Tile): void {
     button.addEventListener("click", () => {
       if (!selectedTile || !me.roomId) return;
       const kind = button.dataset.build as BuildingKind;
-      const actionKey = `build:${me.roomId}:${selectedTile.x}:${selectedTile.y}:${kind}`;
+      const tileToBuild = { ...selectedTile };
+      const actionKey = `build:${me.roomId}:${tileToBuild.x}:${tileToBuild.y}`;
       if (!claimAction(actionKey)) return;
-      button.disabled = true;
+      panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((candidate) => {
+        candidate.disabled = true;
+      });
       const label = button.querySelector("strong");
       if (label)
         label.textContent = `${BALANCE.buildings[kind].label} 설치 중…`;
-      network?.build(me.roomId, { ...selectedTile }, kind);
+      network?.build(me.roomId, tileToBuild, kind);
     }),
   );
 }

@@ -1,6 +1,6 @@
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../shared/balance';
 import { botAppearance, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
-import { isBuildTile, isWalkable, isWalkableArea } from '../shared/map';
+import { isBuildTile, moveInWalkableArea } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
 import { combinedItemEffects, DRAW_COSTS, RANDOM_ITEMS } from '../shared/randomItems';
 import { getStage, higherRank, isEliteRank, rankBenefits, rankLabel, type StageDefinition } from '../shared/progression';
@@ -727,10 +727,10 @@ export class GameEngine {
       }
       const rank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
       const speed = BALANCE.player.speed * rankBenefits(rank).speedMultiplier * combinedItemEffects(player.items).moveSpeedMultiplier;
-      const nextX = player.position.x + player.velocity.x * speed * dt;
-      const nextY = player.position.y + player.velocity.y * speed * dt;
-      if (isWalkableArea(this.map, nextX, player.position.y, BALANCE.player.collisionRadius)) player.position.x = nextX;
-      if (isWalkableArea(this.map, player.position.x, nextY, BALANCE.player.collisionRadius)) player.position.y = nextY;
+      player.position = moveInWalkableArea(this.map, player.position, {
+        x: player.velocity.x * speed * dt,
+        y: player.velocity.y * speed * dt,
+      }, BALANCE.player.collisionRadius);
     }
   }
 
@@ -1100,9 +1100,11 @@ export class GameEngine {
     const slowMultiplier = slowed ? (ghost.retreating ? 0.9 : 0.76) : 1;
     let speed = BALANCE.ghost.speed * this.stage.speedMultiplier * variantSpeed * (ghost.rage ? 1.32 : 1) * slowMultiplier;
     if (ghost.retreating) speed *= 1.12;
-    const nextPosition = { x: ghost.position.x + direction.x * speed * dt, y: ghost.position.y + direction.y * speed * dt };
-    if (isWalkable(this.map, nextPosition.x, ghost.position.y)) ghost.position.x = nextPosition.x;
-    if (isWalkable(this.map, ghost.position.x, nextPosition.y)) ghost.position.y = nextPosition.y;
+    const radius = ghost.variant === 'giant' ? 0.38 : ghost.variant === 'minion' ? 0.16 : BALANCE.ghost.collisionRadius;
+    ghost.position = moveInWalkableArea(this.map, ghost.position, {
+      x: direction.x * speed * dt,
+      y: direction.y * speed * dt,
+    }, radius);
   }
 
   private selectGhostTarget(ghost: GhostState): string | null {

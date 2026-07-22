@@ -1,3 +1,4 @@
+import { BALANCE } from '../shared/balance';
 import type { BuildingKind, ClientMessage, GameEvent, GameSnapshot, MapDefinition, ServerMessage, Tile } from '../shared/types';
 
 export interface NetworkEvents {
@@ -21,6 +22,7 @@ export class GameNetwork {
   private lastServerSequence = -1;
   private stopped = false;
   private pingTimer: number | null = null;
+  private lastBuildSentAt = -Infinity;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
   reconnectToken = '';
   playerId = '';
@@ -101,7 +103,12 @@ export class GameNetwork {
   kickPlayer(playerId: string): void { this.send({ type: 'kick-player', playerId }); }
   move(dx: number, dy: number, inputSequence: number): void { this.send({ type: 'move', dx, dy, inputSequence }); }
   interact(): void { this.send({ type: 'interact' }); }
-  build(roomId: string, tile: Tile, kind: BuildingKind): void { this.send({ type: 'build', roomId, tile, kind }); }
+  build(roomId: string, tile: Tile, kind: BuildingKind): void {
+    const now = performance.now();
+    if (now - this.lastBuildSentAt < BALANCE.buildInputCooldownMs) return;
+    this.lastBuildSentAt = now;
+    this.send({ type: 'build', roomId, tile, kind });
+  }
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }

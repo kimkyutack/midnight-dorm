@@ -13,6 +13,7 @@ interface ConnectionAttachment {
   playerId: string;
   reconnectToken: string;
   lastSequence: number;
+  lastBuildAt: number;
 }
 
 interface InitPayload {
@@ -137,6 +138,7 @@ export class GameRoom extends DurableObject<Env> {
       playerId: result.player.id,
       reconnectToken: result.reconnectToken,
       lastSequence: -1,
+      lastBuildAt: 0,
     };
     server.serializeAttachment(attachment);
     this.startTicking();
@@ -161,6 +163,15 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
     attachment.lastSequence = parsed.message.sequence;
+    if (parsed.message.type === 'build') {
+      const now = Date.now();
+      if (now - (attachment.lastBuildAt ?? 0) < BALANCE.buildInputCooldownMs) {
+        socket.serializeAttachment(attachment);
+        this.sendError(socket, 'ACTION_THROTTLED', '설치 입력이 너무 빠릅니다. 잠시 후 다시 눌러주세요.');
+        return;
+      }
+      attachment.lastBuildAt = now;
+    }
     socket.serializeAttachment(attachment);
     if (parsed.message.type === 'ping') {
       this.send(socket, {
@@ -213,7 +224,7 @@ export class GameRoom extends DurableObject<Env> {
     }
     const result = engine.handle(attachment.playerId, parsed.message);
     if (!result.ok) this.sendError(socket, 'ACTION_REJECTED', result.error ?? '요청이 거부되었습니다.');
-    else this.broadcastSnapshot();
+    else if (parsed.message.type !== 'move') this.broadcastSnapshot();
   }
 
   override async webSocketClose(socket: WebSocket): Promise<void> {
@@ -264,7 +275,7 @@ export class GameRoom extends DurableObject<Env> {
       this.snapshotAccumulator += dt;
       this.persistAccumulator += dt;
       if (this.snapshotAccumulator >= 1 / BALANCE.snapshotRate) {
-        this.snapshotAccumulator = 0;
+        this.snapshotAccumulator -= 1 / BALANCE.snapshotRate;
         this.broadcastSnapshot();
       }
       if (this.persistAccumulator >= 1) {
@@ -281,11 +292,12 @@ export class GameRoom extends DurableObject<Env> {
 
   private broadcastSnapshot(): void {
     if (!this.engine) return;
+    const snapshot = this.engine.snapshot();
     const message: ServerMessage = {
       type: 'snapshot',
-      sequence: this.engine.snapshot().serverSeq,
+      sequence: snapshot.serverSeq,
       timestamp: Date.now(),
-      snapshot: this.engine.snapshot(),
+      snapshot,
       events: this.engine.drainEvents(),
     };
     const encoded = encodeMessage(message);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
-import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
@@ -10,7 +10,7 @@ import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
-import { movementFacingYaw } from '../src/client/game/avatarMath';
+import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -115,6 +115,21 @@ describe('deterministic shared world', () => {
     expect(isWalkableArea(map, wall!.x - 0.49, wall!.y, BALANCE.player.collisionRadius)).toBe(false);
   });
 
+  it('substeps large movement deltas so players cannot tunnel through a wall', () => {
+    const map = generateMap(4_204);
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+    const candidate = map.walkable.flatMap((tile) => directions.map(([dx, dy]) => ({ tile, dx, dy })))
+      .find(({ tile, dx, dy }) => map.walls.some((wall) => wall.x === tile.x + dx && wall.y === tile.y + dy));
+    expect(candidate).toBeDefined();
+    const start = candidate!.tile;
+    const moved = moveInWalkableArea(map, start, {
+      x: candidate!.dx * 2.2,
+      y: candidate!.dy * 2.2,
+    }, BALANCE.player.collisionRadius);
+    expect(isWalkableArea(map, moved.x, moved.y, BALANCE.player.collisionRadius)).toBe(true);
+    expect(Math.hypot(moved.x - start.x, moved.y - start.y)).toBeLessThan(0.5);
+  });
+
   it('creates twenty-five-tile multiplayer rooms with two beds each', () => {
     const map = generateMap(7_707, 'multiplayer');
     expect(validateMap(map)).toBe(true);
@@ -131,6 +146,32 @@ describe('survivor customization rules', () => {
     expect(Math.abs(movementFacingYaw(0, 1))).toBeCloseTo(Math.PI);
     expect(movementFacingYaw(1, 0)).toBeCloseTo(-Math.PI / 2);
     expect(movementFacingYaw(-1, 0)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('keeps rotating in the same short direction across the 180-degree seam', () => {
+    const clockwiseStart = Math.PI - 0.05;
+    const clockwiseTarget = -Math.PI + 0.05;
+    const clockwiseNext = dampFacingYaw(clockwiseStart, clockwiseTarget, 12, 1 / 60);
+    expect(clockwiseNext).toBeGreaterThan(clockwiseStart);
+    expect(Math.abs(shortestAngleDelta(clockwiseNext, clockwiseTarget)))
+      .toBeLessThan(Math.abs(shortestAngleDelta(clockwiseStart, clockwiseTarget)));
+
+    const counterClockwiseStart = -Math.PI + 0.05;
+    const counterClockwiseTarget = Math.PI - 0.05;
+    const counterClockwiseNext = dampFacingYaw(counterClockwiseStart, counterClockwiseTarget, 12, 1 / 60);
+    expect(counterClockwiseNext).toBeLessThan(counterClockwiseStart);
+    expect(Math.abs(shortestAngleDelta(counterClockwiseNext, counterClockwiseTarget)))
+      .toBeLessThan(Math.abs(shortestAngleDelta(counterClockwiseStart, counterClockwiseTarget)));
+
+    let continuousYaw = 0;
+    for (let step = 1; step <= 48; step += 1) {
+      const angle = (step / 48) * Math.PI * 2;
+      const wrappedTarget = movementFacingYaw(-Math.sin(angle), -Math.cos(angle));
+      const nextYaw = dampFacingYaw(continuousYaw, wrappedTarget, 12, 1 / 30);
+      expect(nextYaw).toBeGreaterThan(continuousYaw);
+      expect(nextYaw - continuousYaw).toBeLessThan(Math.PI / 2);
+      continuousYaw = nextYaw;
+    }
   });
 
   it('defines a varied original catalog across survivor and turret equipment slots', () => {

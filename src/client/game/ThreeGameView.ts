@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { BALANCE } from '../../shared/balance';
 import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
-import { isWalkableArea } from '../../shared/map';
+import { moveInWalkableArea } from '../../shared/map';
+import { combinedItemEffects } from '../../shared/randomItems';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
-import { movementFacingYaw } from './avatarMath';
+import { dampFacingYaw, movementFacingYaw } from './avatarMath';
 
 const BASE_CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
 const BASE_CAMERA_HORIZONTAL_DISTANCE = Math.hypot(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
@@ -13,8 +14,11 @@ const MAX_CAMERA_DISTANCE_SCALE = 2;
 const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.48;
-const FRAME_DT_MAX = 1 / 30;
-const TAP_DEBOUNCE_MS = 260;
+const FRAME_DT_MAX = 1 / 15;
+const TAP_GLOBAL_DEBOUNCE_MS = 300;
+const TAP_SAME_TILE_DEBOUNCE_MS = 520;
+const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
+const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
 
 export interface SceneSelection {
   type: 'bed' | 'door' | 'building';
@@ -961,7 +965,7 @@ export class ThreeGameView {
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.16;
@@ -1106,7 +1110,7 @@ export class ThreeGameView {
     moon.shadow.camera.top = 14;
     moon.shadow.camera.bottom = -14;
     this.scene.add(moon);
-    const lightTiles = this.mapData.corridorTiles.filter((_, index) => index % Math.max(1, Math.floor(this.mapData.corridorTiles.length / 22)) === 0).slice(0, 22);
+    const lightTiles = this.mapData.corridorTiles.filter((_, index) => index % Math.max(1, Math.floor(this.mapData.corridorTiles.length / 12)) === 0).slice(0, 12);
     lightTiles.forEach((tile, index) => {
       const light = new THREE.PointLight(index % 2 === 0 ? this.theme.lightA : this.theme.lightB, 3.8, 7.5, 1.8);
       light.position.set(tile.x, 2.2, tile.y);
@@ -1376,22 +1380,38 @@ export class ThreeGameView {
 
   private animatePlayers(time: number, dt: number): void {
     const local = this.snapshotData.players.find((player) => player.id === this.playerId);
-    const localSpeed = BALANCE.player.speed * rankBenefits(local?.soloRank ?? 'beginner').speedMultiplier;
+    const localRank = this.snapshotData.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
+    const localSpeed = BALANCE.player.speed
+      * rankBenefits(localRank ?? 'beginner').speedMultiplier
+      * combinedItemEffects(local?.items ?? []).moveSpeedMultiplier;
     for (const [id, view] of this.playerViews) {
       const player = this.snapshotData.players.find((candidate) => candidate.id === id);
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
-      if (id === this.playerId && !lying && (this.localInput.x || this.localInput.y)) {
-        const nextX = view.root.position.x + this.localInput.x * localSpeed * dt;
-        const nextZ = view.root.position.z + this.localInput.y * localSpeed * dt;
-        if (isWalkableArea(this.mapData, nextX, view.root.position.z, BALANCE.player.collisionRadius)) view.root.position.x = nextX;
-        if (isWalkableArea(this.mapData, view.root.position.x, nextZ, BALANCE.player.collisionRadius)) view.root.position.z = nextZ;
+      const isLocal = id === this.playerId;
+      const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
+      if (hasLocalInput) {
+        const predicted = moveInWalkableArea(this.mapData, {
+          x: view.root.position.x,
+          y: view.root.position.z,
+        }, {
+          x: this.localInput.x * localSpeed * dt,
+          y: this.localInput.y * localSpeed * dt,
+        }, BALANCE.player.collisionRadius);
+        view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
+        const serverError = Math.hypot(view.target.x - predicted.x, view.target.z - predicted.y);
+        if (serverError > LOCAL_HARD_RECONCILE_DISTANCE) {
+          this.reconcilePlayerPosition(view, 16, dt);
+        } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE) {
+          this.reconcilePlayerPosition(view, 1.4, dt);
+        }
+      } else {
+        this.reconcilePlayerPosition(view, isLocal ? 13 : 10.5, dt);
       }
-      view.root.position.lerp(view.target, 1 - Math.exp(-(id === this.playerId ? 8.5 : 10.5) * dt));
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (moving && !lying) view.avatar.rotation.y = damp(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
+      if (moving && !lying) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
       const stride = moving && !lying ? Math.sin(time * 0.011 + view.seed) * 0.68 : 0;
       view.leftArm.rotation.x = damp(view.leftArm.rotation.x, stride, 12, dt);
       view.rightArm.rotation.x = damp(view.rightArm.rotation.x, -stride, 12, dt);
@@ -1404,16 +1424,36 @@ export class ThreeGameView {
     }
   }
 
+  private reconcilePlayerPosition(view: PlayerView, speed: number, dt: number): void {
+    const amount = 1 - Math.exp(-speed * dt);
+    const corrected = moveInWalkableArea(this.mapData, {
+      x: view.root.position.x,
+      y: view.root.position.z,
+    }, {
+      x: (view.target.x - view.root.position.x) * amount,
+      y: (view.target.z - view.root.position.z) * amount,
+    }, BALANCE.player.collisionRadius);
+    view.root.position.x = corrected.x;
+    view.root.position.z = corrected.y;
+  }
+
   private animateGhosts(time: number, dt: number): void {
     for (const [id, view] of this.ghostViews) {
       const ghost = this.snapshotData.ghosts.find((candidate) => candidate.id === id);
       if (!ghost) continue;
       const beforeX = view.root.position.x;
       const beforeZ = view.root.position.z;
-      view.root.position.lerp(view.target, 1 - Math.exp(-8 * dt));
+      const amount = 1 - Math.exp(-8 * dt);
+      const radius = ghost.variant === 'giant' ? 0.38 : ghost.variant === 'minion' ? 0.16 : BALANCE.ghost.collisionRadius;
+      const corrected = moveInWalkableArea(this.mapData, { x: beforeX, y: beforeZ }, {
+        x: (view.target.x - beforeX) * amount,
+        y: (view.target.z - beforeZ) * amount,
+      }, radius);
+      view.root.position.x = corrected.x;
+      view.root.position.z = corrected.y;
       const dx = view.root.position.x - beforeX;
       const dz = view.root.position.z - beforeZ;
-      if (Math.hypot(dx, dz) > 0.001) view.body.rotation.y = damp(view.body.rotation.y, movementFacingYaw(dx, dz), 9, dt);
+      if (Math.hypot(dx, dz) > 0.001) view.body.rotation.y = dampFacingYaw(view.body.rotation.y, movementFacingYaw(dx, dz), 9, dt);
       view.body.position.y = Math.sin(time * 0.0048 + view.seed) * 0.1 + 0.08;
       view.body.rotation.z = Math.sin(time * 0.0026 + view.seed) * 0.045;
       const reach = Math.sin(time * 0.006 + view.seed) * 0.22;
@@ -1542,6 +1582,7 @@ export class ThreeGameView {
   private readonly onPointerDown = (event: PointerEvent): void => {
     const local = this.snapshotData.players.find((player) => player.id === this.playerId);
     if (!local?.roomId) return;
+    event.preventDefault();
     this.renderer.domElement.setPointerCapture(event.pointerId);
     this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointerPositions.size >= 2) {
@@ -1595,6 +1636,7 @@ export class ThreeGameView {
 
   private readonly onPointerUp = (event: PointerEvent): void => {
     if (!this.pointerPositions.has(event.pointerId)) return;
+    event.preventDefault();
     const wasGesture = this.pointerPositions.size > 1 || this.gesture !== null;
     const moved = this.drag?.id === event.pointerId ? this.drag.moved : wasGesture;
     this.pointerPositions.delete(event.pointerId);
@@ -1626,6 +1668,7 @@ export class ThreeGameView {
 
   private selectAt(clientX: number, clientY: number): void {
     const now = performance.now();
+    if (now - this.lastSelectionAt < TAP_GLOBAL_DEBOUNCE_MS) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -1633,7 +1676,7 @@ export class ThreeGameView {
     if (!hit) return;
     const tile = { x: Math.round(hit.point.x), y: Math.round(hit.point.z) };
     const selectionKey = `${tile.x}:${tile.y}`;
-    if (selectionKey === this.lastSelectionKey && now - this.lastSelectionAt < TAP_DEBOUNCE_MS) return;
+    if (selectionKey === this.lastSelectionKey && now - this.lastSelectionAt < TAP_SAME_TILE_DEBOUNCE_MS) return;
     this.lastSelectionKey = selectionKey;
     this.lastSelectionAt = now;
     const building = this.snapshotData.buildings.find((candidate) => candidate.tile.x === tile.x && candidate.tile.y === tile.y);

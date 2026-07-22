@@ -1,5 +1,5 @@
 import { SeededRandom } from './rng';
-import type { MapDefinition, MapRoom, PlayMode, Tile } from './types';
+import type { MapDefinition, MapRoom, PlayMode, Tile, Vec2 } from './types';
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
 
@@ -267,6 +267,34 @@ export function isWalkableArea(map: MapDefinition, x: number, y: number, radius:
     [x + radius, y + radius],
   ] as const;
   return samples.every(([sampleX, sampleY]) => keys.has(tileKey(Math.round(sampleX), Math.round(sampleY))));
+}
+
+/**
+ * Moves a circular actor through the tile map without tunnelling through a wall.
+ * Splitting large frame deltas into short axis-separated steps keeps the client
+ * prediction and the authoritative server simulation on the exact same path.
+ */
+export function moveInWalkableArea(
+  map: MapDefinition,
+  position: Vec2,
+  delta: Vec2,
+  radius: number,
+  maxStep = 0.12,
+): Vec2 {
+  if (![position.x, position.y, delta.x, delta.y, radius, maxStep].every(Number.isFinite)) return { ...position };
+  const distance = Math.hypot(delta.x, delta.y);
+  const steps = Math.max(1, Math.ceil(distance / Math.max(0.05, maxStep)));
+  const stepX = delta.x / steps;
+  const stepY = delta.y / steps;
+  let x = position.x;
+  let y = position.y;
+  for (let step = 0; step < steps; step += 1) {
+    const nextX = x + stepX;
+    if (isWalkableArea(map, nextX, y, radius)) x = nextX;
+    const nextY = y + stepY;
+    if (isWalkableArea(map, x, nextY, radius)) y = nextY;
+  }
+  return { x, y };
 }
 
 export function isBuildTile(map: MapDefinition, roomId: string, tile: Tile): boolean {
