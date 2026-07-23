@@ -1459,7 +1459,8 @@ export class ThreeGameView {
   private readonly desiredCameraTarget = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
-  private readonly buildTileMarkers = new Map<string, THREE.Mesh>();
+  private readonly buildTileMarkers = new Map<string, THREE.Group>();
+  private readonly environmentTextures: THREE.Texture[] = [];
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
@@ -1496,6 +1497,7 @@ export class ThreeGameView {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.dataset.renderer = 'orthographic-2d';
     this.renderer.domElement.dataset.actorRenderer = 'atlas-sprites';
+    this.renderer.domElement.dataset.surfaceRenderer = 'image-textures';
     this.renderer.domElement.dataset.theme = this.theme.id;
     this.renderer.domElement.style.touchAction = 'none';
     this.host.appendChild(this.renderer.domElement);
@@ -1523,7 +1525,7 @@ export class ThreeGameView {
       new THREE.MeshBasicMaterial({ color: 0xffd36f, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
     );
     this.selectionMarker.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
-    this.selectionMarker.position.y = 0.155;
+    this.selectionMarker.position.y = 0.06;
     this.selectionMarker.visible = false;
     this.selectionMarker.renderOrder = 9_000;
     this.scene.add(this.selectionMarker);
@@ -1652,6 +1654,8 @@ export class ThreeGameView {
         }
       }
     });
+    for (const texture of this.environmentTextures) texture.dispose();
+    this.environmentTextures.length = 0;
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.sleepButton.remove();
@@ -1745,53 +1749,64 @@ export class ThreeGameView {
     const corridorKeys = new Set(this.mapData.corridorTiles.map((tile) => `${tile.x},${tile.y}`));
     const corridorTiles = this.mapData.corridorTiles;
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
-    this.addTileInstances(corridorTiles, standardMaterial(this.theme.corridor, { roughness: 0.9 }), 0);
-    this.addTileInstances(roomTiles, standardMaterial(this.theme.room, { roughness: 0.88 }), 0.003);
+    const floorTexture = this.loadEnvironmentTexture('/assets/environment/ward-floor-tile.png');
+    const wallTexture = this.loadEnvironmentTexture('/assets/environment/ward-wall-surface.png');
+    this.addTileInstances(corridorTiles, this.theme.corridor, floorTexture, 0);
+    this.addTileInstances(roomTiles, this.theme.room, floorTexture, 0.003);
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
-    const markerGeometry = new THREE.BoxGeometry(0.68, 0.012, 0.68);
+    const horizontalPlusGeometry = new THREE.BoxGeometry(0.3, 0.026, 0.07);
+    const verticalPlusGeometry = new THREE.BoxGeometry(0.07, 0.026, 0.3);
+    const plusColor = new THREE.Color(this.theme.marker).lerp(new THREE.Color(0xffffff), 0.58);
+    const plusMaterial = standardMaterial(plusColor, {
+      emissive: plusColor,
+      emissiveIntensity: 0.45,
+      roughness: 0.42,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+    });
     for (const tile of buildTiles) {
-      const marker = new THREE.Mesh(
-        markerGeometry,
-        new THREE.MeshBasicMaterial({
-          color: this.theme.marker,
-          transparent: true,
-          opacity: 0,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      marker.position.set(tile.x, 0.137, tile.y);
+      const marker = new THREE.Group();
+      const horizontal = new THREE.Mesh(horizontalPlusGeometry, plusMaterial);
+      const vertical = new THREE.Mesh(verticalPlusGeometry, plusMaterial);
+      horizontal.castShadow = true;
+      vertical.castShadow = true;
+      horizontal.renderOrder = 2_200;
+      vertical.renderOrder = 2_200;
+      marker.add(horizontal, vertical);
+      marker.position.set(tile.x, 0.055, tile.y);
       marker.visible = false;
-      marker.renderOrder = 2_200;
+      marker.userData.plusMaterial = plusMaterial;
       this.buildTileMarkers.set(`${tile.x},${tile.y}`, marker);
       this.scene.add(marker);
     }
     const matrix = new THREE.Matrix4();
 
-    const wallGeometry = new THREE.BoxGeometry(0.98, 0.68, 0.98);
-    const wallMaterial = standardMaterial(this.theme.wall, { roughness: 0.86 });
+    const wallGeometry = new THREE.BoxGeometry(1, 0.58, 1);
+    const wallColor = new THREE.Color(this.theme.wallCap).lerp(new THREE.Color(0xffffff), 0.78);
+    const wallMaterial = standardMaterial(wallColor, {
+      map: wallTexture,
+      roughness: 0.9,
+      metalness: this.theme.decor === 'hospital' ? 0.12 : 0.04,
+      emissive: this.theme.wallCap,
+      emissiveIntensity: 0.18,
+    });
     const walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, this.mapData.walls.length);
     walls.castShadow = true;
     walls.receiveShadow = true;
     this.mapData.walls.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, 0.34, tile.y);
+      matrix.makeTranslation(tile.x, 0.29, tile.y);
       walls.setMatrixAt(index, matrix);
     });
     this.scene.add(walls);
-    const capGeometry = new THREE.BoxGeometry(1, 0.12, 1);
-    const caps = new THREE.InstancedMesh(capGeometry, standardMaterial(this.theme.wallCap, { roughness: 0.72 }), this.mapData.walls.length);
-    this.mapData.walls.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, 0.73, tile.y);
-      caps.setMatrixAt(index, matrix);
-    });
-    this.scene.add(caps);
 
     const zone = this.mapData.respawnZone;
     const respawn = mesh(
       new THREE.PlaneGeometry(zone.width - 0.2, zone.height - 0.2),
       new THREE.MeshBasicMaterial({ color: this.theme.respawn, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
-      [zone.x + (zone.width - 1) / 2, 0.145, zone.y + (zone.height - 1) / 2],
+      [zone.x + (zone.width - 1) / 2, 0.04, zone.y + (zone.height - 1) / 2],
     );
     respawn.rotation.x = -Math.PI / 2;
     this.scene.add(respawn);
@@ -1805,7 +1820,7 @@ export class ThreeGameView {
     const samples = this.mapData.walls.filter((_, index) => index % sampleStep === 0).slice(0, 14);
     samples.forEach((tile, index) => {
       const prop = new THREE.Group();
-      prop.position.set(tile.x, 0.78, tile.y);
+      prop.position.set(tile.x, 0.58, tile.y);
       prop.rotation.y = (index * 1.71) % (Math.PI * 2);
       const accent = standardMaterial(this.theme.marker, { emissive: this.theme.marker, emissiveIntensity: 0.28, roughness: 0.55 });
       const base = standardMaterial(this.theme.wallCap, { roughness: 0.9, metalness: this.theme.decor === 'hospital' ? 0.5 : 0.08 });
@@ -1837,18 +1852,62 @@ export class ThreeGameView {
     });
   }
 
-  private addTileInstances(tiles: Tile[], material: THREE.Material, y: number): void {
-    // Shallow blocks keep the strict 2D camera while giving every tile a lit
-    // rim and shadowed edge, so rooms read as constructed spaces rather than
-    // a single flat colour field.
-    const geometry = new THREE.BoxGeometry(0.96, 0.12, 0.96);
-    const floors = new THREE.InstancedMesh(geometry, material, tiles.length);
-    floors.castShadow = true;
+  private loadEnvironmentTexture(url: string): THREE.Texture {
+    const texture = new THREE.TextureLoader().load(url);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    this.environmentTextures.push(texture);
+    return texture;
+  }
+
+  private addTileInstances(
+    tiles: Tile[],
+    color: THREE.ColorRepresentation,
+    texture: THREE.Texture,
+    y: number,
+  ): void {
+    // A single authored image carries the wear and shallow bevel. Keeping only
+    // one surface removes the concentric stacked-square look from the strict
+    // top-down camera while stage tinting still differentiates each map tier.
+    const source = new THREE.Color(color);
+    const tint = source.clone().lerp(new THREE.Color(0xffffff), 0.48);
+    const geometry = new THREE.PlaneGeometry(0.98, 0.98);
+    const floors = new THREE.InstancedMesh(
+      geometry,
+      standardMaterial(tint, {
+        map: texture,
+        roughness: 0.93,
+        metalness: 0.02,
+      }),
+      tiles.length,
+    );
     floors.receiveShadow = true;
     const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const layFlat = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      -Math.PI / 2,
+    );
+    const turn = new THREE.Quaternion();
+    const orientation = new THREE.Quaternion();
+    const instanceTint = new THREE.Color();
     tiles.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, y + 0.06, tile.y);
+      const variant = Math.abs(tile.x * 17 + tile.y * 31) % 4;
+      turn.setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        variant * (Math.PI / 2),
+      );
+      orientation.copy(turn).multiply(layFlat);
+      position.set(tile.x, y + 0.025, tile.y);
+      matrix.compose(position, orientation, scale);
       floors.setMatrixAt(index, matrix);
+      const shade = 0.91 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.025;
+      floors.setColorAt(index, instanceTint.setRGB(shade, shade, shade));
     });
     this.scene.add(floors);
   }
@@ -1875,9 +1934,11 @@ export class ThreeGameView {
       const active = available.has(key);
       marker.visible = active;
       if (!active) continue;
-      const material = marker.material as THREE.MeshBasicMaterial;
-      material.opacity = 0.12 + pulse * 0.2;
-      const scale = 0.92 + pulse * 0.1;
+      const material = marker.userData.plusMaterial as THREE.MeshStandardMaterial;
+      material.opacity = 0.34 + pulse * 0.5;
+      material.emissiveIntensity = 0.45 + pulse * 1.25;
+      marker.position.y = 0.055 + pulse * 0.012;
+      const scale = 0.9 + pulse * 0.17;
       marker.scale.set(scale, 1, scale);
     }
   }
@@ -2440,7 +2501,7 @@ export class ThreeGameView {
       const ring = mesh(
         new THREE.RingGeometry(0.2, event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 1.25 : 0.48, 32),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
-        [event.position.x, 0.1, event.position.y],
+        [event.position.x, 0.06, event.position.y],
       );
       ring.rotation.x = -Math.PI / 2;
       this.scene.add(ring);
@@ -2454,7 +2515,7 @@ export class ThreeGameView {
           const path = findPath(this.mapData, player.position, target.bed);
           if (path.length > 1) {
             const route = new THREE.Line(
-              new THREE.BufferGeometry().setFromPoints(path.map((tile) => worldPoint(tile, 0.075))),
+              new THREE.BufferGeometry().setFromPoints(path.map((tile) => worldPoint(tile, 0.06))),
               new THREE.LineBasicMaterial({ color: 0x93ffbd, transparent: true, opacity: 0.78 }),
             );
             this.scene.add(route);
@@ -2740,7 +2801,7 @@ export class ThreeGameView {
   }
 
   private highlight(tile: Vec2): void {
-    this.selectionMarker.position.set(tile.x, 0.155, tile.y);
+    this.selectionMarker.position.set(tile.x, 0.06, tile.y);
     this.selectionMarker.visible = true;
   }
 }

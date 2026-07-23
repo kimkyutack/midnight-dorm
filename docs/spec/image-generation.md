@@ -3,7 +3,7 @@
 - 기준일: 2026-07-23
 - 생성 방식: Codex 내장 `imagegen` 기본 모드
 - 후처리: 시네마틱은 Sharp WebP, 스프라이트는 크로마키 제거 후 투명 PNG 분리
-- 사용 위치: `public/assets/cinematic`, `public/assets/sprites`
+- 사용 위치: `public/assets/cinematic`, `public/assets/sprites`, `public/assets/environment`
 
 ## opening-chase.webp
 
@@ -37,6 +37,22 @@ Tall abandoned hospital corridor at midnight, centered one-point perspective, em
 Production-ready 3-column by 2-row horror character sheet on a uniform pure-black background. Six distinct full-body photoreal ghosts: long-haired wanderer, thin fast crawler, burned orderly brute, faceless occult caster, cyan drowned twin and pink cracked-porcelain twin. One centered character per equal cell, generous black margins, consistent scale, distinct silhouettes, non-gory, original designs. No grid, border, label, text, watermark or UI.
 ```
 
+## ward-floor-tile.png
+
+목적: 모든 스테이지에서 테마 색상을 곱해 사용하는 수직 탑다운 바닥 타일 원본. 중첩 지오메트리 대신 이미지 한 장으로 얕은 단차와 마모를 표현한다.
+
+```text
+One original abandoned hospital floor slab, strict orthographic top-down square. Neutral charcoal and desaturated blue-gray worn sealed concrete, subtle scratches and grime, one restrained perimeter bevel. No nested squares, raised center, icon, plus, object, text, gore or watermark.
+```
+
+## ward-wall-surface.png
+
+목적: 인접한 벽 셀이 하나의 매끄러운 방벽처럼 보이게 하는 연속형 상단 표면 원본.
+
+```text
+Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-down square. Neutral dark slate and desaturated steel gray, broad smooth aged surface with faint wear. Absolutely no border, frame, inset, central panel, bolts, tile outline, text, symbols, gore or watermark.
+```
+
 ## 기존 시네마틱 런타임 규칙
 
 - 귀신 시트 한 프레임은 512×432다.
@@ -56,5 +72,5 @@ Production-ready 3-column by 2-row horror character sheet on a uniform pure-blac
 - 전체 경로와 프레임 규칙은 `public/assets/sprites/manifest.json`, 제작 결과 확인은 `public/assets/sprites/roster-preview.png`를 기준으로 한다.
 - 프레임 분리는 `scripts/split_sprite_sheet.py`, 전체 미리보기 생성은 `scripts/build_sprite_catalog.py`, 수량·투명도 검증은 `scripts/validate_sprite_assets.py`를 사용한다.
 - 인게임, 게임 홈, 캐릭터 상점은 이 스프라이트 프레임을 사용한다. Three.js 캐릭터·귀신 모델은 캐릭터 표시 경로에서 사용하지 않는다.
-- 현재 상점의 캐릭터·외형 카드는 선택한 본체의 콘셉트 PNG를 표시한다. 구매 외형의 고품질 시각 레이어는 다음 자산 배치에서 추가한다.
-- 구매 외형은 본체 이미지를 조합별로 다시 굽지 않고, 같은 셀 규격의 투명 레이어 아틀라스로 합성한다.
+- 캐릭터 카드는 `public/assets/paperdoll/bases`의 기본 콘셉트를 표시한다.
+- 스킨 카드는 `public/assets/sprites/survivors`의 완성형 콘셉트와 이동·수면 아틀라스를 표시한다. 런타임에서 모자·옷·신발·장신구를 분리 합성하지 않는다.

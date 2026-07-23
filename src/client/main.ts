@@ -12,6 +12,7 @@ import {
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
+  characterAvailable,
   cosmeticAvailable,
   cosmeticById,
   cosmeticsForSlot,
@@ -574,7 +575,6 @@ function cosmeticCollectionScreen(
     )
     .join("");
   const catalog = cosmeticsForSlot(activeSlot)
-    .filter((item) => item.slot !== "skin" || item.characterId === appearance.character)
     .filter((item) => shopping || cosmeticEntitled(item, currentAccount));
   const cards = catalog
     .map((item) => {
@@ -587,10 +587,22 @@ function cosmeticCollectionScreen(
           : appearance[activeSlot as keyof AvatarAppearance] === item.id;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
+      const requiresCharacter =
+        item.slot === "skin" &&
+        Boolean(item.characterId) &&
+        !characterAvailable(
+          item.characterId ?? "",
+          currentAccount.displayRank,
+          currentAccount.ownedCosmetics,
+        );
       let action: "purchase" | "equip" | "unequip" | null = shopping ? null : "equip";
       let status = shopping ? "보유 중" : "착용";
       let locked = false;
-      if (shopping && item.unlock.kind === "points" && !owned) {
+      if (shopping && requiresCharacter) {
+        action = null;
+        status = "캐릭터 구매 필요";
+        locked = true;
+      } else if (shopping && item.unlock.kind === "points" && !owned) {
         action = "purchase";
         status = `${item.unlock.price.toLocaleString()} P`;
       } else if (shopping && item.unlock.kind === "rank" && !entitled) {
@@ -678,7 +690,12 @@ function cosmeticCollectionScreen(
     } else {
       const previewAppearance: AvatarAppearance = item.slot === "character"
         ? { character: item.id, skin: defaultSkinForCharacter(item.id) }
-        : { ...appearance, skin: item.id };
+        : item.slot === "skin"
+          ? {
+              character: item.characterId ?? appearance.character,
+              skin: item.id,
+            }
+          : appearance;
       customAvatarPreview?.updateAppearance(
         previewAppearance,
         currentAccount.displayRank,
@@ -699,6 +716,14 @@ function cosmeticCollectionScreen(
         ? characterTrait(item.id).description
         : item.slot === "turret"
           ? turretSkinTrait(item.id, item.turretKind).description
+          : item.slot === "skin" &&
+              item.characterId &&
+              !characterAvailable(
+                item.characterId,
+                currentAccount.displayRank,
+                currentAccount.ownedCosmetics,
+              )
+            ? `${cosmeticById(item.characterId)?.label ?? "해당 캐릭터"}를 먼저 보유해야 구매할 수 있습니다.`
           : shopping && !cosmeticEntitled(item, currentAccount)
             ? "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다."
             : item.description,

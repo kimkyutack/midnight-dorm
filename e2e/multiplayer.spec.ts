@@ -189,10 +189,22 @@ test("portrait home separates shop, owned customization and stage start", async 
       "달고양이 루루",
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(12);
     const bunnySkinCard = page.locator(".cosmetic-card", { hasText: "탐험가 모모" });
     await expect(bunnySkinCard.locator("img")).toHaveAttribute(
       "src",
       /\/assets\/sprites\/survivors\/character-bunny\/concept\.png$/,
+    );
+    const lockedCatSkin = page.locator(".cosmetic-card", {
+      hasText: "새벽 탐정 루루",
+    });
+    await expect(
+      lockedCatSkin.getByRole("button", { name: "캐릭터 구매 필요" }),
+    ).toBeDisabled();
+    await lockedCatSkin.click();
+    await expect(page.locator(".skin-preview-canvas")).toHaveAttribute(
+      "data-skin-id",
+      "skin-look-cat-ward",
     );
     await page.getByRole("button", { name: "포탑", exact: true }).click();
     const shopTurretCanvas = page.locator(".custom-avatar-canvas");

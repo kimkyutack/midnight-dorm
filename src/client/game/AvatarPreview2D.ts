@@ -70,6 +70,7 @@ export class AvatarPreview2D {
     this.appearance = { ...appearance };
     this.root.dataset.character = appearance.character;
     this.root.dataset.skin = appearance.skin;
+    this.canvas.dataset.skinId = appearance.skin;
     this.render(this.homePresentation ? this.homeFrame() : 'idle');
   }
 

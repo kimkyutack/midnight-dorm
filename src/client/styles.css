@@ -7071,6 +7071,7 @@ select {
 }
 .cosmetic-card-action > button:disabled {
   color: rgba(226, 235, 237, 0.55);
+  pointer-events: none;
 }
 
 @media (orientation: portrait) {
