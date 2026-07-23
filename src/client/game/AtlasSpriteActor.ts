@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { GhostVariant } from '../../shared/types';
+import type { AvatarAppearance, GhostVariant } from '../../shared/types';
+import { skinMovementSheetUrl, skinSleepUrl } from './SkinAssets';
 
 export type SpriteDirection = 'front' | 'back' | 'side';
 export type SpriteAtlasMode = 'movement' | 'attack' | 'sleep';
@@ -142,14 +143,13 @@ export function survivorSpriteId(characterId: string): string {
   return SURVIVOR_IDS.has(characterId) ? characterId : 'character-bunny';
 }
 
-export function survivorSpriteDefinition(characterId: string): AtlasSpriteDefinition {
-  const safeId = survivorSpriteId(characterId);
+export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpriteDefinition {
   return {
-    movementUrl: `/assets/paperdoll/bases/${safeId}/movement-sheet.png`,
-    sleepUrl: `/assets/sprites/survivors/${safeId}/sleep.png`,
+    movementUrl: skinMovementSheetUrl(appearance),
+    sleepUrl: skinSleepUrl(appearance),
     size: 1.2,
     renderOrder: 5_200,
-    name: safeId,
+    name: appearance.skin,
   };
 }
 

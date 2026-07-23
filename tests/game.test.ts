@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
+import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
 import { CHARACTER_TRAITS, characterTrait, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -17,8 +17,8 @@ import { GameEngine } from '../src/server/engine';
 import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
-import { cosmeticPreviewLayerUrl, cosmeticProductUrl, wearableIds } from '../src/client/game/CosmeticAssets';
-import { paperDollBaseMovementUrl, paperDollLayers } from '../src/client/game/PaperDoll';
+import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
+import { skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -212,28 +212,18 @@ describe('deterministic shared world', () => {
 });
 
 describe('survivor customization rules', () => {
-  it('uses one neutral paper-doll base with reusable, ordered equipment layers', () => {
+  it('uses one complete sprite atlas per skin without runtime equipment layers', () => {
     const appearance = {
       ...DEFAULT_APPEARANCE,
       character: 'character-bunny',
-      outfit: 'outfit-raincoat',
-      shoes: 'shoes-boots',
-      hat: 'hat-silver-crown',
-      accessory: 'accessory-backpack',
+      skin: 'skin-bunny-ward',
     };
-    const layers = paperDollLayers(appearance);
-    expect(paperDollBaseMovementUrl(appearance.character))
-      .toBe('/assets/paperdoll/bases/character-bunny/movement-sheet.png');
-    expect(layers.map((layer) => layer.id)).toEqual([
-      'accessory-backpack',
-      'outfit-raincoat',
-      'shoes-boots',
-      'paperdoll-face-overlay',
-      'hat-silver-crown',
-    ]);
-    expect(layers.map((layer) => layer.renderOrder)).toEqual([5190, 5201, 5202, 5203, 5204]);
-    expect(layers.at(-1)?.url)
-      .toBe('/assets/paperdoll/layers/hats/character-bunny/hat-silver-crown.png');
+    expect(skinMovementSheetUrl(appearance))
+      .toBe('/assets/sprites/survivors/character-bunny/movement-sheet.png');
+    expect(skinConceptUrl(appearance.skin))
+      .toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(skinSleepUrl(appearance))
+      .toBe('/assets/sprites/survivors/character-bunny/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -260,7 +250,7 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('brute').sideFacesLeft).toBe(true);
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
-    expect(survivorSpriteDefinition('character-bunny').sleepUrl).toBe('/assets/sprites/survivors/character-bunny/sleep.png');
+    expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/sprites/survivors/character-bunny/sleep.png');
   });
 
   it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
@@ -296,29 +286,23 @@ describe('survivor customization rules', () => {
     }
   });
 
-  it('defines a varied original catalog across survivor and turret equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(58);
+  it('defines characters, complete skins, and turret skins without equipment slots', () => {
+    expect(COSMETIC_CATALOG).toHaveLength(36);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
-      new Set(['character', 'hat', 'outfit', 'accessory', 'shoes', 'turret']),
+      new Set(['character', 'skin', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
-    expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.hat);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'outfit')).toHaveLength(12);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'shoes')).toHaveLength(10);
+    expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(12);
+    expect(defaultSkinForCharacter('character-fox')).toBe('skin-fox-ward');
   });
 
-  it('uses item-only catalog art and safe wearable preview layers', () => {
-    expect(cosmeticProductUrl('hat-beanie')).toBe('/assets/cosmetics/items/hat-beanie.png');
-    expect(cosmeticPreviewLayerUrl('hat-beanie')).toBe('/assets/cosmetics/preview/hat-beanie.png');
+  it('uses a complete skin image for every catalog preview', () => {
+    expect(cosmeticProductUrl('skin-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(cosmeticPreviewLayerUrl('skin-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
-    expect(cosmeticProductUrl('accessory-none')).toBeUndefined();
+    expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
     expect(cosmeticProductUrl('missing-item')).toBeUndefined();
-    expect(wearableIds(DEFAULT_APPEARANCE).map(([slot]) => slot)).toEqual([
-      'outfit',
-      'shoes',
-      'hat',
-      'accessory',
-    ]);
   });
 
   it('gives every non-default survivor exactly one distinct gameplay trait', () => {
@@ -362,10 +346,16 @@ describe('survivor customization rules', () => {
     expect(pointItem && cosmeticAvailable(pointItem, 'beginner', ['character-cat'])).toBe(true);
     expect(rankItem && cosmeticAvailable(rankItem, 'intermediate', [])).toBe(false);
     expect(rankItem && cosmeticAvailable(rankItem, 'expert', [])).toBe(true);
+    const catSkin = cosmeticById('skin-cat-ward');
+    expect(catSkin && cosmeticAvailable(catSkin, 'beginner', [])).toBe(false);
+    expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(true);
   });
 
-  it('normalizes invalid equipment and scales clear rewards from 80 to 500 points', () => {
+  it('normalizes old equipment saves to their character base skin and scales clear rewards', () => {
     expect(normalizeAppearance({ character: 'hat-beanie', shoes: 'invalid' })).toEqual(DEFAULT_APPEARANCE);
+    expect(normalizeAppearance({ character: 'character-bunny', outfit: 'outfit-raincoat' })).toEqual(DEFAULT_APPEARANCE);
+    expect(normalizeAppearance({ character: 'character-cat', skin: 'skin-bunny-ward' }))
+      .toEqual({ character: 'character-cat', skin: 'skin-cat-ward' });
     expect(normalizeAppearance({ character: 'character-eagle' }).character).toBe('character-tiger');
     expect(customizationReward(0)).toBe(80);
     expect(customizationReward(5)).toBe(100);

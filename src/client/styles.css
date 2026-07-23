@@ -622,8 +622,9 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 }
 .avatar-sprite-preview-image {
@@ -635,7 +636,7 @@
   filter: drop-shadow(0 14px 15px rgba(0, 0, 0, 0.42));
   image-rendering: auto;
 }
-.paperdoll-preview-canvas {
+.skin-preview-canvas {
   grid-area: 1 / 1;
   display: block;
   width: min(80%, 292px);
@@ -664,13 +665,23 @@
   clip-path: ellipse(22% 10% at 50% 53%);
   pointer-events: none;
 }
-.avatar-cosmetic-outfit { z-index: 1; }
-.avatar-cosmetic-shoes { z-index: 3; }
-.avatar-cosmetic-hat { z-index: 4; }
-.avatar-cosmetic-accessory { z-index: 5; }
+.avatar-cosmetic-outfit {
+  z-index: 1;
+}
+.avatar-cosmetic-shoes {
+  z-index: 3;
+}
+.avatar-cosmetic-hat {
+  z-index: 4;
+}
+.avatar-cosmetic-accessory {
+  z-index: 5;
+}
 .avatar-cosmetic-layer.direction-hidden,
 .avatar-cosmetic-layer[hidden],
-.avatar-face-restoration.direction-hidden { display: none; }
+.avatar-face-restoration.direction-hidden {
+  display: none;
+}
 .home-sprite-preview {
   overflow: visible;
 }
@@ -680,7 +691,7 @@
   width: 64%;
   height: 86%;
 }
-.home-sprite-preview .paperdoll-preview-canvas {
+.home-sprite-preview .home-skin-preview {
   position: absolute;
   left: 50%;
   bottom: -8%;
@@ -7141,7 +7152,7 @@ select {
   height: min(84%, 306px);
   object-position: center center;
 }
-.custom-avatar-stage .paperdoll-preview-canvas {
+.custom-avatar-stage .skin-preview-canvas {
   width: min(80%, 292px);
   height: min(84%, 306px);
   object-position: center center;
@@ -7177,7 +7188,6 @@ select {
 }
 @media (orientation: portrait) {
   .cosmetic-card {
-    min-height: 148px;
     grid-template-rows: 80px minmax(30px, 1fr) 27px;
   }
   .cosmetic-card .cosmetic-art {

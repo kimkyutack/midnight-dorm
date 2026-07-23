@@ -484,10 +484,7 @@ function showRankingPreview(): void {
 
 const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
   character: "캐릭터",
-  hat: "모자",
-  outfit: "옷",
-  accessory: "장신구",
-  shoes: "신발",
+  skin: "스킨",
   turret: "포탑",
 };
 
@@ -500,16 +497,7 @@ function cosmeticEntitled(
   item: NonNullable<ReturnType<typeof cosmeticById>>,
   currentAccount: AccountProfile,
 ): boolean {
-  return (
-    currentAccount.ownedCosmetics.includes(item.id) ||
-    item.unlock.kind === "starter" ||
-    (item.unlock.kind === "rank" &&
-      cosmeticAvailable(
-        item,
-        currentAccount.displayRank,
-        currentAccount.ownedCosmetics,
-      ))
-  );
+  return cosmeticAvailable(item, currentAccount.displayRank, currentAccount.ownedCosmetics);
 }
 
 function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
@@ -583,9 +571,9 @@ function cosmeticCollectionScreen(
         `<button class="custom-tab ${slot === activeSlot ? "active" : ""}" data-custom-slot="${slot}">${CUSTOM_SLOT_LABELS[slot]}</button>`,
     )
     .join("");
-  const catalog = cosmeticsForSlot(activeSlot).filter(
-    (item) => shopping || cosmeticEntitled(item, currentAccount),
-  );
+  const catalog = cosmeticsForSlot(activeSlot)
+    .filter((item) => item.slot !== "skin" || item.characterId === appearance.character)
+    .filter((item) => shopping || cosmeticEntitled(item, currentAccount));
   const cards = catalog
     .map((item) => {
       const selected =
@@ -594,7 +582,7 @@ function cosmeticCollectionScreen(
               item.turretKind &&
               currentAccount.turretSkins[item.turretKind] === item.id,
             )
-          : appearance[activeSlot] === item.id;
+          : appearance[activeSlot as keyof AvatarAppearance] === item.id;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
       let action: "purchase" | "equip" | null = shopping ? null : "equip";
@@ -629,6 +617,7 @@ function cosmeticCollectionScreen(
     })
     .join("");
   const character = cosmeticById(appearance.character);
+  const activeSkin = cosmeticById(appearance.skin);
   const turretMode = activeSlot === "turret";
   const initialTurret = turretMode
     ? cosmeticById(currentAccount.turretSkins["basic-turret"])
@@ -639,7 +628,7 @@ function cosmeticCollectionScreen(
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "CUSTOM"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "커스텀"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards || '<p class="empty-collection">아직 보유한 아이템이 없습니다.<br>상점에서 새로운 외형을 만나보세요.</p>'}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "SKIN LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "스킨 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid">${cards || '<p class="empty-collection">보유한 캐릭터의 완성형 스킨이 여기에 표시됩니다.</p>'}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -680,10 +669,9 @@ function cosmeticCollectionScreen(
         customAvatarPreview.updateTurret(item.turretKind, item.id);
       }
     } else {
-      const previewAppearance: AvatarAppearance = {
-        ...appearance,
-        [item.slot]: item.id,
-      };
+      const previewAppearance: AvatarAppearance = item.slot === "character"
+        ? { character: item.id, skin: `skin-${item.id.replace("character-", "")}-ward` }
+        : { ...appearance, skin: item.id };
       customAvatarPreview?.updateAppearance(
         previewAppearance,
         currentAccount.displayRank,
@@ -754,7 +742,7 @@ function cosmeticCollectionScreen(
                 try {
                   account = await purchaseCosmetic(itemId);
                   shopScreen(activeSlot);
-                  toast("구매했습니다. 커스텀 탭에서 착용할 수 있습니다.");
+                  toast("구매했습니다. 스킨 보관함에서 착용할 수 있습니다.");
                 } catch (error) {
                   toast(
                     error instanceof Error

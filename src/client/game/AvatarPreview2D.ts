@@ -1,12 +1,11 @@
 import type { AvatarAppearance, RankId } from '../../shared/types';
 import { type SpriteDirection } from './AtlasSpriteActor';
 import {
-  PAPER_DOLL_CELL_SIZE,
-  paperDollBaseFrameUrl,
-  paperDollDirectionRow,
-  paperDollFrameIndex,
-  paperDollLayers,
-} from './PaperDoll';
+  SKIN_CELL_SIZE,
+  skinDirectionRow,
+  skinFrameIndex,
+  skinMovementSheetUrl,
+} from './SkinAssets';
 
 export type AvatarSpriteView = SpriteDirection;
 type MovementFrame = 'idle' | 'walk-1' | 'walk-2' | 'walk-3';
@@ -20,14 +19,14 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     const image = new Image();
     image.decoding = 'async';
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Unable to load paper-doll asset: ${url}`));
+    image.onerror = () => reject(new Error(`Unable to load skin asset: ${url}`));
     image.src = url;
   });
   imageCache.set(url, pending);
   return pending;
 }
 
-/** Shared paper-doll canvas for the home, store, and custom fitting room. */
+/** Shared pre-rendered skin canvas for the home, store, and fitting room. */
 export class AvatarPreview2D {
   private readonly host: HTMLElement;
   private readonly homePresentation: boolean;
@@ -46,15 +45,17 @@ export class AvatarPreview2D {
     this.appearance = { ...appearance };
     this.homePresentation = host.classList.contains('home-avatar-model');
     this.root.className = this.homePresentation ? 'avatar-sprite-preview home-sprite-preview' : 'avatar-sprite-preview';
-    this.canvas.className = this.homePresentation ? 'paperdoll-preview-canvas home-paperdoll-preview' : 'paperdoll-preview-canvas';
-    this.canvas.width = PAPER_DOLL_CELL_SIZE;
-    this.canvas.height = PAPER_DOLL_CELL_SIZE;
+    this.canvas.className = this.homePresentation ? 'skin-preview-canvas home-skin-preview' : 'skin-preview-canvas';
+    this.canvas.width = SKIN_CELL_SIZE;
+    this.canvas.height = SKIN_CELL_SIZE;
     this.canvas.setAttribute('role', 'img');
     this.canvas.setAttribute('aria-label', '선택한 캐릭터 외형 미리보기');
     const context = this.canvas.getContext('2d', { alpha: true });
     if (!context) throw new Error('2D paper-doll canvas is unavailable.');
     this.context = context;
     this.context.imageSmoothingEnabled = true;
+    this.root.dataset.character = appearance.character;
+    this.root.dataset.skin = appearance.skin;
     this.root.appendChild(this.canvas);
     this.host.insertBefore(this.root, this.host.firstChild);
     this.render('idle');
@@ -64,10 +65,7 @@ export class AvatarPreview2D {
   updateAppearance(appearance: AvatarAppearance, _rank: RankId, _color = 0x78e4ef): void {
     this.appearance = { ...appearance };
     this.root.dataset.character = appearance.character;
-    this.root.dataset.outfit = appearance.outfit;
-    this.root.dataset.hat = appearance.hat;
-    this.root.dataset.accessory = appearance.accessory;
-    this.root.dataset.shoes = appearance.shoes;
+    this.root.dataset.skin = appearance.skin;
     this.render(this.homePresentation ? this.homeFrame() : 'idle');
   }
 
@@ -95,47 +93,30 @@ export class AvatarPreview2D {
     if (this.destroyed) return;
     const version = ++this.renderVersion;
     const direction = this.homePresentation ? 'front' : this.direction;
-    const baseUrl = paperDollBaseFrameUrl(this.appearance.character, direction, frame);
-    const layers = paperDollLayers(this.appearance);
-    void Promise.all([loadImage(baseUrl), ...layers.map((layer) => loadImage(layer.url))])
-      .then(([base, ...layerImages]) => {
+    void loadImage(skinMovementSheetUrl(this.appearance))
+      .then((skin) => {
         if (this.destroyed || version !== this.renderVersion) return;
-        this.context.clearRect(0, 0, PAPER_DOLL_CELL_SIZE, PAPER_DOLL_CELL_SIZE);
-        // Backpacks live behind the neutral body; all other equipment is drawn
-        // afterwards.  This mirrors the in-game render order exactly.
-        for (let index = 0; index < layers.length; index += 1) {
-          const layer = layers[index];
-          const image = layerImages[index];
-          if (layer && image && layer.renderOrder < 5_200) this.drawAtlas(image, direction, frame);
-        }
-        this.context.drawImage(base, 0, 0, PAPER_DOLL_CELL_SIZE, PAPER_DOLL_CELL_SIZE);
-        for (let index = 0; index < layers.length; index += 1) {
-          const layer = layers[index];
-          const image = layerImages[index];
-          if (layer && image && layer.renderOrder >= 5_200) this.drawAtlas(image, direction, frame);
-        }
+        this.context.clearRect(0, 0, SKIN_CELL_SIZE, SKIN_CELL_SIZE);
+        this.drawAtlas(skin, direction, frame);
       })
       .catch((error) => {
-        // A base sprite should never fail silently; an equipment image may be
-        // absent while an asset deploy is catching up, so keep the canvas clear
-        // rather than drawing mismatched old layers over a new character.
-        console.warn('Paper-doll preview unavailable', error);
+        console.warn('Skin preview unavailable', error);
       });
   }
 
   private drawAtlas(image: HTMLImageElement, direction: SpriteDirection, frame: MovementFrame): void {
-    const x = paperDollFrameIndex(frame) * PAPER_DOLL_CELL_SIZE;
-    const y = paperDollDirectionRow(direction) * PAPER_DOLL_CELL_SIZE;
+    const x = skinFrameIndex(frame) * SKIN_CELL_SIZE;
+    const y = skinDirectionRow(direction) * SKIN_CELL_SIZE;
     this.context.drawImage(
       image,
       x,
       y,
-      PAPER_DOLL_CELL_SIZE,
-      PAPER_DOLL_CELL_SIZE,
+      SKIN_CELL_SIZE,
+      SKIN_CELL_SIZE,
       0,
       0,
-      PAPER_DOLL_CELL_SIZE,
-      PAPER_DOLL_CELL_SIZE,
+      SKIN_CELL_SIZE,
+      SKIN_CELL_SIZE,
     );
   }
 

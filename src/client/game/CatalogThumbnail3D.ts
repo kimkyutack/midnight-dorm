@@ -10,7 +10,6 @@ import type {
   ConsumableId,
   TurretSkinLoadout,
 } from '../../shared/types';
-import { survivorSpriteId } from './AtlasSpriteActor';
 import { cosmeticProductUrl } from './CosmeticAssets';
 import { createBuildingModel, createTurretPreviewModel } from './ThreeGameView';
 
@@ -388,17 +387,15 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
         return;
       }
       if (item.slot === 'character') {
-        setImage(image, `/assets/sprites/survivors/${survivorSpriteId(item.id)}/concept.png`);
+        setImage(image, `/assets/sprites/survivors/${item.id}/concept.png`);
         return;
       }
       const productUrl = cosmeticProductUrl(item.id);
-      image.dataset.spriteLayer = item.slot;
       if (productUrl) {
         setImage(image, productUrl);
         return;
       }
-      // "장신구 없음"은 캐릭터 사진 대신 비어 있음을 명확히 보여준다.
-      setImage(image, `data:image/svg+xml;charset=UTF-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="36" fill="none" stroke="#82909a" stroke-width="7" opacity=".72"/><path d="M39 89l50-50" stroke="#82909a" stroke-width="7" stroke-linecap="round" opacity=".72"/></svg>')}`);
+      setImage(image, `data:image/svg+xml;charset=UTF-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="36" fill="none" stroke="#82909a" stroke-width="7" opacity=".72"/></svg>')}`);
     } catch (error) {
       console.warn(`Cosmetic thumbnail unavailable: ${image.dataset.cosmeticArt ?? ''}`, error);
     }

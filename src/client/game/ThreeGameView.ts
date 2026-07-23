@@ -9,7 +9,6 @@ import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
-import { paperDollLayers } from './PaperDoll';
 
 const CAMERA_HEIGHT = 18;
 const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
@@ -299,32 +298,6 @@ export function createPlayerRig(
     monkey: 0x8d5b3f,
     gorilla: 0x56616d,
   };
-  const outfitColors: Record<string, number> = {
-    'outfit-pajamas': 0x6879aa,
-    'outfit-raincoat': 0xe0b33b,
-    'outfit-campus': 0x477b6b,
-    'outfit-medic': 0xd8e5e4,
-    'outfit-commander': 0x3f334f,
-    'outfit-starlight': 0x5364b2,
-    'outfit-frog': 0x74b96a,
-    'outfit-bakery': 0xd6a36c,
-    'outfit-detective': 0x8b7658,
-    'outfit-puffer': 0x4e89a8,
-    'outfit-astronaut': 0xd9e4ed,
-    'outfit-vampire': 0x641f42,
-  };
-  const shoeColors: Record<string, number> = {
-    'shoes-slippers': 0xaabcc2,
-    'shoes-sneakers': 0x5ab5a2,
-    'shoes-boots': 0x6c577f,
-    'shoes-moon': 0xb8cdeb,
-    'shoes-neon': 0x43d9ca,
-    'shoes-bunny': 0xefbfc7,
-    'shoes-duck': 0xe4c84d,
-    'shoes-roller': 0xd77eac,
-    'shoes-cloud': 0xd6edf2,
-    'shoes-armor': 0xaeb8c3,
-  };
   const fur = new THREE.MeshPhysicalMaterial({
     color: furColors[animal] ?? 0xe6c2b7,
     roughness: 0.68,
@@ -333,16 +306,16 @@ export function createPlayerRig(
     clearcoatRoughness: 0.72,
   });
   const innerEar = standardMaterial(animal === 'fox' ? 0x5a2c2b : 0xc9858a, { roughness: 0.9 });
-  const clothColor = new THREE.Color(outfitColors[appearance.outfit] ?? color);
+  const clothColor = new THREE.Color(color);
   const cloth = standardMaterial(clothColor, {
     roughness: 0.88,
-    emissive: appearance.outfit === 'outfit-starlight' ? 0x17214f : 0x000000,
-    emissiveIntensity: appearance.outfit === 'outfit-starlight' ? 0.6 : 0,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
   });
-  const shoe = standardMaterial(shoeColors[appearance.shoes] ?? 0x20242d, {
+  const shoe = standardMaterial(0x20242d, {
     roughness: 0.82,
-    emissive: appearance.shoes === 'shoes-neon' ? 0x176b64 : 0x000000,
-    emissiveIntensity: appearance.shoes === 'shoes-neon' ? 0.9 : 0,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
   });
   const eye = new THREE.MeshPhysicalMaterial({ color: 0x17151d, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08 });
   const white = standardMaterial(0xf8f2e8, { roughness: 0.82 });
@@ -357,7 +330,7 @@ export function createPlayerRig(
   tummy.scale.set(1.03, 0.68, 0.3);
   (tummy.material as THREE.MeshStandardMaterial).color.offsetHSL(0, -0.08, 0.08);
   avatar.add(tummy);
-  const outfitDetails = createOutfitDetails(appearance.outfit, clothColor);
+  const outfitDetails = createOutfitDetails('outfit-pajamas', clothColor);
   outfitDetails.scale.y = 0.7;
   outfitDetails.position.y = 0.01;
   avatar.add(outfitDetails);
@@ -401,10 +374,10 @@ export function createPlayerRig(
     leftCheek.scale.y = rightCheek.scale.y = 0.52;
     avatar.add(leftCheek, rightCheek);
   }
-  const hat = createAvatarHat(appearance.hat, displayRank);
+  const hat = createAvatarHat('hat-rank', displayRank);
   hat.position.y = -0.22;
   avatar.add(hat);
-  const accessory = createAvatarAccessory(appearance.accessory);
+  const accessory = createAvatarAccessory('accessory-none');
   accessory.scale.y = 0.72;
   avatar.add(accessory);
   const tail = createAnimalTail(animal, fur);
@@ -451,7 +424,7 @@ export function createPlayerRig(
   rightShoe.scale.copy(leftShoe.scale);
   leftLeg.add(leftShoe);
   rightLeg.add(rightShoe);
-  decorateShoes(appearance.shoes, leftLeg, rightLeg);
+  decorateShoes('shoes-slippers', leftLeg, rightLeg);
   avatar.add(leftLeg, rightLeg);
 
   const groundRing = mesh(
@@ -1910,13 +1883,7 @@ export class ThreeGameView {
     const active = new Set(players.map((player) => player.id));
     for (const player of players) {
       let view = this.playerViews.get(player.id);
-      const appearanceKey = [
-        player.appearance.character,
-        player.appearance.outfit,
-        player.appearance.shoes,
-        player.appearance.hat,
-        player.appearance.accessory,
-      ].join('|');
+      const appearanceKey = [player.appearance.character, player.appearance.skin].join('|');
       if (view && view.appearanceKey !== appearanceKey) {
         this.scene.remove(view.root);
         view.actor.dispose();
@@ -1928,10 +1895,7 @@ export class ThreeGameView {
         root.position.copy(worldPoint(player.position));
         root.userData.renderMode = 'atlas-2d';
         root.userData.appearance = { ...player.appearance };
-        const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance.character));
-        for (const layer of paperDollLayers(player.appearance)) {
-          actor.addCosmeticLayer({ movementUrl: layer.url }, layer.renderOrder);
-        }
+        const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
         const label = makeBillboard();
         label.scale.set(2.35, 0.59, 1);

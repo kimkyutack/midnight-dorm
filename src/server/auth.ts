@@ -1,5 +1,5 @@
 import { getStage, higherRank, rankFromXp, rankLabel, STAGES } from '../shared/progression';
-import { cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
+import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { shopConsumableById } from '../shared/shopConsumables';
 import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
 
@@ -143,7 +143,12 @@ function profileFromRow(
     multiplayerStageIndex: row.multiplayer_stage_index,
     victories: row.victories,
     customPoints: customization?.custom_points ?? 0,
-    ownedCosmetics: [...new Set([...STARTER_COSMETICS, ...purchasedCosmetics])],
+    // Old individual equipment purchases remain in the database for audit
+    // purposes, but they are no longer part of an account's usable inventory.
+    ownedCosmetics: [...new Set([
+      ...STARTER_COSMETICS,
+      ...purchasedCosmetics.filter((itemId) => Boolean(cosmeticById(itemId))),
+    ])],
     appearance: normalizeAppearance(parseAppearance(customization?.appearance)),
     turretSkins: parseTurretSkins(turretLoadout?.skins),
     consumables,
@@ -335,6 +340,9 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
 
   if (action === 'purchase') {
     if (item.unlock.kind !== 'points') return Response.json({ error: '이 아이템은 구매 대상이 아닙니다.' }, { status: 400 });
+    if (item.slot === 'skin' && (!item.characterId || !characterAvailable(item.characterId, profile.displayRank, profile.ownedCosmetics))) {
+      return Response.json({ error: '먼저 이 스킨의 캐릭터를 보유해야 합니다.' }, { status: 403 });
+    }
     if (profile.ownedCosmetics.includes(item.id)) return Response.json({ error: '이미 보유한 아이템입니다.' }, { status: 409 });
     if (profile.customPoints < item.unlock.price) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
     const debit = await db.prepare('UPDATE account_customization SET custom_points = custom_points - ?, updated_at = ? WHERE account_id = ? AND custom_points >= ?')
@@ -364,7 +372,9 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
     await db.prepare('UPDATE account_turret_loadouts SET skins = ?, updated_at = ? WHERE account_id = ?')
       .bind(JSON.stringify(turretSkins), now, row.id).run();
   } else {
-    const appearance = { ...profile.appearance, [item.slot as Exclude<CosmeticSlot, 'turret'>]: item.id };
+    const appearance = item.slot === 'character'
+      ? { character: item.id, skin: defaultSkinForCharacter(item.id) }
+      : { ...profile.appearance, [item.slot as Exclude<CosmeticSlot, 'turret'>]: item.id };
     await db.prepare('UPDATE account_customization SET appearance = ?, updated_at = ? WHERE account_id = ?')
       .bind(JSON.stringify(appearance), now, row.id).run();
   }

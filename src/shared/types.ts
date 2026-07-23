@@ -227,14 +227,15 @@ export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'vetera
 export type PlayMode = 'solo' | 'multiplayer';
 export type StageId = `${string}-${number}`;
 
-export type CosmeticSlot = 'character' | 'hat' | 'outfit' | 'accessory' | 'shoes' | 'turret';
+/**
+ * Survivor visuals are deliberately whole skins.  Individual clothing parts
+ * are no longer saved, purchased, or rendered independently.
+ */
+export type CosmeticSlot = 'character' | 'skin' | 'turret';
 
 export interface AvatarAppearance {
   character: string;
-  hat: string;
-  outfit: string;
-  accessory: string;
-  shoes: string;
+  skin: string;
 }
 
 export interface AccountProfile {
