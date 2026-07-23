@@ -1915,7 +1915,16 @@ export class GameEngine {
     // occupied room floor even though its door is still intact.  A closed door
     // is a hard boundary: recover to the corridor side before it can choose an
     // attack target or play an attack animation.
-    this.recoverGhostFromLockedRoom(ghost);
+    const aboutToRetreat =
+      ghost.variant !== "minion" &&
+      ghost.hp / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
+    if (
+      !ghost.retreating &&
+      !ghost.healing &&
+      !aboutToRetreat &&
+      this.recoverGhostFromLockedRoom(ghost)
+    )
+      return;
 
     if (
       ghost.variant !== "minion" &&

@@ -175,6 +175,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       page.getByRole("heading", { name: "외형 상점" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "앞", exact: true }),
+    ).toHaveClass(/active/);
     await expect(page.locator(".cosmetic-card")).toHaveCount(12);
     const catCard = page.locator(".cosmetic-card", { hasText: "달고양이 루루" });
     await expect(catCard.locator("img")).toHaveAttribute(
@@ -214,6 +217,21 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       page.locator(".cosmetic-card", { hasText: "달고양이 루루" }),
     ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "앞", exact: true }),
+    ).toHaveClass(/active/);
+    await page.getByRole("button", { name: "스킨", exact: true }).click();
+    const ownedBunnySkin = page.locator(".cosmetic-card", {
+      hasText: "탐험가 모모",
+    });
+    await ownedBunnySkin.getByRole("button", { name: "착용" }).click();
+    await expect(
+      ownedBunnySkin.getByRole("button", { name: "착용 해제" }),
+    ).toBeVisible();
+    await ownedBunnySkin.getByRole("button", { name: "착용 해제" }).click();
+    await expect(
+      ownedBunnySkin.getByRole("button", { name: "착용" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
