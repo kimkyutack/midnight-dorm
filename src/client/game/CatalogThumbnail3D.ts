@@ -11,6 +11,7 @@ import type {
   TurretSkinLoadout,
 } from '../../shared/types';
 import { cosmeticProductUrl } from './CosmeticAssets';
+import { baseConceptUrl } from './SkinAssets';
 import { createBuildingModel, createTurretPreviewModel } from './ThreeGameView';
 
 const WIDTH = 256;
@@ -387,7 +388,7 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
         return;
       }
       if (item.slot === 'character') {
-        setImage(image, `/assets/sprites/survivors/${item.id}/concept.png`);
+        setImage(image, baseConceptUrl(item.id));
         return;
       }
       const productUrl = cosmeticProductUrl(item.id);

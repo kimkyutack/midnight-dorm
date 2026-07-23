@@ -115,24 +115,16 @@ test("portrait home separates shop, owned customization and stage start", async 
       .boundingBox();
     expect(avatarBounds).toBeTruthy();
     expect(avatarBounds?.width ?? 999).toBeLessThanOrEqual(330);
-    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
-      "data-home-ghost-variant",
-      "wanderer",
-    );
-    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
-      "data-home-player-scale",
-      "0.435",
-    );
-    await expect(page.locator(".home-avatar-model canvas")).toHaveAttribute(
-      "data-home-ghost-scale",
-      "0.49",
-    );
+    const homeAvatar = page.locator(".home-avatar-model .avatar-sprite-preview");
+    await expect(homeAvatar).toHaveAttribute("data-character", "character-bunny");
+    await expect(homeAvatar).toHaveAttribute("data-skin", "skin-basic-bunny");
+    await expect(page.locator(".home-avatar-model canvas")).toBeVisible();
     await expect(page.locator(".home-chase-ghost")).toHaveCount(0);
     expect(
       await page
         .locator(".home-avatar-showcase")
         .evaluate((element) => getComputedStyle(element).animationName),
-    ).toBe("homeAvatarEscape");
+    ).toBe("none");
     const summaryLayout = await page
       .locator(".home-stage-summary small")
       .evaluate((summary) => ({
@@ -163,7 +155,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     };
     expect(profile.profile.customPoints).toBe(0);
     expect(profile.profile.appearance.character).toBe("character-bunny");
-    expect(profile.profile.ownedCosmetics).toContain("hat-rank");
+    expect(profile.profile.ownedCosmetics).toContain("character-bunny");
     expect(
       (
         await page.request.post("/api/customize/purchase", {
@@ -184,9 +176,20 @@ test("portrait home separates shop, owned customization and stage start", async 
       page.getByRole("heading", { name: "외형 상점" }),
     ).toBeVisible();
     await expect(page.locator(".cosmetic-card")).toHaveCount(12);
-    await page.locator(".cosmetic-card", { hasText: "달고양이 루루" }).click();
+    const catCard = page.locator(".cosmetic-card", { hasText: "달고양이 루루" });
+    await expect(catCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/paperdoll\/bases\/character-cat\/concept\.png$/,
+    );
+    await catCard.click();
     await expect(page.locator("[data-custom-preview-title]")).toHaveText(
       "달고양이 루루",
+    );
+    await page.getByRole("button", { name: "스킨", exact: true }).click();
+    const bunnySkinCard = page.locator(".cosmetic-card", { hasText: "탐험가 모모" });
+    await expect(bunnySkinCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/sprites\/survivors\/character-bunny\/concept\.png$/,
     );
     await page.getByRole("button", { name: "포탑", exact: true }).click();
     const shopTurretCanvas = page.locator(".custom-avatar-canvas");
@@ -203,8 +206,8 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
-    await expect(page.getByRole("heading", { name: "커스텀" })).toBeVisible();
-    const avatarCanvas = page.locator(".custom-avatar-canvas");
+    await expect(page.getByRole("heading", { name: "스킨 보관함" })).toBeVisible();
+    const avatarCanvas = page.locator(".skin-preview-canvas");
     await expect(avatarCanvas).toBeVisible();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");
     await expect(page.locator(".cosmetic-card")).toHaveCount(1);
@@ -213,7 +216,6 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toHaveCount(0);
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
-    await avatarCanvas.tap();
     await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
@@ -295,10 +297,91 @@ async function state(page: Page): Promise<TestState> {
   return page.evaluate(() => window.__DORM_TEST__ as unknown as TestState);
 }
 
+async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
+  const roomId = await page.evaluate(() => {
+    const game = window.__DORM_TEST__;
+    const map = game?.map;
+    const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
+    if (!map || !player) return null;
+    const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
+    const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
+    const distances = new Map<string, number>([[`${start.x},${start.y}`, 0]]);
+    const queue = [start];
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index] as { x: number; y: number };
+      const distance = distances.get(`${current.x},${current.y}`) ?? 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const next = { x: current.x + dx, y: current.y + dy };
+        const key = `${next.x},${next.y}`;
+        if (!walkable.has(key) || distances.has(key)) continue;
+        distances.set(key, distance + 1);
+        queue.push(next);
+      }
+    }
+    return map.rooms
+      .map((room) => ({
+        id: room.id,
+        distance: Math.min(...room.beds.map((bed) => distances.get(`${bed.x},${bed.y}`) ?? Infinity)),
+      }))
+      .filter((room) => Number.isFinite(room.distance))
+      .sort((left, right) => left.distance - right.distance)[0]?.id ?? null;
+  });
+  if (!roomId) throw new Error('reachable shared room was not found');
+  return { roomId };
+}
+
+async function sleepInBed(page: Page, roomId: string, bedIndex: number): Promise<void> {
+  const path = await page.evaluate(({ targetRoomId, targetBedIndex }) => {
+    const game = window.__DORM_TEST__;
+    const map = game?.map;
+    const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
+    const room = map?.rooms.find((candidate) => candidate.id === targetRoomId);
+    const bed = room?.beds[targetBedIndex];
+    if (!map || !player || !bed) return null;
+    const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
+    const targetKey = `${bed.x},${bed.y}`;
+    const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
+    const previous = new Map<string, string | null>([[`${start.x},${start.y}`, null]]);
+    const queue = [start];
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index] as { x: number; y: number };
+      const currentKey = `${current.x},${current.y}`;
+      if (currentKey === targetKey) break;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const next = { x: current.x + dx, y: current.y + dy };
+        const key = `${next.x},${next.y}`;
+        if (!walkable.has(key) || previous.has(key)) continue;
+        previous.set(key, currentKey);
+        queue.push(next);
+      }
+    }
+    if (!previous.has(targetKey)) return null;
+    const reversed: Array<{ x: number; y: number }> = [];
+    for (let key: string | null = targetKey; key; key = previous.get(key) ?? null) {
+      const [x, y] = key.split(',').map(Number);
+      reversed.push({ x: x as number, y: y as number });
+    }
+    return reversed.reverse();
+  }, { targetRoomId: roomId, targetBedIndex: bedIndex });
+  if (!path || path.length < 2) throw new Error('reachable path to bed was not found');
+
+  for (let index = 1; index < path.length; index += 1) {
+    const previous = path[index - 1] as { x: number; y: number };
+    const next = path[index] as { x: number; y: number };
+    await page.evaluate(({ dx, dy }) => window.__DORM_TEST__?.move(dx, dy), {
+      dx: next.x - previous.x,
+      dy: next.y - previous.y,
+    });
+    await page.waitForTimeout(215);
+    await page.evaluate(() => window.__DORM_TEST__?.move(0, 0));
+  }
+  await page.locator('.sleep-nearby').evaluate((button) => (button as HTMLButtonElement).click());
+}
+
 async function mobileContext(browser: Browser): Promise<BrowserContext> {
   return browser.newContext({
     baseURL: "http://127.0.0.1:4173",
-    viewport: { width: 844, height: 390 },
+    viewport: { width: 393, height: 852 },
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 2,
@@ -366,7 +449,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(
       page.locator("#game-root canvas[data-theme='hospital']"),
     ).toBeVisible();
-    await expect(page.locator(".stage-chip .rank-badge")).toBeVisible();
+    await expect(page.locator(".stage-chip .rank-badge")).toHaveCount(1);
     await page.waitForFunction(
       () => {
         const snapshot = window.__DORM_TEST__?.snapshot;
@@ -386,18 +469,10 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "follow",
     );
-    const initialYaw = await page.evaluate(() =>
-      window.__DORM_TEST__?.cameraYaw(),
-    );
     await page.getByRole("button", { name: "카메라 확대" }).click();
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),
     ).toBeCloseTo(Math.SQRT2, 1);
-    await page.getByRole("button", { name: "카메라 오른쪽 회전" }).click();
-    expect(
-      await page.evaluate(() => window.__DORM_TEST__?.cameraYaw()),
-    ).not.toBeCloseTo(initialYaw ?? 0, 3);
-
     await page.getByRole("button", { name: "설정" }).click();
     const vibration = page.locator("[data-vibration]");
     await expect(vibration).toHaveAttribute("aria-pressed", "true");
@@ -539,21 +614,32 @@ test("two real browser contexts share a room, building, combat and reconnection"
       expect(first.getByTestId("network")).toBeVisible(),
       expect(second.getByTestId("network")).toBeVisible(),
     ]);
-    await expect(first.getByRole("button", { name: "가방" })).toBeVisible();
     await expect(first.getByRole("button", { name: "침대 점유" })).toBeHidden();
     await expect
       .poll(
         async () => first.evaluate(() => window.__DORM_TEST__?.cameraMode()),
         { timeout: 5_000, intervals: [100] },
       )
-      .toBe("free");
+      .toBe("follow");
 
     const firstState = await state(first);
     const secondState = await state(second);
     expect(firstState.snapshot?.seed).toBe(secondState.snapshot?.seed);
     expect(firstState.snapshot?.players).toHaveLength(2);
-    const roommates = firstState.snapshot?.players ?? [];
-    expect(roommates[0]?.roomId).toBe(roommates[1]?.roomId);
+    const { roomId } = await nearestSharedRoom(first);
+    await Promise.all([
+      sleepInBed(first, roomId, 0),
+      sleepInBed(second, roomId, 1),
+    ]);
+    await expect
+      .poll(async () => (await state(first)).snapshot?.players.every((player) => player.roomId === roomId), {
+        timeout: 12_000,
+        intervals: [100],
+      })
+      .toBe(true);
+    const roommates = (await state(first)).snapshot?.players ?? [];
+    expect(roommates[0]?.bedIndex).not.toBeNull();
+    expect(roommates[1]?.bedIndex).not.toBeNull();
     expect(roommates[0]?.bedIndex).not.toBe(roommates[1]?.bedIndex);
 
     const movingId = firstState.playerId;

@@ -50,12 +50,16 @@ export class AvatarPreview2D {
     this.canvas.height = SKIN_CELL_SIZE;
     this.canvas.setAttribute('role', 'img');
     this.canvas.setAttribute('aria-label', '선택한 캐릭터 외형 미리보기');
+    this.canvas.dataset.previewKind = 'avatar';
+    this.canvas.dataset.avatarView = this.direction;
+    this.canvas.dataset.skinId = appearance.skin;
     const context = this.canvas.getContext('2d', { alpha: true });
     if (!context) throw new Error('2D paper-doll canvas is unavailable.');
     this.context = context;
     this.context.imageSmoothingEnabled = true;
     this.root.dataset.character = appearance.character;
     this.root.dataset.skin = appearance.skin;
+    this.canvas.dataset.skinId = appearance.skin;
     this.root.appendChild(this.canvas);
     this.host.insertBefore(this.root, this.host.firstChild);
     this.render('idle');
@@ -71,6 +75,7 @@ export class AvatarPreview2D {
 
   setView(view: AvatarSpriteView): void {
     this.direction = view;
+    this.canvas.dataset.avatarView = view;
     this.render('idle');
   }
 

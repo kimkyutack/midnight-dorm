@@ -1,4 +1,4 @@
-const CACHE = "midnight-dorm-shell-v5";
+const CACHE = "midnight-dorm-shell-v6";
 const SHELL = [
   "/",
   "/manifest.webmanifest",

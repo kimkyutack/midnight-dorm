@@ -16,6 +16,7 @@ import {
   cosmeticById,
   cosmeticsForSlot,
   customizationReward,
+  defaultSkinForCharacter,
 } from "../shared/customization";
 import {
   rankBadgeSymbol,
@@ -670,7 +671,7 @@ function cosmeticCollectionScreen(
       }
     } else {
       const previewAppearance: AvatarAppearance = item.slot === "character"
-        ? { character: item.id, skin: `skin-${item.id.replace("character-", "")}-ward` }
+        ? { character: item.id, skin: defaultSkinForCharacter(item.id) }
         : { ...appearance, skin: item.id };
       customAvatarPreview?.updateAppearance(
         previewAppearance,

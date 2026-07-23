@@ -6425,7 +6425,7 @@ select {
   }
 }
 
-/* 2026-07 home chase, compact portrait lobby and icon-only game actions */
+/* 2026-07 home walk, compact portrait lobby and icon-only game actions */
 .home-utility [data-ranking] > span {
   display: none;
 }
@@ -6450,13 +6450,11 @@ select {
   stroke-linejoin: round;
 }
 .home-avatar-showcase {
-  left: 0;
+  left: 50%;
   top: 48%;
   width: 320px;
   height: 220px;
-  transform: translate(calc(100cqw + 30px), -50%);
-  animation: homeAvatarEscape 7.2s linear infinite -2.45s;
-  will-change: transform;
+  transform: translate(-50%, -50%);
 }
 .home-avatar-showcase::after {
   bottom: 15%;
@@ -6486,15 +6484,6 @@ select {
 .home-stage-summary:active {
   transform: scale(0.98);
 }
-@keyframes homeAvatarEscape {
-  from {
-    transform: translate(calc(100cqw + 30px), -50%);
-  }
-  to {
-    transform: translate(-340px, -50%);
-  }
-}
-
 .game-action-icon {
   width: 34px;
   height: 34px;

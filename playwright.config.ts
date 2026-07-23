@@ -16,7 +16,10 @@ export default defineConfig({
   projects: [
     {
       name: 'mobile-chromium',
-      use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true },
+      // Galaxy Z Flip6 inner-display portrait CSS viewport. Keeping the test
+      // portrait catches card clipping and sprite alignment regressions that a
+      // landscape simulator hides.
+      use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true },
     },
   ],
   webServer: {

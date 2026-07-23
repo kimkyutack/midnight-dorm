@@ -18,7 +18,7 @@ import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/cli
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
-import { skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
+import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -212,18 +212,18 @@ describe('deterministic shared world', () => {
 });
 
 describe('survivor customization rules', () => {
-  it('uses one complete sprite atlas per skin without runtime equipment layers', () => {
-    const appearance = {
-      ...DEFAULT_APPEARANCE,
-      character: 'character-bunny',
-      skin: 'skin-bunny-ward',
-    };
-    expect(skinMovementSheetUrl(appearance))
+  it('uses neutral base atlases by default and complete atlases only for selected skins', () => {
+    expect(skinMovementSheetUrl(DEFAULT_APPEARANCE))
+      .toBe('/assets/paperdoll/bases/character-bunny/movement-sheet.png');
+    expect(skinConceptUrl(DEFAULT_APPEARANCE.skin)).toBeUndefined();
+    expect(skinSleepUrl(DEFAULT_APPEARANCE))
+      .toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
+
+    const skinAppearance = { character: 'character-bunny', skin: 'skin-look-bunny-ward' };
+    expect(skinMovementSheetUrl(skinAppearance))
       .toBe('/assets/sprites/survivors/character-bunny/movement-sheet.png');
-    expect(skinConceptUrl(appearance.skin))
+    expect(skinConceptUrl(skinAppearance.skin))
       .toBe('/assets/sprites/survivors/character-bunny/concept.png');
-    expect(skinSleepUrl(appearance))
-      .toBe('/assets/sprites/survivors/character-bunny/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -250,7 +250,7 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('brute').sideFacesLeft).toBe(true);
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
-    expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/sprites/survivors/character-bunny/sleep.png');
+    expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
   it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
@@ -294,12 +294,13 @@ describe('survivor customization rules', () => {
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(12);
-    expect(defaultSkinForCharacter('character-fox')).toBe('skin-fox-ward');
+    expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
-  it('uses a complete skin image for every catalog preview', () => {
-    expect(cosmeticProductUrl('skin-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
-    expect(cosmeticPreviewLayerUrl('skin-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+  it('uses base concept art for characters and complete art only for skin cards', () => {
+    expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
+    expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
     expect(cosmeticProductUrl('missing-item')).toBeUndefined();
@@ -346,7 +347,7 @@ describe('survivor customization rules', () => {
     expect(pointItem && cosmeticAvailable(pointItem, 'beginner', ['character-cat'])).toBe(true);
     expect(rankItem && cosmeticAvailable(rankItem, 'intermediate', [])).toBe(false);
     expect(rankItem && cosmeticAvailable(rankItem, 'expert', [])).toBe(true);
-    const catSkin = cosmeticById('skin-cat-ward');
+    const catSkin = cosmeticById('skin-look-cat-ward');
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', [])).toBe(false);
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(true);
   });
@@ -354,8 +355,8 @@ describe('survivor customization rules', () => {
   it('normalizes old equipment saves to their character base skin and scales clear rewards', () => {
     expect(normalizeAppearance({ character: 'hat-beanie', shoes: 'invalid' })).toEqual(DEFAULT_APPEARANCE);
     expect(normalizeAppearance({ character: 'character-bunny', outfit: 'outfit-raincoat' })).toEqual(DEFAULT_APPEARANCE);
-    expect(normalizeAppearance({ character: 'character-cat', skin: 'skin-bunny-ward' }))
-      .toEqual({ character: 'character-cat', skin: 'skin-cat-ward' });
+    expect(normalizeAppearance({ character: 'character-cat', skin: 'skin-look-bunny-ward' }))
+      .toEqual({ character: 'character-cat', skin: 'skin-basic-cat' });
     expect(normalizeAppearance({ character: 'character-eagle' }).character).toBe('character-tiger');
     expect(customizationReward(0)).toBe(80);
     expect(customizationReward(5)).toBe(100);
