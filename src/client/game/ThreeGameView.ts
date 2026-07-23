@@ -1268,10 +1268,13 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
   if (imageAsset) {
     const texture = new THREE.TextureLoader().load(imageAsset);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
     const art = mesh(
-      new THREE.PlaneGeometry(1.12, 1.12),
+      // Building art is normalized to a tile-safe 512px canvas. Keep a small
+      // margin so even the widest turret tier never crosses the tile border.
+      new THREE.PlaneGeometry(0.98, 0.98),
       new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
@@ -1562,7 +1565,9 @@ export class ThreeGameView {
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
+    // 1.2x was being upscaled heavily on high-DPR Android screens, turning
+    // tile textures and the building PNGs into a soft, low-resolution image.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.16;
@@ -1812,7 +1817,7 @@ export class ThreeGameView {
     this.scene.add(moon);
     const lightTiles = this.mapData.corridorTiles.filter((_, index) => index % Math.max(1, Math.floor(this.mapData.corridorTiles.length / 12)) === 0).slice(0, 12);
     lightTiles.forEach((tile, index) => {
-      const light = new THREE.PointLight(index % 2 === 0 ? this.theme.lightA : this.theme.lightB, 3.8, 7.5, 1.8);
+      const light = new THREE.PointLight(index % 2 === 0 ? this.theme.lightA : this.theme.lightB, 4.8, 9, 1.8);
       light.position.set(tile.x, 2.2, tile.y);
       this.scene.add(light);
     });
@@ -1945,13 +1950,13 @@ export class ThreeGameView {
     y: number,
     surface: 'room' | 'corridor',
   ): void {
-    // A single authored image carries the wear and shallow bevel. Keeping only
-    // one surface removes the concentric stacked-square look from the strict
-    // top-down camera while stage tinting still differentiates each map tier.
+    // A single authored image carries the wear and shallow bevel. Corridors
+    // deliberately stay darker than rooms, but must remain readable at the
+    // furthest mobile zoom so players can trace a walkable route between rooms.
     const source = new THREE.Color(color);
     const tint = surface === 'room'
-      ? source.clone().lerp(new THREE.Color(0xffffff), 0.62)
-      : source.clone().lerp(new THREE.Color(0x000000), 0.42);
+      ? source.clone().lerp(new THREE.Color(0xffffff), 0.54)
+      : source.clone().lerp(new THREE.Color(0xffffff), 0.32);
     const geometry = new THREE.PlaneGeometry(0.98, 0.98);
     const floors = new THREE.InstancedMesh(
       geometry,
@@ -1959,8 +1964,8 @@ export class ThreeGameView {
         map: texture,
         roughness: 0.93,
         metalness: 0.02,
-        emissive: surface === 'room' ? source.clone().multiplyScalar(0.22) : source.clone().multiplyScalar(0.045),
-        emissiveIntensity: surface === 'room' ? 0.34 : 0.08,
+        emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.3 : 0.42),
+        emissiveIntensity: surface === 'room' ? 0.42 : 0.56,
       }),
       tiles.length,
     );
@@ -2664,7 +2669,8 @@ export class ThreeGameView {
     // 넓혀 가까운 화면의 명암과 최대 축소 화면의 판독성을 함께 지킨다.
     if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.near = this.theme.fogNear + CAMERA_HEIGHT - 10;
-      this.scene.fog.far = this.theme.fogFar + CAMERA_HEIGHT - 10;
+      this.scene.fog.far = this.theme.fogFar + CAMERA_HEIGHT - 10 +
+        14 * Math.max(0, this.cameraDistanceScale - 1);
     }
   }
 
