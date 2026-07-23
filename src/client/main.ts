@@ -120,7 +120,9 @@ const automationMode =
 const testShellMode = e2eMode || automationMode;
 const devMode = new URLSearchParams(location.search).get("dev") === "1";
 const freshMode = new URLSearchParams(location.search).get("fresh") === "1";
-const MOVEMENT_SEND_INTERVAL_MS = 50;
+// Prediction runs locally; a 12.5Hz intent stream is enough for the server
+// and avoids flooding an unstable mobile network with pointer-move packets.
+const MOVEMENT_SEND_INTERVAL_MS = 80;
 const ACTION_DEBOUNCE_MS = 650;
 const BUILD_PANEL_OPEN_GUARD_MS = 420;
 const BUILD_POINTER_ARM_WINDOW_MS = 1_600;
@@ -2101,7 +2103,7 @@ function updateConnection(
     setText(
       "[data-reconnect-copy]",
       state === "reconnecting"
-        ? `재접속 시도 ${attempt}/8 · 기존 캐릭터를 보존합니다.`
+        ? `재접속 시도 ${attempt} · 기존 캐릭터를 보존합니다.`
         : "연결이 종료되었습니다.",
     );
     pill?.classList.add("bad");

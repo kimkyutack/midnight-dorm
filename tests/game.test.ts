@@ -142,9 +142,16 @@ describe('deterministic shared world', () => {
     expect(first.rooms).toHaveLength(8);
     expect(first.respawnZones).toHaveLength(8);
     expect(new Set(first.respawnZones.map((zone) => `${zone.x},${zone.y}`))).toHaveLength(8);
+    expect([first.width, first.height]).toEqual([35, 19]);
     expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 25)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
     expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(6);
+    const covered = new Set([
+      ...first.corridorTiles,
+      ...first.rooms.flatMap((room) => room.floorTiles),
+      ...first.walls,
+    ].map((tile) => `${tile.x},${tile.y}`));
+    expect(covered).toHaveLength(first.width * first.height);
   });
 
   it('finds a traversable A* route from spawn to every bed', () => {

@@ -15,7 +15,7 @@ const CAMERA_HEIGHT = 18;
 const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
 const BASE_LANDSCAPE_VIEW_HEIGHT = 8.4;
 const MIN_CAMERA_DISTANCE_SCALE = 2 / 3;
-const MAX_CAMERA_DISTANCE_SCALE = 2;
+const MAX_CAMERA_DISTANCE_SCALE = 1.6;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.27;
 const FRAME_DT_MAX = 1 / 15;
@@ -1268,6 +1268,9 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
   if (imageAsset) {
     const texture = new THREE.TextureLoader().load(imageAsset);
     texture.colorSpace = THREE.SRGBColorSpace;
+    // The generated PNGs have soft transparent edges. Premultiplying before
+    // filtering prevents transparent black RGB values from forming a halo.
+    texture.premultiplyAlpha = true;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = true;
@@ -1278,6 +1281,7 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
       new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
+        premultipliedAlpha: true,
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
@@ -1950,13 +1954,13 @@ export class ThreeGameView {
     y: number,
     surface: 'room' | 'corridor',
   ): void {
-    // A single authored image carries the wear and shallow bevel. Corridors
-    // deliberately stay darker than rooms, but must remain readable at the
-    // furthest mobile zoom so players can trace a walkable route between rooms.
+    // A single authored image carries the wear and shallow bevel. Keep room
+    // and corridor hues deliberately separate instead of washing both into
+    // the same gray under mobile lighting.
     const source = new THREE.Color(color);
     const tint = surface === 'room'
-      ? source.clone().lerp(new THREE.Color(0xffffff), 0.54)
-      : source.clone().lerp(new THREE.Color(0xffffff), 0.32);
+      ? source.clone().lerp(new THREE.Color(0x58c69c), 0.24)
+      : source.clone().lerp(new THREE.Color(0x101c2b), 0.42);
     const geometry = new THREE.PlaneGeometry(0.98, 0.98);
     const floors = new THREE.InstancedMesh(
       geometry,
@@ -1964,8 +1968,8 @@ export class ThreeGameView {
         map: texture,
         roughness: 0.93,
         metalness: 0.02,
-        emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.3 : 0.42),
-        emissiveIntensity: surface === 'room' ? 0.42 : 0.56,
+        emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.18 : 0.24),
+        emissiveIntensity: surface === 'room' ? 0.32 : 0.44,
       }),
       tiles.length,
     );

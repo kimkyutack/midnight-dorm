@@ -35,12 +35,14 @@ const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) =>
 
 export const BALANCE = {
   tickRate: 20,
-  snapshotRate: 15,
+  // A full snapshot is intentionally less frequent than simulation ticks.
+  // Local prediction keeps movement smooth while mobile radios avoid a backlog.
+  snapshotRate: 10,
   buildInputCooldownMs: 350,
   maxHumanPlayers: 4,
   maxPlayersWithBots: 4,
-  reconnectMs: 30_000,
-  inactiveCleanupMs: 90_000,
+  reconnectMs: 90_000,
+  inactiveCleanupMs: 180_000,
   countdownSeconds: 30,
   player: {
     maxHp: 100,

@@ -14,6 +14,9 @@ type Listener<K extends keyof NetworkEvents> = (value: NetworkEvents[K]) => void
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, 'sequence' | 'timestamp'> : never;
 type ClientIntent = WithoutEnvelope<ClientMessage>;
 
+const MAX_RECONNECT_ATTEMPTS = 30;
+const RECONNECT_DELAY_CAP_MS = 5_000;
+
 export class GameNetwork {
   private socket: WebSocket | null = null;
   private sequence = 0;
@@ -56,9 +59,11 @@ export class GameNetwork {
     const params = new URLSearchParams({ nickname: this.nickname, deviceId: this.deviceId });
     if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
     const socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
+    let opened = false;
     this.socket = socket;
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
+      opened = true;
       this.reconnectAttempts = 0;
       this.emit('connection', { state: 'connected', attempt: 0 });
       this.startHeartbeat();
@@ -70,14 +75,23 @@ export class GameNetwork {
       if (this.socket !== socket) return;
       this.socket = null;
       this.stopHeartbeat();
-      if (!this.stopped && this.reconnectAttempts < 8) {
+      if (!this.stopped && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         this.reconnectAttempts += 1;
         this.emit('connection', { state: 'reconnecting', attempt: this.reconnectAttempts });
-        this.reconnectTimer = window.setTimeout(() => this.connect(), Math.min(4_000, 350 * 2 ** this.reconnectAttempts));
+        const baseDelay = Math.min(
+          RECONNECT_DELAY_CAP_MS,
+          450 * 2 ** Math.min(this.reconnectAttempts, 4),
+        );
+        // Spread simultaneous mobile reconnects after a brief network stall.
+        const delay = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
+        this.reconnectTimer = window.setTimeout(() => this.connect(), delay);
       } else this.emit('connection', { state: 'closed', attempt: this.reconnectAttempts });
     });
     socket.addEventListener('error', () => {
-      if (this.socket === socket) this.emit('error', { message: '실시간 서버에 연결하지 못했습니다.' });
+      // A socket error is commonly followed by close while a device changes
+      // radio. Let the reconnect overlay handle that path without showing a
+      // fatal toast; surface only an initial connection failure.
+      if (this.socket === socket && !opened) this.emit('error', { message: '실시간 서버에 연결하지 못했습니다. 재시도합니다.' });
     });
   }
 
@@ -142,7 +156,7 @@ export class GameNetwork {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    this.pingTimer = window.setInterval(() => this.send({ type: 'ping', clientTime: Date.now() }), 2_000);
+    this.pingTimer = window.setInterval(() => this.send({ type: 'ping', clientTime: Date.now() }), 4_000);
   }
 
   private stopHeartbeat(): void {

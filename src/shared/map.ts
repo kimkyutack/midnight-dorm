@@ -1,66 +1,23 @@
-import { SeededRandom } from './rng';
 import type { MapDefinition, MapRoom, PlayMode, RoomState, Tile, Vec2 } from './types';
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
-
-interface ShapeTemplate {
-  name: string;
-  cells: ReadonlyArray<readonly [number, number]>;
-}
-
-type DoorSide = 'top' | 'right' | 'bottom' | 'left';
 
 const rectangle = (width: number, height: number): Array<readonly [number, number]> =>
   Array.from({ length: height }, (_, y) =>
     Array.from({ length: width }, (__, x) => [x, y] as const),
   ).flat();
 
-const without = (
-  cells: ReadonlyArray<readonly [number, number]>,
-  removed: ReadonlyArray<readonly [number, number]>,
-): Array<readonly [number, number]> => {
-  const keys = new Set(removed.map(([x, y]) => tileKey(x, y)));
-  return cells.filter(([x, y]) => !keys.has(tileKey(x, y)));
-};
-
-const SOLO_SHAPES: readonly ShapeTemplate[] = [
-  { name: '20칸 직사각방', cells: rectangle(5, 4) },
-  { name: '20칸 세로방', cells: rectangle(4, 5) },
-  { name: '25칸 광장방', cells: rectangle(5, 5) },
-  { name: '24칸 가로방', cells: rectangle(6, 4) },
-  { name: '22칸 모서리방', cells: without(rectangle(6, 4), [[0, 0], [5, 3]]) },
-  { name: '21칸 안쪽방', cells: without(rectangle(5, 5), [[4, 0], [4, 1], [4, 2], [3, 0]]) },
-  { name: '21칸 둥근방', cells: without(rectangle(5, 5), [[0, 0], [4, 0], [0, 4], [4, 4]]) },
-  { name: '23칸 꺾인방', cells: without(rectangle(6, 4), [[0, 0]]) },
+const COMPACT_ROOM_LABELS = [
+  '북서 정방형 병실', '북부 정방형 병실', '북동 정방형 병실', '동쪽 정방형 병실',
+  '남서 정방형 병실', '남부 정방형 병실', '남동 정방형 병실', '서쪽 정방형 병실',
 ] as const;
-
-const MULTIPLAYER_SHAPES: readonly ShapeTemplate[] = [
-  { name: '25칸 공유 광장', cells: rectangle(5, 5) },
-  { name: '25칸 공유 가로방', cells: without(rectangle(7, 4), [[0, 0], [6, 0], [0, 3]]) },
-  { name: '25칸 공유 L방', cells: without(rectangle(6, 5), [[5, 0], [5, 1], [5, 2], [4, 0], [4, 1]]) },
-  { name: '25칸 공유 계단방', cells: without(rectangle(5, 6), [[0, 0], [0, 1], [4, 4], [4, 5], [3, 5]]) },
-] as const;
-
-function shapeSize(cells: ReadonlyArray<readonly [number, number]>): { width: number; height: number } {
-  return {
-    width: Math.max(...cells.map(([x]) => x)) + 1,
-    height: Math.max(...cells.map(([, y]) => y)) + 1,
-  };
-}
 
 function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
-  const rng = new SeededRandom(seed);
-  // Eight compact rooms keep the complete ward readable on a portrait screen.
-  // The corridor grid still has enough clearance for a 5x5 room and a door.
-  const width = 73;
-  const height = 41;
-  const laneWidth = 3;
-  const verticalBands = [2, 19, 36, 53, 70] as const;
-  const horizontalBands = [2, 20, 38] as const;
-  const firstVerticalBand = verticalBands[0] as number;
-  const lastVerticalBand = verticalBands[verticalBands.length - 1] as number;
-  const firstHorizontalBand = horizontalBands[0] as number;
-  const lastHorizontalBand = horizontalBands[horizontalBands.length - 1] as number;
+  // A compact 4×2 ward. Everything inside the exterior wall is a traversable
+  // corridor unless it is a room floor or one of that room's one-tile walls.
+  // This removes void gaps while keeping all eight rooms readable on portrait.
+  const width = 35;
+  const height = 19;
   const walkable = new Map<string, Tile>();
   const corridorTiles = new Map<string, Tile>();
   const walls = new Map<string, Tile>();
@@ -71,54 +28,33 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
     walkable.set(tileKey(x, y), tile);
     corridorTiles.set(tileKey(x, y), tile);
   };
-  for (const bandX of verticalBands) {
-    for (let x = bandX; x < bandX + laneWidth; x += 1) {
-      for (let y = firstHorizontalBand; y < lastHorizontalBand + laneWidth; y += 1) addCorridor(x, y);
-    }
+  // Start with a full corridor floor, then cut rooms and their wall rings out.
+  for (let x = 1; x < width - 1; x += 1)
+    for (let y = 1; y < height - 1; y += 1) addCorridor(x, y);
+  for (let x = 0; x < width; x += 1) {
+    walls.set(tileKey(x, 0), { x, y: 0 });
+    walls.set(tileKey(x, height - 1), { x, y: height - 1 });
   }
-  for (const bandY of horizontalBands) {
-    for (let y = bandY; y < bandY + laneWidth; y += 1) {
-      for (let x = firstVerticalBand; x < lastVerticalBand + laneWidth; x += 1) addCorridor(x, y);
-    }
+  for (let y = 1; y < height - 1; y += 1) {
+    walls.set(tileKey(0, y), { x: 0, y });
+    walls.set(tileKey(width - 1, y), { x: width - 1, y });
   }
 
-  const templates = rng.shuffle([...(playMode === 'multiplayer' ? MULTIPLAYER_SHAPES : SOLO_SHAPES)]);
-  const sides = rng.shuffle<DoorSide>(['top', 'right', 'bottom', 'left']);
+  const roomOrigins = [
+    { x: 3, y: 3 }, { x: 11, y: 3 }, { x: 19, y: 3 }, { x: 27, y: 3 },
+    { x: 3, y: 11 }, { x: 11, y: 11 }, { x: 19, y: 11 }, { x: 27, y: 11 },
+  ] as const;
+  const roomCells = rectangle(5, 5);
   for (let row = 0; row < 2; row += 1) {
     for (let column = 0; column < 4; column += 1) {
       const index = row * 4 + column;
       const roomId = `room-${index + 1}`;
-      const template = templates[index % templates.length] as ShapeTemplate;
-      const side = sides[(index + rng.int(0, 3)) % sides.length] as DoorSide;
-      const size = shapeSize(template.cells);
-      const cell = {
-        minX: (verticalBands[column] as number) + laneWidth + 1,
-        maxX: (verticalBands[column + 1] as number) - 2,
-        minY: (horizontalBands[row] as number) + laneWidth + 1,
-        maxY: (horizontalBands[row + 1] as number) - 2,
-      };
-      let originX = rng.int(cell.minX, cell.maxX - size.width + 1);
-      let originY = rng.int(cell.minY, cell.maxY - size.height + 1);
-      if (side === 'left') originX = cell.minX;
-      if (side === 'right') originX = cell.maxX - size.width + 1;
-      if (side === 'top') originY = cell.minY;
-      if (side === 'bottom') originY = cell.maxY - size.height + 1;
-
-      const floorTiles = template.cells.map(([x, y]) => ({ x: originX + x, y: originY + y, roomId }));
-      const edgeValue = side === 'left'
-        ? Math.min(...floorTiles.map((tile) => tile.x))
-        : side === 'right'
-          ? Math.max(...floorTiles.map((tile) => tile.x))
-          : side === 'top'
-            ? Math.min(...floorTiles.map((tile) => tile.y))
-            : Math.max(...floorTiles.map((tile) => tile.y));
-      const edgeTiles = floorTiles.filter((tile) =>
-        side === 'left' || side === 'right' ? tile.x === edgeValue : tile.y === edgeValue,
-      ).sort((a, b) => side === 'left' || side === 'right' ? a.y - b.y : a.x - b.x);
-      const entrance = edgeTiles[Math.floor(edgeTiles.length / 2)] as Tile;
+      const origin = roomOrigins[index] as { x: number; y: number };
+      const floorTiles = roomCells.map(([x, y]) => ({ x: origin.x + x, y: origin.y + y, roomId }));
+      const entrance = floorTiles.find((tile) => tile.x === origin.x + 2 && tile.y === (row === 0 ? origin.y + 4 : origin.y)) as Tile;
       const door: Tile = {
-        x: entrance.x + (side === 'left' ? -1 : side === 'right' ? 1 : 0),
-        y: entrance.y + (side === 'top' ? -1 : side === 'bottom' ? 1 : 0),
+        x: entrance.x,
+        y: entrance.y + (row === 0 ? 1 : -1),
         roomId,
       };
       const bedCandidates = [...floorTiles].sort((a, b) => {
@@ -137,17 +73,14 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
       const beds = playMode === 'multiplayer' ? [{ ...firstBed }, { ...secondBed }] : [{ ...firstBed }];
       const bedKeys = new Set(beds.map((bed) => tileKey(bed.x, bed.y)));
       const buildTiles = floorTiles.filter((tile) => !bedKeys.has(tileKey(tile.x, tile.y)));
-      const allRoomTiles = [...floorTiles, door];
-      const xs = allRoomTiles.map((tile) => tile.x);
-      const ys = allRoomTiles.map((tile) => tile.y);
       rooms.push({
         id: roomId,
-        shape: template.name,
+        shape: COMPACT_ROOM_LABELS[index] as string,
         bounds: {
-          x: Math.min(...xs) - 1,
-          y: Math.min(...ys) - 1,
-          width: Math.max(...xs) - Math.min(...xs) + 3,
-          height: Math.max(...ys) - Math.min(...ys) + 3,
+          x: origin.x - 1,
+          y: origin.y - 1,
+          width: 7,
+          height: 7,
         },
         door,
         bed: { ...(beds[0] as Tile) },
@@ -155,21 +88,33 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
         floorTiles,
         buildTiles,
       });
-      walkable.set(tileKey(door.x, door.y), door);
-      corridorTiles.set(tileKey(door.x, door.y), door);
-      for (const tile of floorTiles) walkable.set(tileKey(tile.x, tile.y), tile);
     }
   }
 
+  const doorKeys = new Set(rooms.map((room) => tileKey(room.door.x, room.door.y)));
   for (const room of rooms) {
-    for (const tile of [...room.floorTiles, room.door]) {
+    const roomFloorKeys = new Set(room.floorTiles.map((tile) => tileKey(tile.x, tile.y)));
+    for (const tile of room.floorTiles) {
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const x = tile.x + dx;
         const y = tile.y + dy;
         const key = tileKey(x, y);
-        if (!walkable.has(key) && x >= 0 && x < width && y >= 0 && y < height) walls.set(key, { x, y });
+        if (!roomFloorKeys.has(key) && !doorKeys.has(key)) walls.set(key, { x, y });
       }
     }
+  }
+
+  for (const wall of walls.values()) {
+    walkable.delete(tileKey(wall.x, wall.y));
+    corridorTiles.delete(tileKey(wall.x, wall.y));
+  }
+  for (const room of rooms) {
+    for (const tile of room.floorTiles) {
+      corridorTiles.delete(tileKey(tile.x, tile.y));
+      walkable.set(tileKey(tile.x, tile.y), tile);
+    }
+    walkable.set(tileKey(room.door.x, room.door.y), room.door);
+    corridorTiles.set(tileKey(room.door.x, room.door.y), room.door);
   }
 
   return {
@@ -177,20 +122,20 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
     playMode,
     width,
     height,
-    corridor: { x: firstVerticalBand, y: firstHorizontalBand, width: lastVerticalBand - firstVerticalBand + laneWidth, height: laneWidth },
+    corridor: { x: 1, y: 1, width: width - 2, height: height - 2 },
     corridorTiles: [...corridorTiles.values()],
     respawnZones: [
-      { x: 2, y: 2, width: 3, height: 3 },
-      { x: 36, y: 2, width: 3, height: 3 },
-      { x: 70, y: 2, width: 3, height: 3 },
-      { x: 2, y: 20, width: 3, height: 3 },
-      { x: 70, y: 20, width: 3, height: 3 },
-      { x: 2, y: 38, width: 3, height: 3 },
-      { x: 36, y: 38, width: 3, height: 3 },
-      { x: 70, y: 38, width: 3, height: 3 },
+      { x: 1, y: 1, width: 1, height: 1 },
+      { x: 17, y: 1, width: 1, height: 1 },
+      { x: 33, y: 1, width: 1, height: 1 },
+      { x: 1, y: 9, width: 1, height: 1 },
+      { x: 33, y: 9, width: 1, height: 1 },
+      { x: 1, y: 17, width: 1, height: 1 },
+      { x: 17, y: 17, width: 1, height: 1 },
+      { x: 33, y: 17, width: 1, height: 1 },
     ],
-    playerSpawn: { x: 37, y: 21 },
-    ghostSpawn: { x: 3, y: 3 },
+    playerSpawn: { x: 17, y: 9 },
+    ghostSpawn: { x: 17, y: 1 },
     rooms,
     walls: [...walls.values()],
     walkable: [...walkable.values()],
@@ -222,6 +167,11 @@ export function validateMap(map: MapDefinition): boolean {
     }
     const doorTouchesRoom = room.floorTiles.some((tile) => Math.abs(tile.x - room.door.x) + Math.abs(tile.y - room.door.y) === 1);
     if (!doorTouchesRoom) return false;
+  }
+  for (const zone of map.respawnZones) {
+    for (let x = zone.x; x < zone.x + zone.width; x += 1)
+      for (let y = zone.y; y < zone.y + zone.height; y += 1)
+        if (!corridorKeys.has(tileKey(x, y))) return false;
   }
   return connectedWalkableCount(map) === map.walkable.length;
 }
