@@ -337,6 +337,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'move'; dx: number; dy: number; inputSequence: number })
   | (BaseMessage & { type: 'interact' })
   | (BaseMessage & { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind })
+  | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })

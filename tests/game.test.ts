@@ -610,6 +610,32 @@ describe('authoritative game rules', () => {
     expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
   });
 
+  it('moves an owned building to an empty tile and swaps it with another owned building', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    if (tiles.length < 3) throw new Error('missing move-building tiles');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing move-building owner');
+    player.gold = 1_000;
+    player.power = 1_000;
+    engine.restore(persisted);
+    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'basic-turret').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'generator').ok).toBe(true);
+    const turret = engine.snapshot().buildings.find((building) => building.kind === 'basic-turret');
+    const generator = engine.snapshot().buildings.find((building) => building.kind === 'generator');
+    if (!turret || !generator) throw new Error('missing move-building fixtures');
+    expect(engine.moveBuilding(playerId, turret.id, tiles[2] as Tile).ok).toBe(true);
+    expect(engine.snapshot().buildings.find((building) => building.id === turret.id)?.tile).toEqual({ x: (tiles[2] as Tile).x, y: (tiles[2] as Tile).y });
+    expect(engine.moveBuilding(playerId, turret.id, tiles[1] as Tile).ok).toBe(true);
+    expect(engine.snapshot().buildings.find((building) => building.id === turret.id)?.tile).toEqual({ x: (tiles[1] as Tile).x, y: (tiles[1] as Tile).y });
+    expect(engine.snapshot().buildings.find((building) => building.id === generator.id)?.tile).toEqual({ x: (tiles[2] as Tile).x, y: (tiles[2] as Tile).y });
+    expect(engine.moveBuilding(playerId, turret.id, { x: 0, y: 0 }).ok).toBe(false);
+  });
+
   it('installs several identical generators on different tiles without substituting another building', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -704,7 +730,7 @@ describe('authoritative game rules', () => {
     ghost.position = { ...mapRoom.door };
     ghost.targetRoomId = roomId;
     ghost.targetPlayerId = null;
-    ghost.hp = ghost.maxHp * 0.3;
+    ghost.hp = ghost.maxHp * 0.2;
     ghost.retreating = false;
     ghost.healing = false;
     ghost.stunnedUntil = 0;
@@ -868,6 +894,8 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 99, dy: 0, inputSequence: 1 })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1.5, y: 2 }, kind: 'nuke' })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'kick-player', sequence: 2, timestamp: 2, playerId: 77 })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'move-building', sequence: 3, timestamp: 2, buildingId: 'building-1', tile: { x: 2.4, y: 3 } })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'move-building', sequence: 3, timestamp: 2, buildingId: 'building-1', tile: { x: 2, y: 3 } })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'remove-building', sequence: 3, timestamp: 2, buildingId: 'building-1' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'leave-room', sequence: 4, timestamp: 2 })).ok).toBe(true);
   });
@@ -904,8 +932,20 @@ describe('nine primary ghost variants', () => {
     state.snapshot.ghost = ghost;
     engine.restore(state);
     engine.tick(0.1);
-    expect(engine.snapshot().ghost.targetRoomId).toBe(rooms[1]);
-    expect(engine.drainEvents().some((event) => event.kind === 'ghost-skill' && event.label?.includes('순간이동'))).toBe(true);
+    const targetRoomId = rooms[1] as string;
+    const targetRoom = engine.map.rooms.find((room) => room.id === targetRoomId);
+    const expectedApproach = targetRoom
+      ? engine.map.corridorTiles.find(
+          (tile) =>
+            (tile.x !== targetRoom.door.x || tile.y !== targetRoom.door.y) &&
+            Math.abs(tile.x - targetRoom.door.x) + Math.abs(tile.y - targetRoom.door.y) === 1,
+        )
+      : undefined;
+    expect(engine.snapshot().ghost.targetRoomId).toBe(targetRoomId);
+    expect(engine.snapshot().ghost.position).toEqual(expectedApproach);
+    const events = engine.drainEvents();
+    expect(events.some((event) => event.kind === 'ghost-skill' && event.label?.includes('순간이동'))).toBe(true);
+    expect(events.some((event) => event.kind === 'door-hit')).toBe(false);
   });
 
   it('summons level-scaled low-HP minions that never retreat', () => {
@@ -1082,25 +1122,31 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 2)).toBe(true);
   });
 
-  it('emits gold and power income once per second at the producing bed and generator', () => {
+  it('emits gold and power income once per second at each producing source', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
     const { roomId, tile } = assigned(engine, playerId);
     const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
     expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
+    const gemTile = mapRoom?.buildTiles.find((candidate) => candidate.x !== tile.x || candidate.y !== tile.y);
+    if (!gemTile) throw new Error('missing gem tile');
     engine.drainEvents();
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     if (!player) throw new Error('missing income player');
+    player.power = 125;
     player.goldIncomeElapsed = 0;
     player.powerIncomeElapsed = 0;
     engine.restore(persisted);
+    expect(engine.build(playerId, roomId, gemTile, 'gem-core').ok).toBe(true);
+    engine.drainEvents();
     for (let index = 0; index < 4; index += 1) engine.tick(0.05);
     expect(engine.drainEvents().some((event) => event.kind === 'power')).toBe(false);
     engine.tick(0.05);
     const events = engine.drainEvents();
     expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
     expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
   });
 

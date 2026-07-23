@@ -174,7 +174,7 @@ export const BALANCE = {
     },
     'ghost-net': {
       label: '봉쇄 그물 발사기',
-      description: '문을 공격하는 HP 30% 이하 귀신을 1.5초 멈춥니다.',
+      description: '문을 공격하는 HP 20% 이하 귀신을 1.5초 멈춥니다.',
       maxLevel: 1,
       levels: [level(0, 250, 1.5, 12, 0)],
     },

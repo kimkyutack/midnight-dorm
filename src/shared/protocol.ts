@@ -2,7 +2,7 @@ import { SHOP_CONSUMABLE_IDS } from './shopConsumables';
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
-  'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'upgrade',
+  'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'move-building', 'upgrade',
   'remove-building', 'draw-item', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
@@ -54,6 +54,12 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
         || !Number.isInteger(value.tile.x) || !Number.isInteger(value.tile.y)
         || !buildingKinds.has(value.kind as BuildingKind) || value.kind === 'bed' || value.kind === 'reinforced-door') {
         return { ok: false, error: 'invalid building request' };
+      }
+      break;
+    case 'move-building':
+      if (typeof value.buildingId !== 'string' || !isRecord(value.tile)
+        || !Number.isInteger(value.tile.x) || !Number.isInteger(value.tile.y)) {
+        return { ok: false, error: 'invalid building move request' };
       }
       break;
     case 'upgrade':

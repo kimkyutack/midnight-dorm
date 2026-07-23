@@ -21,8 +21,12 @@ const PLAYER_HEIGHT = 1.27;
 const FRAME_DT_MAX = 1 / 15;
 const TAP_GLOBAL_DEBOUNCE_MS = 300;
 const TAP_SAME_TILE_DEBOUNCE_MS = 520;
+const BUILDING_DRAG_HOLD_MS = 380;
+const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
+const buildingTextureLoader = new THREE.TextureLoader();
+const buildingTextureCache = new Map<string, THREE.Texture>();
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   wanderer: 0xff315f,
   swift: 0xff7438,
@@ -35,6 +39,21 @@ const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   giant: 0x58e9ff,
   minion: 0x8dff64,
 };
+
+function cachedBuildingTexture(url: string): THREE.Texture {
+  let texture = buildingTextureCache.get(url);
+  if (texture) return texture;
+  texture = buildingTextureLoader.load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // The generated PNGs have soft transparent edges. Premultiplying before
+  // filtering prevents transparent black RGB values from forming a halo.
+  texture.premultiplyAlpha = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  buildingTextureCache.set(url, texture);
+  return texture;
+}
 
 export interface SceneSelection {
   type: 'bed' | 'door' | 'building';
@@ -135,6 +154,19 @@ interface PortraitMovementDrag {
   id: number;
   startX: number;
   startY: number;
+}
+
+interface BuildingDragCandidate {
+  pointerId: number;
+  buildingId: string;
+  roomId: string;
+  sourceTile: Tile;
+  startX: number;
+  startY: number;
+}
+
+interface BuildingDrag extends BuildingDragCandidate {
+  targetTile: Tile;
 }
 
 interface TimedEffect {
@@ -1266,14 +1298,10 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
   const root = new THREE.Group();
   const imageAsset = buildingAssetUrl(building.kind, building.level);
   if (imageAsset) {
-    const texture = new THREE.TextureLoader().load(imageAsset);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    // The generated PNGs have soft transparent edges. Premultiplying before
-    // filtering prevents transparent black RGB values from forming a halo.
-    texture.premultiplyAlpha = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = true;
+    // A room can contain many copies of the same building. Reusing the GPU
+    // texture avoids a new decode/upload for every installation and removes
+    // the frame drops that appeared once a room was built out.
+    const texture = cachedBuildingTexture(imageAsset);
     const art = mesh(
       // Building art is normalized to a tile-safe 512px canvas. Keep a small
       // margin so even the widest turret tier never crosses the tile border.
@@ -1546,6 +1574,9 @@ export class ThreeGameView {
   private drag: PointerDrag | null = null;
   private gesture: MultiTouchGesture | null = null;
   private portraitMovementDrag: PortraitMovementDrag | null = null;
+  private buildingDragCandidate: BuildingDragCandidate | null = null;
+  private buildingDrag: BuildingDrag | null = null;
+  private buildingDragTimer: number | null = null;
   private followingPlayer = true;
   private focusedRoomId: string | null = null;
   private cameraDistanceScale = 1;
@@ -1721,6 +1752,7 @@ export class ThreeGameView {
     this.destroyed = true;
     this.renderer.setAnimationLoop(null);
     this.resizeObserver.disconnect();
+    this.cancelBuildingDrag();
     this.unbindInput();
     for (const view of this.playerViews.values()) view.actor.dispose();
     for (const view of this.ghostViews.values()) view.actor.dispose();
@@ -1958,19 +1990,32 @@ export class ThreeGameView {
     // and corridor hues deliberately separate instead of washing both into
     // the same gray under mobile lighting.
     const source = new THREE.Color(color);
+    const isBaseHospitalCorridor =
+      surface === 'corridor' && this.theme.id === 'hospital';
     const tint = surface === 'room'
       ? source.clone().lerp(new THREE.Color(0x58c69c), 0.24)
-      : source.clone().lerp(new THREE.Color(0x101c2b), 0.42);
+      : isBaseHospitalCorridor
+        // iOS Safari can render the lit, dark gray floor texture several
+        // stops darker than Chromium. A brighter blue base makes the normal
+        // ward corridor readable and clearly separate from the gray walls.
+        ? new THREE.Color(0x4b9bad)
+        : source.clone().lerp(new THREE.Color(0x101c2b), 0.42);
     const geometry = new THREE.PlaneGeometry(0.98, 0.98);
+    // The normal-stage corridor is navigation-critical. MeshBasicMaterial
+    // keeps its authored color independent of device lighting precision,
+    // preventing iPhone WebGL from turning the corridor into the black fog.
+    const material = isBaseHospitalCorridor
+      ? new THREE.MeshBasicMaterial({ color: tint, map: texture, fog: true })
+      : standardMaterial(tint, {
+          map: texture,
+          roughness: 0.93,
+          metalness: 0.02,
+          emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.18 : 0.24),
+          emissiveIntensity: surface === 'room' ? 0.32 : 0.44,
+        });
     const floors = new THREE.InstancedMesh(
       geometry,
-      standardMaterial(tint, {
-        map: texture,
-        roughness: 0.93,
-        metalness: 0.02,
-        emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.18 : 0.24),
-        emissiveIntensity: surface === 'room' ? 0.32 : 0.44,
-      }),
+      material,
       tiles.length,
     );
     floors.receiveShadow = true;
@@ -1994,7 +2039,9 @@ export class ThreeGameView {
       position.set(tile.x, y + 0.025, tile.y);
       matrix.compose(position, orientation, scale);
       floors.setMatrixAt(index, matrix);
-      const shade = 0.91 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.025;
+      const shade = isBaseHospitalCorridor
+        ? 0.98 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.015
+        : 0.91 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.025;
       floors.setColorAt(index, instanceTint.setRGB(shade, shade, shade));
     });
     this.scene.add(floors);
@@ -2239,6 +2286,12 @@ export class ThreeGameView {
         };
         this.buildingViews.set(building.id, view);
       }
+      // Building movement and swaps are authoritative on the server. Updating
+      // existing view roots here lets the next snapshot move both sides of a
+      // swap without rebuilding their models or textures.
+      if (this.buildingDrag?.buildingId !== building.id) {
+        view.root.position.copy(worldPoint(building.tile));
+      }
       updateTextBillboard(view.level, `${building.level}`, `Lv.${building.level}`, '#ffffff', 'rgba(8,12,24,.9)');
       const nextCost =
         building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
@@ -2285,12 +2338,18 @@ export class ThreeGameView {
         if (leftRightDistance <= topBottomDistance) root.rotation.y = Math.PI / 2;
         const frameMaterial = standardMaterial(0x25374d, { metalness: 0.5, roughness: 0.5 });
         const panelMaterial = standardMaterial(0x5bcbd5, { emissive: 0x185b66, emissiveIntensity: 0.85, metalness: 0.28, roughness: 0.42 });
-        const frame = mesh(new THREE.BoxGeometry(1.08, 0.08, 0.5), frameMaterial, [0, 0.08, 0]);
+        // A door occupies exactly one grid tile. The former narrow strip made
+        // the doorway look undersized next to 1×1 floor/building tiles.
+        const frame = mesh(new THREE.BoxGeometry(1.02, 0.08, 0.94), frameMaterial, [0, 0.08, 0]);
         root.add(frame);
         const panel = new THREE.Group();
         panel.position.set(0, 0.15, 0);
-        const surface = mesh(new THREE.BoxGeometry(0.84, 0.07, 0.3), panelMaterial);
+        const surface = mesh(new THREE.BoxGeometry(0.9, 0.07, 0.78), panelMaterial);
         const details = new THREE.Group();
+        // Door details were authored for the earlier narrow strip. Scale the
+        // same decoration with the tile-sized panel so every door level keeps
+        // its intended silhouette without requiring duplicate geometry.
+        details.scale.set(1.18, 1, 2.7);
         panel.add(surface, details);
         root.add(panel);
         // Door orientation must not rotate the HUD: keeping this group camera
@@ -2541,9 +2600,8 @@ export class ThreeGameView {
       // ghosts visibly strike empty air. The event's door location is the
       // authoritative anchor, so only animate if the newest ghost position is
       // still beside that same door.
-      if (attacker && attacker.target.distanceToSquared(worldPoint(event.position)) <= 1.2 * 1.2) {
-        attacker.attackStartedAt = performance.now() - ghostAttackDuration(attacker.variant) / 3;
-      }
+      if (!attacker || attacker.target.distanceToSquared(worldPoint(event.position)) > 1.2 * 1.2) return;
+      attacker.attackStartedAt = performance.now() - ghostAttackDuration(attacker.variant) / 3;
     }
     if (event.kind === 'ghost-net' && event.position) {
       const net = mesh(
@@ -2672,8 +2730,9 @@ export class ThreeGameView {
     // 잠겨 급격히 어두워진다. 조명을 증폭하지 않고 가시거리만 비례해
     // 넓혀 가까운 화면의 명암과 최대 축소 화면의 판독성을 함께 지킨다.
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.near = this.theme.fogNear + CAMERA_HEIGHT - 10;
-      this.scene.fog.far = this.theme.fogFar + CAMERA_HEIGHT - 10 +
+      const hospitalVisibilityBoost = this.theme.id === 'hospital' ? 8 : 0;
+      this.scene.fog.near = this.theme.fogNear + CAMERA_HEIGHT - 10 + hospitalVisibilityBoost * 0.45;
+      this.scene.fog.far = this.theme.fogFar + CAMERA_HEIGHT - 10 + hospitalVisibilityBoost +
         14 * Math.max(0, this.cameraDistanceScale - 1);
     }
   }
@@ -2750,6 +2809,7 @@ export class ThreeGameView {
     this.renderer.domElement.setPointerCapture(event.pointerId);
     this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointerPositions.size >= 2) {
+      this.cancelBuildingDrag();
       this.drag = null;
       this.gesture = this.currentGesture();
       return;
@@ -2760,6 +2820,20 @@ export class ThreeGameView {
       y: event.clientY,
       moved: false,
     };
+    const tile = this.tileAt(event.clientX, event.clientY);
+    const building = tile
+      ? this.snapshotData.buildings.find(
+          (candidate) => candidate.tile.x === tile.x && candidate.tile.y === tile.y,
+        )
+      : undefined;
+    if (
+      building &&
+      tile &&
+      building.roomId === local.roomId &&
+      building.ownerId === local.id
+    ) {
+      this.armBuildingDrag(event.pointerId, building, tile, event.clientX, event.clientY);
+    }
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
@@ -2781,11 +2855,24 @@ export class ThreeGameView {
     if (!this.pointerPositions.has(event.pointerId)) return;
     this.pointerPositions.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointerPositions.size >= 2) {
+      this.cancelBuildingDrag();
       const next = this.currentGesture();
       if (next && this.gesture) {
         if (this.gesture.distance > 0) this.zoomBy(next.distance / this.gesture.distance);
       }
       this.gesture = next;
+      return;
+    }
+    const candidate = this.buildingDragCandidate;
+    if (
+      candidate?.pointerId === event.pointerId &&
+      Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) > BUILDING_DRAG_CANCEL_DISTANCE
+    ) {
+      this.cancelBuildingDragHold();
+    }
+    if (this.buildingDrag?.pointerId === event.pointerId) {
+      const tile = this.tileAt(event.clientX, event.clientY);
+      if (tile) this.previewBuildingDrag(tile);
       return;
     }
     if (!this.drag || this.drag.id !== event.pointerId) return;
@@ -2812,6 +2899,10 @@ export class ThreeGameView {
     }
     if (!this.pointerPositions.has(event.pointerId)) return;
     event.preventDefault();
+    const activeBuildingDrag = this.buildingDrag?.pointerId === event.pointerId
+      ? this.buildingDrag
+      : null;
+    this.cancelBuildingDragHold();
     const wasGesture = this.pointerPositions.size > 1 || this.gesture !== null;
     const moved = this.drag?.id === event.pointerId ? this.drag.moved : wasGesture;
     this.pointerPositions.delete(event.pointerId);
@@ -2821,6 +2912,10 @@ export class ThreeGameView {
     this.drag = remaining
       ? { id: remaining[0], x: remaining[1].x, y: remaining[1].y, moved: true }
       : null;
+    if (activeBuildingDrag) {
+      this.finishBuildingDrag(activeBuildingDrag, event.type !== 'pointercancel');
+      return;
+    }
     if (!moved && !wasGesture && event.button !== 2) this.selectAt(event.clientX, event.clientY);
   };
 
@@ -2830,6 +2925,100 @@ export class ThreeGameView {
   };
 
   private readonly onContextMenu = (event: MouseEvent): void => event.preventDefault();
+
+  private tileAt(clientX: number, clientY: number): Tile | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = this.raycaster.intersectObject(this.selectionSurface, false)[0];
+    return hit ? { x: Math.round(hit.point.x), y: Math.round(hit.point.z) } : null;
+  }
+
+  private armBuildingDrag(
+    pointerId: number,
+    building: BuildingState,
+    sourceTile: Tile,
+    startX: number,
+    startY: number,
+  ): void {
+    this.cancelBuildingDrag();
+    const candidate: BuildingDragCandidate = {
+      pointerId,
+      buildingId: building.id,
+      roomId: building.roomId,
+      sourceTile: { ...sourceTile },
+      startX,
+      startY,
+    };
+    this.buildingDragCandidate = candidate;
+    this.buildingDragTimer = window.setTimeout(() => {
+      if (this.buildingDragCandidate !== candidate || !this.pointerPositions.has(pointerId) || this.gesture) return;
+      const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+      const current = this.snapshotData.buildings.find((entry) => entry.id === building.id);
+      if (!local?.alive || local.roomId !== candidate.roomId || current?.ownerId !== local.id) {
+        this.cancelBuildingDragHold();
+        return;
+      }
+      this.buildingDragTimer = null;
+      this.buildingDragCandidate = null;
+      this.buildingDrag = { ...candidate, targetTile: { ...candidate.sourceTile } };
+      if (this.drag?.id === pointerId) this.drag.moved = true;
+      this.highlight(candidate.sourceTile);
+      window.dispatchEvent(new CustomEvent('dorm:building-drag-start'));
+    }, BUILDING_DRAG_HOLD_MS);
+  }
+
+  private cancelBuildingDragHold(): void {
+    if (this.buildingDragTimer !== null) window.clearTimeout(this.buildingDragTimer);
+    this.buildingDragTimer = null;
+    this.buildingDragCandidate = null;
+  }
+
+  private cancelBuildingDrag(): void {
+    this.cancelBuildingDragHold();
+    if (this.buildingDrag) {
+      const view = this.buildingViews.get(this.buildingDrag.buildingId);
+      if (view) view.root.position.copy(worldPoint(this.buildingDrag.sourceTile));
+    }
+    this.buildingDrag = null;
+    this.selectionMarker.visible = false;
+  }
+
+  private previewBuildingDrag(tile: Tile): void {
+    const active = this.buildingDrag;
+    const room = active
+      ? this.mapData.rooms.find((candidate) => candidate.id === active.roomId)
+      : undefined;
+    if (!active || !room || !room.buildTiles.some((buildTile) => buildTile.x === tile.x && buildTile.y === tile.y)) return;
+    active.targetTile = { x: tile.x, y: tile.y };
+    const view = this.buildingViews.get(active.buildingId);
+    if (view) view.root.position.copy(worldPoint(active.targetTile));
+    this.highlight(active.targetTile);
+  }
+
+  private finishBuildingDrag(active: BuildingDrag, commit: boolean): void {
+    const view = this.buildingViews.get(active.buildingId);
+    if (view) view.root.position.copy(worldPoint(active.sourceTile));
+    this.buildingDrag = null;
+    this.selectionMarker.visible = false;
+    if (
+      !commit ||
+      (active.sourceTile.x === active.targetTile.x && active.sourceTile.y === active.targetTile.y)
+    )
+      return;
+    window.dispatchEvent(
+      new CustomEvent('dorm:building-move', {
+        detail: {
+          buildingId: active.buildingId,
+          roomId: active.roomId,
+          tile: active.targetTile,
+        },
+      }),
+    );
+  }
 
   private currentGesture(): MultiTouchGesture | null {
     const points = [...this.pointerPositions.values()];
@@ -2868,12 +3057,8 @@ export class ThreeGameView {
     const now = performance.now();
     if (now < this.selectionBlockedUntil) return;
     if (now - this.lastSelectionAt < TAP_GLOBAL_DEBOUNCE_MS) return;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.pointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObject(this.selectionSurface, false)[0];
-    if (!hit) return;
-    const tile = { x: Math.round(hit.point.x), y: Math.round(hit.point.z) };
+    const tile = this.tileAt(clientX, clientY);
+    if (!tile) return;
     const selectionKey = `${tile.x}:${tile.y}`;
     if (selectionKey === this.lastSelectionKey && now - this.lastSelectionAt < TAP_SAME_TILE_DEBOUNCE_MS) return;
     this.lastSelectionKey = selectionKey;

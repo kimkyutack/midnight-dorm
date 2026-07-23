@@ -731,6 +731,8 @@ export class GameEngine {
         return this.interact(playerId);
       case "build":
         return this.build(playerId, message.roomId, message.tile, message.kind);
+      case "move-building":
+        return this.moveBuilding(playerId, message.buildingId, message.tile);
       case "upgrade":
         return this.upgrade(playerId, message.targetId);
       case "remove-building":
@@ -1267,6 +1269,44 @@ export class GameEngine {
     return { ok: true };
   }
 
+  moveBuilding(playerId: string, buildingId: string, tile: Tile): ActionResult {
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    const building = this.state.buildings.find((candidate) => candidate.id === buildingId);
+    const room = building
+      ? this.state.rooms.find((candidate) => candidate.id === building.roomId)
+      : undefined;
+    if (!player || !building || !room || !player.alive || !player.roomId)
+      return { ok: false, error: '이동할 설비를 찾을 수 없습니다.' };
+    if (
+      (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') ||
+      player.roomId !== building.roomId ||
+      !room.ownerIds.includes(playerId) ||
+      building.ownerId !== playerId
+    ) {
+      return { ok: false, error: '자신이 설치한 같은 방의 설비만 옮길 수 있습니다.' };
+    }
+    if (!isBuildTile(this.map, building.roomId, tile))
+      return { ok: false, error: '건설 가능한 타일로만 설비를 옮길 수 있습니다.' };
+    if (building.tile.x === tile.x && building.tile.y === tile.y) return { ok: true };
+    const destination = this.state.buildings.find(
+      (candidate) => candidate.tile.x === tile.x && candidate.tile.y === tile.y,
+    );
+    if (destination && (destination.roomId !== building.roomId || destination.ownerId !== playerId)) {
+      return { ok: false, error: '내 설비가 있는 타일과만 위치를 교환할 수 있습니다.' };
+    }
+    const previousTile = { ...building.tile };
+    building.tile = { x: tile.x, y: tile.y };
+    if (destination) destination.tile = previousTile;
+    this.pendingEvents.push({
+      kind: 'build',
+      position: { ...building.tile },
+      playerId,
+      buildingKind: building.kind,
+      label: destination ? '설비 위치 교환' : '설비 위치 변경',
+    });
+    return { ok: true };
+  }
+
   private addBuildingInvestment(
     building: BuildingState,
     playerId: string,
@@ -1615,6 +1655,11 @@ export class GameEngine {
           building.ownerId === player.id &&
           (building.kind === "gem-core" || building.kind === "starter-grave"),
       );
+      const bedGoldPerSecond =
+        buildingStats("bed", bedLevel).value *
+          rankBenefits(activeRank).bedGoldMultiplier +
+        effects.goldPerSecond +
+        trait.goldPerSecond;
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
           total + buildingStats(building.kind, building.level).value,
@@ -1626,28 +1671,29 @@ export class GameEngine {
       player.goldIncomeElapsed += dt;
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
-        const goldBefore = player.gold;
-        const income =
-          this.state.elapsed < this.state.goldSuppressedUntil
-            ? 0
-            : buildingStats("bed", bedLevel).value *
-                rankBenefits(activeRank).bedGoldMultiplier +
-              buildingGoldPerSecond +
-              effects.goldPerSecond +
-              trait.goldPerSecond;
-        player.gold += income;
-        const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
-        if (goldGained > 0)
+        if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
+        player.gold += bedGoldPerSecond + buildingGoldPerSecond;
+        // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
+        // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
+        // 실제 생산 위치마다 별도 이벤트를 보내서 침대와 무덤(보석)의
+        // 수입을 각각 읽을 수 있게 한다.
+        if (bedGoldPerSecond > 0 && playerBed)
           this.pendingEvents.push({
             kind: "gold",
             playerId: player.id,
-            amount: goldGained,
-            position: goldBuildings[0]
-              ? { ...goldBuildings[0].tile }
-              : playerBed
-                ? { ...playerBed }
-                : undefined,
+            amount: bedGoldPerSecond,
+            position: { ...playerBed },
           });
+        for (const building of goldBuildings) {
+          const buildingIncome = buildingStats(building.kind, building.level).value;
+          if (buildingIncome <= 0) continue;
+          this.pendingEvents.push({
+            kind: "gold",
+            playerId: player.id,
+            amount: buildingIncome,
+            position: { ...building.tile },
+          });
+        }
       }
       const generators = this.state.buildings.filter(
         (building) =>
@@ -1724,8 +1770,8 @@ export class GameEngine {
                 !ghost.retreating &&
                 !ghost.healing &&
                 ghost.targetRoomId === room.id &&
-                ghost.hp / Math.max(1, ghost.maxHp) <= 0.3 &&
-                distance(ghost.position, mapRoom.door) <= 0.9,
+                ghost.hp / Math.max(1, ghost.maxHp) <= 0.2 &&
+                this.canGhostStrikeDoor(ghost, mapRoom),
             )
           : undefined;
         if (target) {
@@ -2111,8 +2157,13 @@ export class GameEngine {
           distance(ghost.position, a.position) -
           distance(ghost.position, b.position),
       )[0];
-    const destination =
-      room.doorHp > 0 ? mapRoom.door : (targetPlayer?.position ?? mapRoom.bed);
+    // A sealed-room ghost must stop one corridor tile outside the doorway.
+    // Targeting the door tile itself let a teleporter materialize directly on
+    // the door and emit a hit in the same snapshot, which looked like an
+    // off-screen attack after the next teleport snapshot arrived.
+    const destination = room.doorHp > 0
+      ? this.corridorApproachForRoom(mapRoom)
+      : (targetPlayer?.position ?? mapRoom.bed);
     const canStrikePlayer = Boolean(
       room.doorHp <= 0 &&
       targetPlayer &&
@@ -2121,7 +2172,7 @@ export class GameEngine {
     // A breached door opens a path, not a through-wall melee range.  The ghost
     // must first place its collision center on a room floor tile and reach the
     // survivor through a one-step path inside the room.
-    const canStrikeDoor = room.doorHp > 0 && this.canGhostStrikeDoor(ghost, mapRoom.door);
+    const canStrikeDoor = room.doorHp > 0 && this.canGhostStrikeDoor(ghost, mapRoom);
     if ((room.doorHp > 0 && !canStrikeDoor) || (room.doorHp <= 0 && !canStrikePlayer)) {
       this.moveGhostToward(ghost, destination, dt);
       return;
@@ -2260,8 +2311,17 @@ export class GameEngine {
     return route.length > 0 && route.length <= 2;
   }
 
-  private canGhostStrikeDoor(ghost: GhostState, door: Tile): boolean {
-    if (distance(ghost.position, door) > 0.72) return false;
+  private canGhostStrikeDoor(
+    ghost: GhostState,
+    room: MapDefinition['rooms'][number],
+  ): boolean {
+    const approach = this.corridorApproachForRoom(room);
+    // A legacy snapshot may still have a ghost centered on the door tile, but
+    // all new routes (including teleport) stop one tile outside it. Neither
+    // state can attack through the room wall or from an unrelated corridor.
+    const atDoor = distance(ghost.position, room.door) <= 0.34;
+    const atApproach = distance(ghost.position, approach) <= 0.34;
+    if (!atDoor && !atApproach) return false;
     const ghostX = Math.round(ghost.position.x);
     const ghostY = Math.round(ghost.position.y);
     // A door may only be attacked from its corridor tile.  Without this guard,
@@ -2275,18 +2335,21 @@ export class GameEngine {
       return false;
     // Distance alone can be short across a corner or wall. Require a direct
     // corridor route no longer than one tile before a door can take damage.
-    const route = findPath(this.map, ghost.position, door);
+    const route = findPath(this.map, ghost.position, room.door);
     return route.length > 0 && route.length <= 2;
   }
 
   private corridorApproachForRoom(room: MapDefinition["rooms"][number]): Tile {
+    const directOutside = this.map.corridorTiles.find(
+      (tile) =>
+        (tile.x !== room.door.x || tile.y !== room.door.y) &&
+        Math.abs(tile.x - room.door.x) + Math.abs(tile.y - room.door.y) === 1,
+    );
+    if (directOutside) return directOutside;
     return (
-      [...this.map.corridorTiles]
+      this.map.corridorTiles
         .filter(
-          (tile) =>
-            !room.floorTiles.some(
-              (floor) => floor.x === tile.x && floor.y === tile.y,
-            ),
+          (tile) => tile.x !== room.door.x || tile.y !== room.door.y,
         )
         .sort(
           (a, b) => distance(a, room.door) - distance(b, room.door),

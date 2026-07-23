@@ -123,6 +123,7 @@ export class GameNetwork {
     this.lastBuildSentAt = now;
     this.send({ type: 'build', roomId, tile, kind });
   }
+  moveBuilding(buildingId: string, tile: Tile): void { this.send({ type: 'move-building', buildingId, tile }); }
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }

@@ -102,6 +102,11 @@ let homePlayMode: PlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
+interface BuildingMoveRequest {
+  buildingId: string;
+  roomId: string;
+  tile: Tile;
+}
 let currentView = "";
 let inputSequence = 0;
 let inputVector: Vec2 = { x: 0, y: 0 };
@@ -1229,6 +1234,14 @@ function gameScreen(state: GameSnapshot): void {
     onTargetSelected as EventListener,
   );
   window.addEventListener(
+    "dorm:building-drag-start",
+    onBuildingDragStart as EventListener,
+  );
+  window.addEventListener(
+    "dorm:building-move",
+    onBuildingMove as EventListener,
+  );
+  window.addEventListener(
     "dorm:portrait-move",
     onPortraitMove as EventListener,
   );
@@ -1475,6 +1488,30 @@ function onTargetSelected(event: CustomEvent<SceneSelection>): void {
   renderTargetPanel(event.detail);
 }
 
+function onBuildingDragStart(): void {
+  selectedTile = null;
+  selectedTarget = null;
+  app.querySelector("[data-build-panel]")?.classList.add("hidden");
+  toast("설비 이동 모드 · 빈 타일에 놓거나 내 설비 위에 놓아 위치를 교환하세요.");
+}
+
+function onBuildingMove(event: CustomEvent<BuildingMoveRequest>): void {
+  if (!snapshot) return;
+  const request = event.detail;
+  const me = snapshot.players.find((player) => player.id === playerId);
+  const building = snapshot.buildings.find((candidate) => candidate.id === request.buildingId);
+  if (!me || !building || building.roomId !== me.roomId || building.ownerId !== me.id) {
+    toast("자신이 설치한 현재 방의 설비만 옮길 수 있습니다.");
+    return;
+  }
+  if (!claimAction(`move-building:${request.buildingId}`, 450)) return;
+  suppressTileSelection(650);
+  selectedTile = null;
+  selectedTarget = null;
+  app.querySelector("[data-build-panel]")?.classList.add("hidden");
+  network?.moveBuilding(request.buildingId, request.tile);
+}
+
 function panelHeadingMarkup(kicker: string, title: string): string {
   return `<header class="build-panel-heading"><div><span>${kicker}</span><h3>${title}</h3></div><button class="panel-close" type="button" data-close-build aria-label="설치 창 닫기">×</button></header>`;
 }
@@ -1563,7 +1600,9 @@ function renderBuildPanel(tile: Tile): void {
     return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
   };
   const goldCards = availableKinds
-    .filter((kind) => upgradeCost(kind, 1, modeRank).gold > 0)
+    // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
+    // 아니라 골드/아이템 설비이므로 골드 탭에 항상 남겨 둔다.
+    .filter((kind) => upgradeCost(kind, 1, modeRank).gold > 0 || kind === "lucky-machine")
     .map(buildCard)
     .join("");
   const powerCards = availableKinds
@@ -2305,6 +2344,14 @@ function destroyGame(): void {
   window.removeEventListener(
     "dorm:target-selected",
     onTargetSelected as EventListener,
+  );
+  window.removeEventListener(
+    "dorm:building-drag-start",
+    onBuildingDragStart as EventListener,
+  );
+  window.removeEventListener(
+    "dorm:building-move",
+    onBuildingMove as EventListener,
   );
   window.removeEventListener(
     "dorm:portrait-move",
