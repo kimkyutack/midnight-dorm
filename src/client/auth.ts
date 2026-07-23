@@ -30,5 +30,9 @@ export const purchaseConsumable = (itemId: string, quantity: 1 | 5): Promise<Acc
 });
 
 export async function logoutAccount(): Promise<void> {
-  await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' } });
+  const response = await fetch('/api/auth/logout', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('로그아웃 요청을 처리하지 못했습니다.');
 }

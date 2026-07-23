@@ -54,10 +54,16 @@ function mesh(
 
 /**
  * 설치 모달은 전투 중에도 열리므로 WebGL 컨텍스트가 잠깐 복구 중일 수 있다.
- * 그 경우에도 카드가 빈 원으로 남지 않도록, 실제 설비 실루엣을 닮은 SVG를
- * 먼저 표시하고 3D 캡처가 성공하면 그 이미지로 교체한다.
+ * 그 경우에도 카드가 빈 원으로 남지 않도록, 실제 보드용 일러스트를 먼저
+ * 표시하고 3D 캡처가 성공하면 그 이미지로 교체한다. 이미지가 없는 구형
+ * 설비만 SVG 실루엣을 사용한다.
  */
 function buildingFallbackArt(kind: BuildingKind): string {
+  // Use the same illustrated asset as the board whenever it is available.
+  // This keeps the install modal from briefly showing the old metal-only SVG
+  // while a WebGL thumbnail is still being captured.
+  const imageAsset = buildingAssetUrl(kind, 1);
+  if (imageAsset) return imageAsset;
   const art: Record<BuildingKind, { accent: string; detail: string }> = {
     bed: { accent: '#78dff1', detail: '<rect x="48" y="82" width="160" height="56" rx="14" fill="#6ba7c5"/><rect x="59" y="66" width="54" height="32" rx="11" fill="#eff5f4"/><path d="M48 120v37m160-37v37" stroke="#d7b37a" stroke-width="12" stroke-linecap="round"/>' },
     'reinforced-door': { accent: '#f0b765', detail: '<path d="M73 154V45q55-35 110 0v109z" fill="#985c42" stroke="#ffd38a" stroke-width="9"/><path d="M97 62v81m31-97v108m31-92v81" stroke="#4b2e35" stroke-width="9"/><circle cx="161" cy="104" r="7" fill="#ffe09a"/>' },

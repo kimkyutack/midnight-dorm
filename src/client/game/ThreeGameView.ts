@@ -1863,8 +1863,8 @@ export class ThreeGameView {
     const corridorKeys = new Set(this.mapData.corridorTiles.map((tile) => `${tile.x},${tile.y}`));
     const corridorTiles = this.mapData.corridorTiles;
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
-    const floorTexture = this.loadEnvironmentTexture('/assets/environment/ward-floor-tile.png');
-    const wallTexture = this.loadEnvironmentTexture('/assets/environment/ward-wall-surface.png');
+    const floorTexture = this.loadEnvironmentTexture(this.theme.floorAsset);
+    const wallTexture = this.loadEnvironmentTexture(this.theme.wallAsset);
     this.addTileInstances(corridorTiles, this.theme.corridor, floorTexture, 0, 'corridor');
     this.addTileInstances(roomTiles, this.theme.room, floorTexture, 0.003, 'room');
 
@@ -2537,13 +2537,19 @@ export class ThreeGameView {
       const beforeX = view.root.position.x;
       const beforeZ = view.root.position.z;
       const amount = 1 - Math.exp(-8 * dt);
-      const radius = ghost.variant === 'giant' ? 0.38 : ghost.variant === 'minion' ? 0.16 : BALANCE.ghost.collisionRadius;
-      const corrected = moveInWalkableArea(this.mapData, { x: beforeX, y: beforeZ }, {
-        x: (view.target.x - beforeX) * amount,
-        y: (view.target.z - beforeZ) * amount,
-      }, radius);
-      view.root.position.x = corrected.x;
-      view.root.position.z = corrected.y;
+      const targetDistance = Math.hypot(view.target.x - beforeX, view.target.z - beforeZ);
+      // Ghost positions are server-authoritative.  Running them through the
+      // survivor collision prediction made fast movers get caught at a wall
+      // corner after a state jump, so the actual ghost could remain offscreen
+      // while it was already attacking at its latest server position.
+      if (targetDistance > 1.1) {
+        view.root.position.x = view.target.x;
+        view.root.position.z = view.target.z;
+      } else {
+        view.root.position.x += (view.target.x - beforeX) * amount;
+        view.root.position.z += (view.target.z - beforeZ) * amount;
+      }
+      view.root.visible = ghost.hp > 0;
       const dx = view.root.position.x - beforeX;
       const dz = view.root.position.z - beforeZ;
       const moving = Math.hypot(dx, dz) > 0.001;

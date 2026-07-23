@@ -47,6 +47,55 @@ interface AtlasLayer {
 
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
+const GHOST_ATLAS_VERSION = 'ghost-atlas-v2';
+let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
+
+/**
+ * Network/cache failures must never make a boss effectively invisible.  The
+ * normal atlas remains the primary art; this is only swapped in by the image
+ * loader error callback and mirrors the same 4×3 atlas layout.
+ */
+function ghostAtlasFallback(): THREE.CanvasTexture {
+  if (fallbackGhostAtlas) return fallbackGhostAtlas;
+  const cell = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = cell * 4;
+  canvas.height = cell * 3;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to create ghost fallback atlas');
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const x = column * cell;
+      const y = row * cell;
+      const glow = context.createRadialGradient(x + cell / 2, y + cell / 2, 5, x + cell / 2, y + cell / 2, 39);
+      glow.addColorStop(0, 'rgba(255, 115, 70, .95)');
+      glow.addColorStop(0.55, 'rgba(130, 18, 38, .86)');
+      glow.addColorStop(1, 'rgba(20, 2, 10, 0)');
+      context.fillStyle = glow;
+      context.beginPath();
+      context.arc(x + cell / 2, y + cell / 2, 40, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#250612';
+      context.beginPath();
+      context.arc(x + cell / 2, y + 40, 23, Math.PI, 0);
+      context.lineTo(x + cell / 2 + 27, y + 70);
+      context.lineTo(x + cell / 2 - 27, y + 70);
+      context.closePath();
+      context.fill();
+      context.fillStyle = '#ffcf5a';
+      for (const eyeX of [x + cell / 2 - 9, x + cell / 2 + 9]) {
+        context.beginPath();
+        context.arc(eyeX, y + 47, 4, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+  }
+  fallbackGhostAtlas = new THREE.CanvasTexture(canvas);
+  fallbackGhostAtlas.colorSpace = THREE.SRGBColorSpace;
+  fallbackGhostAtlas.minFilter = THREE.LinearFilter;
+  fallbackGhostAtlas.magFilter = THREE.LinearFilter;
+  return fallbackGhostAtlas;
+}
 
 const SURVIVOR_IDS = new Set([
   'character-bunny',
@@ -94,7 +143,20 @@ function acquireTexture(url: string): THREE.Texture {
     cached.references += 1;
     return cached.texture;
   }
-  const texture = textureLoader.load(url);
+  const texture = textureLoader.load(
+    url,
+    undefined,
+    undefined,
+    () => {
+      // iOS can retain a failed image response in a prior page cache.  Keep
+      // the actor present while the next app load refetches the versioned URL.
+      const fallback = ghostAtlasFallback();
+      // TextureLoader is declared with HTMLImageElement even though WebGL
+      // accepts a canvas source as well.
+      texture.image = fallback.image as unknown as HTMLImageElement;
+      texture.needsUpdate = true;
+    },
+  );
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
@@ -156,8 +218,10 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
 export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinition {
   const safeVariant = GHOST_SPRITE_IDS.has(variant) ? variant : 'undead';
   return {
-    movementUrl: `/assets/sprites/ghosts/${safeVariant}/movement-sheet.png`,
-    attackUrl: `/assets/sprites/ghosts/${safeVariant}/attack-sheet.png`,
+    // Versioning forces iOS Safari to discard an old, partially cached atlas
+    // instead of keeping a transparent texture for the entire match.
+    movementUrl: `/assets/sprites/ghosts/${safeVariant}/movement-sheet.png?v=${GHOST_ATLAS_VERSION}`,
+    attackUrl: `/assets/sprites/ghosts/${safeVariant}/attack-sheet.png?v=${GHOST_ATLAS_VERSION}`,
     size: ghostSizes[variant],
     renderOrder: 5_100,
     name: variant,

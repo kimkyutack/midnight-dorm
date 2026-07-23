@@ -192,6 +192,36 @@ function forgetRoom(code: string): void {
   saveProfile(profile);
 }
 
+/**
+ * A cold-start WebSocket failure usually means an old room/session survived a
+ * deployment while its realtime instance did not. Do not leave that browser
+ * retrying on the loading screen: clear the local resume data, request a
+ * server logout, and require credentials before any future auto-resume.
+ */
+function invalidateRealtimeSession(
+  failedNetwork: GameNetwork,
+  code: string,
+): void {
+  if (network !== failedNetwork) return;
+  failedNetwork.close();
+  network = null;
+  forgetRoom(code);
+  profile.mustReauthenticate = true;
+  saveProfile(profile);
+  destroyGame();
+  snapshot = null;
+  mapData = null;
+  playerId = "";
+  selectedTile = null;
+  selectedTarget = null;
+  inputVector = { x: 0, y: 0 };
+  resultRecorded = false;
+  account = null;
+  authScreen();
+  toast("실시간 연결을 복구하지 못했습니다. 다시 로그인해주세요.");
+  void logoutAccount().catch(() => undefined);
+}
+
 const escapeHtml = (value: string): string =>
   value.replace(
     /[&<>'"]/g,
@@ -882,6 +912,7 @@ function authScreen(mode: "login" | "register" = "login"): void {
         .then((next) => {
           account = next;
           profile.nickname = next.nickname;
+          profile.mustReauthenticate = false;
           saveProfile(profile);
           homeScreen();
         })
@@ -944,6 +975,8 @@ function roomMenu(): void {
     "click",
     () =>
       void logoutAccount().then(() => {
+        profile.mustReauthenticate = true;
+        saveProfile(profile);
         account = null;
         network?.close();
         network = null;
@@ -1030,28 +1063,30 @@ async function joinRoom(): Promise<void> {
 function connectToRoom(code: string, addSoloBots: boolean): void {
   network?.close();
   resultRecorded = false;
-  network = new GameNetwork(
+  const roomNetwork = new GameNetwork(
     code,
     profile.nickname,
     profile.deviceId,
     profile.reconnectTokens[code],
   );
+  network = roomNetwork;
   let firstWelcome = true;
-  network.on("welcome", ({ playerId: id, map, snapshot: initial }) => {
+  roomNetwork.on("welcome", ({ playerId: id, map, snapshot: initial }) => {
+    if (network !== roomNetwork) return;
     const previous = snapshot;
     playerId = id;
     mapData = map;
     snapshot = initial;
     updateTestApi();
-    profile.reconnectTokens[code] = network?.reconnectToken ?? "";
+    profile.reconnectTokens[code] = roomNetwork.reconnectToken;
     saveProfile(profile);
     if (firstWelcome) {
       firstWelcome = false;
       renderForSnapshot(initial, true);
       if (addSoloBots && initial.hostId === id) {
-        network?.addBot("easy");
-        network?.addBot("normal");
-        network?.addBot("normal");
+        roomNetwork.addBot("easy");
+        roomNetwork.addBot("normal");
+        roomNetwork.addBot("normal");
       }
     } else {
       renderForSnapshot(initial, false);
@@ -1060,7 +1095,8 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     }
     updateTestApi();
   });
-  network.on("snapshot", ({ snapshot: next, events }) => {
+  roomNetwork.on("snapshot", ({ snapshot: next, events }) => {
+    if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
     updateTestApi();
@@ -1070,14 +1106,20 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     refreshSelectionPanel(previous);
     updateTestApi();
   });
-  network.on("connection", ({ state, attempt }) =>
-    updateConnection(state, attempt),
-  );
-  network.on("error", ({ message }) => {
+  roomNetwork.on("connection", ({ state, attempt }) => {
+    if (network === roomNetwork) updateConnection(state, attempt);
+  });
+  roomNetwork.on("error", ({ message, fatal }) => {
+    if (network !== roomNetwork) return;
+    if (fatal && firstWelcome) {
+      invalidateRealtimeSession(roomNetwork, code);
+      return;
+    }
     toast(message);
     refreshSelectionPanel(null);
   });
-  network.on("roomExit", ({ reason }) => {
+  roomNetwork.on("roomExit", ({ reason }) => {
+    if (network !== roomNetwork) return;
     const message =
       reason === "kicked"
         ? "방장에 의해 방에서 나왔습니다."
@@ -1086,11 +1128,12 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
           : "방에서 나왔습니다.";
     exitRoomToMenu(message);
   });
-  network.on("ping", ({ milliseconds }) => {
+  roomNetwork.on("ping", ({ milliseconds }) => {
+    if (network !== roomNetwork) return;
     ping = milliseconds;
     updateHud();
   });
-  network.connect();
+  roomNetwork.connect();
 }
 
 function lobbyScreen(state: GameSnapshot): void {
@@ -2253,6 +2296,8 @@ function showSettings(): void {
           selectedTarget = null;
           inputVector = { x: 0, y: 0 };
           resultRecorded = false;
+          profile.mustReauthenticate = true;
+          saveProfile(profile);
           account = null;
           modal.remove();
           authScreen();
@@ -2420,6 +2465,10 @@ window.setTimeout(() => {
 }, 350);
 
 async function resumeOrEnter(): Promise<void> {
+  if (profile.mustReauthenticate) {
+    authScreen();
+    return;
+  }
   try {
     account = await getAccount();
     profile.nickname = account.nickname;

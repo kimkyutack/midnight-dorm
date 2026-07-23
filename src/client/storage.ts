@@ -12,6 +12,9 @@ export interface LocalProfile {
   recentRoomCode: string;
   installHintShown: boolean;
   openingSeen: boolean;
+  /** A failed cold-start realtime handshake must not silently restore an
+   * otherwise valid cookie on the next page open. */
+  mustReauthenticate: boolean;
   reconnectTokens: Record<string, string>;
 }
 
@@ -31,6 +34,7 @@ const defaults = (): LocalProfile => ({
   recentRoomCode: '',
   installHintShown: false,
   openingSeen: false,
+  mustReauthenticate: false,
   reconnectTokens: {},
 });
 

@@ -1,5 +1,9 @@
 import type { BuildingKind } from '../../shared/types';
 
+// Asset URLs are versioned so a device with an older service-worker/image
+// cache receives the new illustration set immediately after an app update.
+const BUILDING_ART_VERSION = 'cute-toy-v2';
+
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',
   'generator',
@@ -22,7 +26,7 @@ const STATIC_ART: Partial<Record<BuildingKind, string>> = {
  * return null because they cannot be installed in a new match. */
 export function buildingAssetUrl(kind: BuildingKind, level = 1): string | null {
   if (LEVELLED_BUILDINGS.has(kind))
-    return `/assets/buildings/${kind}-${Math.max(1, Math.floor(level))}.png`;
+    return `/assets/buildings/${kind}-${Math.max(1, Math.floor(level))}.png?v=${BUILDING_ART_VERSION}`;
   const filename = STATIC_ART[kind];
-  return filename ? `/assets/buildings/${filename}.png` : null;
+  return filename ? `/assets/buildings/${filename}.png?v=${BUILDING_ART_VERSION}` : null;
 }

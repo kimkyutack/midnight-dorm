@@ -5,7 +5,7 @@ export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
   snapshot: { snapshot: GameSnapshot; events: GameEvent[] };
   connection: { state: 'connecting' | 'connected' | 'reconnecting' | 'closed'; attempt: number };
-  error: { message: string };
+  error: { message: string; fatal?: boolean };
   ping: { milliseconds: number };
   roomExit: { reason: 'left' | 'kicked' | 'room-closed' };
 }
@@ -88,10 +88,15 @@ export class GameNetwork {
       } else this.emit('connection', { state: 'closed', attempt: this.reconnectAttempts });
     });
     socket.addEventListener('error', () => {
-      // A socket error is commonly followed by close while a device changes
-      // radio. Let the reconnect overlay handle that path without showing a
-      // fatal toast; surface only an initial connection failure.
-      if (this.socket === socket && !opened) this.emit('error', { message: '실시간 서버에 연결하지 못했습니다. 재시도합니다.' });
+      if (this.socket !== socket || opened) return;
+      // A fresh page has not received a welcome snapshot yet. Retrying a
+      // stale deployment/room handshake leaves the app permanently on the
+      // loading screen, so let the caller invalidate that saved session.
+      this.stopped = true;
+      this.emit('error', {
+        message: '실시간 서버에 연결하지 못했습니다.',
+        fatal: true,
+      });
     });
   }
 

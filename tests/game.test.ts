@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
 import { CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
@@ -19,6 +19,8 @@ import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFrom
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
+import { buildingAssetUrl } from '../src/client/game/BuildingAssets';
+import { GameNetwork } from '../src/client/network';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -102,6 +104,53 @@ describe('mobile viewport compatibility', () => {
   });
 });
 
+describe('cold realtime connection failures', () => {
+  it('marks a first websocket handshake error as fatal instead of starting a retry loop', () => {
+    class FailingWebSocket {
+      static OPEN = 1;
+      static instances: FailingWebSocket[] = [];
+      readonly listeners = new Map<string, Array<() => void>>();
+      readyState = 0;
+
+      constructor(readonly url: string) {
+        FailingWebSocket.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: () => void): void {
+        const registered = this.listeners.get(type) ?? [];
+        registered.push(listener);
+        this.listeners.set(type, registered);
+      }
+
+      send(): void {}
+      close(): void { this.readyState = 3; }
+      emit(type: string): void { for (const listener of this.listeners.get(type) ?? []) listener(); }
+    }
+
+    vi.stubGlobal('location', { protocol: 'https:', host: 'midnight.test' });
+    vi.stubGlobal('WebSocket', FailingWebSocket as unknown as typeof WebSocket);
+    try {
+      const network = new GameNetwork('TESTROOM', 'Tester', 'device-test');
+      const errors: Array<{ message: string; fatal?: boolean }> = [];
+      const connectionStates: string[] = [];
+      network.on('error', (event) => errors.push(event));
+      network.on('connection', (event) => connectionStates.push(event.state));
+      network.connect();
+      const socket = FailingWebSocket.instances[0];
+      if (!socket) throw new Error('socket was not created');
+      socket.emit('error');
+      expect(errors).toEqual([
+        { message: '실시간 서버에 연결하지 못했습니다.', fatal: true },
+      ]);
+      socket.emit('close');
+      expect(connectionStates).toEqual(['connecting', 'closed']);
+      expect(FailingWebSocket.instances).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('deterministic shared world', () => {
   it('replays a seeded random sequence exactly', () => {
     const first = new SeededRandom(42);
@@ -117,6 +166,9 @@ describe('deterministic shared world', () => {
     expect(stageThemeFor('epic-1').id).toBe('junkyard');
     expect(stageThemeFor('mythic-1').id).toBe('occult');
     expect(stageThemeFor('legendary-1').id).toBe('void');
+    const assets = ['easy-1', 'nightmare-1', 'hell-1', 'inferno-1', 'epic-1', 'mythic-1', 'legendary-1']
+      .map((stage) => `${stageThemeFor(stage).floorAsset}:${stageThemeFor(stage).wallAsset}`);
+    expect(new Set(assets).size).toBe(assets.length);
   });
 
   it('defines a badge and evolving hat identity for all six ranks', () => {
@@ -220,6 +272,33 @@ describe('deterministic shared world', () => {
   });
 });
 
+describe('generated mobile game art', () => {
+  it('maps every one of 15 guardian turret levels to its own tile-safe image', () => {
+    const assets = Array.from({ length: 15 }, (_, index) =>
+      buildingAssetUrl('basic-turret', index + 1),
+    );
+    expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
+    expect(new Set(assets).size).toBe(15);
+  });
+
+  it('maps every one of 10 moonlight generator levels to its own image', () => {
+    const assets = Array.from({ length: 10 }, (_, index) =>
+      buildingAssetUrl('generator', index + 1),
+    );
+    expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
+    expect(new Set(assets).size).toBe(10);
+  });
+
+  it('maps each stage theme to a distinct floor and wall material set', () => {
+    const stages = ['easy-1', 'nightmare-1', 'hell-1', 'inferno-1', 'epic-1', 'mythic-1', 'legendary-1'];
+    const assets = stages.flatMap((stage) => {
+      const definition = stageThemeFor(stage);
+      return [definition.floorAsset, definition.wallAsset];
+    });
+    expect(new Set(assets).size).toBe(assets.length);
+  });
+});
+
 describe('survivor customization rules', () => {
   it('uses neutral base atlases by default and complete atlases only for selected skins', () => {
     expect(skinMovementSheetUrl(DEFAULT_APPEARANCE))
@@ -259,6 +338,10 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('brute').sideFacesLeft).toBe(true);
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('swift').movementUrl)
+      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v2');
+    expect(ghostSpriteDefinition('swift').attackUrl)
+      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v2');
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
