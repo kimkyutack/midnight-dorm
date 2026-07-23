@@ -2037,7 +2037,8 @@ export class GameEngine {
     // A breached door opens a path, not a through-wall melee range.  The ghost
     // must first place its collision center on a room floor tile and reach the
     // survivor through a one-step path inside the room.
-    if (distance(ghost.position, destination) > 0.72 || (room.doorHp <= 0 && !canStrikePlayer)) {
+    const canStrikeDoor = room.doorHp > 0 && this.canGhostStrikeDoor(ghost, mapRoom.door);
+    if ((room.doorHp > 0 && !canStrikeDoor) || (room.doorHp <= 0 && !canStrikePlayer)) {
       this.moveGhostToward(ghost, destination, dt);
       return;
     }
@@ -2082,7 +2083,7 @@ export class GameEngine {
     const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
     ghost.attackCooldown =
       BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1));
-    if (room.doorHp > 0) {
+    if (room.doorHp > 0 && canStrikeDoor) {
       const rawShieldReduction =
         this.state.elapsed < room.shieldUntil
           ? this.state.buildings
@@ -2172,6 +2173,14 @@ export class GameEngine {
     // Euclidean distance alone can be short across a wall corner.  A direct
     // in-room route of at most one tile is required for a melee elimination.
     const route = findPath(this.map, ghost.position, player.position);
+    return route.length > 0 && route.length <= 2;
+  }
+
+  private canGhostStrikeDoor(ghost: GhostState, door: Tile): boolean {
+    if (distance(ghost.position, door) > 0.72) return false;
+    // Distance alone can be short across a corner or wall. Require a direct
+    // corridor route no longer than one tile before a door can take damage.
+    const route = findPath(this.map, ghost.position, door);
     return route.length > 0 && route.length <= 2;
   }
 

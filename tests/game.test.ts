@@ -15,7 +15,10 @@ import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
+import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
+import { cosmeticPreviewLayerUrl, cosmeticProductUrl, wearableIds } from '../src/client/game/CosmeticAssets';
+import { paperDollBaseMovementUrl, paperDollLayers } from '../src/client/game/PaperDoll';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -209,6 +212,57 @@ describe('deterministic shared world', () => {
 });
 
 describe('survivor customization rules', () => {
+  it('uses one neutral paper-doll base with reusable, ordered equipment layers', () => {
+    const appearance = {
+      ...DEFAULT_APPEARANCE,
+      character: 'character-bunny',
+      outfit: 'outfit-raincoat',
+      shoes: 'shoes-boots',
+      hat: 'hat-silver-crown',
+      accessory: 'accessory-backpack',
+    };
+    const layers = paperDollLayers(appearance);
+    expect(paperDollBaseMovementUrl(appearance.character))
+      .toBe('/assets/paperdoll/bases/character-bunny/movement-sheet.png');
+    expect(layers.map((layer) => layer.id)).toEqual([
+      'accessory-backpack',
+      'outfit-raincoat',
+      'shoes-boots',
+      'paperdoll-face-overlay',
+      'hat-silver-crown',
+    ]);
+    expect(layers.map((layer) => layer.renderOrder)).toEqual([5190, 5201, 5202, 5203, 5204]);
+    expect(layers.at(-1)?.url)
+      .toBe('/assets/paperdoll/layers/hats/character-bunny/hat-silver-crown.png');
+  });
+
+  it('selects the correct 2D atlas row and mirrored side for movement', () => {
+    expect(spriteFacingFromDelta(0, 1)).toEqual({ direction: 'front', mirrored: false });
+    expect(spriteFacingFromDelta(0, -1)).toEqual({ direction: 'back', mirrored: false });
+    expect(spriteFacingFromDelta(1, 0)).toEqual({ direction: 'side', mirrored: false });
+    expect(spriteFacingFromDelta(-1, 0)).toEqual({ direction: 'side', mirrored: true });
+    expect(spriteFacingFromDelta(0, 0, { direction: 'side', mirrored: true })).toEqual({ direction: 'side', mirrored: true });
+  });
+
+  it('uses anchored footstep frames and three attack frames without invalid indices', () => {
+    expect(movementFrameAt(0, false)).toBe(0);
+    expect(movementFrameAt(0, true)).toBe(0);
+    expect(movementFrameAt(260, true)).toBe(1);
+    expect(movementFrameAt(780, true)).toBe(3);
+    expect(attackFrameAt(0, 480)).toBe(0);
+    expect(attackFrameAt(240, 480)).toBe(1);
+    expect(attackFrameAt(480, 480)).toBe(2);
+    expect(survivorSpriteId('unknown-character')).toBe('character-bunny');
+  });
+
+  it('mirrors only the ghost side sheets that were illustrated facing left', () => {
+    expect(ghostSpriteDefinition('wanderer').sideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('brute').sideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
+    expect(survivorSpriteDefinition('character-bunny').sleepUrl).toBe('/assets/sprites/survivors/character-bunny/sleep.png');
+  });
+
   it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
     expect(movementFacingYaw(0, -1)).toBeCloseTo(0);
     expect(Math.abs(movementFacingYaw(0, 1))).toBeCloseTo(Math.PI);
@@ -251,6 +305,20 @@ describe('survivor customization rules', () => {
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.hat);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'outfit')).toHaveLength(12);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'shoes')).toHaveLength(10);
+  });
+
+  it('uses item-only catalog art and safe wearable preview layers', () => {
+    expect(cosmeticProductUrl('hat-beanie')).toBe('/assets/cosmetics/items/hat-beanie.png');
+    expect(cosmeticPreviewLayerUrl('hat-beanie')).toBe('/assets/cosmetics/preview/hat-beanie.png');
+    expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
+    expect(cosmeticProductUrl('accessory-none')).toBeUndefined();
+    expect(cosmeticProductUrl('missing-item')).toBeUndefined();
+    expect(wearableIds(DEFAULT_APPEARANCE).map(([slot]) => slot)).toEqual([
+      'outfit',
+      'shoes',
+      'hat',
+      'accessory',
+    ]);
   });
 
   it('gives every non-default survivor exactly one distinct gameplay trait', () => {

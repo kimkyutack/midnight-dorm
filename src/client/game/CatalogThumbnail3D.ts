@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  DEFAULT_APPEARANCE,
   DEFAULT_TURRET_SKINS,
   cosmeticById,
 } from '../../shared/customization';
@@ -9,10 +8,11 @@ import type {
   BuildingKind,
   BuildingState,
   ConsumableId,
-  RankId,
   TurretSkinLoadout,
 } from '../../shared/types';
-import { createBuildingModel, createPlayerRig, createTurretPreviewModel } from './ThreeGameView';
+import { survivorSpriteId } from './AtlasSpriteActor';
+import { cosmeticProductUrl } from './CosmeticAssets';
+import { createBuildingModel, createTurretPreviewModel } from './ThreeGameView';
 
 const WIDTH = 256;
 const HEIGHT = 210;
@@ -367,7 +367,6 @@ function setImage(image: HTMLImageElement, source: string): void {
 
 export interface CatalogArtOptions {
   appearance?: AvatarAppearance;
-  rank?: RankId;
   turretSkins?: TurretSkinLoadout;
 }
 
@@ -377,8 +376,6 @@ interface CatalogArtHost {
 
 /** 현재 화면에 있는 카드만 실제 게임 모델로 그려, 모바일 WebGL 부하를 제한한다. */
 export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptions = {}): void {
-  const appearance = options.appearance ?? DEFAULT_APPEARANCE;
-  const rank = options.rank ?? 'beginner';
   const turretSkins = options.turretSkins ?? DEFAULT_TURRET_SKINS;
   host.querySelectorAll<HTMLImageElement>('[data-cosmetic-art]').forEach((image) => {
     try {
@@ -390,9 +387,18 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
         setImage(image, getRenderer().render(`turret:${id}`, model, 'turret'));
         return;
       }
-      const preview = { ...appearance, ...(item.slot === 'turret' ? {} : { [item.slot]: item.id }) };
-      const rig = createPlayerRig(preview, rank, 0x78dff1, false);
-      setImage(image, getRenderer().render(`cosmetic:${id}:${rank}:${appearance.character}`, rig.root, 'avatar'));
+      if (item.slot === 'character') {
+        setImage(image, `/assets/sprites/survivors/${survivorSpriteId(item.id)}/concept.png`);
+        return;
+      }
+      const productUrl = cosmeticProductUrl(item.id);
+      image.dataset.spriteLayer = item.slot;
+      if (productUrl) {
+        setImage(image, productUrl);
+        return;
+      }
+      // "장신구 없음"은 캐릭터 사진 대신 비어 있음을 명확히 보여준다.
+      setImage(image, `data:image/svg+xml;charset=UTF-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="36" fill="none" stroke="#82909a" stroke-width="7" opacity=".72"/><path d="M39 89l50-50" stroke="#82909a" stroke-width="7" stroke-linecap="round" opacity=".72"/></svg>')}`);
     } catch (error) {
       console.warn(`Cosmetic thumbnail unavailable: ${image.dataset.cosmeticArt ?? ''}`, error);
     }

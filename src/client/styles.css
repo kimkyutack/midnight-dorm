@@ -618,6 +618,101 @@
   width: 100%;
   height: 100%;
 }
+.avatar-sprite-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.avatar-sprite-preview-image {
+  grid-area: 1 / 1;
+  display: block;
+  width: min(94%, 330px);
+  height: min(94%, 330px);
+  object-fit: contain;
+  filter: drop-shadow(0 14px 15px rgba(0, 0, 0, 0.42));
+  image-rendering: auto;
+}
+.paperdoll-preview-canvas {
+  grid-area: 1 / 1;
+  display: block;
+  width: min(80%, 292px);
+  height: min(84%, 306px);
+  object-fit: contain;
+  filter: drop-shadow(0 14px 15px rgba(0, 0, 0, 0.42));
+  image-rendering: auto;
+}
+.avatar-cosmetic-layer {
+  display: block;
+  grid-area: 1 / 1;
+  z-index: 2;
+  width: min(94%, 330px);
+  height: min(94%, 330px);
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 7px rgba(0, 0, 0, 0.2));
+}
+.avatar-face-restoration {
+  display: block;
+  grid-area: 1 / 1;
+  z-index: 6;
+  width: min(94%, 330px);
+  height: min(94%, 330px);
+  object-fit: contain;
+  clip-path: ellipse(22% 10% at 50% 53%);
+  pointer-events: none;
+}
+.avatar-cosmetic-outfit { z-index: 1; }
+.avatar-cosmetic-shoes { z-index: 3; }
+.avatar-cosmetic-hat { z-index: 4; }
+.avatar-cosmetic-accessory { z-index: 5; }
+.avatar-cosmetic-layer.direction-hidden,
+.avatar-cosmetic-layer[hidden],
+.avatar-face-restoration.direction-hidden { display: none; }
+.home-sprite-preview {
+  overflow: visible;
+}
+.home-sprite-preview .avatar-sprite-preview-image {
+  position: absolute;
+  bottom: 2%;
+  width: 64%;
+  height: 86%;
+}
+.home-sprite-preview .paperdoll-preview-canvas {
+  position: absolute;
+  left: 50%;
+  bottom: -8%;
+  width: min(66%, 214px);
+  height: 86%;
+  transform: translateX(-50%);
+}
+.home-sprite-preview .avatar-cosmetic-layer {
+  position: absolute;
+  bottom: -8%;
+  left: 50%;
+  width: min(66%, 214px);
+  height: 86%;
+  transform: translateX(-50%);
+}
+.home-sprite-preview .avatar-face-restoration {
+  position: absolute;
+  bottom: -8%;
+  left: 50%;
+  width: min(66%, 214px);
+  height: 86%;
+  transform: translateX(-50%);
+}
+.home-sprite-player {
+  left: 2%;
+  transform: scaleX(-1);
+}
+.home-sprite-ghost {
+  right: 0;
+  transform: scaleX(-1) scale(1.16);
+  filter: drop-shadow(0 16px 18px rgba(255, 45, 93, 0.28));
+}
 .custom-preview-badge,
 .custom-rotate-hint {
   position: absolute;
@@ -3081,8 +3176,8 @@ button {
   inset: 0;
   z-index: 5;
   overflow: hidden;
-  background: #03070c url("/assets/cinematic/dorm-home.webp") center / cover
-    no-repeat;
+  background: #03070c url("/assets/cinematic/home-hospital-corridor.png")
+    center / cover no-repeat;
 }
 .game-home::before {
   content: "";
@@ -6998,5 +7093,97 @@ select {
   .cosmetic-card-action > button {
     padding: 0 3px;
     font-size: 7px;
+  }
+}
+
+/* 2.5D home: a single survivor walks into the corridor without chase motion. */
+.home-avatar-showcase {
+  left: 50%;
+  top: 55%;
+  width: min(54cqw, 300px);
+  height: min(46cqh, 380px);
+  transform: translate(-50%, -50%);
+  animation: none;
+  will-change: auto;
+}
+.home-avatar-showcase::after {
+  bottom: 9%;
+  width: min(46cqw, 190px);
+  height: 19px;
+}
+.home-sprite-preview .home-sprite-player {
+  left: 50%;
+  bottom: -8%;
+  width: min(66%, 214px);
+  transform: translateX(-50%);
+}
+.home-sprite-preview .home-sprite-ghost {
+  display: none;
+}
+@media (orientation: portrait) {
+  .home-avatar-showcase {
+    left: 50%;
+    top: 55%;
+    width: min(68cqw, 280px);
+    height: min(43cqh, 350px);
+    transform: translate(-50%, -50%);
+  }
+  .home-avatar-showcase::after {
+    bottom: 8%;
+    width: min(46cqw, 174px);
+  }
+}
+
+/* Catalog art must reserve enough vertical room for the complete concept PNG.
+ * Trait labels now sit in a free corner instead of covering the character. */
+.custom-avatar-stage .avatar-sprite-preview-image {
+  width: min(80%, 292px);
+  height: min(84%, 306px);
+  object-position: center center;
+}
+.custom-avatar-stage .paperdoll-preview-canvas {
+  width: min(80%, 292px);
+  height: min(84%, 306px);
+  object-position: center center;
+}
+.custom-avatar-stage .avatar-cosmetic-layer {
+  width: min(80%, 292px);
+  height: min(84%, 306px);
+}
+.custom-avatar-stage .avatar-face-restoration {
+  width: min(80%, 292px);
+  height: min(84%, 306px);
+}
+.cosmetic-card {
+  min-height: 166px;
+  grid-template-rows: 94px minmax(31px, 1fr) 30px;
+}
+.cosmetic-card .cosmetic-art {
+  height: 94px;
+  padding: 3px 2px 0;
+}
+.cosmetic-card .catalog-art img {
+  object-position: center 55%;
+}
+.cosmetic-card .trait-ribbon {
+  top: 5px;
+  right: auto;
+  bottom: auto;
+  left: 5px;
+  width: auto;
+  max-width: calc(100% - 10px);
+  padding: 3px 4px;
+  font-size: 6px;
+}
+@media (orientation: portrait) {
+  .cosmetic-card {
+    min-height: 148px;
+    grid-template-rows: 80px minmax(30px, 1fr) 27px;
+  }
+  .cosmetic-card .cosmetic-art {
+    height: 80px;
+  }
+  .cosmetic-card .catalog-art img {
+    object-position: center 56%;
   }
 }

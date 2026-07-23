@@ -61,6 +61,22 @@ def expect_frames(directory: Path, count: int) -> list[Path]:
     return frames
 
 
+def validate_alignment(paths: list[Path], label: str) -> None:
+    boxes: list[tuple[int, int, int, int]] = []
+    for path in paths:
+        with Image.open(path) as image:
+            bounds = image.convert("RGBA").getchannel("A").getbbox()
+            if bounds is None:
+                raise ValueError(f"Empty aligned sprite: {path}")
+            boxes.append(bounds)
+    centers = [(left + right) / 2 for left, _, right, _ in boxes]
+    bottoms = [bottom for _, _, _, bottom in boxes]
+    if max(centers) - min(centers) > 1:
+        raise ValueError(f"Horizontal alignment drift in {label}: {centers}")
+    if len(set(bottoms)) != 1:
+        raise ValueError(f"Floor alignment drift in {label}: {bottoms}")
+
+
 def main() -> None:
     concepts: list[Path] = []
     frames: list[Path] = []
@@ -68,13 +84,19 @@ def main() -> None:
     for survivor in SURVIVORS:
         directory = SPRITE_ROOT / "survivors" / survivor
         concepts.append(directory / "concept.png")
-        frames.extend(expect_frames(directory / "frames", 12))
+        movement = expect_frames(directory / "frames", 12)
+        validate_alignment(movement, survivor)
+        frames.extend(movement)
 
     for ghost in GHOSTS:
         directory = SPRITE_ROOT / "ghosts" / ghost
         concepts.append(directory / "concept.png")
-        frames.extend(expect_frames(directory / "movement", 12))
-        frames.extend(expect_frames(directory / "attack", 9))
+        movement = expect_frames(directory / "movement", 12)
+        attack = expect_frames(directory / "attack", 9)
+        validate_alignment(movement, f"{ghost} movement")
+        validate_alignment(attack, f"{ghost} attack")
+        frames.extend(movement)
+        frames.extend(attack)
 
     if len(concepts) != 21:
         raise ValueError(f"Expected 21 concepts, found {len(concepts)}")

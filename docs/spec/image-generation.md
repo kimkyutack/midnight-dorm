@@ -21,6 +21,14 @@ Premium mobile horror survival-defense opening still, 16:9. A frightened dorm re
 Premium mobile horror game home background, 16:9. An isolated abandoned Korean university dormitory at midnight in winter, one warm-lit entrance, cold cyan windows with distant ghost silhouettes, fog, wet stone reflections, deep navy palette, grounded photoreal materials and original architecture. Dark space at upper-left for account/title and a clear lower-center entrance for the game-start button. No logo, text, watermark, UI or border.
 ```
 
+## home-hospital-corridor.png
+
+목적: 세로 게임 홈 전용 배경. 현재 착용 캐릭터가 하단 중앙에서 복도 안쪽으로 천천히 걷는다.
+
+```text
+Tall abandoned hospital corridor at midnight, centered one-point perspective, empty tiled floor and patient-room doors, faint distant exit glow, dark navy and restrained teal lighting, portrait 9:16. Keep the lower center clear for one character and the upper area quiet for HUD. No people, creatures, text, logo, watermark or UI.
+```
+
 ## ghost-roster.webp
 
 목적: 초기 6종 귀신의 콘셉트 참고 시트. 현재 전장 모델은 코드 네이티브 3D로 렌더링한다.
@@ -47,4 +55,6 @@ Production-ready 3-column by 2-row horror character sheet on a uniform pure-blac
 - 분리된 모든 프레임은 알파 채널이 있는 투명 PNG다. 원본 크로마키 시트는 각 캐릭터의 `source/`에 보존한다.
 - 전체 경로와 프레임 규칙은 `public/assets/sprites/manifest.json`, 제작 결과 확인은 `public/assets/sprites/roster-preview.png`를 기준으로 한다.
 - 프레임 분리는 `scripts/split_sprite_sheet.py`, 전체 미리보기 생성은 `scripts/build_sprite_catalog.py`, 수량·투명도 검증은 `scripts/validate_sprite_assets.py`를 사용한다.
-- 스프라이트를 실제 전장 렌더러에 연결하기 전까지 현재 Three.js 캐릭터·귀신 모델은 호환용으로 유지한다.
+- 인게임, 게임 홈, 캐릭터 상점은 이 스프라이트 프레임을 사용한다. Three.js 캐릭터·귀신 모델은 캐릭터 표시 경로에서 사용하지 않는다.
+- 현재 상점의 캐릭터·외형 카드는 선택한 본체의 콘셉트 PNG를 표시한다. 구매 외형의 고품질 시각 레이어는 다음 자산 배치에서 추가한다.
+- 구매 외형은 본체 이미지를 조합별로 다시 굽지 않고, 같은 셀 규격의 투명 레이어 아틀라스로 합성한다.

@@ -8,7 +8,8 @@ import { characterTrait } from '../../shared/characterTraits';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
-import { dampFacingYaw, movementFacingYaw } from './avatarMath';
+import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
+import { paperDollLayers } from './PaperDoll';
 
 const CAMERA_HEIGHT = 18;
 const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
@@ -22,6 +23,18 @@ const TAP_GLOBAL_DEBOUNCE_MS = 300;
 const TAP_SAME_TILE_DEBOUNCE_MS = 520;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
+const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
+  wanderer: 0xff315f,
+  swift: 0xff7438,
+  brute: 0xff4a2f,
+  caster: 0xb965ff,
+  'twin-a': 0x53ddff,
+  'twin-b': 0xff4f78,
+  teleporter: 0x42dfff,
+  undead: 0x8dff64,
+  giant: 0x58e9ff,
+  minion: 0x8dff64,
+};
 
 export interface SceneSelection {
   type: 'bed' | 'door' | 'building';
@@ -53,7 +66,11 @@ export interface PlayerRig {
   rightLeg: THREE.Group;
 }
 
-interface PlayerView extends PlayerRig {
+interface PlayerView {
+  root: THREE.Group;
+  actor: AtlasSpriteActor;
+  characterId: string;
+  appearanceKey: string;
   label: THREE.Sprite;
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
@@ -62,13 +79,13 @@ interface PlayerView extends PlayerRig {
 
 interface GhostView {
   root: THREE.Group;
-  body: THREE.Group;
-  leftArm: THREE.Group;
-  rightArm: THREE.Group;
+  actor: AtlasSpriteActor;
+  variant: GhostState['variant'];
   label: THREE.Sprite;
   hp: THREE.Sprite;
   target: THREE.Vector3;
   seed: number;
+  attackStartedAt: number;
 }
 
 interface BuildingView {
@@ -88,9 +105,17 @@ interface DoorView {
   details: THREE.Group;
   hp: THREE.Sprite;
   label: THREE.Sprite;
+  upgrade: THREE.Sprite;
   closedTarget: number;
   closedAmount: number;
   visualLevel: number;
+}
+
+interface BedView {
+  root: THREE.Group;
+  upgrade: THREE.Sprite;
+  roomId: string;
+  bedIndex: number;
 }
 
 interface PointerDrag {
@@ -243,6 +268,8 @@ function setObjectOpacity(object: THREE.Object3D, opacity: number): void {
     for (const material of materials) {
       material.transparent = opacity < 1 || material.transparent;
       material.opacity = opacity;
+      const actorOpacity = material.userData.actorOpacity as THREE.IUniform<number> | undefined;
+      if (actorOpacity) actorOpacity.value = opacity;
     }
   });
 }
@@ -1037,7 +1064,13 @@ function createAvatarAccessory(accessoryId: string): THREE.Group {
   return accessory;
 }
 
-function createGhostModel(variant: GhostState['variant']): Pick<GhostView, 'body' | 'leftArm' | 'rightArm'> {
+interface GhostPreviewModel {
+  body: THREE.Group;
+  leftArm: THREE.Group;
+  rightArm: THREE.Group;
+}
+
+function createGhostModel(variant: GhostState['variant']): GhostPreviewModel {
   const body = new THREE.Group();
   const palettes: Record<GhostState['variant'], { robe: number; skin: number; glow: number }> = {
     wanderer: { robe: 0x9a9ca1, skin: 0xd8d2cc, glow: 0xff173f },
@@ -1447,6 +1480,7 @@ export class ThreeGameView {
   private readonly ghostViews = new Map<string, GhostView>();
   private readonly buildingViews = new Map<string, BuildingView>();
   private readonly doorViews = new Map<string, DoorView>();
+  private readonly bedViews = new Map<string, BedView>();
   private readonly effects: TimedEffect[] = [];
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraTarget = new THREE.Vector3();
@@ -1487,6 +1521,7 @@ export class ThreeGameView {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.dataset.renderer = 'orthographic-2d';
+    this.renderer.domElement.dataset.actorRenderer = 'atlas-sprites';
     this.renderer.domElement.dataset.theme = this.theme.id;
     this.renderer.domElement.style.touchAction = 'none';
     this.host.appendChild(this.renderer.domElement);
@@ -1597,6 +1632,7 @@ export class ThreeGameView {
     this.snapshotData = snapshot;
     this.syncPlayers(snapshot.players);
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
+    this.syncBeds(snapshot);
     this.syncBuildings(snapshot);
     this.syncDoors(snapshot);
     for (const event of events) this.playEvent(event);
@@ -1627,6 +1663,10 @@ export class ThreeGameView {
     this.renderer.setAnimationLoop(null);
     this.resizeObserver.disconnect();
     this.unbindInput();
+    for (const view of this.playerViews.values()) view.actor.dispose();
+    for (const view of this.ghostViews.values()) view.actor.dispose();
+    this.playerViews.clear();
+    this.ghostViews.clear();
     this.scene.traverse((object) => {
       if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {
         object.geometry?.dispose();
@@ -1838,23 +1878,76 @@ export class ThreeGameView {
       bed.add(mesh(new THREE.BoxGeometry(0.88, 0.18, 0.7), frame, [0, 0.13, 0]));
       bed.add(mesh(new THREE.BoxGeometry(0.82, 0.14, 0.64), blanket, [0, 0.29, 0]));
       bed.add(mesh(new THREE.BoxGeometry(0.35, 0.11, 0.54), pillow, [-0.2, 0.4, 0]));
+      const upgrade = makeBillboard(192, 192);
+      upgrade.scale.set(0.42, 0.42, 1);
+      upgrade.position.set(0, 0.54, 0);
+      upgrade.renderOrder = 11_200;
+      upgrade.visible = false;
+      bed.add(upgrade);
       this.scene.add(bed);
+      this.bedViews.set(`${room.id}:${index}`, { root: bed, upgrade, roomId: room.id, bedIndex: index });
     });
+  }
+
+  private syncBeds(snapshot: GameSnapshot): void {
+    const local = snapshot.players.find((player) => player.id === this.playerId);
+    const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
+    for (const view of this.bedViews.values()) {
+      const room = snapshot.rooms.find((candidate) => candidate.id === view.roomId);
+      const level = room?.bedLevels[view.bedIndex] ?? 1;
+      const nextCost = level < maxBuildingLevel('bed', rank ?? 'beginner')
+        ? upgradeCost('bed', level + 1, rank ?? 'beginner')
+        : null;
+      const ownsThisBed = local?.alive && local.roomId === view.roomId && local.bedIndex === view.bedIndex;
+      const canUpgrade = Boolean(nextCost && ownsThisBed && local
+        && local.gold >= nextCost.gold && local.power >= nextCost.power);
+      view.upgrade.visible = canUpgrade;
+      if (canUpgrade) updateUpgradeBillboard(view.upgrade, `bed:${level}`, true);
+    }
   }
 
   private syncPlayers(players: PlayerState[]): void {
     const active = new Set(players.map((player) => player.id));
     for (const player of players) {
       let view = this.playerViews.get(player.id);
+      const appearanceKey = [
+        player.appearance.character,
+        player.appearance.outfit,
+        player.appearance.shoes,
+        player.appearance.hat,
+        player.appearance.accessory,
+      ].join('|');
+      if (view && view.appearanceKey !== appearanceKey) {
+        this.scene.remove(view.root);
+        view.actor.dispose();
+        this.playerViews.delete(player.id);
+        view = undefined;
+      }
       if (!view) {
-        const rig = createPlayerRig(player.appearance, player.displayRank, player.color, player.id === this.playerId);
-        rig.root.position.copy(worldPoint(player.position));
+        const root = new THREE.Group();
+        root.position.copy(worldPoint(player.position));
+        root.userData.renderMode = 'atlas-2d';
+        root.userData.appearance = { ...player.appearance };
+        const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance.character));
+        for (const layer of paperDollLayers(player.appearance)) {
+          actor.addCosmeticLayer({ movementUrl: layer.url }, layer.renderOrder);
+        }
+        root.add(actor.object);
         const label = makeBillboard();
         label.scale.set(2.35, 0.59, 1);
         label.position.set(0, PLAYER_HEIGHT + 0.36, -0.72);
-        rig.root.add(label);
-        this.scene.add(rig.root);
-        view = { ...rig, label, target: worldPoint(player.position), lastPosition: worldPoint(player.position), seed: player.id.length * 0.71 };
+        root.add(label);
+        this.scene.add(root);
+        view = {
+          root,
+          actor,
+          characterId: player.appearance.character,
+          appearanceKey,
+          label,
+          target: worldPoint(player.position),
+          lastPosition: worldPoint(player.position),
+          seed: player.id.length * 0.71,
+        };
         this.playerViews.set(player.id, view);
       }
       view.target.copy(worldPoint(player.position));
@@ -1876,6 +1969,7 @@ export class ThreeGameView {
     for (const [id, view] of this.playerViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
+      view.actor.dispose();
       this.playerViews.delete(id);
     }
   }
@@ -1884,11 +1978,19 @@ export class ThreeGameView {
     const active = new Set(ghosts.map((ghost) => ghost.id));
     for (const ghost of ghosts) {
       let view = this.ghostViews.get(ghost.id);
+      if (view && view.variant !== ghost.variant) {
+        this.scene.remove(view.root);
+        view.actor.dispose();
+        this.ghostViews.delete(ghost.id);
+        view = undefined;
+      }
       if (!view) {
         const root = new THREE.Group();
         root.position.copy(worldPoint(ghost.position));
-        const model = createGhostModel(ghost.variant);
-        root.add(model.body);
+        root.userData.renderMode = 'atlas-2d';
+        root.userData.ghostVariant = ghost.variant;
+        const actor = new AtlasSpriteActor(ghostSpriteDefinition(ghost.variant));
+        root.add(actor.object);
         const label = makeBillboard();
         label.scale.set(ghost.variant === 'minion' ? 1.7 : 2.5, ghost.variant === 'minion' ? 0.46 : 0.62, 1);
         label.position.set(0, ghost.variant === 'giant' ? 3.15 : ghost.variant === 'minion' ? 1.02 : 2.22, ghost.variant === 'giant' ? -1.05 : ghost.variant === 'minion' ? -0.42 : -0.82);
@@ -1896,11 +1998,20 @@ export class ThreeGameView {
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
         hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
         root.add(label, hp);
-        const light = new THREE.PointLight(ghost.variant === 'caster' ? 0xb965ff : 0xff284f, 2.8, 4.5, 2);
+        const light = new THREE.PointLight(GHOST_GLOW_COLORS[ghost.variant], ghost.variant === 'giant' ? 1.7 : 0.9, ghost.variant === 'giant' ? 5.2 : 3.2, 2);
         light.position.y = 1.2;
         root.add(light);
         this.scene.add(root);
-        view = { root, body: model.body, leftArm: model.leftArm, rightArm: model.rightArm, label, hp, target: worldPoint(ghost.position), seed: ghost.id.length * 1.19 };
+        view = {
+          root,
+          actor,
+          variant: ghost.variant,
+          label,
+          hp,
+          target: worldPoint(ghost.position),
+          seed: ghost.id.length * 1.19,
+          attackStartedAt: Number.NEGATIVE_INFINITY,
+        };
         this.ghostViews.set(ghost.id, view);
       }
       view.target.copy(worldPoint(ghost.position));
@@ -1913,6 +2024,7 @@ export class ThreeGameView {
     for (const [id, view] of this.ghostViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
+      view.actor.dispose();
       this.ghostViews.delete(id);
     }
   }
@@ -1969,9 +2081,10 @@ export class ThreeGameView {
           local.gold >= nextCost.gold &&
           local.power >= nextCost.power,
       );
-      view.upgrade.visible = isUpgradeable;
-      if (isUpgradeable) {
-        updateUpgradeBillboard(view.upgrade, `${building.level}:${canAffordUpgrade}`, canAffordUpgrade);
+      const canUpgrade = isUpgradeable && canAffordUpgrade;
+      view.upgrade.visible = canUpgrade;
+      if (canUpgrade) {
+        updateUpgradeBillboard(view.upgrade, `${building.level}:ready`, true);
       }
     }
     for (const [id, view] of this.buildingViews) {
@@ -2008,13 +2121,25 @@ export class ThreeGameView {
         const details = new THREE.Group();
         panel.add(surface, details);
         root.add(panel);
+        // Door orientation must not rotate the HUD: keeping this group camera
+        // aligned gives horizontal and vertical doors the same label/HP order.
+        const hud = new THREE.Group();
+        hud.rotation.y = -root.rotation.y;
         const hp = makeBillboard();
         hp.scale.set(1.72, 0.42, 1);
-        hp.position.set(0, 0.72, -0.5);
+        hp.position.set(0, 0.82, -0.62);
+        hp.renderOrder = 11_100;
         const label = makeBillboard();
         label.scale.set(1.4, 0.38, 1);
-        label.position.set(0, 0.76, -0.82);
-        root.add(hp, label);
+        label.position.set(0, 0.92, -1.16);
+        label.renderOrder = 11_110;
+        const upgrade = makeBillboard(192, 192);
+        upgrade.scale.set(0.42, 0.42, 1);
+        upgrade.position.set(0, 0.48, 0);
+        upgrade.renderOrder = 11_200;
+        upgrade.visible = false;
+        hud.add(hp, label, upgrade);
+        root.add(hud);
         this.scene.add(root);
         const closed = state.ownerIds.length > 0 ? 1 : 0;
         panel.scale.x = 0.18 + closed * 0.82;
@@ -2026,6 +2151,7 @@ export class ThreeGameView {
           details,
           hp,
           label,
+          upgrade,
           closedTarget: closed,
           closedAmount: closed,
           visualLevel: 0,
@@ -2040,6 +2166,15 @@ export class ThreeGameView {
       if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
       updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff');
       updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578');
+      const local = snapshot.players.find((player) => player.id === this.playerId);
+      const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
+      const nextCost = intact && state.doorLevel < maxBuildingLevel('reinforced-door', rank ?? 'beginner')
+        ? upgradeCost('reinforced-door', state.doorLevel + 1, rank ?? 'beginner')
+        : null;
+      const canUpgrade = Boolean(nextCost && local?.alive && local.roomId === state.id
+        && local.gold >= nextCost.gold && local.power >= nextCost.power);
+      view.upgrade.visible = canUpgrade;
+      if (canUpgrade) updateUpgradeBillboard(view.upgrade, `door:${state.doorLevel}`, true);
     }
   }
 
@@ -2116,31 +2251,32 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (lying) view.avatar.rotation.y = damp(view.avatar.rotation.y, 0, 12, dt);
-      else if (moving) view.avatar.rotation.y = dampFacingYaw(view.avatar.rotation.y, movementFacingYaw(dx, dz), 12, dt);
-      const stride = moving && !lying && !defeated ? Math.sin(time * 0.018 + view.seed) * 0.8 : 0;
-      const armPitch = moving && !lying && !defeated
-        ? -1.18 + Math.sin(time * 0.018 + view.seed + 0.7) * 0.07
-        : (defeated ? -0.68 : 0);
-      view.leftArm.rotation.x = damp(view.leftArm.rotation.x, armPitch, 14, dt);
-      view.rightArm.rotation.x = damp(view.rightArm.rotation.x, armPitch, 14, dt);
-      view.leftLeg.rotation.x = damp(view.leftLeg.rotation.x, defeated ? 0.18 : -stride, 12, dt);
-      view.rightLeg.rotation.x = damp(view.rightLeg.rotation.x, defeated ? -0.14 : stride, 12, dt);
-      view.avatar.rotation.x = damp(view.avatar.rotation.x, moving && !lying && !defeated ? -0.13 : (defeated ? -0.24 : 0), 12, dt);
       const bedIndex = player.bedIndex ?? 0;
       const lyingOnReversedBed = bedIndex % 2 === 1;
+      if (lying) view.actor.setSleep(lyingOnReversedBed);
+      else view.actor.setMovement(dx, dz, moving && !defeated, time, view.seed);
       const lieRotation = lying
-        ? (lyingOnReversedBed ? -Math.PI / 2 : Math.PI / 2)
+        ? (lyingOnReversedBed ? Math.PI : 0)
         : (defeated ? Math.PI / 2 : 0);
       // Bed pillows sit at the head end of the frame.  Offset and orient the
-      // compact avatar per bed direction so its head rests on that pillow,
+      // full-size sleeping pose per bed direction so its head rests on that pillow,
       // rather than rotating around the middle of the mattress.
-      const lieOffsetX = lying ? (lyingOnReversedBed ? -0.13 : 0.13) : 0;
-      view.avatar.rotation.z = damp(view.avatar.rotation.z, lieRotation, 9, dt);
-      view.avatar.position.x = damp(view.avatar.position.x, lieOffsetX, 12, dt);
-      view.avatar.position.z = damp(view.avatar.position.z, 0, 12, dt);
-      view.avatar.position.y = damp(view.avatar.position.y, lying ? 0.48 : (defeated ? 0.24 : (moving ? Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.055 : 0)), 10, dt);
-      view.avatar.scale.setScalar(damp(view.avatar.scale.x, lying ? 0.52 : (defeated ? 0.82 : 1), 9, dt));
+      const lieOffsetX = lying ? (lyingOnReversedBed ? 0.13 : -0.13) : 0;
+      view.actor.setScreenRotation(damp(view.actor.object.rotation.y, lieRotation, 9, dt));
+      view.actor.object.position.x = damp(view.actor.object.position.x, lieOffsetX, 12, dt);
+      view.actor.object.position.z = damp(
+        view.actor.object.position.z,
+        moving && !lying && !defeated ? -Math.abs(Math.sin(time * 0.018 + view.seed)) * 0.035 : 0,
+        12,
+        dt,
+      );
+      view.actor.object.position.y = damp(view.actor.object.position.y, lying ? 0.5 : 0.24, 10, dt);
+      view.actor.setScale(damp(
+        view.actor.object.scale.x,
+        view.actor.size * (lying ? 0.96 : defeated ? 0.86 : 1),
+        9,
+        dt,
+      ));
       view.lastPosition.copy(view.root.position);
     }
   }
@@ -2179,12 +2315,20 @@ export class ThreeGameView {
       view.root.position.z = corrected.y;
       const dx = view.root.position.x - beforeX;
       const dz = view.root.position.z - beforeZ;
-      if (Math.hypot(dx, dz) > 0.001) view.body.rotation.y = dampFacingYaw(view.body.rotation.y, movementFacingYaw(dx, dz), 9, dt);
-      view.body.position.y = Math.sin(time * 0.0048 + view.seed) * 0.1 + 0.08;
-      view.body.rotation.z = Math.sin(time * 0.0026 + view.seed) * 0.045;
-      const reach = Math.sin(time * 0.006 + view.seed) * 0.22;
-      view.leftArm.rotation.x = reach;
-      view.rightArm.rotation.x = -reach;
+      const moving = Math.hypot(dx, dz) > 0.001;
+      const attackDuration = ghostAttackDuration(ghost.variant);
+      const attackElapsed = time - view.attackStartedAt;
+      const netted = this.snapshotData.elapsed < ghost.stunnedUntil;
+      if (!netted && attackElapsed >= 0 && attackElapsed < attackDuration) {
+        view.actor.setAttack(attackElapsed, attackDuration);
+      } else {
+        view.actor.setMovement(dx, dz, moving && !netted, time, view.seed);
+      }
+      view.actor.setScreenRotation(0);
+      view.actor.setScale(view.actor.size);
+      view.actor.object.position.z = moving && !netted
+        ? -Math.abs(Math.sin(time * 0.008 + view.seed)) * 0.045
+        : 0;
     }
   }
 
@@ -2218,6 +2362,17 @@ export class ThreeGameView {
   }
 
   private playEvent(event: GameEvent): void {
+    if (event.kind === 'door-hit' && event.targetId && event.position) {
+      const attacker = this.ghostViews.get(event.targetId);
+      // A snapshot can contain a door-hit followed by a teleport or a target
+      // change. Replaying that old attack at the new corridor position made
+      // ghosts visibly strike empty air. The event's door location is the
+      // authoritative anchor, so only animate if the newest ghost position is
+      // still beside that same door.
+      if (attacker && attacker.target.distanceToSquared(worldPoint(event.position)) <= 1.2 * 1.2) {
+        attacker.attackStartedAt = performance.now() - ghostAttackDuration(attacker.variant) / 3;
+      }
+    }
     if (event.kind === 'ghost-net' && event.position) {
       const net = mesh(
         new THREE.RingGeometry(0.28, 0.72, 12),
