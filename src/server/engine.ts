@@ -1120,7 +1120,17 @@ export class GameEngine {
         room.doorMaxHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
         room.doorHp = room.doorMaxHp;
       }
-      this.pendingEvents.push({ kind: "upgrade", roomId: room.id, playerId });
+      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+      this.pendingEvents.push({
+        kind: "upgrade",
+        roomId: room.id,
+        playerId,
+        position:
+          kind === "bed"
+            ? mapRoom?.beds[bedIndex]
+            : mapRoom?.door,
+        label: `${BALANCE.buildings[kind].label} Lv.${level + 1}`,
+      });
       return { ok: true };
     }
     const building = this.state.buildings.find(
@@ -1161,6 +1171,7 @@ export class GameEngine {
       kind: "upgrade",
       position: building.tile,
       playerId,
+      label: `${BALANCE.buildings[building.kind].label} Lv.${building.level}`,
     });
     return { ok: true };
   }
@@ -1900,6 +1911,12 @@ export class GameEngine {
       return;
     }
 
+    // A teleport, a target swap, or an old saved path can leave a ghost on an
+    // occupied room floor even though its door is still intact.  A closed door
+    // is a hard boundary: recover to the corridor side before it can choose an
+    // attack target or play an attack animation.
+    this.recoverGhostFromLockedRoom(ghost);
+
     if (
       ghost.variant !== "minion" &&
       !ghost.retreating &&
@@ -2178,10 +2195,58 @@ export class GameEngine {
 
   private canGhostStrikeDoor(ghost: GhostState, door: Tile): boolean {
     if (distance(ghost.position, door) > 0.72) return false;
+    const ghostX = Math.round(ghost.position.x);
+    const ghostY = Math.round(ghost.position.y);
+    // A door may only be attacked from its corridor tile.  Without this guard,
+    // a stale path that placed a ghost just inside a room could still satisfy
+    // the distance and one-step route checks and damage the door from behind.
+    if (
+      !this.map.corridorTiles.some(
+        (tile) => tile.x === ghostX && tile.y === ghostY,
+      )
+    )
+      return false;
     // Distance alone can be short across a corner or wall. Require a direct
     // corridor route no longer than one tile before a door can take damage.
     const route = findPath(this.map, ghost.position, door);
     return route.length > 0 && route.length <= 2;
+  }
+
+  private corridorApproachForRoom(room: MapDefinition["rooms"][number]): Tile {
+    return (
+      [...this.map.corridorTiles]
+        .filter(
+          (tile) =>
+            !room.floorTiles.some(
+              (floor) => floor.x === tile.x && floor.y === tile.y,
+            ),
+        )
+        .sort(
+          (a, b) => distance(a, room.door) - distance(b, room.door),
+        )[0] ?? room.door
+    );
+  }
+
+  private recoverGhostFromLockedRoom(ghost: GhostState): boolean {
+    const containingRoom = this.map.rooms.find((room) =>
+      room.floorTiles.some(
+        (tile) =>
+          tile.x === Math.round(ghost.position.x) &&
+          tile.y === Math.round(ghost.position.y),
+      ),
+    );
+    if (!containingRoom) return false;
+    const roomState = this.state.rooms.find(
+      (room) => room.id === containingRoom.id,
+    );
+    if (!roomState || roomState.doorHp <= 0) return false;
+    const approach = this.corridorApproachForRoom(containingRoom);
+    ghost.position = { x: approach.x, y: approach.y };
+    ghost.targetPlayerId = null;
+    ghost.targetRoomId = null;
+    ghost.path = [];
+    ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.35);
+    return true;
   }
 
   private eliminatePlayer(ghost: GhostState, player: PlayerState): void {
@@ -2194,6 +2259,7 @@ export class GameEngine {
       targetId: ghost.id,
       amount: damage,
     });
+    const defeatedRoomId = player.roomId;
     player.alive = false;
     player.spectator = true;
     player.velocity = { x: 0, y: 0 };
@@ -2205,6 +2271,24 @@ export class GameEngine {
     ghost.targetRoomId = null;
     ghost.targetPlayerId = null;
     ghost.path = [];
+    // Once the last survivor in a sealed room is gone, the ghost must leave by
+    // the doorway.  This prevents an undead that eliminated a bot on a bed
+    // from remaining trapped on that bed until its next respawn movement.
+    if (defeatedRoomId) {
+      const remainingOwner = this.state.players.some(
+        (candidate) =>
+          candidate.alive &&
+          candidate.roomId === defeatedRoomId,
+      );
+      const mapRoom = this.map.rooms.find(
+        (room) => room.id === defeatedRoomId,
+      );
+      if (!remainingOwner && mapRoom) {
+        const approach = this.corridorApproachForRoom(mapRoom);
+        ghost.position = { x: approach.x, y: approach.y };
+        ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.35);
+      }
+    }
   }
 
   private levelUpGhost(ghost: GhostState): void {
@@ -2281,10 +2365,7 @@ export class GameEngine {
       ? this.map.rooms.find((room) => room.id === target.id)
       : undefined;
     if (target && mapRoom) {
-      const approach =
-        [...this.map.corridorTiles].sort(
-          (a, b) => distance(a, mapRoom.door) - distance(b, mapRoom.door),
-        )[0] ?? mapRoom.door;
+      const approach = this.corridorApproachForRoom(mapRoom);
       ghost.position = { x: approach.x, y: approach.y };
       ghost.targetRoomId = target.id;
       ghost.targetPlayerId = null;

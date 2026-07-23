@@ -310,7 +310,7 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
     for (let index = 0; index < queue.length; index += 1) {
       const current = queue[index] as { x: number; y: number };
       const distance = distances.get(`${current.x},${current.y}`) ?? 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx = 0, dy = 0] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const next = { x: current.x + dx, y: current.y + dy };
         const key = `${next.x},${next.y}`;
         if (!walkable.has(key) || distances.has(key)) continue;
@@ -331,51 +331,59 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
 }
 
 async function sleepInBed(page: Page, roomId: string, bedIndex: number): Promise<void> {
-  const path = await page.evaluate(({ targetRoomId, targetBedIndex }) => {
-    const game = window.__DORM_TEST__;
-    const map = game?.map;
-    const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
-    const room = map?.rooms.find((candidate) => candidate.id === targetRoomId);
-    const bed = room?.beds[targetBedIndex];
-    if (!map || !player || !bed) return null;
-    const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
-    const targetKey = `${bed.x},${bed.y}`;
-    const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
-    const previous = new Map<string, string | null>([[`${start.x},${start.y}`, null]]);
-    const queue = [start];
-    for (let index = 0; index < queue.length; index += 1) {
-      const current = queue[index] as { x: number; y: number };
-      const currentKey = `${current.x},${current.y}`;
-      if (currentKey === targetKey) break;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const next = { x: current.x + dx, y: current.y + dy };
-        const key = `${next.x},${next.y}`;
-        if (!walkable.has(key) || previous.has(key)) continue;
-        previous.set(key, currentKey);
-        queue.push(next);
-      }
-    }
-    if (!previous.has(targetKey)) return null;
-    const reversed: Array<{ x: number; y: number }> = [];
-    for (let key: string | null = targetKey; key; key = previous.get(key) ?? null) {
-      const [x, y] = key.split(',').map(Number);
-      reversed.push({ x: x as number, y: y as number });
-    }
-    return reversed.reverse();
-  }, { targetRoomId: roomId, targetBedIndex: bedIndex });
-  if (!path || path.length < 2) throw new Error('reachable path to bed was not found');
-
-  for (let index = 1; index < path.length; index += 1) {
-    const previous = path[index - 1] as { x: number; y: number };
-    const next = path[index] as { x: number; y: number };
-    await page.evaluate(({ dx, dy }) => window.__DORM_TEST__?.move(dx, dy), {
-      dx: next.x - previous.x,
-      dy: next.y - previous.y,
-    });
-    await page.waitForTimeout(215);
-    await page.evaluate(() => window.__DORM_TEST__?.move(0, 0));
-  }
-  await page.locator('.sleep-nearby').evaluate((button) => (button as HTMLButtonElement).click());
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(({ targetRoomId, targetBedIndex }) => {
+          const game = window.__DORM_TEST__;
+          const map = game?.map;
+          const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
+          const bed = map?.rooms.find(
+            (candidate) => candidate.id === targetRoomId,
+          )?.beds[targetBedIndex];
+          if (!game || !map || !player || !bed) return Infinity;
+          const distance = Math.hypot(player.position.x - bed.x, player.position.y - bed.y);
+          if (distance <= 1.25) {
+            game.move(0, 0);
+            return distance;
+          }
+          const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
+          const targetKey = `${bed.x},${bed.y}`;
+          const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
+          const previous = new Map<string, string | null>([[`${start.x},${start.y}`, null]]);
+          const queue = [start];
+          for (let index = 0; index < queue.length; index += 1) {
+            const current = queue[index] as { x: number; y: number };
+            const currentKey = `${current.x},${current.y}`;
+            if (currentKey === targetKey) break;
+            for (const [dx = 0, dy = 0] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const next = { x: current.x + dx, y: current.y + dy };
+              const key = `${next.x},${next.y}`;
+              if (!walkable.has(key) || previous.has(key)) continue;
+              previous.set(key, currentKey);
+              queue.push(next);
+            }
+          }
+          if (!previous.has(targetKey)) return Infinity;
+          const route: Array<{ x: number; y: number }> = [];
+          for (let key: string | null = targetKey; key; key = previous.get(key) ?? null) {
+            const [x, y] = key.split(',').map(Number);
+            route.push({ x: x as number, y: y as number });
+          }
+          const waypoint = route.reverse()[1] ?? bed;
+          const dx = waypoint.x - player.position.x;
+          const dy = waypoint.y - player.position.y;
+          const magnitude = Math.hypot(dx, dy) || 1;
+          game.move(dx / magnitude, dy / magnitude);
+          return distance;
+        }, { targetRoomId: roomId, targetBedIndex: bedIndex }),
+      { timeout: 12_000, intervals: [100] },
+    )
+    .toBeLessThanOrEqual(1.25);
+  await page.evaluate(() => {
+    window.__DORM_TEST__?.move(0, 0);
+    window.__DORM_TEST__?.interact();
+  });
 }
 
 async function mobileContext(browser: Browser): Promise<BrowserContext> {
@@ -644,7 +652,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
 
     const movingId = firstState.playerId;
     const goldBefore =
-      firstState.snapshot?.players.find((player) => player.id === movingId)
+      (await state(first)).snapshot?.players.find((player) => player.id === movingId)
         ?.gold ?? 0;
     expect(
       await first.evaluate(() =>
@@ -698,7 +706,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
     );
     expect((await state(second)).playerId).toBe(secondId);
 
-    const occupiedPlayer = secondState.snapshot?.players.find(
+    const occupiedPlayer = (await state(second)).snapshot?.players.find(
       (player) => player.id === movingId,
     );
     const occupiedBed = secondState.map?.rooms.find(

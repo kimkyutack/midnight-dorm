@@ -70,6 +70,7 @@ declare global {
       map: MapDefinition | null;
       playerId: string;
       move: (dx: number, dy: number) => void;
+      interact: () => void;
       buildFirst: (kind: BuildingKind) => boolean;
       disconnect: () => void;
       cameraMode: () => "follow" | "free" | "none";
@@ -491,7 +492,7 @@ const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
 
 function modelPreviewHtml(turretMode = false): string {
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
-  return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
+  return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
 
 function cosmeticEntitled(
@@ -586,7 +587,7 @@ function cosmeticCollectionScreen(
           : appearance[activeSlot as keyof AvatarAppearance] === item.id;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
-      let action: "purchase" | "equip" | null = shopping ? null : "equip";
+      let action: "purchase" | "equip" | "unequip" | null = shopping ? null : "equip";
       let status = shopping ? "보유 중" : "착용";
       let locked = false;
       if (shopping && item.unlock.kind === "points" && !owned) {
@@ -600,8 +601,13 @@ function cosmeticCollectionScreen(
       } else if (shopping && item.unlock.kind === "starter") {
         status = "기본 지급";
       } else if (!shopping && selected) {
-        action = null;
-        status = "착용 중";
+        if (item.slot === "skin") {
+          action = "unequip";
+          status = "착용 해제";
+        } else {
+          action = null;
+          status = "착용 중";
+        }
       }
       const actionButton = action
         ? `<button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
@@ -761,9 +767,17 @@ function cosmeticCollectionScreen(
         button.textContent = "처리 중";
         void (async () => {
           try {
-            account = await equipCosmetic(itemId);
+            account = await equipCosmetic(
+              action === "unequip"
+                ? currentAccount.appearance.character
+                : itemId,
+            );
             customizationScreen(activeSlot);
-            toast("착용 상태를 저장했습니다.");
+            toast(
+              action === "unequip"
+                ? "스킨 착용을 해제했습니다."
+                : "착용 상태를 저장했습니다.",
+            );
           } catch (error) {
             button.disabled = false;
             button.textContent = originalLabel;
@@ -1926,6 +1940,10 @@ function playEvents(events: GameEvent[]): void {
     toast(
       `귀신이 문을 충분히 공격해 Lv.${levelUp.amount ?? "?"}로 성장했습니다!`,
     );
+  const upgrade = events.find(
+    (event) => event.kind === "upgrade" && event.playerId === playerId,
+  );
+  if (upgrade?.label) toast(`${upgrade.label} 업그레이드 완료`);
   if (
     profile.vibration &&
     events.some(
@@ -2262,6 +2280,7 @@ function updateTestApi(): void {
       inputVector = { x: dx, y: dy };
       sendMovement();
     },
+    interact: () => network?.interact(),
     buildFirst: (kind) => {
       if (!snapshot || !mapData || !network) return false;
       const me = snapshot.players.find((player) => player.id === playerId);

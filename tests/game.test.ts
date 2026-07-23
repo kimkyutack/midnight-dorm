@@ -993,6 +993,47 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().elapsed - startedAt).toBeLessThanOrEqual(30);
   });
 
+  it('ejects a ghost from a sealed room before it can hit the door from behind', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const player = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === player?.roomId);
+    const roomState = engine.snapshot().rooms.find((room) => room.id === player?.roomId);
+    if (!player || !mapRoom || !roomState) throw new Error('missing sealed-room fixture');
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing ghost fixture');
+    ghost.position = { ...(mapRoom.floorTiles[0] as Tile) };
+    ghost.targetRoomId = mapRoom.id;
+    ghost.targetPlayerId = playerId;
+    ghost.attackCooldown = 0;
+    ghost.skillCooldown = 999;
+    ghost.abilityCooldown = 999;
+    engine.restore(persisted);
+    engine.drainEvents();
+    engine.tick(0.1);
+    const after = engine.snapshot();
+    const recoveredGhost = after.ghosts[0];
+    const afterRoom = after.rooms.find((room) => room.id === mapRoom.id);
+    expect(afterRoom?.doorHp).toBe(roomState.doorHp);
+    expect(
+      mapRoom.floorTiles.some(
+        (tile) =>
+          tile.x === Math.round(recoveredGhost?.position.x ?? -1) &&
+          tile.y === Math.round(recoveredGhost?.position.y ?? -1),
+      ),
+    ).toBe(false);
+    expect(
+      engine.map.corridorTiles.some(
+        (tile) =>
+          tile.x === Math.round(recoveredGhost?.position.x ?? -1) &&
+          tile.y === Math.round(recoveredGhost?.position.y ?? -1),
+      ),
+    ).toBe(true);
+    expect(engine.drainEvents().some((event) => event.kind === 'door-hit')).toBe(false);
+  });
+
   it('pays bed income once per second and doubles the paid amount by level', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1012,6 +1053,11 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 1)).toBe(true);
     const roomId = engine.snapshot().players[0]?.roomId as string;
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
+    expect(
+      engine.drainEvents().some(
+        (event) => event.kind === 'upgrade' && event.label === '꿈결 침대 Lv.2',
+      ),
+    ).toBe(true);
     const upgraded = engine.snapshot().players[0]?.gold ?? 0;
     for (let index = 0; index < 4; index += 1) engine.tick(0.05);
     expect(engine.snapshot().players[0]?.gold).toBeCloseTo(upgraded, 5);

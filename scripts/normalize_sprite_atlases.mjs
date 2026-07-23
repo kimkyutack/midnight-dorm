@@ -5,7 +5,7 @@
  * torso stable while only the feet change during a walk and prevents the
  * front/back/side preview from jumping or clipping on mobile canvases.
  */
-import { readdir } from 'node:fs/promises';
+import { access, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -97,11 +97,16 @@ async function normalizeCharacter(group, character) {
   await sharp(sheet).toFile(path.join(characterDir, 'movement-sheet.png'));
   await sharp(frames.get('front-idle')).toFile(path.join(characterDir, 'concept.png'));
   if (group.makeSleep) {
-    // Neutral base characters do not borrow a fully dressed sleeping image.
-    // A rotated side pose is a consistent, transparent resting placeholder
-    // until dedicated neutral sleep art is drawn for each character.
-    await sharp(frames.get('side-idle')).rotate(90, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png()
-      .toFile(path.join(characterDir, 'sleep.png'));
+    const sleepPath = path.join(characterDir, 'sleep.png');
+    // Dedicated base sleep art is generated and centered separately.  Keep it
+    // intact on future atlas normalization runs; only make the old rotated
+    // fallback when a new character has not supplied sleep art yet.
+    try {
+      await access(sleepPath);
+    } catch {
+      await sharp(frames.get('side-idle')).rotate(90, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png()
+        .toFile(sleepPath);
+    }
   }
 }
 

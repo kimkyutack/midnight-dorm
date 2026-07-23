@@ -1459,6 +1459,7 @@ export class ThreeGameView {
   private readonly desiredCameraTarget = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
+  private readonly buildTileMarkers = new Map<string, THREE.Mesh>();
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
@@ -1522,7 +1523,7 @@ export class ThreeGameView {
       new THREE.MeshBasicMaterial({ color: 0xffd36f, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
     );
     this.selectionMarker.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
-    this.selectionMarker.position.y = 0.07;
+    this.selectionMarker.position.y = 0.155;
     this.selectionMarker.visible = false;
     this.selectionMarker.renderOrder = 9_000;
     this.scene.add(this.selectionMarker);
@@ -1608,6 +1609,7 @@ export class ThreeGameView {
     this.syncBeds(snapshot);
     this.syncBuildings(snapshot);
     this.syncDoors(snapshot);
+    this.syncBuildableTiles(performance.now());
     for (const event of events) this.playEvent(event);
 
     const local = snapshot.players.find((player) => player.id === this.playerId);
@@ -1664,6 +1666,7 @@ export class ThreeGameView {
     this.animateTurrets();
     this.animateDoors(dt);
     this.animateEffects(time);
+    this.syncBuildableTiles(time);
     this.updateCamera(dt);
     this.updateSleepPrompt();
     this.renderer.render(this.scene, this.camera);
@@ -1742,20 +1745,29 @@ export class ThreeGameView {
     const corridorKeys = new Set(this.mapData.corridorTiles.map((tile) => `${tile.x},${tile.y}`));
     const corridorTiles = this.mapData.corridorTiles;
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
-    this.addTileInstances(corridorTiles, standardMaterial(this.theme.corridor, { roughness: 0.96 }), 0);
-    this.addTileInstances(roomTiles, standardMaterial(this.theme.room, { roughness: 0.94 }), 0.003);
+    this.addTileInstances(corridorTiles, standardMaterial(this.theme.corridor, { roughness: 0.9 }), 0);
+    this.addTileInstances(roomTiles, standardMaterial(this.theme.room, { roughness: 0.88 }), 0.003);
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
-    const markerGeometry = new THREE.PlaneGeometry(0.62, 0.62);
-    markerGeometry.rotateX(-Math.PI / 2);
-    const markerMaterial = new THREE.MeshBasicMaterial({ color: this.theme.marker, transparent: true, opacity: 0.11, depthWrite: false });
-    const markers = new THREE.InstancedMesh(markerGeometry, markerMaterial, buildTiles.length);
+    const markerGeometry = new THREE.BoxGeometry(0.68, 0.012, 0.68);
+    for (const tile of buildTiles) {
+      const marker = new THREE.Mesh(
+        markerGeometry,
+        new THREE.MeshBasicMaterial({
+          color: this.theme.marker,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      marker.position.set(tile.x, 0.137, tile.y);
+      marker.visible = false;
+      marker.renderOrder = 2_200;
+      this.buildTileMarkers.set(`${tile.x},${tile.y}`, marker);
+      this.scene.add(marker);
+    }
     const matrix = new THREE.Matrix4();
-    buildTiles.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, 0.025, tile.y);
-      markers.setMatrixAt(index, matrix);
-    });
-    this.scene.add(markers);
 
     const wallGeometry = new THREE.BoxGeometry(0.98, 0.68, 0.98);
     const wallMaterial = standardMaterial(this.theme.wall, { roughness: 0.86 });
@@ -1779,7 +1791,7 @@ export class ThreeGameView {
     const respawn = mesh(
       new THREE.PlaneGeometry(zone.width - 0.2, zone.height - 0.2),
       new THREE.MeshBasicMaterial({ color: this.theme.respawn, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
-      [zone.x + (zone.width - 1) / 2, 0.035, zone.y + (zone.height - 1) / 2],
+      [zone.x + (zone.width - 1) / 2, 0.145, zone.y + (zone.height - 1) / 2],
     );
     respawn.rotation.x = -Math.PI / 2;
     this.scene.add(respawn);
@@ -1826,16 +1838,48 @@ export class ThreeGameView {
   }
 
   private addTileInstances(tiles: Tile[], material: THREE.Material, y: number): void {
-    const geometry = new THREE.PlaneGeometry(0.96, 0.96);
-    geometry.rotateX(-Math.PI / 2);
+    // Shallow blocks keep the strict 2D camera while giving every tile a lit
+    // rim and shadowed edge, so rooms read as constructed spaces rather than
+    // a single flat colour field.
+    const geometry = new THREE.BoxGeometry(0.96, 0.12, 0.96);
     const floors = new THREE.InstancedMesh(geometry, material, tiles.length);
+    floors.castShadow = true;
     floors.receiveShadow = true;
     const matrix = new THREE.Matrix4();
     tiles.forEach((tile, index) => {
-      matrix.makeTranslation(tile.x, y, tile.y);
+      matrix.makeTranslation(tile.x, y + 0.06, tile.y);
       floors.setMatrixAt(index, matrix);
     });
     this.scene.add(floors);
+  }
+
+  private syncBuildableTiles(time: number): void {
+    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+    const room = local?.roomId
+      ? this.mapData.rooms.find((candidate) => candidate.id === local.roomId)
+      : undefined;
+    const occupied = new Set(
+      this.snapshotData.buildings
+        .filter((building) => building.roomId === room?.id)
+        .map((building) => `${building.tile.x},${building.tile.y}`),
+    );
+    const available = new Set(
+      room
+        ? room.buildTiles
+            .filter((tile) => !occupied.has(`${tile.x},${tile.y}`))
+            .map((tile) => `${tile.x},${tile.y}`)
+        : [],
+    );
+    const pulse = 0.5 + Math.sin(time * 0.006) * 0.5;
+    for (const [key, marker] of this.buildTileMarkers) {
+      const active = available.has(key);
+      marker.visible = active;
+      if (!active) continue;
+      const material = marker.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.12 + pulse * 0.2;
+      const scale = 0.92 + pulse * 0.1;
+      marker.scale.set(scale, 1, scale);
+    }
   }
 
   private createRoomFurniture(roomId: string): void {
@@ -2312,7 +2356,7 @@ export class ThreeGameView {
       const effect = this.effects[index] as TimedEffect;
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
       if (effect.from && effect.to) effect.object.position.lerpVectors(effect.from, effect.to, progress);
-      if (effect.rise) effect.object.position.z -= effect.rise * 0.016;
+      if (effect.rise) effect.object.position.y += effect.rise * 0.016;
       if (effect.baseScale) {
         effect.object.scale.copy(effect.baseScale).multiplyScalar(1 + progress * (effect.scaleGrowth ?? 0));
       } else {
@@ -2360,15 +2404,19 @@ export class ThreeGameView {
       const popup = makeBillboard();
       // 512×128 캔버스와 동일한 4:1 비율을 유지한다. 애니메이션에서도
       // baseScale을 보존해야 모바일 원근 카메라에서 글자가 눌리지 않는다.
-      popup.scale.set(2.08, 0.52, 1);
+      popup.scale.set(1.5, 0.375, 1);
       updateTextBillboard(popup, `${event.kind}:${event.amount}:${performance.now()}`, `${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`, event.kind === 'gold' ? '#ffd36f' : '#75e8ff', 'rgba(5,8,16,.72)');
-      popup.position.copy(worldPoint(event.position, 1.9));
+      // The orthographic game camera looks down from high above. Keeping this
+      // close to its producer makes each once-per-second income tick readable
+      // instead of placing the billboard beyond the portrait viewport.
+      popup.position.copy(worldPoint(event.position, 0.72));
+      popup.position.z -= 0.28;
       this.scene.add(popup);
       this.effects.push({
         object: popup,
         born: performance.now(),
-        duration: 1_050,
-        rise: 0.024,
+        duration: 1_250,
+        rise: 0.11,
         baseScale: popup.scale.clone(),
         scaleGrowth: 0.06,
       });
@@ -2692,7 +2740,7 @@ export class ThreeGameView {
   }
 
   private highlight(tile: Vec2): void {
-    this.selectionMarker.position.set(tile.x, 0.07, tile.y);
+    this.selectionMarker.position.set(tile.x, 0.155, tile.y);
     this.selectionMarker.visible = true;
   }
 }
