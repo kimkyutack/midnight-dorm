@@ -13,11 +13,11 @@ const COMPACT_ROOM_LABELS = [
 ] as const;
 
 function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
-  // A compact 4×2 ward. Everything inside the exterior wall is a traversable
+  // A broad 4×2 ward. Everything inside the exterior wall is a traversable
   // corridor unless it is a room floor or one of that room's one-tile walls.
-  // This removes void gaps while keeping all eight rooms readable on portrait.
-  const width = 35;
-  const height = 19;
+  // It keeps the prior map's spacious routes without any black void gaps.
+  const width = 63;
+  const height = 35;
   const walkable = new Map<string, Tile>();
   const corridorTiles = new Map<string, Tile>();
   const walls = new Map<string, Tile>();
@@ -41,8 +41,8 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
   }
 
   const roomOrigins = [
-    { x: 3, y: 3 }, { x: 11, y: 3 }, { x: 19, y: 3 }, { x: 27, y: 3 },
-    { x: 3, y: 11 }, { x: 11, y: 11 }, { x: 19, y: 11 }, { x: 27, y: 11 },
+    { x: 7, y: 7 }, { x: 21, y: 7 }, { x: 35, y: 7 }, { x: 49, y: 7 },
+    { x: 7, y: 23 }, { x: 21, y: 23 }, { x: 35, y: 23 }, { x: 49, y: 23 },
   ] as const;
   const roomCells = rectangle(5, 5);
   for (let row = 0; row < 2; row += 1) {
@@ -126,16 +126,16 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
     corridorTiles: [...corridorTiles.values()],
     respawnZones: [
       { x: 1, y: 1, width: 1, height: 1 },
-      { x: 17, y: 1, width: 1, height: 1 },
-      { x: 33, y: 1, width: 1, height: 1 },
-      { x: 1, y: 9, width: 1, height: 1 },
-      { x: 33, y: 9, width: 1, height: 1 },
+      { x: 31, y: 1, width: 1, height: 1 },
+      { x: 61, y: 1, width: 1, height: 1 },
       { x: 1, y: 17, width: 1, height: 1 },
-      { x: 17, y: 17, width: 1, height: 1 },
-      { x: 33, y: 17, width: 1, height: 1 },
+      { x: 61, y: 17, width: 1, height: 1 },
+      { x: 1, y: 33, width: 1, height: 1 },
+      { x: 31, y: 33, width: 1, height: 1 },
+      { x: 61, y: 33, width: 1, height: 1 },
     ],
-    playerSpawn: { x: 17, y: 9 },
-    ghostSpawn: { x: 17, y: 1 },
+    playerSpawn: { x: 31, y: 17 },
+    ghostSpawn: { x: 31, y: 1 },
     rooms,
     walls: [...walls.values()],
     walkable: [...walkable.values()],
