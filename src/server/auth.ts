@@ -1,5 +1,5 @@
 import { getStage, higherRank, rankFromXp, rankLabel, STAGES } from '../shared/progression';
-import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
+import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { shopConsumableById } from '../shared/shopConsumables';
 import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
 
@@ -130,13 +130,32 @@ function profileFromRow(
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
+  const displayRank = higherRank(soloRank, multiplayerRank);
+  const ownedCosmetics = [...new Set([
+    ...STARTER_COSMETICS,
+    ...purchasedCosmetics.filter((itemId) => Boolean(cosmeticById(itemId))),
+  ])];
+  const requestedAppearance = normalizeAppearance(parseAppearance(customization?.appearance));
+  const ownsRequestedSkin = isDefaultSkinForCharacter(
+    requestedAppearance.skin,
+    requestedAppearance.character,
+  ) || (
+    ownedCosmetics.includes(requestedAppearance.skin) &&
+    characterAvailable(requestedAppearance.character, displayRank, ownedCosmetics)
+  );
+  const appearance = ownsRequestedSkin
+    ? requestedAppearance
+    : {
+        ...requestedAppearance,
+        skin: defaultSkinForCharacter(requestedAppearance.character),
+      };
   return {
     id: row.id,
     username: row.username,
     nickname: row.nickname,
     soloRank,
     multiplayerRank,
-    displayRank: higherRank(soloRank, multiplayerRank),
+    displayRank,
     soloXp: row.solo_xp,
     multiplayerXp: row.multiplayer_xp,
     soloStageIndex: row.solo_stage_index,
@@ -145,11 +164,8 @@ function profileFromRow(
     customPoints: customization?.custom_points ?? 0,
     // Old individual equipment purchases remain in the database for audit
     // purposes, but they are no longer part of an account's usable inventory.
-    ownedCosmetics: [...new Set([
-      ...STARTER_COSMETICS,
-      ...purchasedCosmetics.filter((itemId) => Boolean(cosmeticById(itemId))),
-    ])],
-    appearance: normalizeAppearance(parseAppearance(customization?.appearance)),
+    ownedCosmetics,
+    appearance,
     turretSkins: parseTurretSkins(turretLoadout?.skins),
     consumables,
     createdAt: row.created_at,

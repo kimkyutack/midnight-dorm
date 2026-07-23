@@ -320,13 +320,13 @@ describe('survivor customization rules', () => {
     expect(characterTrait('character-cat').turretRateMultiplier).toBeCloseTo(1 / 1.15, 6);
     expect(characterTrait('character-puppy').goldPerSecond).toBe(1);
     expect(drawLimitForCharacter('character-fox')).toBe(5);
-    expect(characterTrait('character-hamster').unclaimedMoveSpeedMultiplier).toBe(1.5);
+    expect(characterTrait('character-hamster').firstGuardianLevelBonus).toBe(1);
     expect(characterTrait('character-crocodile').turretDamageMultiplier).toBe(1.35);
     expect(characterTrait('character-duck').goldPerSecond).toBe(3);
-    expect(characterTrait('character-tiger').unclaimedMoveSpeedMultiplier).toBe(2);
+    expect(characterTrait('character-tiger').turretRangeBonus).toBe(1);
     expect(characterTrait('character-dinosaur').turretRateMultiplier).toBeCloseTo(1 / 1.4, 6);
     expect(drawLimitForCharacter('character-monkey')).toBe(6);
-    expect(characterTrait('character-gorilla').turretRangeBonus).toBe(1);
+    expect(characterTrait('character-gorilla').occupiedDoorLevelBonus).toBe(1);
   });
 
   it('gives every purchased turret skin a matching server combat trait', () => {
@@ -351,7 +351,13 @@ describe('survivor customization rules', () => {
     expect(rankItem && cosmeticAvailable(rankItem, 'expert', [])).toBe(true);
     const catSkin = cosmeticById('skin-look-cat-ward');
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', [])).toBe(false);
-    expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(true);
+    expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(false);
+    expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat', 'skin-look-cat-ward'])).toBe(true);
+    const explorerSkin = cosmeticById('skin-look-bunny-ward');
+    expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 100 });
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
+      (item) => item.unlock.kind === 'points' && (item.id === 'skin-look-bunny-ward' || item.unlock.price === 2_500),
+    )).toBe(true);
   });
 
   it('normalizes old equipment saves to their character base skin and scales clear rewards', () => {
@@ -1808,7 +1814,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drawItem(playerId, machine.id).ok).toBe(false);
   });
 
-  it('applies a complete character skin at 150% of its base trait on the server', () => {
+  it('applies generic skin boosts and authored skin passives on the server', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -1840,6 +1846,63 @@ describe('requested progression and event rules', () => {
       .toBeCloseTo(1 / 1.225, 6);
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-ward' }).goldPerSecond)
       .toBe(1.5);
+    expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)
+      .toBe(1.5);
+    expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-basic-hamster' }).firstGuardianLevelBonus)
+      .toBe(1);
+    expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-look-hamster-ward' }).firstGuardianLevelBonus)
+      .toBe(2);
+    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }).occupiedDoorLevelBonus)
+      .toBe(1);
+    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }).occupiedDoorLevelBonus)
+      .toBe(2);
+  });
+
+  it('starts the hamster guardian turret at Lv.2, or Lv.3 with its skin, only once', () => {
+    const verifyInitialGuardian = (appearance: { character: string; skin: string }, expectedLevel: number): void => {
+      const { engine, ids } = setup();
+      const playerId = ids[0] as string;
+      begin(engine, playerId);
+      const { roomId, tile } = assigned(engine, playerId);
+      const configured = engine.serialize();
+      const owner = configured.snapshot.players.find((candidate) => candidate.id === playerId);
+      if (!owner) throw new Error('missing hamster owner');
+      owner.appearance = appearance;
+      owner.gold = 10_000;
+      engine.restore(configured);
+
+      expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+      const secondTile = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles
+        .find((candidate) => candidate.x !== tile.x || candidate.y !== tile.y);
+      if (!secondTile) throw new Error('missing second build tile');
+      expect(engine.build(playerId, roomId, secondTile, 'basic-turret').ok).toBe(true);
+      const guardians = engine.snapshot().buildings.filter((building) => building.kind === 'basic-turret');
+      expect(guardians.map((building) => building.level)).toEqual([expectedLevel, 1]);
+    };
+
+    verifyInitialGuardian({ character: 'character-hamster', skin: 'skin-basic-hamster' }, 2);
+    verifyInitialGuardian({ character: 'character-hamster', skin: 'skin-look-hamster-ward' }, 3);
+  });
+
+  it('raises the gorilla room door to Lv.2, or Lv.3 with its skin, on occupancy', () => {
+    const verifyDoorLevel = (appearance: { character: string; skin: string }, expectedLevel: number): void => {
+      const { engine, ids } = setup();
+      const playerId = ids[0] as string;
+      expect(engine.start(playerId).ok).toBe(true);
+      const mapRoom = engine.map.rooms[0];
+      if (!mapRoom) throw new Error('missing room');
+      const configured = engine.serialize();
+      const player = configured.snapshot.players.find((candidate) => candidate.id === playerId);
+      if (!player) throw new Error('missing gorilla owner');
+      player.appearance = appearance;
+      player.position = { ...(mapRoom.beds[0] as Tile) };
+      engine.restore(configured);
+      expect(engine.interact(playerId).ok).toBe(true);
+      expect(engine.snapshot().rooms.find((room) => room.id === mapRoom.id)?.doorLevel).toBe(expectedLevel);
+    };
+
+    verifyDoorLevel({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }, 2);
+    verifyDoorLevel({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }, 3);
   });
 
   it('can create all nine primary ghost variants as match events', () => {

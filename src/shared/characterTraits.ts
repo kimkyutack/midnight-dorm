@@ -1,16 +1,20 @@
+import { skinTraitMultiplier, skinTraitOverride } from './customization';
+import type { AvatarAppearance } from './types';
+
 export type CharacterTraitId =
   | 'none'
   | 'turret-damage'
   | 'turret-speed'
   | 'gold-income'
   | 'extra-draw'
-  | 'early-sprint'
+  | 'starter-turret'
   | 'croc-bite'
   | 'duck-treasure'
-  | 'tiger-pounce'
+  | 'tiger-range'
   | 'dino-overdrive'
   | 'monkey-luck'
-  | 'gorilla-watch';
+  | 'gorilla-bastion'
+  | 'skin-special';
 
 export interface CharacterTrait {
   id: CharacterTraitId;
@@ -22,6 +26,10 @@ export interface CharacterTrait {
   extraDraws: number;
   unclaimedMoveSpeedMultiplier: number;
   turretRangeBonus: number;
+  /** Added to Lv.1 for the first guardian turret the player constructs. */
+  firstGuardianLevelBonus: number;
+  /** Added to Lv.1 when the player first occupies a room. */
+  occupiedDoorLevelBonus: number;
 }
 
 const NONE: CharacterTrait = {
@@ -34,6 +42,8 @@ const NONE: CharacterTrait = {
   extraDraws: 0,
   unclaimedMoveSpeedMultiplier: 1,
   turretRangeBonus: 0,
+  firstGuardianLevelBonus: 0,
+  occupiedDoorLevelBonus: 0,
 };
 
 /** 캐릭터 외형은 서버가 판정하는 고유 특성 하나와 정확히 대응한다. */
@@ -69,10 +79,10 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
   },
   'character-hamster': {
     ...NONE,
-    id: 'early-sprint',
-    label: '볼주머니 질주',
-    description: '침대를 점유하기 전 이동속도가 1.5배가 됩니다.',
-    unclaimedMoveSpeedMultiplier: 1.5,
+    id: 'starter-turret',
+    label: '꼬마 설계자',
+    description: '처음 건설하는 수호 포탑이 Lv.2로 시작합니다.',
+    firstGuardianLevelBonus: 1,
   },
   'character-crocodile': {
     ...NONE,
@@ -90,10 +100,10 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
   },
   'character-tiger': {
     ...NONE,
-    id: 'tiger-pounce',
-    label: '호랑이 도약',
-    description: '침대를 점유하기 전 이동속도가 2배가 됩니다.',
-    unclaimedMoveSpeedMultiplier: 2,
+    id: 'tiger-range',
+    label: '맹수의 시야',
+    description: '모든 수호 포탑의 사거리가 1칸 증가합니다.',
+    turretRangeBonus: 1,
   },
   'character-dinosaur': {
     ...NONE,
@@ -111,10 +121,10 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
   },
   'character-gorilla': {
     ...NONE,
-    id: 'gorilla-watch',
-    label: '요새 감시',
-    description: '모든 포탑의 기본 사거리가 1칸 증가합니다.',
-    turretRangeBonus: 1,
+    id: 'gorilla-bastion',
+    label: '요새 보강',
+    description: '방을 점유하면 문이 Lv.2가 됩니다.',
+    occupiedDoorLevelBonus: 1,
   },
 };
 
@@ -129,10 +139,11 @@ export const characterTrait = (characterId: string): CharacterTrait =>
 export const characterTraitForAppearance = (appearance: AvatarAppearance): CharacterTrait => {
   const base = characterTrait(appearance.character);
   const multiplier = skinTraitMultiplier(appearance);
-  if (multiplier === 1 || base.id === 'none') return base;
+  const special = skinTraitOverride(appearance);
+  if (multiplier === 1 && !special) return base;
   const boostedMultiplier = (value: number): number => 1 + (value - 1) * multiplier;
   const attackSpeed = 1 / Math.max(0.1, base.turretRateMultiplier);
-  return {
+  const boosted: CharacterTrait = {
     ...base,
     label: `${base.label} · 스킨 강화`,
     description: `스킨 효과: ${base.description.replace(/합니다\.$/, '')} 효과가 ${Math.round(multiplier * 100)}%로 적용됩니다.`,
@@ -142,6 +153,23 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     extraDraws: Math.round(base.extraDraws * multiplier),
     unclaimedMoveSpeedMultiplier: boostedMultiplier(base.unclaimedMoveSpeedMultiplier),
     turretRangeBonus: base.turretRangeBonus * multiplier,
+    firstGuardianLevelBonus: Math.round(base.firstGuardianLevelBonus * multiplier),
+    occupiedDoorLevelBonus: Math.round(base.occupiedDoorLevelBonus * multiplier),
+  };
+  if (!special) return boosted;
+  return {
+    ...boosted,
+    id: 'skin-special',
+    label: special.label,
+    description: special.description,
+    turretDamageMultiplier: special.turretDamageMultiplier ?? boosted.turretDamageMultiplier,
+    turretRateMultiplier: special.turretRateMultiplier ?? boosted.turretRateMultiplier,
+    goldPerSecond: special.goldPerSecond ?? boosted.goldPerSecond,
+    extraDraws: special.extraDraws ?? boosted.extraDraws,
+    unclaimedMoveSpeedMultiplier: special.unclaimedMoveSpeedMultiplier ?? boosted.unclaimedMoveSpeedMultiplier,
+    turretRangeBonus: special.turretRangeBonus ?? boosted.turretRangeBonus,
+    firstGuardianLevelBonus: special.firstGuardianLevelBonus ?? boosted.firstGuardianLevelBonus,
+    occupiedDoorLevelBonus: special.occupiedDoorLevelBonus ?? boosted.occupiedDoorLevelBonus,
   };
 };
 
@@ -152,5 +180,3 @@ export const drawLimitForCharacter = (characterId: string): number =>
 
 export const drawLimitForAppearance = (appearance: AvatarAppearance): number =>
   BASE_DRAW_LIMIT + characterTraitForAppearance(appearance).extraDraws;
-import { skinTraitMultiplier } from './customization';
-import type { AvatarAppearance } from './types';

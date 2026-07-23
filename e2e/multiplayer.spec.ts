@@ -195,6 +195,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       "src",
       /\/assets\/sprites\/survivors\/character-bunny\/concept\.png$/,
     );
+    await expect(bunnySkinCard.getByRole("button", { name: "100 P" })).toBeEnabled();
     const lockedCatSkin = page.locator(".cosmetic-card", {
       hasText: "새벽 탐정 루루",
     });
@@ -223,17 +224,8 @@ test("portrait home separates shop, owned customization and stage start", async 
       page.getByRole("button", { name: "앞", exact: true }),
     ).toHaveClass(/active/);
     await page.getByRole("button", { name: "스킨", exact: true }).click();
-    const ownedBunnySkin = page.locator(".cosmetic-card", {
-      hasText: "탐험가 모모",
-    });
-    await ownedBunnySkin.getByRole("button", { name: "착용" }).click();
-    await expect(
-      ownedBunnySkin.getByRole("button", { name: "착용 해제" }),
-    ).toBeVisible();
-    await ownedBunnySkin.getByRole("button", { name: "착용 해제" }).click();
-    await expect(
-      ownedBunnySkin.getByRole("button", { name: "착용" }),
-    ).toBeVisible();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(0);
+    await expect(page.locator(".empty-collection")).toContainText("완성형 스킨");
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");

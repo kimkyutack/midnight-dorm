@@ -6,6 +6,20 @@ export type CosmeticUnlock =
   | { kind: 'points'; price: number }
   | { kind: 'rank'; rank: RankId };
 
+/** A complete skin can replace a base trait instead of only scaling it. */
+export interface SkinTraitOverride {
+  label: string;
+  description: string;
+  turretDamageMultiplier?: number;
+  turretRateMultiplier?: number;
+  goldPerSecond?: number;
+  extraDraws?: number;
+  unclaimedMoveSpeedMultiplier?: number;
+  turretRangeBonus?: number;
+  firstGuardianLevelBonus?: number;
+  occupiedDoorLevelBonus?: number;
+}
+
 export interface CosmeticDefinition {
   id: string;
   slot: CosmeticSlot;
@@ -18,6 +32,8 @@ export interface CosmeticDefinition {
   characterId?: string;
   /** Complete skins can tune their own trait strength without layering gear. */
   traitMultiplier?: number;
+  /** Optional authored gameplay effect for a skin whose ability differs from its base survivor. */
+  traitOverride?: SkinTraitOverride;
   turretKind?: TurretKind;
 }
 
@@ -41,18 +57,18 @@ const CHARACTERS = [
  * hats, clothes, accessories, or shoes over the actor.
  */
 const SKINS = [
-  { id: 'skin-look-bunny-ward', slot: 'skin', characterId: 'character-bunny', traitMultiplier: 1.5, label: '탐험가 모모', description: '노란 안전모와 파란 후드의 완성형 스킨', symbol: '토', swatch: '#e9c7bc', unlock: { kind: 'starter' } },
-  { id: 'skin-look-cat-ward', slot: 'skin', characterId: 'character-cat', traitMultiplier: 1.5, label: '새벽 탐정 루루', description: '빨간 재킷과 배낭을 갖춘 완성형 스킨', symbol: '냥', swatch: '#bdc5da', unlock: { kind: 'starter' } },
-  { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'starter' } },
-  { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'starter' } },
-  { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'starter' } },
-  { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'starter' } },
-  { id: 'skin-look-crocodile-ward', slot: 'skin', characterId: 'character-crocodile', traitMultiplier: 1.5, label: '늪지 경비 크로크', description: '보호 장비를 갖춘 완성형 스킨', symbol: '악', swatch: '#5d9b61', unlock: { kind: 'starter' } },
-  { id: 'skin-look-duck-ward', slot: 'skin', characterId: 'character-duck', traitMultiplier: 1.5, label: '달빛 정찰 꽥', description: '정찰 헬멧을 쓴 완성형 스킨', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'starter' } },
-  { id: 'skin-look-tiger-ward', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 1.5, label: '붉은 번개 라온', description: '붉은 전투복의 완성형 스킨', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'starter' } },
-  { id: 'skin-look-dinosaur-ward', slot: 'skin', characterId: 'character-dinosaur', traitMultiplier: 1.5, label: '과충전 라그', description: '기계 장비를 갖춘 완성형 스킨', symbol: '공', swatch: '#73b85d', unlock: { kind: 'starter' } },
-  { id: 'skin-look-monkey-ward', slot: 'skin', characterId: 'character-monkey', traitMultiplier: 1.5, label: '야간 정비 몽키', description: '정비복을 입은 완성형 스킨', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'starter' } },
-  { id: 'skin-look-gorilla-ward', slot: 'skin', characterId: 'character-gorilla', traitMultiplier: 1.5, label: '요새 수호 콩', description: '중장비 수호복의 완성형 스킨', symbol: '고', swatch: '#53606d', unlock: { kind: 'starter' } },
+  { id: 'skin-look-bunny-ward', slot: 'skin', characterId: 'character-bunny', traitMultiplier: 1.5, traitOverride: { label: '탐험가의 발걸음', description: '침대를 점유하기 전 이동속도가 1.5배가 됩니다.', unclaimedMoveSpeedMultiplier: 1.5 }, label: '탐험가 모모', description: '노란 안전모와 파란 후드의 완성형 이벤트 스킨', symbol: '토', swatch: '#e9c7bc', unlock: { kind: 'points', price: 100 } },
+  { id: 'skin-look-cat-ward', slot: 'skin', characterId: 'character-cat', traitMultiplier: 1.5, label: '새벽 탐정 루루', description: '빨간 재킷과 배낭을 갖춘 완성형 스킨', symbol: '냥', swatch: '#bdc5da', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-crocodile-ward', slot: 'skin', characterId: 'character-crocodile', traitMultiplier: 1.5, label: '늪지 경비 크로크', description: '보호 장비를 갖춘 완성형 스킨', symbol: '악', swatch: '#5d9b61', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-duck-ward', slot: 'skin', characterId: 'character-duck', traitMultiplier: 1.5, label: '달빛 정찰 꽥', description: '정찰 헬멧을 쓴 완성형 스킨', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-tiger-ward', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 1.5, label: '붉은 번개 라온', description: '붉은 전투복의 완성형 스킨', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-dinosaur-ward', slot: 'skin', characterId: 'character-dinosaur', traitMultiplier: 1.5, label: '과충전 라그', description: '기계 장비를 갖춘 완성형 스킨', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-monkey-ward', slot: 'skin', characterId: 'character-monkey', traitMultiplier: 1.5, label: '야간 정비 몽키', description: '정비복을 입은 완성형 스킨', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-gorilla-ward', slot: 'skin', characterId: 'character-gorilla', traitMultiplier: 1.5, label: '요새 수호 콩', description: '중장비 수호복의 완성형 스킨', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_500 } },
 ] as const satisfies readonly CosmeticDefinition[];
 
 const TURRET_SKINS = [
@@ -110,6 +126,14 @@ export function skinTraitMultiplier(appearance: AvatarAppearance): number {
   return skin?.slot === 'skin' && skin.characterId === appearance.character
     ? skin.traitMultiplier ?? 1
     : 1;
+}
+
+export function skinTraitOverride(appearance: AvatarAppearance): SkinTraitOverride | undefined {
+  if (isDefaultSkinForCharacter(appearance.skin, appearance.character)) return undefined;
+  const skin = cosmeticById(appearance.skin);
+  return skin?.slot === 'skin' && skin.characterId === appearance.character
+    ? skin.traitOverride
+    : undefined;
 }
 
 export function characterAvailable(characterId: string, rank: RankId, owned: readonly string[]): boolean {

@@ -135,6 +135,8 @@ export interface PlayerState {
   reconnectUntil: number;
   score: number;
   drawCount: number;
+  /** The hamster passive applies only to the first guardian turret this player builds. */
+  firstGuardianBuilt: boolean;
   items: OwnedItem[];
   consumables: OwnedConsumable[];
   consumableLoadout: ConsumableId[];

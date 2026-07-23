@@ -400,6 +400,7 @@ export class GameEngine {
       player.goldIncomeElapsed = Math.max(0, finite(player.goldIncomeElapsed, 0));
       player.powerIncomeElapsed = Math.max(0, finite(player.powerIncomeElapsed, 0));
       player.drawCount ??= 0;
+      player.firstGuardianBuilt ??= false;
       player.items ??= [];
       player.consumables ??= [];
       player.consumableLoadout ??= [];
@@ -969,6 +970,26 @@ export class GameEngine {
     player.powerIncomeElapsed = 0;
     player.position = { ...candidate.bed };
     player.velocity = { x: 0, y: 0 };
+    const occupancyTrait = characterTraitForAppearance(player.appearance);
+    const grantedDoorLevel = Math.min(
+      maxBuildingLevel('reinforced-door'),
+      1 + occupancyTrait.occupiedDoorLevelBonus,
+    );
+    if (grantedDoorLevel > candidate.room.doorLevel) {
+      candidate.room.doorLevel = grantedDoorLevel;
+      candidate.room.doorMaxHp = BALANCE.door.upgradeHp[grantedDoorLevel - 1] as number;
+      candidate.room.doorHp = candidate.room.doorMaxHp;
+      const occupiedMapRoom = this.map.rooms.find(
+        (room) => room.id === candidate.room.id,
+      );
+      this.pendingEvents.push({
+        kind: 'upgrade',
+        roomId: candidate.room.id,
+        playerId,
+        position: occupiedMapRoom?.door,
+        label: `${BALANCE.buildings['reinforced-door'].label} Lv.${grantedDoorLevel}`,
+      });
+    }
     if (firstOccupant) {
       for (const building of this.state.buildings) {
         if (building.roomId === candidate.room.id && !building.ownerId) {
@@ -1062,6 +1083,14 @@ export class GameEngine {
     const buildCost = upgradeCost(kind, 1, activeRank);
     if (player.gold < buildCost.gold || player.power < buildCost.power)
       return { ok: false, error: "골드 또는 전력이 부족합니다." };
+    const trait = characterTraitForAppearance(player.appearance);
+    const isFirstGuardian = kind === 'basic-turret' && !player.firstGuardianBuilt;
+    const initialLevel = isFirstGuardian
+      ? Math.min(
+          maxBuildingLevel(kind, activeRank),
+          1 + trait.firstGuardianLevelBonus,
+        )
+      : 1;
     player.gold -= buildCost.gold;
     player.power -= buildCost.power;
     const building: BuildingState = {
@@ -1073,7 +1102,7 @@ export class GameEngine {
         ? player.turretSkins[kind as TurretKind]
         : "",
       tile: { x: tile.x, y: tile.y, roomId },
-      level: 1,
+      level: initialLevel,
       cooldown: 0,
       hp: 100,
       investedGold: buildCost.gold,
@@ -1083,6 +1112,7 @@ export class GameEngine {
       },
     };
     this.state.buildings.push(building);
+    if (isFirstGuardian) player.firstGuardianBuilt = true;
     this.pendingEvents.push({ kind: "build", position: tile, playerId });
     return { ok: true };
   }
@@ -2723,6 +2753,7 @@ export class GameEngine {
       reconnectUntil: 0,
       score: 0,
       drawCount: 0,
+      firstGuardianBuilt: false,
       items: [],
       consumables: consumables
         .filter((item) => shopConsumableById(item.itemId) && Number.isInteger(item.quantity) && item.quantity > 0)

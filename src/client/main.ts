@@ -634,7 +634,7 @@ function cosmeticCollectionScreen(
       const traitLabel = characterTraitInfo && characterTraitInfo.id !== "none"
         ? characterTraitInfo.label
         : skinTraitInfo && skinTraitInfo.id !== "none"
-          ? `${skinTraitInfo.label} 150%`
+          ? skinTraitInfo.label
         : turretTraitInfo && item.unlock.kind !== "starter"
           ? turretTraitInfo.label
           : "";
