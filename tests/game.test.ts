@@ -11,6 +11,7 @@ import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
+import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
@@ -119,6 +120,14 @@ describe('deterministic shared world', () => {
     const ranks = ['beginner', 'intermediate', 'expert', 'master', 'veteran', 'legend'] as const;
     expect(new Set(ranks.map((rank) => rankBadgeSymbol(rank))).size).toBe(ranks.length);
     expect(ranks.every((rank) => RANK_VISUALS[rank].hatLabel.length > 0)).toBe(true);
+  });
+
+  it('defines ten ordered door materials and holds the last material for future extension levels', () => {
+    expect(DOOR_VISUALS.map((door) => door.label)).toEqual([
+      '나무 문', '녹슨 강철문', '빛바랜 강철문', '빨간 강철문', '단단한 철창',
+      '빛나는 철창', '강철 티타늄', '은빛 티타늄', '금빛 티타늄', '다이아 티타늄',
+    ]);
+    expect(doorVisualForLevel(11).label).toBe('다이아 티타늄');
   });
 
   it('generates the same connected twelve-room variable map for a seed', () => {
@@ -449,13 +458,14 @@ describe('authoritative game rules', () => {
     for (const player of persisted.snapshot.players) {
       player.gold = 10_000;
       player.power = 1_000;
+      player.powerIncomeElapsed = 0;
     }
     engine.restore(persisted);
     expect(engine.build(first.player.id, roomId, room.buildTiles[0] as Tile, 'generator').ok).toBe(true);
     const before = engine.snapshot();
     const firstPower = before.players.find((player) => player.id === first.player.id)?.power ?? 0;
     const secondPower = before.players.find((player) => player.id === second.player.id)?.power ?? 0;
-    engine.tick(1);
+    for (let index = 0; index < 3; index += 1) engine.tick(0.1);
     expect((engine.snapshot().players.find((player) => player.id === first.player.id)?.power ?? 0) - firstPower).toBeGreaterThan(0);
     expect(engine.snapshot().players.find((player) => player.id === second.player.id)?.power).toBe(secondPower);
 
@@ -554,6 +564,143 @@ describe('authoritative game rules', () => {
     const result = engine.build(ids[0] as string, roomId, tiles[1] as Tile, 'electric-coil');
     expect(result.ok).toBe(false);
     expect(result.error).toContain('부족');
+  });
+
+  it('sells support devices for power only and deducts no gold', () => {
+    expect(upgradeCost('repair-drone', 1)).toEqual({ gold: 0, power: 6 });
+    expect(upgradeCost('electric-coil', 1)).toEqual({ gold: 0, power: 12 });
+    expect(upgradeCost('floor-trap', 1)).toEqual({ gold: 0, power: 4 });
+    expect(upgradeCost('shield-device', 1)).toEqual({ gold: 0, power: 9 });
+
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing power-only player');
+    player.gold = 0;
+    player.power = 18;
+    engine.restore(persisted);
+
+    expect(engine.build(playerId, roomId, tile, 'repair-drone').ok).toBe(true);
+    const updated = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    expect(updated?.gold).toBe(0);
+    expect(updated?.power).toBe(12);
+  });
+
+  it('builds a five-level power gem with doubled costs and doubled gold income', () => {
+    const costs = [125, 250, 500, 1_000, 2_000];
+    const income = [8, 16, 32, 64, 128];
+    costs.forEach((power, index) => {
+      expect(upgradeCost('gem-core', index + 1)).toEqual({ gold: 0, power });
+      expect(buildingStats('gem-core', index + 1).value).toBe(income[index]);
+    });
+    expect(maxBuildingLevel('gem-core')).toBe(5);
+
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing gem owner');
+    player.gold = 0;
+    player.power = 125;
+    engine.restore(persisted);
+    expect(engine.build(playerId, roomId, tile, 'gem-core').ok).toBe(true);
+    engine.tick(0.1);
+    engine.tick(0.1);
+    engine.tick(0.05);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBeCloseTo(9, 5);
+  });
+
+  it('nets only a low-health ghost attacking the owning room door for 1.5 seconds', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === roomId);
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !room || !mapRoom || !ghost) throw new Error('missing ghost-net fixture');
+    player.power = 250;
+    ghost.position = { ...mapRoom.door };
+    ghost.targetRoomId = roomId;
+    ghost.targetPlayerId = null;
+    ghost.hp = ghost.maxHp * 0.3;
+    ghost.retreating = false;
+    ghost.healing = false;
+    ghost.stunnedUntil = 0;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    expect(engine.build(playerId, roomId, tile, 'ghost-net').ok).toBe(true);
+    engine.drainEvents();
+    engine.tick(0.05);
+    const netted = engine.snapshot().ghosts[0];
+    expect(netted?.stunnedUntil).toBeCloseTo(engine.snapshot().elapsed + 1.5, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'ghost-net')).toBe(true);
+  });
+
+  it('allows one four-level range amplifier per room and adds up to four turret tiles', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player || tiles.length < 3) throw new Error('missing range amplifier fixture');
+    player.gold = 100;
+    player.power = 10_000;
+    engine.restore(persisted);
+
+    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'range-amplifier').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'range-amplifier').error).toContain('하나');
+    const amplifierId = engine.snapshot().buildings.find((building) => building.kind === 'range-amplifier')?.id;
+    if (!amplifierId) throw new Error('missing range amplifier');
+    for (let level = 2; level <= 4; level += 1) expect(engine.upgrade(playerId, amplifierId).ok).toBe(true);
+    expect(engine.upgrade(playerId, amplifierId).ok).toBe(false);
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'basic-turret').ok).toBe(true);
+
+    const turret = engine.snapshot().buildings.find((building) => building.kind === 'basic-turret');
+    const rangedState = engine.serialize();
+    const ghost = rangedState.snapshot.ghosts[0];
+    if (!turret || !ghost) throw new Error('missing amplified turret fixture');
+    ghost.position = { x: turret.tile.x + 7, y: turret.tile.y };
+    ghost.hp = ghost.maxHp;
+    ghost.healing = false;
+    ghost.retreating = false;
+    ghost.path = [];
+    rangedState.snapshot.ghost = ghost;
+    engine.restore(rangedState);
+    engine.drainEvents();
+    engine.tick(0.05);
+    expect(engine.drainEvents().some((event) => event.kind === 'turret-fire')).toBe(true);
+  });
+
+  it('places one dormant starter structure in every live room and transfers the claimed one', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    const initial = engine.snapshot();
+    expect(initial.buildings).toHaveLength(engine.map.rooms.length);
+    expect(initial.buildings.every((building) => building.id.startsWith('starter:') && !building.ownerId)).toBe(true);
+    expect(new Set(initial.buildings.map((building) => building.kind))).toEqual(
+      new Set(['starter-grave', 'basic-turret', 'generator']),
+    );
+
+    expect(engine.start(playerId).ok).toBe(true);
+    const room = engine.map.rooms[0];
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!room || !player) throw new Error('missing starter ownership fixture');
+    player.position = { ...room.bed };
+    engine.restore(persisted);
+    expect(engine.interact(playerId).ok).toBe(true);
+    expect(engine.snapshot().buildings.find((building) => building.roomId === room.id)?.ownerId).toBe(playerId);
+    expect(engine.snapshot().buildings.filter((building) => building.roomId !== room.id).every((building) => !building.ownerId)).toBe(true);
   });
 
   it('rejects construction inside another player room', () => {
@@ -787,21 +934,35 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().elapsed - startedAt).toBeLessThanOrEqual(30);
   });
 
-  it('produces one gold per second and doubles bed income by level', () => {
+  it('pays bed income once per second and doubles the paid amount by level', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
+    const persisted = engine.serialize();
+    const persistedPlayer = persisted.snapshot.players.find((player) => player.id === playerId);
+    if (!persistedPlayer) throw new Error('missing bed income player');
+    persistedPlayer.goldIncomeElapsed = 0;
+    engine.restore(persisted);
+    engine.drainEvents();
     const before = engine.snapshot().players[0]?.gold ?? 0;
-    for (let index = 0; index < 5; index += 1) engine.tick(0.05);
+    for (let index = 0; index < 4; index += 1) engine.tick(0.05);
+    expect(engine.snapshot().players[0]?.gold).toBeCloseTo(before, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'gold')).toBe(false);
+    engine.tick(0.05);
     expect(engine.snapshot().players[0]?.gold).toBeCloseTo(before + 1, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 1)).toBe(true);
     const roomId = engine.snapshot().players[0]?.roomId as string;
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
     const upgraded = engine.snapshot().players[0]?.gold ?? 0;
-    for (let index = 0; index < 5; index += 1) engine.tick(0.05);
+    for (let index = 0; index < 4; index += 1) engine.tick(0.05);
+    expect(engine.snapshot().players[0]?.gold).toBeCloseTo(upgraded, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'gold')).toBe(false);
+    engine.tick(0.05);
     expect(engine.snapshot().players[0]?.gold).toBeCloseTo(upgraded + 2, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 2)).toBe(true);
   });
 
-  it('emits integer gold and power income at the producing bed and generator', () => {
+  it('emits gold and power income once per second at the producing bed and generator', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -809,10 +970,45 @@ describe('requested progression and event rules', () => {
     const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
     expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
     engine.drainEvents();
-    for (let index = 0; index < 6; index += 1) engine.tick(0.05);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing income player');
+    player.goldIncomeElapsed = 0;
+    player.powerIncomeElapsed = 0;
+    engine.restore(persisted);
+    for (let index = 0; index < 4; index += 1) engine.tick(0.05);
+    expect(engine.drainEvents().some((event) => event.kind === 'power')).toBe(false);
+    engine.tick(0.05);
     const events = engine.drainEvents();
     expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
     expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
+  });
+
+  it('keeps generator upgrades on one-second payouts while doubling the power amount through level ten', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
+    const generatorId = engine.snapshot().buildings.find((building) => building.kind === 'generator')?.id;
+    if (!generatorId) throw new Error('missing generator');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing generator owner');
+    player.gold = 100_000;
+    player.power = 100_000;
+    player.powerIncomeElapsed = 0;
+    engine.restore(persisted);
+    for (let level = 2; level <= 10; level += 1) expect(engine.upgrade(playerId, generatorId).ok).toBe(true);
+    expect(maxBuildingLevel('generator')).toBe(10);
+    expect(buildingStats('generator', 10).value).toBe(512);
+    const before = engine.snapshot().players.find((candidate) => candidate.id === playerId)?.power ?? 0;
+    engine.drainEvents();
+    for (let index = 0; index < 4; index += 1) engine.tick(0.05);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.power).toBeCloseTo(before, 5);
+    engine.tick(0.05);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.power).toBeCloseTo(before + 512, 5);
+    expect(engine.drainEvents().some((event) => event.kind === 'power' && event.amount === 512)).toBe(true);
   });
 
   it('starts bed gold income during countdown before the ghost moves', () => {
@@ -997,7 +1193,7 @@ describe('requested progression and event rules', () => {
     expect(upgraded?.doorHp).toBe(230);
   });
 
-  it('upgrades an intact door through level 15 but never level 16', () => {
+  it('upgrades an intact door through its ten visual tiers but never level eleven', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -1007,10 +1203,10 @@ describe('requested progression and event rules', () => {
     player.gold = 999_999;
     player.power = 999_999;
     engine.restore(persisted);
-    for (let level = 2; level <= 15; level += 1) expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(true);
+    for (let level = 2; level <= 10; level += 1) expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(true);
     const door = engine.snapshot().rooms.find((room) => room.id === player.roomId);
-    expect(door?.doorLevel).toBe(15);
-    expect(door?.doorMaxHp).toBe(5_320);
+    expect(door?.doorLevel).toBe(10);
+    expect(door?.doorMaxHp).toBe(2_840);
     expect(engine.upgrade(playerId, `door:${player.roomId}`).ok).toBe(false);
   });
 
@@ -1080,7 +1276,9 @@ describe('requested progression and event rules', () => {
     );
     expect(engine.build(playerId, roomId, tiles[0] as Tile, 'basic-turret').ok).toBe(true);
     expect(engine.build(playerId, roomId, tiles[1] as Tile, 'basic-turret').ok).toBe(true);
-    const secondTurret = engine.snapshot().buildings[1];
+    const secondTurret = engine.snapshot().buildings
+      .filter((building) => building.roomId === roomId && building.kind === 'basic-turret')
+      .at(-1);
     expect(secondTurret).toBeDefined();
     expect(engine.upgrade(playerId, secondTurret?.id ?? '').ok).toBe(true);
 
@@ -1709,7 +1907,7 @@ describe('persistent account progression', () => {
     expect(rankBenefits('legend').bedGoldMultiplier).toBe(1.5);
     expect(rankBenefits('legend').ghostDifficultyMultiplier).toBe(1.25);
     expect(rankBenefits('veteran').rareTurretUnlocked).toBe(true);
-    expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(15);
+    expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(10);
     expect(maxBuildingLevel('basic-turret', 'master')).toBe(16);
     expect(maxBuildingLevel('basic-turret', 'legend')).toBe(17);
     expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(175);

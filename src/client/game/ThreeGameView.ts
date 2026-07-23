@@ -5,15 +5,16 @@ import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects } from '../../shared/randomItems';
 import { characterTrait } from '../../shared/characterTraits';
+import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { dampFacingYaw, movementFacingYaw } from './avatarMath';
 
-const BASE_CAMERA_OFFSET = new THREE.Vector3(4, 8, 5.2);
-const BASE_CAMERA_HORIZONTAL_DISTANCE = Math.hypot(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
-const MIN_CAMERA_DISTANCE_SCALE = 0.5;
+const CAMERA_HEIGHT = 18;
+const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
+const BASE_LANDSCAPE_VIEW_HEIGHT = 8.4;
+const MIN_CAMERA_DISTANCE_SCALE = 2 / 3;
 const MAX_CAMERA_DISTANCE_SCALE = 2;
-const CAMERA_TARGET_HEIGHT = 0.34;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.27;
 const FRAME_DT_MAX = 1 / 15;
@@ -33,6 +34,7 @@ interface ViewPayload {
   map: MapDefinition;
   playerId: string;
   snapshot: GameSnapshot;
+  onSleep?: () => void;
 }
 
 interface BillboardData {
@@ -74,15 +76,21 @@ interface BuildingView {
   barrel: THREE.Group | null;
   level: THREE.Sprite;
   upgrade: THREE.Sprite;
+  modelLevel: number;
+  skinId: string;
 }
 
 interface DoorView {
   root: THREE.Group;
-  panel: THREE.Mesh;
+  panel: THREE.Group;
+  surface: THREE.Mesh;
+  frame: THREE.Mesh;
+  details: THREE.Group;
   hp: THREE.Sprite;
   label: THREE.Sprite;
   closedTarget: number;
   closedAmount: number;
+  visualLevel: number;
 }
 
 interface PointerDrag {
@@ -90,12 +98,10 @@ interface PointerDrag {
   x: number;
   y: number;
   moved: boolean;
-  mode: 'pan' | 'rotate';
 }
 
 interface MultiTouchGesture {
   distance: number;
-  angle: number;
 }
 
 interface PortraitMovementDrag {
@@ -194,6 +200,39 @@ function updateBarBillboard(sprite: THREE.Sprite, key: string, ratio: number, la
   context.shadowColor = '#000';
   context.shadowBlur = 8;
   context.fillText(label, canvas.width / 2, 65);
+  data.texture.needsUpdate = true;
+}
+
+function updateUpgradeBillboard(sprite: THREE.Sprite, key: string, affordable: boolean): void {
+  const data = sprite.userData.billboard as BillboardData;
+  if (data.key === key) return;
+  data.key = key;
+  const { canvas, context } = data;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const accent = affordable ? '#ffd94f' : '#9aa8bd';
+  context.shadowColor = affordable ? 'rgba(255, 194, 36, .9)' : 'rgba(0, 0, 0, .7)';
+  context.shadowBlur = affordable ? 22 : 10;
+  context.fillStyle = 'rgba(8, 13, 25, .94)';
+  context.beginPath();
+  context.arc(centerX, centerY, canvas.width * 0.39, 0, Math.PI * 2);
+  context.fill();
+  context.lineWidth = 12;
+  context.strokeStyle = accent;
+  context.stroke();
+  context.shadowBlur = 0;
+  context.fillStyle = accent;
+  context.beginPath();
+  context.moveTo(centerX, canvas.height * 0.19);
+  context.lineTo(canvas.width * 0.73, canvas.height * 0.46);
+  context.lineTo(canvas.width * 0.6, canvas.height * 0.46);
+  context.lineTo(canvas.width * 0.6, canvas.height * 0.75);
+  context.lineTo(canvas.width * 0.4, canvas.height * 0.75);
+  context.lineTo(canvas.width * 0.4, canvas.height * 0.46);
+  context.lineTo(canvas.width * 0.27, canvas.height * 0.46);
+  context.closePath();
+  context.fill();
   data.texture.needsUpdate = true;
 }
 
@@ -1146,6 +1185,10 @@ function buildingColor(kind: BuildingKind): number {
     'floor-trap': 0xe56870,
     'shield-device': 0x879eff,
     'lucky-machine': 0xff6eaa,
+    'gem-core': 0x69e7ff,
+    'ghost-net': 0xf4d36d,
+    'range-amplifier': 0x8bafff,
+    'starter-grave': 0x8b97a5,
   };
   return colors[kind];
 }
@@ -1165,24 +1208,51 @@ function turretSkinColor(building: BuildingState): number {
 
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
+  const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret'].includes(building.kind);
+  const turretTier = turret ? Math.min(4, Math.floor((Math.max(1, building.level) - 1) / 3)) : 0;
   const color = turretSkinColor(building);
   const baseMaterial = standardMaterial(0x172235, { metalness: 0.52, roughness: 0.42 });
-  const accent = standardMaterial(color, { emissive: color, emissiveIntensity: 0.85, metalness: 0.35, roughness: 0.28 });
+  const accent = standardMaterial(color, { emissive: color, emissiveIntensity: 0.85 + turretTier * 0.18, metalness: 0.35, roughness: 0.28 });
   const dark = standardMaterial(0x080b13, { metalness: 0.6, roughness: 0.34 });
-  root.add(mesh(new THREE.CylinderGeometry(0.36, 0.42, 0.18, 12), baseMaterial, [0, 0.1, 0]));
-  root.add(mesh(new THREE.CylinderGeometry(0.27, 0.32, 0.28, 12), accent, [0, 0.29, 0]));
+  const baseRadius = turret ? 0.36 + turretTier * 0.025 : 0.36;
+  root.add(mesh(new THREE.CylinderGeometry(baseRadius, baseRadius + 0.06, 0.18 + turretTier * 0.012, 12), baseMaterial, [0, 0.1, 0]));
+  root.add(mesh(new THREE.CylinderGeometry(0.27 + turretTier * 0.018, 0.32 + turretTier * 0.018, 0.28 + turretTier * 0.025, 12), accent, [0, 0.29, 0]));
 
-  const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret'].includes(building.kind);
   let barrel: THREE.Group | null = null;
   if (turret) {
     barrel = new THREE.Group();
-    barrel.position.y = 0.52;
-    const barrelLength = building.kind === 'golden-turret' ? 0.9 : building.kind === 'rapid-turret' ? 0.62 : 0.72;
+    barrel.position.y = 0.52 + turretTier * 0.035;
+    const barrelLength = (building.kind === 'golden-turret' ? 0.9 : building.kind === 'rapid-turret' ? 0.62 : 0.72) + turretTier * 0.045;
     const barrelMesh = mesh(new THREE.CylinderGeometry(building.kind === 'golden-turret' ? 0.07 : 0.055, building.kind === 'golden-turret' ? 0.09 : 0.075, barrelLength, 9), accent, [0, 0, -barrelLength * 0.44]);
     barrelMesh.rotation.x = Math.PI / 2;
     barrel.add(barrelMesh);
     barrel.add(mesh(new THREE.SphereGeometry(0.17, 12, 8), dark, [0, 0, 0]));
     root.add(barrel);
+    if (turretTier >= 1) {
+      const armorRing = mesh(new THREE.TorusGeometry(0.39 + turretTier * 0.025, 0.045, 8, 24), dark, [0, 0.5, 0]);
+      armorRing.rotation.x = Math.PI / 2;
+      root.add(armorRing);
+    }
+    if (turretTier >= 2) {
+      for (const x of [-0.31, 0.31]) {
+        root.add(mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.26, 8), accent, [x, 0.42, 0]));
+        root.add(mesh(new THREE.SphereGeometry(0.065, 8, 6), dark, [x, 0.57, 0]));
+      }
+    }
+    if (turretTier >= 3) {
+      for (const x of [-0.13, 0.13]) {
+        const sideBarrel = mesh(new THREE.CylinderGeometry(0.04, 0.055, barrelLength * 0.9, 8), accent, [x, 0, -barrelLength * 0.41]);
+        sideBarrel.rotation.x = Math.PI / 2;
+        barrel.add(sideBarrel);
+      }
+      for (const x of [-0.3, 0.3]) root.add(mesh(new THREE.ConeGeometry(0.09, 0.28, 5), dark, [x, 0.58, 0.13]));
+    }
+    if (turretTier >= 4) {
+      root.add(mesh(new THREE.OctahedronGeometry(0.18), accent, [0, 0.86, 0]));
+      const apexHalo = mesh(new THREE.TorusGeometry(0.5, 0.035, 8, 28), accent, [0, 0.88, 0]);
+      apexHalo.rotation.x = Math.PI / 2;
+      root.add(apexHalo);
+    }
     if (building.kind === 'golden-turret') {
       const crown = new THREE.Group();
       crown.position.y = 0.68;
@@ -1225,10 +1295,121 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
   } else if (building.kind === 'lucky-machine') {
     root.add(mesh(new THREE.BoxGeometry(0.5, 0.68, 0.45), baseMaterial, [0, 0.48, 0]));
     root.add(mesh(new THREE.BoxGeometry(0.34, 0.28, 0.05), accent, [0, 0.56, -0.25]));
+  } else if (building.kind === 'gem-core') {
+    const gem = mesh(new THREE.OctahedronGeometry(0.31), accent, [0, 0.62, 0]);
+    gem.scale.y = 1.35;
+    const ring = mesh(new THREE.TorusGeometry(0.37, 0.035, 8, 28), accent, [0, 0.45, 0]);
+    ring.rotation.x = Math.PI / 2;
+    root.add(gem, ring);
+  } else if (building.kind === 'ghost-net') {
+    const reel = mesh(new THREE.TorusGeometry(0.24, 0.055, 8, 24), accent, [0, 0.55, 0]);
+    reel.rotation.x = Math.PI / 2;
+    root.add(reel);
+    for (const angle of [-0.7, 0, 0.7]) {
+      const strand = mesh(new THREE.BoxGeometry(0.045, 0.58, 0.045), accent, [Math.sin(angle) * 0.16, 0.55, 0]);
+      strand.rotation.z = angle;
+      root.add(strand);
+    }
+  } else if (building.kind === 'range-amplifier') {
+    root.add(mesh(new THREE.BoxGeometry(0.1, 0.74, 0.1), accent, [0, 0.58, 0]));
+    for (const radius of [0.18, 0.3]) {
+      const signal = mesh(new THREE.TorusGeometry(radius, 0.035, 8, 26, Math.PI), accent, [0, 0.78, -0.03]);
+      signal.rotation.z = Math.PI / 2;
+      root.add(signal);
+    }
+  } else if (building.kind === 'starter-grave') {
+    root.add(mesh(new THREE.BoxGeometry(0.48, 0.56, 0.18), accent, [0, 0.46, 0]));
+    root.add(mesh(new THREE.SphereGeometry(0.24, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), accent, [0, 0.74, 0]));
+    root.add(mesh(new THREE.BoxGeometry(0.07, 0.3, 0.04), dark, [0, 0.58, -0.11]));
+    root.add(mesh(new THREE.BoxGeometry(0.25, 0.07, 0.04), dark, [0, 0.63, -0.11]));
   } else {
     root.add(mesh(new THREE.TorusGeometry(0.24, 0.06, 8, 20), accent, [0, 0.54, 0]));
   }
   return { root, barrel };
+}
+
+function applyDoorVisual(view: DoorView, level: number): void {
+  const style = doorVisualForLevel(level);
+  const panelMaterial = view.surface.material as THREE.MeshStandardMaterial;
+  const frameMaterial = view.frame.material as THREE.MeshStandardMaterial;
+  panelMaterial.color.setHex(style.panelColor);
+  panelMaterial.emissive.setHex(style.emissiveColor);
+  panelMaterial.emissiveIntensity = style.style === 'luminous-bars' || style.style === 'diamond-titanium' ? 1.05 : 0.5;
+  panelMaterial.metalness = style.metalness;
+  panelMaterial.roughness = style.roughness;
+  frameMaterial.color.setHex(style.frameColor);
+  frameMaterial.emissive.setHex(style.emissiveColor);
+  frameMaterial.emissiveIntensity = style.style === 'diamond-titanium' ? 0.44 : 0.14;
+  frameMaterial.metalness = Math.min(0.95, style.metalness + 0.08);
+  frameMaterial.roughness = Math.min(0.9, style.roughness + 0.08);
+
+  view.details.clear();
+  const accent = standardMaterial(style.accentColor, {
+    emissive: style.emissiveColor,
+    emissiveIntensity: style.style === 'luminous-bars' || style.style === 'diamond-titanium' ? 1.3 : 0.34,
+    metalness: Math.min(0.95, style.metalness + 0.08),
+    roughness: Math.max(0.12, style.roughness - 0.1),
+  });
+  const dark = standardMaterial(style.frameColor, { metalness: 0.72, roughness: 0.42 });
+  const add = (geometry: THREE.BufferGeometry, position: [number, number, number], material = accent, rotationY = 0): void => {
+    const detail = mesh(geometry, material, position);
+    detail.rotation.y = rotationY;
+    view.details.add(detail);
+  };
+  const addRivets = (): void => {
+    for (const x of [-0.3, 0.3]) for (const z of [-0.09, 0.09]) add(new THREE.SphereGeometry(0.035, 7, 5), [x, 0.055, z]);
+  };
+
+  switch (style.style) {
+    case 'wood':
+      for (const z of [-0.09, 0, 0.09]) add(new THREE.BoxGeometry(0.74, 0.025, 0.026), [0, 0.05, z]);
+      add(new THREE.BoxGeometry(0.045, 0.026, 0.25), [0.26, 0.05, 0], dark);
+      break;
+    case 'rusted-steel':
+      add(new THREE.BoxGeometry(0.7, 0.025, 0.04), [0, 0.05, -0.09]);
+      add(new THREE.BoxGeometry(0.7, 0.025, 0.04), [0, 0.05, 0.09]);
+      add(new THREE.BoxGeometry(0.055, 0.026, 0.25), [0, 0.05, 0], dark);
+      addRivets();
+      break;
+    case 'weathered-steel':
+      for (const x of [-0.24, 0, 0.24]) add(new THREE.BoxGeometry(0.045, 0.026, 0.245), [x, 0.05, 0]);
+      add(new THREE.BoxGeometry(0.73, 0.025, 0.032), [0, 0.05, 0], dark);
+      break;
+    case 'red-steel':
+      add(new THREE.BoxGeometry(0.72, 0.028, 0.04), [0, 0.05, -0.09], dark);
+      add(new THREE.BoxGeometry(0.72, 0.028, 0.04), [0, 0.05, 0.09], dark);
+      add(new THREE.BoxGeometry(0.05, 0.03, 0.25), [0, 0.05, 0]);
+      addRivets();
+      break;
+    case 'iron-bars':
+    case 'luminous-bars':
+      for (const x of [-0.27, -0.09, 0.09, 0.27]) add(new THREE.BoxGeometry(0.045, 0.035, 0.27), [x, 0.06, 0]);
+      add(new THREE.BoxGeometry(0.75, 0.03, 0.04), [0, 0.055, -0.1], dark);
+      add(new THREE.BoxGeometry(0.75, 0.03, 0.04), [0, 0.055, 0.1], dark);
+      break;
+    case 'steel-titanium':
+      add(new THREE.BoxGeometry(0.75, 0.026, 0.04), [0, 0.055, 0], dark, Math.PI / 6);
+      add(new THREE.BoxGeometry(0.75, 0.026, 0.04), [0, 0.055, 0], dark, -Math.PI / 6);
+      addRivets();
+      break;
+    case 'silver-titanium':
+      add(new THREE.BoxGeometry(0.74, 0.026, 0.035), [0, 0.055, -0.085]);
+      add(new THREE.BoxGeometry(0.74, 0.026, 0.035), [0, 0.055, 0.085]);
+      add(new THREE.BoxGeometry(0.05, 0.028, 0.25), [0, 0.055, 0]);
+      addRivets();
+      break;
+    case 'gold-titanium':
+      add(new THREE.TorusGeometry(0.22, 0.032, 8, 22), [0, 0.06, 0]);
+      add(new THREE.BoxGeometry(0.72, 0.026, 0.035), [0, 0.055, 0]);
+      addRivets();
+      break;
+    case 'diamond-titanium':
+      for (const x of [-0.24, 0, 0.24]) add(new THREE.OctahedronGeometry(0.11), [x, 0.075, 0]);
+      add(new THREE.BoxGeometry(0.75, 0.026, 0.032), [0, 0.055, -0.1]);
+      add(new THREE.BoxGeometry(0.75, 0.026, 0.032), [0, 0.055, 0.1]);
+      break;
+  }
+  view.visualLevel = level;
 }
 
 export function createTurretPreviewModel(kind: TurretKind, skinId: string): THREE.Group {
@@ -1255,8 +1436,10 @@ export class ThreeGameView {
   private readonly theme: StageTheme;
   private snapshotData: GameSnapshot;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 120);
+  private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 80);
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly sleepButton: HTMLButtonElement;
+  private readonly onSleep: () => void;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly selectionSurface: THREE.Mesh;
@@ -1277,7 +1460,6 @@ export class ThreeGameView {
   private followingPlayer = true;
   private focusedRoomId: string | null = null;
   private cameraDistanceScale = 1;
-  private cameraYaw = Math.atan2(BASE_CAMERA_OFFSET.x, BASE_CAMERA_OFFSET.z);
   private portraitLayout = false;
   private lastFrame = performance.now();
   private lastSelectionAt = 0;
@@ -1291,8 +1473,8 @@ export class ThreeGameView {
     this.mapData = payload.map;
     this.playerId = payload.playerId;
     this.snapshotData = payload.snapshot;
+    this.onSleep = payload.onSleep ?? (() => undefined);
     this.portraitLayout = host.clientHeight > host.clientWidth;
-    this.cameraDistanceScale = this.portraitLayout ? 1.24 : 1;
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
@@ -1304,10 +1486,22 @@ export class ThreeGameView {
     this.renderer.toneMappingExposure = 1.16;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.domElement.dataset.renderer = 'three-3d';
+    this.renderer.domElement.dataset.renderer = 'orthographic-2d';
     this.renderer.domElement.dataset.theme = this.theme.id;
     this.renderer.domElement.style.touchAction = 'none';
     this.host.appendChild(this.renderer.domElement);
+    this.sleepButton = document.createElement('button');
+    this.sleepButton.type = 'button';
+    this.sleepButton.className = 'sleep-nearby';
+    this.sleepButton.innerHTML = '<span aria-hidden="true">☾</span> 잠자기';
+    this.sleepButton.setAttribute('aria-label', '가까운 침대에서 잠자기');
+    this.sleepButton.hidden = true;
+    this.sleepButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onSleep();
+    });
+    this.host.appendChild(this.sleepButton);
 
     const invisible = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
     this.selectionSurface = new THREE.Mesh(new THREE.PlaneGeometry(this.mapData.width, this.mapData.height), invisible);
@@ -1337,6 +1531,7 @@ export class ThreeGameView {
     this.cameraTarget.copy(start);
     this.desiredCameraTarget.copy(start);
     this.updateCamera(1);
+    this.updateSleepPrompt();
     this.renderer.setAnimationLoop(this.animate);
   }
 
@@ -1346,7 +1541,8 @@ export class ThreeGameView {
 
   getCameraZoom(): number { return Math.round((1 / this.cameraDistanceScale) * 100) / 100; }
 
-  getCameraYaw(): number { return this.cameraYaw; }
+  /** 수직 2D 카메라는 북쪽 고정이며 테스트 API에는 0으로 노출한다. */
+  getCameraYaw(): number { return 0; }
 
   focusLocalPlayer(): void {
     this.focusPlayer(this.playerId);
@@ -1382,11 +1578,7 @@ export class ThreeGameView {
       MIN_CAMERA_DISTANCE_SCALE,
       MAX_CAMERA_DISTANCE_SCALE,
     );
-  }
-
-  rotateBy(radians: number): void {
-    if (!Number.isFinite(radians)) return;
-    this.cameraYaw = Math.atan2(Math.sin(this.cameraYaw + radians), Math.cos(this.cameraYaw + radians));
+    this.updateCameraProjection();
   }
 
   pause(): void {
@@ -1426,6 +1618,7 @@ export class ThreeGameView {
       }
       this.focusedRoomId = local.roomId;
     }
+    this.updateSleepPrompt();
   }
 
   destroy(): void {
@@ -1446,6 +1639,7 @@ export class ThreeGameView {
     });
     this.renderer.dispose();
     this.renderer.domElement.remove();
+    this.sleepButton.remove();
   }
 
   private readonly animate = (time: number): void => {
@@ -1458,8 +1652,57 @@ export class ThreeGameView {
     this.animateDoors(dt);
     this.animateEffects(time);
     this.updateCamera(dt);
+    this.updateSleepPrompt();
     this.renderer.render(this.scene, this.camera);
   };
+
+  private updateSleepPrompt(): void {
+    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+    if (
+      !local?.alive ||
+      local.roomId ||
+      (this.snapshotData.status !== 'COUNTDOWN' && this.snapshotData.status !== 'PLAYING')
+    ) {
+      this.sleepButton.hidden = true;
+      return;
+    }
+    const roomCapacity = this.snapshotData.playMode === 'multiplayer' ? 2 : 1;
+    const nearest = this.mapData.rooms
+      .flatMap((mapRoom) => {
+        const room = this.snapshotData.rooms.find((candidate) => candidate.id === mapRoom.id);
+        if (!room || room.ownerIds.length >= roomCapacity) return [];
+        return mapRoom.beds
+          .map((bed, bedIndex) => ({ bed, bedIndex, room }))
+          .filter(({ bedIndex, room }) =>
+            !room.ownerIds.some((ownerId) =>
+              this.snapshotData.players.some(
+                (player) => player.id === ownerId && player.bedIndex === bedIndex,
+              ),
+            ),
+          );
+      })
+      .map((candidate) => ({
+        ...candidate,
+        distance: Math.hypot(
+          candidate.bed.x - local.position.x,
+          candidate.bed.y - local.position.y,
+        ),
+      }))
+      .filter((candidate) => candidate.distance <= BALANCE.player.interactionRange)
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!nearest) {
+      this.sleepButton.hidden = true;
+      return;
+    }
+    const screen = worldPoint(nearest.bed, 0.35).project(this.camera);
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+    const x = (screen.x * 0.5 + 0.5) * width;
+    const y = (-screen.y * 0.5 + 0.5) * height;
+    this.sleepButton.style.left = `${clamp(x + 52, 64, width - 64)}px`;
+    this.sleepButton.style.top = `${clamp(y - 24, 76, height - 58)}px`;
+    this.sleepButton.hidden = false;
+  }
 
   private createLighting(): void {
     this.scene.add(new THREE.HemisphereLight(this.theme.hemisphereSky, this.theme.hemisphereGround, 2.05));
@@ -1608,7 +1851,7 @@ export class ThreeGameView {
         rig.root.position.copy(worldPoint(player.position));
         const label = makeBillboard();
         label.scale.set(2.35, 0.59, 1);
-        label.position.y = PLAYER_HEIGHT + 0.36;
+        label.position.set(0, PLAYER_HEIGHT + 0.36, -0.72);
         rig.root.add(label);
         this.scene.add(rig.root);
         view = { ...rig, label, target: worldPoint(player.position), lastPosition: worldPoint(player.position), seed: player.id.length * 0.71 };
@@ -1648,10 +1891,10 @@ export class ThreeGameView {
         root.add(model.body);
         const label = makeBillboard();
         label.scale.set(ghost.variant === 'minion' ? 1.7 : 2.5, ghost.variant === 'minion' ? 0.46 : 0.62, 1);
-        label.position.y = ghost.variant === 'giant' ? 3.15 : ghost.variant === 'minion' ? 1.02 : 2.22;
+        label.position.set(0, ghost.variant === 'giant' ? 3.15 : ghost.variant === 'minion' ? 1.02 : 2.22, ghost.variant === 'giant' ? -1.05 : ghost.variant === 'minion' ? -0.42 : -0.82);
         const hp = makeBillboard();
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
-        hp.position.y = ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96;
+        hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
         root.add(label, hp);
         const light = new THREE.PointLight(ghost.variant === 'caster' ? 0xb965ff : 0xff284f, 2.8, 4.5, 2);
         light.position.y = 1.2;
@@ -1661,7 +1904,8 @@ export class ThreeGameView {
         this.ghostViews.set(ghost.id, view);
       }
       view.target.copy(worldPoint(ghost.position));
-      updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}`, `${ghost.displayName} · Lv.${ghost.level}`, '#ffb4c2', 'rgba(25,4,12,.84)');
+      const netted = this.snapshotData.elapsed < ghost.stunnedUntil;
+      updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}:${netted}`, `${ghost.displayName} · Lv.${ghost.level}${netted ? ' · 그물' : ''}`, netted ? '#fff0a5' : '#ffb4c2', 'rgba(25,4,12,.84)');
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
       setObjectOpacity(view.root, ghost.hp > 0 ? (ghost.healing ? 0.62 : 1) : 0.08);
@@ -1680,18 +1924,35 @@ export class ThreeGameView {
     const active = new Set(buildings.map((building) => building.id));
     for (const building of buildings) {
       let view = this.buildingViews.get(building.id);
+      if (
+        view &&
+        (view.modelLevel !== building.level || view.skinId !== building.skinId)
+      ) {
+        this.scene.remove(view.root);
+        this.buildingViews.delete(building.id);
+        view = undefined;
+      }
       if (!view) {
         const model = createBuildingModel(building);
         model.root.position.copy(worldPoint(building.tile));
         const level = makeBillboard();
         level.scale.set(0.8, 0.28, 1);
-        level.position.set(0.35, 0.9, 0);
-        const upgrade = makeBillboard();
-        upgrade.scale.set(0.43, 0.24, 1);
-        upgrade.position.set(-0.3, 1.1, 0);
+        level.position.set(0.35, 0.9, 0.34);
+        const upgrade = makeBillboard(192, 192);
+        // 탑다운 화면에서는 건물 위쪽으로 빼면 화살표가 옆 타일로 밀려 보인다.
+        // 작은 오버레이로 건물 중앙에 겹쳐 두어, 유령기숙사처럼 즉시 알아볼 수 있게 한다.
+        upgrade.scale.set(0.46, 0.46, 1);
+        upgrade.position.set(0, 0.48, 0);
         model.root.add(level, upgrade);
         this.scene.add(model.root);
-        view = { root: model.root, barrel: model.barrel, level, upgrade };
+        view = {
+          root: model.root,
+          barrel: model.barrel,
+          level,
+          upgrade,
+          modelLevel: building.level,
+          skinId: building.skinId,
+        };
         this.buildingViews.set(building.id, view);
       }
       updateTextBillboard(view.level, `${building.level}`, `Lv.${building.level}`, '#ffffff', 'rgba(8,12,24,.9)');
@@ -1710,13 +1971,7 @@ export class ThreeGameView {
       );
       view.upgrade.visible = isUpgradeable;
       if (isUpgradeable) {
-        updateTextBillboard(
-          view.upgrade,
-          `${building.level}:${canAffordUpgrade}`,
-          '↑',
-          canAffordUpgrade ? '#fff1a6' : '#b9c7df',
-          canAffordUpgrade ? 'rgba(72, 54, 10, .94)' : 'rgba(18, 31, 55, .9)',
-        );
+        updateUpgradeBillboard(view.upgrade, `${building.level}:${canAffordUpgrade}`, canAffordUpgrade);
       }
     }
     for (const [id, view] of this.buildingViews) {
@@ -1743,29 +1998,47 @@ export class ThreeGameView {
           Math.abs(room.door.y - (room.bounds.y + room.bounds.height - 1)),
         );
         if (leftRightDistance <= topBottomDistance) root.rotation.y = Math.PI / 2;
-        const frameMaterial = standardMaterial(0x314258, { metalness: 0.5, roughness: 0.5 });
-        const panelMaterial = standardMaterial(0x436d78, { emissive: 0x173d48, emissiveIntensity: 0.55, metalness: 0.32, roughness: 0.48 });
-        root.add(mesh(new THREE.BoxGeometry(1.08, 1.34, 0.18), frameMaterial, [0, 0.67, 0]));
-        const panel = mesh(new THREE.BoxGeometry(0.82, 1.12, 0.2), panelMaterial, [0, 0.6, -0.02]);
+        const frameMaterial = standardMaterial(0x25374d, { metalness: 0.5, roughness: 0.5 });
+        const panelMaterial = standardMaterial(0x5bcbd5, { emissive: 0x185b66, emissiveIntensity: 0.85, metalness: 0.28, roughness: 0.42 });
+        const frame = mesh(new THREE.BoxGeometry(1.08, 0.08, 0.5), frameMaterial, [0, 0.08, 0]);
+        root.add(frame);
+        const panel = new THREE.Group();
+        panel.position.set(0, 0.15, 0);
+        const surface = mesh(new THREE.BoxGeometry(0.84, 0.07, 0.3), panelMaterial);
+        const details = new THREE.Group();
+        panel.add(surface, details);
         root.add(panel);
         const hp = makeBillboard();
         hp.scale.set(1.72, 0.42, 1);
-        hp.position.y = 1.63;
+        hp.position.set(0, 0.72, -0.5);
         const label = makeBillboard();
         label.scale.set(1.4, 0.38, 1);
-        label.position.y = 1.9;
+        label.position.set(0, 0.76, -0.82);
         root.add(hp, label);
         this.scene.add(root);
         const closed = state.ownerIds.length > 0 ? 1 : 0;
-        panel.rotation.y = (1 - closed) * Math.PI / 2;
-        view = { root, panel, hp, label, closedTarget: closed, closedAmount: closed };
+        panel.scale.x = 0.18 + closed * 0.82;
+        view = {
+          root,
+          panel,
+          surface,
+          frame,
+          details,
+          hp,
+          label,
+          closedTarget: closed,
+          closedAmount: closed,
+          visualLevel: 0,
+        };
+        applyDoorVisual(view, state.doorLevel);
         this.doorViews.set(room.id, view);
       }
       const intact = state.doorHp > 0;
       const ratio = state.doorHp / Math.max(1, state.doorMaxHp);
       view.closedTarget = state.ownerIds.length > 0 ? 1 : 0;
       view.panel.visible = intact;
-      updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel}`, '#d8f8ff');
+      if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
+      updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff');
       updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578');
     }
   }
@@ -1773,7 +2046,7 @@ export class ThreeGameView {
   private animateDoors(dt: number): void {
     for (const view of this.doorViews.values()) {
       view.closedAmount = damp(view.closedAmount, view.closedTarget, 8.5, dt);
-      view.panel.rotation.y = (1 - view.closedAmount) * Math.PI / 2;
+      view.panel.scale.x = 0.18 + view.closedAmount * 0.82;
       view.panel.position.x = (1 - view.closedAmount) * 0.34;
     }
   }
@@ -1931,7 +2204,7 @@ export class ThreeGameView {
       const effect = this.effects[index] as TimedEffect;
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
       if (effect.from && effect.to) effect.object.position.lerpVectors(effect.from, effect.to, progress);
-      if (effect.rise) effect.object.position.y += effect.rise * 0.016;
+      if (effect.rise) effect.object.position.z -= effect.rise * 0.016;
       if (effect.baseScale) {
         effect.object.scale.copy(effect.baseScale).multiplyScalar(1 + progress * (effect.scaleGrowth ?? 0));
       } else {
@@ -1945,6 +2218,25 @@ export class ThreeGameView {
   }
 
   private playEvent(event: GameEvent): void {
+    if (event.kind === 'ghost-net' && event.position) {
+      const net = mesh(
+        new THREE.RingGeometry(0.28, 0.72, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffdf65, transparent: true, opacity: 0.92, side: THREE.DoubleSide, depthTest: false }),
+        [event.position.x, 0.82, event.position.y],
+      );
+      net.rotation.x = -Math.PI / 2;
+      net.renderOrder = 9_500;
+      this.scene.add(net);
+      this.effects.push({ object: net, born: performance.now(), duration: 1_500, baseScale: net.scale.clone(), scaleGrowth: 0.18 });
+      const popup = makeBillboard();
+      popup.scale.set(1.8, 0.45, 1);
+      popup.position.copy(worldPoint(event.position, 1.9));
+      popup.position.z -= 0.82;
+      updateTextBillboard(popup, `net:${event.targetId}:${performance.now()}`, '그물 봉쇄 · 1.5초', '#fff0a5', 'rgba(42, 31, 6, .92)');
+      this.scene.add(popup);
+      this.effects.push({ object: popup, born: performance.now(), duration: 1_500, baseScale: popup.scale.clone(), scaleGrowth: 0.04 });
+      return;
+    }
     if ((event.kind === 'gold' || event.kind === 'power') && event.position && (event.amount ?? 0) > 0) {
       const popup = makeBillboard();
       // 512×128 캔버스와 동일한 4:1 비율을 유지한다. 애니메이션에서도
@@ -2037,40 +2329,48 @@ export class ThreeGameView {
     this.desiredCameraTarget.x = clamp(this.desiredCameraTarget.x, 2.5, this.mapData.width - 3.5);
     this.desiredCameraTarget.z = clamp(this.desiredCameraTarget.z, 2.5, this.mapData.height - 3.5);
     this.cameraTarget.lerp(this.desiredCameraTarget, 1 - Math.exp(-10 * dt));
-    const horizontalDistance = BASE_CAMERA_HORIZONTAL_DISTANCE * this.cameraDistanceScale;
     this.camera.position.set(
-      this.cameraTarget.x + Math.sin(this.cameraYaw) * horizontalDistance,
-      this.cameraTarget.y + BASE_CAMERA_OFFSET.y * this.cameraDistanceScale,
-      this.cameraTarget.z + Math.cos(this.cameraYaw) * horizontalDistance,
+      this.cameraTarget.x,
+      CAMERA_HEIGHT,
+      this.cameraTarget.z,
     );
-    this.camera.lookAt(this.cameraTarget.x, CAMERA_TARGET_HEIGHT, this.cameraTarget.z);
+    this.camera.up.set(0, 0, -1);
+    this.camera.lookAt(this.cameraTarget.x, FLOOR_Y, this.cameraTarget.z);
 
     // 카메라만 멀어지고 안개 거리는 고정이면 축소할수록 타일이 안개색에
     // 잠겨 급격히 어두워진다. 조명을 증폭하지 않고 가시거리만 비례해
     // 넓혀 가까운 화면의 명암과 최대 축소 화면의 판독성을 함께 지킨다.
     if (this.scene.fog instanceof THREE.Fog) {
-      const visibilityScale = 1 + Math.max(0, this.cameraDistanceScale - 1) * 0.85;
-      this.scene.fog.near = this.theme.fogNear * visibilityScale;
-      this.scene.fog.far = this.theme.fogFar * visibilityScale;
+      this.scene.fog.near = this.theme.fogNear + CAMERA_HEIGHT - 10;
+      this.scene.fog.far = this.theme.fogFar + CAMERA_HEIGHT - 10;
     }
   }
 
   private resize(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
-    const portrait = height > width;
-    if (portrait !== this.portraitLayout) {
-      this.cameraDistanceScale = clamp(
-        this.cameraDistanceScale * (portrait ? 1.24 : 1 / 1.24),
-        MIN_CAMERA_DISTANCE_SCALE,
-        MAX_CAMERA_DISTANCE_SCALE,
-      );
-      this.portraitLayout = portrait;
-    }
-    this.camera.fov = portrait ? 52 : 38;
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
+    this.portraitLayout = height > width;
+    this.updateCameraProjection(width, height);
     this.renderer.setSize(width, height, false);
+  }
+
+  private updateCameraProjection(
+    width = Math.max(1, this.host.clientWidth),
+    height = Math.max(1, this.host.clientHeight),
+  ): void {
+    const aspect = width / height;
+    const portrait = height > width;
+    const halfWidth = portrait
+      ? (BASE_PORTRAIT_VIEW_WIDTH * this.cameraDistanceScale) / 2
+      : (BASE_LANDSCAPE_VIEW_HEIGHT * aspect * this.cameraDistanceScale) / 2;
+    const halfHeight = portrait
+      ? halfWidth / aspect
+      : (BASE_LANDSCAPE_VIEW_HEIGHT * this.cameraDistanceScale) / 2;
+    this.camera.left = -halfWidth;
+    this.camera.right = halfWidth;
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.updateProjectionMatrix();
   }
 
   private bindInput(): void {
@@ -2127,7 +2427,6 @@ export class ThreeGameView {
       x: event.clientX,
       y: event.clientY,
       moved: false,
-      mode: event.button === 2 ? 'rotate' : 'pan',
     };
   };
 
@@ -2153,11 +2452,6 @@ export class ThreeGameView {
       const next = this.currentGesture();
       if (next && this.gesture) {
         if (this.gesture.distance > 0) this.zoomBy(next.distance / this.gesture.distance);
-        const angleDelta = Math.atan2(
-          Math.sin(next.angle - this.gesture.angle),
-          Math.cos(next.angle - this.gesture.angle),
-        );
-        this.rotateBy(angleDelta);
       }
       this.gesture = next;
       return;
@@ -2167,16 +2461,9 @@ export class ThreeGameView {
     const dy = event.clientY - this.drag.y;
     if (Math.hypot(dx, dy) > 7) this.drag.moved = true;
     if (!this.drag.moved) return;
-    if (this.drag.mode === 'rotate') this.rotateBy(-dx * 0.008);
-    else {
-      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
-      const forward = new THREE.Vector3();
-      this.camera.getWorldDirection(forward);
-      forward.setY(0).normalize();
-      const panScale = 0.015 * this.cameraDistanceScale;
-      this.desiredCameraTarget.addScaledVector(right, -dx * panScale);
-      this.desiredCameraTarget.addScaledVector(forward, dy * panScale);
-    }
+    const panScale = 0.015 * this.cameraDistanceScale;
+    this.desiredCameraTarget.x -= dx * panScale;
+    this.desiredCameraTarget.z -= dy * panScale;
     this.drag.x = event.clientX;
     this.drag.y = event.clientY;
   };
@@ -2200,7 +2487,7 @@ export class ThreeGameView {
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
     const remaining = this.pointerPositions.entries().next().value as [number, { x: number; y: number }] | undefined;
     this.drag = remaining
-      ? { id: remaining[0], x: remaining[1].x, y: remaining[1].y, moved: true, mode: 'pan' }
+      ? { id: remaining[0], x: remaining[1].x, y: remaining[1].y, moved: true }
       : null;
     if (!moved && !wasGesture && event.button !== 2) this.selectAt(event.clientX, event.clientY);
   };
@@ -2219,7 +2506,7 @@ export class ThreeGameView {
     if (!first || !second) return null;
     const dx = second.x - first.x;
     const dy = second.y - first.y;
-    return { distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) };
+    return { distance: Math.hypot(dx, dy) };
   }
 
   private pointerNearLocalPlayer(clientX: number, clientY: number): boolean {
@@ -2238,15 +2525,10 @@ export class ThreeGameView {
       window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', { detail: { x: 0, y: 0 } }));
       return;
     }
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
-    const forward = new THREE.Vector3();
-    this.camera.getWorldDirection(forward);
-    forward.setY(0).normalize();
-    const world = right.multiplyScalar(screenX).addScaledVector(forward, -screenY);
-    const magnitude = Math.hypot(world.x, world.z);
+    const magnitude = Math.hypot(screenX, screenY);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', {
-      detail: { x: world.x * scale, y: world.z * scale },
+      detail: { x: screenX * scale, y: screenY * scale },
     }));
   }
 

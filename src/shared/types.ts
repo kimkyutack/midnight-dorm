@@ -48,7 +48,11 @@ export type BuildingKind =
   | 'electric-coil'
   | 'floor-trap'
   | 'shield-device'
-  | 'lucky-machine';
+  | 'lucky-machine'
+  | 'gem-core'
+  | 'ghost-net'
+  | 'range-amplifier'
+  | 'starter-grave';
 
 export type TurretKind = 'basic-turret' | 'rapid-turret' | 'frost-turret' | 'arc-turret';
 export type TurretSkinLoadout = Record<TurretKind, string>;
@@ -121,6 +125,8 @@ export interface PlayerState {
   maxHp: number;
   gold: number;
   power: number;
+  goldIncomeElapsed: number;
+  powerIncomeElapsed: number;
   roomId: string | null;
   bedIndex: number | null;
   turretSkins: TurretSkinLoadout;
@@ -184,6 +190,8 @@ export interface GhostState {
   targetPlayerId: string | null;
   attackCooldown: number;
   slowUntil: number;
+  /** 그물 설비가 이동과 공격을 완전히 멈추는 서버 기준 시각. */
+  stunnedUntil: number;
   /** 활성 감속 배율. 그림자 덫의 레벨별 감속 효과를 서버가 권한 있게 보존한다. */
   slowMultiplier: number;
   rage: boolean;
@@ -288,6 +296,7 @@ export type GameEventKind =
   | 'ghost-retreat'
   | 'ghost-return'
   | 'ghost-skill'
+  | 'ghost-net'
   | 'item-draw'
   | 'consumable-use'
   | 'elite-join'

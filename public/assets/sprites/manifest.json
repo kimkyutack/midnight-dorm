@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "directions": ["front", "back", "side"],
+  "leftDirection": "mirror-side",
+  "movementFrames": ["idle", "walk-1", "walk-2", "walk-3"],
+  "attackFrames": ["attack-1", "attack-2", "attack-3"],
+  "survivors": [
+    { "id": "character-bunny", "label": "밤토끼 모모", "root": "/assets/sprites/survivors/character-bunny" },
+    { "id": "character-cat", "label": "달고양이 루루", "root": "/assets/sprites/survivors/character-cat" },
+    { "id": "character-puppy", "label": "구름강아지 몽", "root": "/assets/sprites/survivors/character-puppy" },
+    { "id": "character-bear", "label": "도토리곰 밤이", "root": "/assets/sprites/survivors/character-bear" },
+    { "id": "character-fox", "label": "별여우 초롱", "root": "/assets/sprites/survivors/character-fox" },
+    { "id": "character-hamster", "label": "유령햄스터 콩", "root": "/assets/sprites/survivors/character-hamster" },
+    { "id": "character-crocodile", "label": "늪악어 크로크", "root": "/assets/sprites/survivors/character-crocodile" },
+    { "id": "character-duck", "label": "달오리 꽥", "root": "/assets/sprites/survivors/character-duck" },
+    { "id": "character-tiger", "label": "달호랑이 라온", "root": "/assets/sprites/survivors/character-tiger" },
+    { "id": "character-dinosaur", "label": "별공룡 라그", "root": "/assets/sprites/survivors/character-dinosaur" },
+    { "id": "character-monkey", "label": "달원숭이 몽키", "root": "/assets/sprites/survivors/character-monkey" },
+    { "id": "character-gorilla", "label": "요새고릴라 콩", "root": "/assets/sprites/survivors/character-gorilla" }
+  ],
+  "ghosts": [
+    { "id": "wanderer", "root": "/assets/sprites/ghosts/wanderer" },
+    { "id": "swift", "root": "/assets/sprites/ghosts/swift" },
+    { "id": "brute", "root": "/assets/sprites/ghosts/brute" },
+    { "id": "caster", "root": "/assets/sprites/ghosts/caster" },
+    { "id": "twin-a", "root": "/assets/sprites/ghosts/twin-a" },
+    { "id": "twin-b", "root": "/assets/sprites/ghosts/twin-b" },
+    { "id": "teleporter", "root": "/assets/sprites/ghosts/teleporter" },
+    { "id": "undead", "root": "/assets/sprites/ghosts/undead" },
+    { "id": "giant", "root": "/assets/sprites/ghosts/giant" }
+  ]
+}

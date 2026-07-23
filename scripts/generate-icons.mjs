@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { deflateSync } from 'node:zlib';
+import { mkdir, writeFile } from "node:fs/promises";
+import { deflateSync } from "node:zlib";
 
 const icon = (size, maskable = false) => `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 512 512">
@@ -26,32 +26,46 @@ const icon = (size, maskable = false) => `<?xml version="1.0" encoding="UTF-8"?>
   <ellipse cx="158" cy="350" rx="22" ry="12" fill="#f5a6b7" opacity=".75"/><ellipse cx="354" cy="350" rx="22" ry="12" fill="#f5a6b7" opacity=".75"/>
 </svg>`;
 
-await mkdir('public/icons', { recursive: true });
-await writeFile('public/icons/icon.svg', icon(512));
-await writeFile('public/icons/icon-maskable.svg', icon(512, true));
-await writeFile('public/icons/icon-192.png', makePng(192));
-await writeFile('public/icons/icon-512.png', makePng(512));
+await mkdir("public/icons", { recursive: true });
+await writeFile("public/icons/favicon.ico", icon(512));
+await writeFile("public/icons/icon-maskable.svg", icon(512, true));
+await writeFile("public/icons/icon-192.png", makePng(192));
+await writeFile("public/icons/icon-512.png", makePng(512));
 
 function makePng(size) {
   const pixels = Buffer.alloc(size * size * 4);
   const put = (x, y, color) => {
     if (x < 0 || y < 0 || x >= size || y >= size) return;
     const offset = (Math.floor(y) * size + Math.floor(x)) * 4;
-    pixels[offset] = color[0]; pixels[offset + 1] = color[1]; pixels[offset + 2] = color[2]; pixels[offset + 3] = color[3] ?? 255;
+    pixels[offset] = color[0];
+    pixels[offset + 1] = color[1];
+    pixels[offset + 2] = color[2];
+    pixels[offset + 3] = color[3] ?? 255;
   };
   const rectangle = (x, y, width, height, color) => {
-    for (let py = Math.floor(y); py < y + height; py += 1) for (let px = Math.floor(x); px < x + width; px += 1) put(px, py, color);
+    for (let py = Math.floor(y); py < y + height; py += 1)
+      for (let px = Math.floor(x); px < x + width; px += 1) put(px, py, color);
   };
   const circle = (cx, cy, radius, color) => {
-    for (let y = -radius; y <= radius; y += 1) for (let x = -radius; x <= radius; x += 1) if (x * x + y * y <= radius * radius) put(cx + x, cy + y, color);
+    for (let y = -radius; y <= radius; y += 1)
+      for (let x = -radius; x <= radius; x += 1)
+        if (x * x + y * y <= radius * radius) put(cx + x, cy + y, color);
   };
   const ellipse = (cx, cy, rx, ry, color) => {
-    for (let y = -ry; y <= ry; y += 1) for (let x = -rx; x <= rx; x += 1) if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1) put(cx + x, cy + y, color);
+    for (let y = -ry; y <= ry; y += 1)
+      for (let x = -rx; x <= rx; x += 1)
+        if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1)
+          put(cx + x, cy + y, color);
   };
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       const t = (x + y) / (size * 2);
-      put(x, y, [Math.floor(23 - t * 13), Math.floor(43 - t * 28), Math.floor(76 - t * 49), 255]);
+      put(x, y, [
+        Math.floor(23 - t * 13),
+        Math.floor(43 - t * 28),
+        Math.floor(76 - t * 49),
+        255,
+      ]);
     }
   }
   const unit = size / 512;
@@ -75,16 +89,33 @@ function makePng(size) {
   ellipse(s(354), s(350), s(23), s(12), [245, 166, 183, 150]);
 
   const scanlines = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y += 1) pixels.copy(scanlines, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
+  for (let y = 0; y < size; y += 1)
+    pixels.copy(
+      scanlines,
+      y * (size * 4 + 1) + 1,
+      y * size * 4,
+      (y + 1) * size * 4,
+    );
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(scanlines, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  return Buffer.concat([
+    signature,
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(scanlines, { level: 9 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function chunk(type, data) {
   const name = Buffer.from(type);
-  const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([name, data])));
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([name, data])));
   return Buffer.concat([length, name, data, crc]);
 }
 
@@ -92,7 +123,8 @@ function crc32(data) {
   let value = 0xffffffff;
   for (const byte of data) {
     value ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
+    for (let bit = 0; bit < 8; bit += 1)
+      value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
   }
   return (value ^ 0xffffffff) >>> 0;
 }

@@ -225,6 +225,37 @@ export class GameEngine {
     const ghosts = variants.map((variant, index) =>
       this.makeGhost(variant, index),
     );
+    const starterKinds: readonly BuildingKind[] = [
+      "generator",
+      "starter-grave",
+      "basic-turret",
+    ];
+    // 시뮬레이션 회귀 테스트는 기존 빈 방 전제를 유지한다. 실제 매치에서는
+    // 각 방에 하나씩 휴면 설비를 배치하고 첫 점유 전까지 작동시키지 않는다.
+    const starterBuildings: BuildingState[] = this.testMode
+      ? []
+      : this.map.rooms.flatMap((room, index) => {
+          const tile = [...room.buildTiles].sort(
+            (a, b) => distance(b, room.door) - distance(a, room.door),
+          )[0];
+          const kind = starterKinds[index % starterKinds.length] as BuildingKind;
+          return tile
+            ? [{
+                id: `starter:${room.id}`,
+                kind,
+                roomId: room.id,
+                ownerId: "",
+                skinId: "",
+                tile: { ...tile, roomId: room.id },
+                level: 1,
+                cooldown: 0,
+                hp: 100,
+                investedGold: 0,
+                investedPower: 0,
+                investmentByPlayer: {},
+              }]
+            : [];
+        });
     const eventNames: Record<GhostVariant, string> = {
       wanderer: "기본 악몽",
       swift: "질주하는 원혼",
@@ -248,7 +279,7 @@ export class GameEngine {
       countdown: BALANCE.countdownSeconds,
       players: [],
       rooms,
-      buildings: [],
+      buildings: starterBuildings,
       ghost: ghosts[0] as GhostState,
       ghosts,
       matchEvent: eventNames[variants[0] as GhostVariant],
@@ -288,6 +319,7 @@ export class GameEngine {
       targetPlayerId: null,
       attackCooldown: 0,
       slowUntil: 0,
+      stunnedUntil: 0,
       slowMultiplier: 1,
       rage: false,
       phase: 1,
@@ -324,6 +356,7 @@ export class GameEngine {
       ghost.variant ??= "wanderer";
       ghost.targetPlayerId ??= null;
       ghost.slowMultiplier ??= 1;
+      ghost.stunnedUntil ??= 0;
       ghost.attackCount ??= 0;
       ghost.attacksToNextLevel ??= BALANCE.ghost.firstLevelAttacks;
       ghost.retreating ??= false;
@@ -350,6 +383,8 @@ export class GameEngine {
       player.appearance = normalizeAppearance(player.appearance);
       player.turretSkins = normalizeTurretSkins(player.turretSkins);
       player.bedIndex ??= null;
+      player.goldIncomeElapsed = Math.max(0, finite(player.goldIncomeElapsed, 0));
+      player.powerIncomeElapsed = Math.max(0, finite(player.powerIncomeElapsed, 0));
       player.drawCount ??= 0;
       player.items ??= [];
       player.consumables ??= [];
@@ -911,12 +946,22 @@ export class GameEngine {
             ? "비어 있는 2인 방의 침대에 더 가까이 가세요."
             : "다른 생존자가 점유하지 않은 방의 침대에 더 가까이 가세요.",
       };
+    const firstOccupant = candidate.room.ownerIds.length === 0;
     candidate.room.ownerIds.push(player.id);
     candidate.room.ownerId ??= player.id;
     player.roomId = candidate.room.id;
     player.bedIndex = candidate.bedIndex;
+    player.goldIncomeElapsed = 0;
+    player.powerIncomeElapsed = 0;
     player.position = { ...candidate.bed };
     player.velocity = { x: 0, y: 0 };
+    if (firstOccupant) {
+      for (const building of this.state.buildings) {
+        if (building.roomId === candidate.room.id && !building.ownerId) {
+          building.ownerId = player.id;
+        }
+      }
+    }
     return { ok: true };
   }
 
@@ -926,6 +971,8 @@ export class GameEngine {
     tile: Tile,
     kind: BuildingKind,
   ): ActionResult {
+    if (kind === "starter-grave")
+      return { ok: false, error: "잠든 무덤은 방 기본 설비로만 배치됩니다." };
     if (kind === "bed" || kind === "reinforced-door")
       return { ok: false, error: "침대와 문은 기존 설비를 업그레이드하세요." };
     const player = this.state.players.find(
@@ -955,6 +1002,26 @@ export class GameEngine {
       return {
         ok: false,
         error: "랜덤 상자는 방마다 하나만 설치할 수 있습니다.",
+      };
+    if (
+      kind === "range-amplifier" &&
+      this.state.buildings.some(
+        (building) => building.roomId === roomId && building.kind === kind,
+      )
+    )
+      return {
+        ok: false,
+        error: "사거리 증폭기는 방마다 하나만 설치할 수 있습니다.",
+      };
+    if (
+      kind === "ghost-net" &&
+      this.state.buildings.some(
+        (building) => building.roomId === roomId && building.kind === kind,
+      )
+    )
+      return {
+        ok: false,
+        error: "봉쇄 그물 발사기는 방마다 하나만 설치할 수 있습니다.",
       };
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
@@ -1483,49 +1550,76 @@ export class GameEngine {
       );
       const effects = combinedItemEffects(player.items);
       const trait = characterTrait(player.appearance.character);
-      const goldBefore = player.gold;
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       const bedLevel = room.bedLevels[player.bedIndex ?? 0] ?? 1;
-      const income =
-        this.state.elapsed < this.state.goldSuppressedUntil
-          ? 0
-          : (buildingStats("bed", bedLevel).value *
-              rankBenefits(activeRank).bedGoldMultiplier +
-              effects.goldPerSecond +
-              trait.goldPerSecond) *
-            dt;
-      player.gold += income;
-      const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
+      const goldBuildings = this.state.buildings.filter(
+        (building) =>
+          building.ownerId === player.id &&
+          (building.kind === "gem-core" || building.kind === "starter-grave"),
+      );
+      const buildingGoldPerSecond = goldBuildings.reduce(
+        (total, building) =>
+          total + buildingStats(building.kind, building.level).value,
+        0,
+      );
       const playerBed = mapRoom?.beds[player.bedIndex ?? 0] ?? mapRoom?.bed;
-      if (goldGained > 0)
-        this.pendingEvents.push({
-          kind: "gold",
-          playerId: player.id,
-          amount: goldGained,
-          position: playerBed ? { ...playerBed } : undefined,
-        });
+      // 침대 수입은 레벨과 무관하게 매초 한 번만 지급한다. 레벨이 오르면
+      // 지급 간격이 짧아지는 대신, 같은 1초 주기에 지급 금액이 2배가 된다.
+      player.goldIncomeElapsed += dt;
+      while (player.goldIncomeElapsed + 1e-9 >= 1) {
+        player.goldIncomeElapsed -= 1;
+        const goldBefore = player.gold;
+        const income =
+          this.state.elapsed < this.state.goldSuppressedUntil
+            ? 0
+            : buildingStats("bed", bedLevel).value *
+                rankBenefits(activeRank).bedGoldMultiplier +
+              buildingGoldPerSecond +
+              effects.goldPerSecond +
+              trait.goldPerSecond;
+        player.gold += income;
+        const goldGained = Math.floor(player.gold) - Math.floor(goldBefore);
+        if (goldGained > 0)
+          this.pendingEvents.push({
+            kind: "gold",
+            playerId: player.id,
+            amount: goldGained,
+            position: goldBuildings[0]
+              ? { ...goldBuildings[0].tile }
+              : playerBed
+                ? { ...playerBed }
+                : undefined,
+          });
+      }
       const generators = this.state.buildings.filter(
         (building) =>
           building.ownerId === player.id && building.kind === "generator",
       );
-      const powerBefore = player.power;
-      for (const generator of generators) {
-        player.power += buildingStats("generator", generator.level).value * dt;
+      // 발전기와 전력 아이템도 침대 골드처럼 매초 한 번만 지급한다.
+      // 강화 단계는 지급 주기를 줄이지 않고, 한 번에 주는 전력만 2배로 키운다.
+      player.powerIncomeElapsed += dt;
+      while (player.powerIncomeElapsed + 1e-9 >= 1) {
+        player.powerIncomeElapsed -= 1;
+        const powerBefore = player.power;
+        const powerPerSecond = generators.reduce(
+          (total, generator) => total + buildingStats("generator", generator.level).value,
+          effects.powerPerSecond,
+        );
+        player.power += powerPerSecond;
+        const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
+        if (powerGained > 0)
+          this.pendingEvents.push({
+            kind: "power",
+            playerId: player.id,
+            amount: powerGained,
+            position: generators[0]
+              ? { ...generators[0].tile }
+              : playerBed
+                ? { ...playerBed }
+                : undefined,
+          });
       }
-      player.power += effects.powerPerSecond * dt;
-      const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
-      if (powerGained > 0)
-        this.pendingEvents.push({
-          kind: "power",
-          playerId: player.id,
-          amount: powerGained,
-          position: generators[0]
-            ? { ...generators[0].tile }
-            : playerBed
-              ? { ...playerBed }
-              : undefined,
-        });
       if (
         room.doorHp > 0 &&
         this.state.elapsed >= this.state.repairSuppressedUntil
@@ -1547,6 +1641,8 @@ export class GameEngine {
       const owner = this.state.players.find(
         (candidate) => candidate.id === building.ownerId,
       );
+      // 아직 점유되지 않은 방의 기본 설비는 보이기만 하고 생산·공격하지 않는다.
+      if (!owner) continue;
       const effects = combinedItemEffects(owner?.items ?? []);
       if (
         building.kind === "repair-drone" &&
@@ -1562,6 +1658,35 @@ export class GameEngine {
             distance(a.position, building.tile) -
             distance(b.position, building.tile),
         )[0];
+      if (building.kind === "ghost-net" && room && building.cooldown <= 0) {
+        const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+        const target = mapRoom
+          ? this.state.ghosts.find(
+              (ghost) =>
+                ghost.hp > 0 &&
+                !ghost.retreating &&
+                !ghost.healing &&
+                ghost.targetRoomId === room.id &&
+                ghost.hp / Math.max(1, ghost.maxHp) <= 0.3 &&
+                distance(ghost.position, mapRoom.door) <= 0.9,
+            )
+          : undefined;
+        if (target) {
+          target.stunnedUntil = Math.max(
+            target.stunnedUntil,
+            this.state.elapsed + stats.value,
+          );
+          target.path = [];
+          building.cooldown = stats.rate;
+          this.pendingEvents.push({
+            kind: "ghost-net",
+            position: { ...target.position },
+            targetId: target.id,
+            buildingKind: building.kind,
+            amount: stats.value,
+          });
+        }
+      }
       if (
         building.kind === "shield-device" &&
         room &&
@@ -1608,7 +1733,15 @@ export class GameEngine {
       );
       // 일반 포탑은 4칸 기본 사거리이며, 황금 심판 포탑과 사거리 아이템만
       // 이 서버 권한 타깃 사거리에 예외 보정을 더한다.
-      const range = stats.range + effects.turretRangeBonus + trait.turretRangeBonus;
+      const roomRangeBonus = building.kind === "electric-coil"
+        ? 0
+        : (this.state.buildings.find(
+            (candidate) =>
+              candidate.roomId === building.roomId &&
+              candidate.kind === "range-amplifier" &&
+              Boolean(candidate.ownerId),
+          )?.level ?? 0);
+      const range = stats.range + effects.turretRangeBonus + trait.turretRangeBonus + roomRangeBonus;
       if (
         !offensive ||
         !nearest ||
@@ -1761,6 +1894,11 @@ export class GameEngine {
       (ghost.level >= 5 || ghost.hp / ghost.maxHp <= 0.3);
     ghost.skillCooldown -= dt;
     ghost.abilityCooldown -= dt;
+
+    if (this.state.elapsed < ghost.stunnedUntil) {
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.2);
+      return;
+    }
 
     if (
       ghost.variant !== "minion" &&
@@ -2439,6 +2577,8 @@ export class GameEngine {
       maxHp: BALANCE.player.maxHp,
       gold: BALANCE.player.startingGold + benefits.startingGoldBonus,
       power: BALANCE.player.startingPower + benefits.startingPowerBonus,
+      goldIncomeElapsed: 0,
+      powerIncomeElapsed: 0,
       roomId: null,
       bedIndex: null,
       lastInputSeq: 0,

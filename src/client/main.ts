@@ -129,6 +129,9 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "floor-trap",
   "shield-device",
   "lucky-machine",
+  "gem-core",
+  "ghost-net",
+  "range-amplifier",
 ];
 
 const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
@@ -145,6 +148,10 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "floor-trap": "✹",
   "shield-device": "⬡",
   "lucky-machine": "✧",
+  "gem-core": "◈",
+  "ghost-net": "#",
+  "range-amplifier": "◎",
+  "starter-grave": "†",
 };
 
 interface RoomStatusResponse {
@@ -290,7 +297,7 @@ function homeScreen(): void {
   );
   const stage = selectedHomeStage(currentAccount, homePlayMode);
   const modeLabel = homePlayMode === "solo" ? "싱글 플레이" : "멀티 플레이";
-  const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀포 해금" : ""}`;
+  const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.10 · 포탑 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀포 해금" : ""}`;
   setContent(
     "home",
     `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><section class="home-account rank-border-${currentAccount.displayRank}"><div class="rank-emblem">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-lg")}</div><div><span>접속한 생존자</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>싱글 ${rankLabel(currentAccount.soloRank)} · 멀티 ${rankLabel(currentAccount.multiplayerRank)}</small></div></section><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="인게임 귀신을 피해 달리는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택"><span>현재 스테이지</span><strong>${stage.label}</strong><small>${modeLabel} · ${perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : "◎"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stage.label}</small>스테이지 시작</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
@@ -865,7 +872,7 @@ function roomMenu(): void {
         `<option value="${stage.id}" ${stage.index === currentAccount.multiplayerStageIndex ? "selected" : ""}>${stage.label} · ${stageThemeFor(stage.id).label}</option>`,
     )
     .join("");
-  const perk = `${benefits.speedMultiplier > 1 ? `이동속도 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동속도"} · 문 최대 Lv.15 · 포탑 최대 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀 천둥포 해금" : ""}`;
+  const perk = `${benefits.speedMultiplier > 1 ? `이동속도 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동속도"} · 문 최대 Lv.10 · 포탑 최대 Lv.${15 + benefits.turretLevelBonus}${benefits.rareTurretUnlocked ? " · 희귀 천둥포 해금" : ""}`;
   setContent(
     "room-menu",
     `<main class="mode-select-screen"><div class="mode-backdrop"></div><header class="mode-header"><button class="mode-back" data-mode-back aria-label="게임 홈">‹</button><div><span class="eyebrow">PLAY</span><h2>플레이 방식 선택</h2></div><nav class="mode-tools"><button class="mode-custom" data-customize><span>✦ ${currentAccount.customPoints.toLocaleString()} P</span><strong>커스텀</strong></button><div class="mode-rank">${rankIdentityHtml(currentAccount.displayRank, "rank-badge-sm")}<span>${escapeHtml(currentAccount.nickname)}</span></div></nav></header><section class="mode-stage"><article class="mode-poster solo-poster"><div class="mode-icon">☾</div><div class="mode-copy"><h3>싱글 플레이</h3><p>세 명의 귀여운 생존 봇과 함께 방어합니다.</p></div><label>스테이지<select data-solo-stage>${soloOptions}</select></label><button class="mode-play" data-solo aria-label="봇과 혼자 시작">혼자 시작</button></article><article class="mode-poster multi-poster"><div class="mode-icon">◎</div><div class="mode-copy"><h3>멀티 플레이</h3><p>친구와 각자의 방을 지키며 협동합니다.</p></div><label>스테이지<select data-multi-stage>${multiOptions}</select></label><button class="mode-play" data-create data-testid="create-room">새 방 만들기</button></article><aside class="invite-terminal"><div class="invite-copy"><span>FRIEND ROOM</span><strong>초대 코드로 참가</strong></div><div><input class="code-input" id="invite-code" type="text" maxlength="8" inputmode="text" aria-label="초대 코드로 참가" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드" /><button class="invite-join" data-join data-testid="join-room">참가</button></div><small>${perk}</small></aside></section></main>`,
@@ -1166,11 +1173,14 @@ function gameScreen(state: GameSnapshot): void {
     "game",
     `<main id="game-shell"><div id="game-root"></div><div class="render-mode">PERSPECTIVE 3D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "싱글" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${drawLimitForCharacter(me?.appearance.character ?? "")}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
+  const renderMode = app.querySelector<HTMLElement>(".render-mode");
+  if (renderMode)
+    renderMode.textContent = `TOP-DOWN 2D · ${stageThemeFor(state.stageId).label}`;
+  app.querySelector("[data-interact]")?.remove();
+  app
+    .querySelectorAll('[data-camera="rotate-left"], [data-camera="rotate-right"]')
+    .forEach((button) => button.remove());
   setupJoystick();
-  app.querySelector("[data-interact]")?.addEventListener("click", () => {
-    network?.interact();
-    audio.play("button");
-  });
   app
     .querySelector("[data-inventory]")
     ?.addEventListener("click", showInventory);
@@ -1205,6 +1215,10 @@ function gameScreen(state: GameSnapshot): void {
     map: mapData,
     playerId,
     snapshot: state,
+    onSleep: () => {
+      network?.interact();
+      audio.play("button");
+    },
   });
   app.querySelector("[data-focus-player]")?.addEventListener("click", () => {
     game?.focusLocalPlayer();
@@ -1223,8 +1237,6 @@ function gameScreen(state: GameSnapshot): void {
       const action = button.dataset.camera;
       if (action === "zoom-in") game?.zoomBy(Math.SQRT2);
       else if (action === "zoom-out") game?.zoomBy(1 / Math.SQRT2);
-      else if (action === "rotate-left") game?.rotateBy(-Math.PI / 12);
-      else if (action === "rotate-right") game?.rotateBy(Math.PI / 12);
       refreshCameraZoom();
       audio.play("button");
     }),
@@ -1432,7 +1444,13 @@ function panelHeadingMarkup(kicker: string, title: string): string {
 }
 
 function resourceCostMarkup(cost: { gold: number; power: number }): string {
-  return `<span class="resource-cost gold">◆ <b>${cost.gold}</b></span>${cost.power > 0 ? `<span class="resource-cost power">⚡ <b>${cost.power}</b></span>` : ""}`;
+  const gold = cost.gold > 0 || cost.power <= 0
+    ? `<span class="resource-cost gold">◆ <b>${cost.gold}</b></span>`
+    : "";
+  const power = cost.power > 0
+    ? `<span class="resource-cost power">⚡ <b>${cost.power}</b></span>`
+    : "";
+  return `${gold}${power}`;
 }
 
 function buildingIconMarkup(kind: BuildingKind): string {
@@ -1523,7 +1541,8 @@ function renderBuildPanel(tile: Tile): void {
       const definition = BALANCE.buildings[kind];
       const cost = upgradeCost(kind, 1, modeRank);
       const tierClass = kind === "golden-turret" ? "mythic-build" : kind === "arc-turret" ? "rare-build" : "";
-      return `<button class="build-card catalog-card ${tierClass}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 3D 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong><small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+      const powerOnly = cost.gold === 0 && cost.power > 0;
+      return `<button class="build-card catalog-card ${tierClass} ${powerOnly ? "power-only-build" : ""}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
     })
     .join(
       "",

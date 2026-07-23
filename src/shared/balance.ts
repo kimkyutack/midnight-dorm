@@ -20,7 +20,7 @@ const level = (gold: number, power: number, value: number, rate: number, range: 
   gold, power, value, rate, range,
 });
 
-const DOOR_HP = [80, 230, 440, 690, 970, 1_290, 1_630, 2_010, 2_410, 2_840, 3_290, 3_770, 4_260, 4_780, 5_320] as const;
+const DOOR_HP = [80, 230, 440, 690, 970, 1_290, 1_630, 2_010, 2_410, 2_840] as const;
 const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const doorLevel = index + 1;
   return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, doorLevel === 1 ? 0 : Math.ceil(doorLevel * 0.8), hp, 0, 0);
@@ -29,6 +29,9 @@ const BED_UPGRADE_GOLD = [0, 35, 90, 210, 460, 970, 2_000, 4_050, 8_200, 16_500]
 const BED_UPGRADE_POWER = [0, 0, 1, 3, 6, 10, 16, 24, 35, 50] as const;
 const BED_LEVELS = BED_UPGRADE_GOLD.map((gold, index) =>
   level(gold, BED_UPGRADE_POWER[index] as number, 2 ** index, 1, 0),
+);
+const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) =>
+  level(45 * 2 ** index, 0, 2 ** index, 1, 0),
 );
 
 export const BALANCE = {
@@ -86,8 +89,8 @@ export const BALANCE = {
     },
     'reinforced-door': {
       label: '봉인 강화문',
-      description: '15단계까지 강화되며 초반 업그레이드부터 생존 시간이 크게 증가합니다.',
-      maxLevel: 15,
+      description: '10단계 외형으로 강화되며, 단계마다 방어 소재가 뚜렷하게 바뀝니다.',
+      maxLevel: 10,
       levels: DOOR_LEVELS,
     },
     'basic-turret': {
@@ -122,39 +125,74 @@ export const BALANCE = {
     },
     generator: {
       label: '달빛 발전기',
-      description: '매초 전력을 생산합니다.',
-      maxLevel: 3,
-      levels: [level(45, 0, 1.1, 1, 0), level(90, 0, 2.2, 1, 0), level(180, 0, 4.4, 1, 0)],
+      description: '침대와 같이 10단계까지 강화되며 매초 전력이 2배씩 늘어납니다.',
+      maxLevel: 10,
+      levels: GENERATOR_LEVELS,
     },
     'repair-drone': {
       label: '바느질 수리봇',
-      description: '방문을 꾸준히 수리합니다.',
+      description: '전력만 사용해 방문을 꾸준히 수리합니다.',
       maxLevel: 3,
-      levels: [level(70, 3, 1.5, 1, 0), level(140, 3, 3, 1, 0), level(280, 5, 6, 1, 0)],
+      levels: [level(0, 6, 1.5, 1, 0), level(0, 10, 3, 1, 0), level(0, 16, 6, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',
-      description: '가까운 귀신에게 지속 범위 피해를 줍니다.',
+      description: '전력만 사용해 가까운 귀신에게 지속 범위 피해를 줍니다.',
       maxLevel: 3,
-      levels: [level(90, 6, 7, 0.75, 4.5), level(180, 5, 14, 0.65, 5), level(360, 7, 28, 0.52, 5.5)],
+      levels: [level(0, 12, 7, 0.75, 4.5), level(0, 18, 14, 0.65, 5), level(0, 27, 28, 0.52, 5.5)],
     },
     'floor-trap': {
       label: '그림자 덫',
-      description: '귀신의 이동 속도를 크게 낮춥니다.',
+      description: '전력만 사용해 귀신의 이동 속도를 크게 낮춥니다.',
       maxLevel: 3,
-      levels: [level(40, 1, 0.24, 3, 1.3), level(80, 1, 0.34, 4, 1.5), level(160, 2, 0.45, 5, 1.8)],
+      levels: [level(0, 4, 0.24, 3, 1.3), level(0, 7, 0.34, 4, 1.5), level(0, 11, 0.45, 5, 1.8)],
     },
     'shield-device': {
       label: '새벽 보호막',
-      description: '귀신이 주는 방문 피해를 일시적으로 줄입니다.',
+      description: '전력만 사용해 귀신이 주는 방문 피해를 일시적으로 줄입니다.',
       maxLevel: 3,
-      levels: [level(75, 5, 0.3, 5, 0), level(150, 3, 0.45, 7, 0), level(300, 4, 0.6, 9, 0)],
+      levels: [level(0, 9, 0.3, 5, 0), level(0, 14, 0.45, 7, 0), level(0, 20, 0.6, 9, 0)],
     },
     'lucky-machine': {
       label: '심야 랜덤 상자',
       description: '한 판에 네 번, 확률형 아이템을 뽑습니다.',
       maxLevel: 1,
       levels: [level(0, 0, 0, 0, 0)],
+    },
+    'gem-core': {
+      label: '월광 보석',
+      description: '전력을 응축해 매초 골드를 생산합니다.',
+      maxLevel: 5,
+      levels: [
+        level(0, 125, 8, 1, 0),
+        level(0, 250, 16, 1, 0),
+        level(0, 500, 32, 1, 0),
+        level(0, 1_000, 64, 1, 0),
+        level(0, 2_000, 128, 1, 0),
+      ],
+    },
+    'ghost-net': {
+      label: '봉쇄 그물 발사기',
+      description: '문을 공격하는 HP 30% 이하 귀신을 1.5초 멈춥니다.',
+      maxLevel: 1,
+      levels: [level(0, 250, 1.5, 12, 0)],
+    },
+    'range-amplifier': {
+      label: '포탑 사거리 증폭기',
+      description: '같은 방 모든 포탑의 사거리를 레벨당 1칸 늘립니다.',
+      maxLevel: 4,
+      levels: [
+        level(0, 180, 1, 0, 0),
+        level(0, 360, 2, 0, 0),
+        level(0, 720, 3, 0, 0),
+        level(0, 1_440, 4, 0, 0),
+      ],
+    },
+    'starter-grave': {
+      label: '잠든 무덤',
+      description: '방을 점유하면 소유권을 얻고 매초 골드 1을 생산합니다.',
+      maxLevel: 1,
+      levels: [level(0, 0, 1, 1, 0)],
     },
   } satisfies Record<BuildingKind, BuildingDefinition>,
 } as const;

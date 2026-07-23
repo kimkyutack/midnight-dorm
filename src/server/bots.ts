@@ -65,7 +65,8 @@ export function decideBotIntent(
   if (imperfectDelay) return { type: 'idle' };
   if (room.doorHp / room.doorMaxHp < 0.48) {
     const repair = snapshot.buildings.find((building) => building.roomId === room.id && building.kind === 'repair-drone');
-    if (!repair && bot.gold >= buildingStats('repair-drone', 1).gold) {
+    const repairCost = buildingStats('repair-drone', 1);
+    if (!repair && bot.gold >= repairCost.gold && bot.power >= repairCost.power) {
       const tile = freeTile(snapshot, mapRoom.buildTiles);
       if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
     }

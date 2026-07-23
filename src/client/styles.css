@@ -4594,6 +4594,58 @@ select {
 .resource-cost.power {
   color: #8cecf8;
 }
+.build-card.power-only-build {
+  border-color: rgba(99, 225, 255, 0.46);
+  background: linear-gradient(
+    145deg,
+    rgba(21, 70, 91, 0.8),
+    rgba(35, 43, 78, 0.72)
+  );
+  box-shadow: inset 0 0 20px rgba(85, 226, 255, 0.08);
+}
+.power-only-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin: 1px auto 2px;
+  padding: 2px 5px;
+  border: 1px solid rgba(116, 234, 255, 0.35);
+  border-radius: 999px;
+  color: #91efff;
+  background: rgba(5, 34, 53, 0.72);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.sleep-nearby {
+  position: absolute;
+  z-index: 12;
+  display: inline-flex;
+  width: auto !important;
+  min-width: 76px;
+  min-height: 38px;
+  padding: 7px 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 221, 103, 0.92);
+  border-radius: 999px;
+  color: #fff4bd;
+  background: rgba(16, 22, 38, 0.94);
+  box-shadow:
+    0 0 0 3px rgba(7, 12, 23, 0.72),
+    0 6px 22px rgba(0, 0, 0, 0.52),
+    0 0 18px rgba(255, 204, 66, 0.25);
+  font-size: 11px;
+  font-weight: 950;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.sleep-nearby[hidden] {
+  display: none;
+}
 .build-card.rare-build {
   border-color: rgba(242, 178, 255, 0.78);
   background: linear-gradient(
