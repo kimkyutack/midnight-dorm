@@ -103,6 +103,13 @@ const BENEFITS: Record<RankId, RankBenefits> = {
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));
 export const rankLabel = (rank: RankId): string => RANKS[rankIndex(rank)]?.label ?? '하수';
 export const rankBadgeSymbol = (rank: RankId): string => RANK_VISUALS[rank].badgeSymbol;
+export const rankBadgeImage = (rank: RankId): string => `/assets/ranks/${rank}.png`;
+export const rankLabelGradient = (rank: RankId): readonly [string, string, string] | null => {
+  if (rank === 'master') return ['#b18bff', '#f2d6ff', '#8eeeff'];
+  if (rank === 'veteran') return ['#ff8d67', '#ffe48b', '#fff2d0'];
+  if (rank === 'legend') return ['#ffffff', '#ffd47a', '#ff77c4'];
+  return null;
+};
 export const rankFromXp = (xp: number): RankId => [...RANKS].reverse().find((rank) => xp >= rank.minXp)?.id ?? 'beginner';
 export const higherRank = (solo: RankId, multiplayer: RankId): RankId => rankIndex(solo) >= rankIndex(multiplayer) ? solo : multiplayer;
 export const isEliteRank = (rank: RankId): boolean => rankIndex(rank) >= rankIndex('master');

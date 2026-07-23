@@ -50,11 +50,13 @@ function shapeSize(cells: ReadonlyArray<readonly [number, number]>): { width: nu
 
 function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
   const rng = new SeededRandom(seed);
-  const width = 75;
-  const height = 58;
+  // Eight compact rooms keep the complete ward readable on a portrait screen.
+  // The corridor grid still has enough clearance for a 5x5 room and a door.
+  const width = 73;
+  const height = 41;
   const laneWidth = 3;
   const verticalBands = [2, 19, 36, 53, 70] as const;
-  const horizontalBands = [2, 19, 36, 53] as const;
+  const horizontalBands = [2, 20, 38] as const;
   const firstVerticalBand = verticalBands[0] as number;
   const lastVerticalBand = verticalBands[verticalBands.length - 1] as number;
   const firstHorizontalBand = horizontalBands[0] as number;
@@ -82,7 +84,7 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
 
   const templates = rng.shuffle([...(playMode === 'multiplayer' ? MULTIPLAYER_SHAPES : SOLO_SHAPES)]);
   const sides = rng.shuffle<DoorSide>(['top', 'right', 'bottom', 'left']);
-  for (let row = 0; row < 3; row += 1) {
+  for (let row = 0; row < 2; row += 1) {
     for (let column = 0; column < 4; column += 1) {
       const index = row * 4 + column;
       const roomId = `room-${index + 1}`;
@@ -177,8 +179,17 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
     height,
     corridor: { x: firstVerticalBand, y: firstHorizontalBand, width: lastVerticalBand - firstVerticalBand + laneWidth, height: laneWidth },
     corridorTiles: [...corridorTiles.values()],
-    respawnZone: { x: 2, y: 2, width: 3, height: 3 },
-    playerSpawn: { x: 37, y: 37 },
+    respawnZones: [
+      { x: 2, y: 2, width: 3, height: 3 },
+      { x: 36, y: 2, width: 3, height: 3 },
+      { x: 70, y: 2, width: 3, height: 3 },
+      { x: 2, y: 20, width: 3, height: 3 },
+      { x: 70, y: 20, width: 3, height: 3 },
+      { x: 2, y: 38, width: 3, height: 3 },
+      { x: 36, y: 38, width: 3, height: 3 },
+      { x: 70, y: 38, width: 3, height: 3 },
+    ],
+    playerSpawn: { x: 37, y: 21 },
     ghostSpawn: { x: 3, y: 3 },
     rooms,
     walls: [...walls.values()],
@@ -187,7 +198,7 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition {
 }
 
 export function validateMap(map: MapDefinition): boolean {
-  if (map.rooms.length < 10) return false;
+  if (map.rooms.length !== 8 || map.respawnZones.length !== 8) return false;
   const wallKeys = new Set(map.walls.map((tile) => tileKey(tile.x, tile.y)));
   const walkableKeys = new Set(map.walkable.map((tile) => tileKey(tile.x, tile.y)));
   const corridorKeys = new Set(map.corridorTiles.map((tile) => tileKey(tile.x, tile.y)));

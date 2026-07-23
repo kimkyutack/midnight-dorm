@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { BALANCE, maxBuildingLevel, upgradeCost } from '../../shared/balance';
-import { isEliteRank, rankBadgeSymbol, rankBenefits, rankLabel } from '../../shared/progression';
+import { isEliteRank, rankBadgeImage, rankBenefits, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects } from '../../shared/randomItems';
-import { characterTrait } from '../../shared/characterTraits';
+import { characterTraitForAppearance } from '../../shared/characterTraits';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
+import { buildingAssetUrl } from './BuildingAssets';
 
 const CAMERA_HEIGHT = 18;
 const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
@@ -71,6 +72,8 @@ interface PlayerView {
   characterId: string;
   appearanceKey: string;
   label: THREE.Sprite;
+  badge: THREE.Sprite;
+  badgeRank: RankId;
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
   seed: number;
@@ -180,7 +183,46 @@ function makeBillboard(width = 512, height = 128): THREE.Sprite {
   return sprite;
 }
 
-function updateTextBillboard(sprite: THREE.Sprite, key: string, text: string, color = '#ffffff', background = 'rgba(5,8,17,.78)'): void {
+const rankBadgeTextures = new Map<RankId, THREE.Texture>();
+
+function rankBadgeTexture(rank: RankId): THREE.Texture {
+  let texture = rankBadgeTextures.get(rank);
+  if (!texture) {
+    texture = new THREE.TextureLoader().load(rankBadgeImage(rank));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    rankBadgeTextures.set(rank, texture);
+  }
+  return texture;
+}
+
+function makeRankBadge(rank: RankId): THREE.Sprite {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: rankBadgeTexture(rank),
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  }));
+  sprite.scale.set(0.38, 0.38, 1);
+  sprite.renderOrder = 10_030;
+  return sprite;
+}
+
+function updateRankBadge(sprite: THREE.Sprite, rank: RankId): void {
+  const material = sprite.material as THREE.SpriteMaterial;
+  if (material.map === rankBadgeTexture(rank)) return;
+  material.map = rankBadgeTexture(rank);
+  material.needsUpdate = true;
+}
+
+function updateTextBillboard(
+  sprite: THREE.Sprite,
+  key: string,
+  text: string,
+  color = '#ffffff',
+  background = 'rgba(5,8,17,.78)',
+  gradient: readonly [string, string, string] | null = null,
+): void {
   const data = sprite.userData.billboard as BillboardData;
   if (data.key === key) return;
   data.key = key;
@@ -193,7 +235,15 @@ function updateTextBillboard(sprite: THREE.Sprite, key: string, text: string, co
   context.strokeStyle = 'rgba(210,232,255,.34)';
   context.lineWidth = 4;
   context.stroke();
-  context.fillStyle = color;
+  context.fillStyle = gradient
+    ? (() => {
+      const fill = context.createLinearGradient(82, 0, canvas.width - 82, 0);
+      fill.addColorStop(0, gradient[0]);
+      fill.addColorStop(0.5, gradient[1]);
+      fill.addColorStop(1, gradient[2]);
+      return fill;
+    })()
+    : color;
   context.font = '800 42px sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
@@ -1214,6 +1264,29 @@ function turretSkinColor(building: BuildingState): number {
 
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
+  const imageAsset = buildingAssetUrl(building.kind, building.level);
+  if (imageAsset) {
+    const texture = new THREE.TextureLoader().load(imageAsset);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    const art = mesh(
+      new THREE.PlaneGeometry(1.12, 1.12),
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      [0, 0.075, 0],
+    );
+    art.rotation.x = -Math.PI / 2;
+    art.renderOrder = 5;
+    root.add(art);
+    root.userData.renderMode = 'building-image';
+    root.userData.imageAsset = imageAsset;
+    return { root, barrel: null };
+  }
   const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret'].includes(building.kind);
   const turretTier = turret ? Math.min(4, Math.floor((Math.max(1, building.level) - 1) / 3)) : 0;
   const color = turretSkinColor(building);
@@ -1751,8 +1824,8 @@ export class ThreeGameView {
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
     const floorTexture = this.loadEnvironmentTexture('/assets/environment/ward-floor-tile.png');
     const wallTexture = this.loadEnvironmentTexture('/assets/environment/ward-wall-surface.png');
-    this.addTileInstances(corridorTiles, this.theme.corridor, floorTexture, 0);
-    this.addTileInstances(roomTiles, this.theme.room, floorTexture, 0.003);
+    this.addTileInstances(corridorTiles, this.theme.corridor, floorTexture, 0, 'corridor');
+    this.addTileInstances(roomTiles, this.theme.room, floorTexture, 0.003, 'room');
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
     const horizontalPlusGeometry = new THREE.BoxGeometry(0.3, 0.026, 0.07);
@@ -1785,7 +1858,7 @@ export class ThreeGameView {
     const matrix = new THREE.Matrix4();
 
     const wallGeometry = new THREE.BoxGeometry(1, 0.58, 1);
-    const wallColor = new THREE.Color(this.theme.wallCap).lerp(new THREE.Color(0xffffff), 0.78);
+    const wallColor = new THREE.Color(this.theme.wallCap).lerp(new THREE.Color(0x000000), 0.18);
     const wallMaterial = standardMaterial(wallColor, {
       map: wallTexture,
       roughness: 0.9,
@@ -1802,14 +1875,15 @@ export class ThreeGameView {
     });
     this.scene.add(walls);
 
-    const zone = this.mapData.respawnZone;
-    const respawn = mesh(
-      new THREE.PlaneGeometry(zone.width - 0.2, zone.height - 0.2),
-      new THREE.MeshBasicMaterial({ color: this.theme.respawn, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
-      [zone.x + (zone.width - 1) / 2, 0.04, zone.y + (zone.height - 1) / 2],
-    );
-    respawn.rotation.x = -Math.PI / 2;
-    this.scene.add(respawn);
+    for (const zone of this.mapData.respawnZones) {
+      const respawn = mesh(
+        new THREE.PlaneGeometry(zone.width - 0.2, zone.height - 0.2),
+        new THREE.MeshBasicMaterial({ color: this.theme.respawn, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
+        [zone.x + (zone.width - 1) / 2, 0.04, zone.y + (zone.height - 1) / 2],
+      );
+      respawn.rotation.x = -Math.PI / 2;
+      this.scene.add(respawn);
+    }
 
     for (const room of this.mapData.rooms) this.createRoomFurniture(room.id);
     this.createThemeDecorations();
@@ -1869,12 +1943,15 @@ export class ThreeGameView {
     color: THREE.ColorRepresentation,
     texture: THREE.Texture,
     y: number,
+    surface: 'room' | 'corridor',
   ): void {
     // A single authored image carries the wear and shallow bevel. Keeping only
     // one surface removes the concentric stacked-square look from the strict
     // top-down camera while stage tinting still differentiates each map tier.
     const source = new THREE.Color(color);
-    const tint = source.clone().lerp(new THREE.Color(0xffffff), 0.48);
+    const tint = surface === 'room'
+      ? source.clone().lerp(new THREE.Color(0xffffff), 0.62)
+      : source.clone().lerp(new THREE.Color(0x000000), 0.42);
     const geometry = new THREE.PlaneGeometry(0.98, 0.98);
     const floors = new THREE.InstancedMesh(
       geometry,
@@ -1882,6 +1959,8 @@ export class ThreeGameView {
         map: texture,
         roughness: 0.93,
         metalness: 0.02,
+        emissive: surface === 'room' ? source.clone().multiplyScalar(0.22) : source.clone().multiplyScalar(0.045),
+        emissiveIntensity: surface === 'room' ? 0.34 : 0.08,
       }),
       tiles.length,
     );
@@ -2003,9 +2082,11 @@ export class ThreeGameView {
         const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
         const label = makeBillboard();
-        label.scale.set(2.35, 0.59, 1);
-        label.position.set(0, PLAYER_HEIGHT + 0.36, -0.72);
-        root.add(label);
+        label.scale.set(2.16, 0.59, 1);
+        label.position.set(0.1, PLAYER_HEIGHT + 0.36, -0.72);
+        const badge = makeRankBadge(player.displayRank);
+        badge.position.set(-1.02, PLAYER_HEIGHT + 0.36, -0.75);
+        root.add(label, badge);
         this.scene.add(root);
         view = {
           root,
@@ -2013,6 +2094,8 @@ export class ThreeGameView {
           characterId: player.appearance.character,
           appearanceKey,
           label,
+          badge,
+          badgeRank: player.displayRank,
           target: worldPoint(player.position),
           lastPosition: worldPoint(player.position),
           seed: player.id.length * 0.71,
@@ -2032,7 +2115,18 @@ export class ThreeGameView {
         view.lastPosition.copy(view.target);
       }
       const elite = isEliteRank(player.displayRank);
-      updateTextBillboard(view.label, `${player.displayRank}:${player.nickname}`, `${rankBadgeSymbol(player.displayRank)} ${rankLabel(player.displayRank)} · ${player.nickname}`, elite ? '#ecc9ff' : '#ffffff');
+      if (view.badgeRank !== player.displayRank) {
+        updateRankBadge(view.badge, player.displayRank);
+        view.badgeRank = player.displayRank;
+      }
+      updateTextBillboard(
+        view.label,
+        `${player.displayRank}:${player.nickname}`,
+        `${rankLabel(player.displayRank)} · ${player.nickname}`,
+        elite ? '#ecc9ff' : '#ffffff',
+        'rgba(5,8,17,.78)',
+        rankLabelGradient(player.displayRank),
+      );
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
     for (const [id, view] of this.playerViews) {
@@ -2261,7 +2355,7 @@ export class ThreeGameView {
     const localSpeed = BALANCE.player.speed
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
       * combinedItemEffects(local?.items ?? []).moveSpeedMultiplier
-      * characterTrait(local?.appearance.character ?? '').unclaimedMoveSpeedMultiplier
+      * characterTraitForAppearance(local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' }).unclaimedMoveSpeedMultiplier
       * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
     // The authoritative worker blocks full-room floor tiles for unclaimed
     // survivors.  Applying the exact same boundary to prediction prevents the

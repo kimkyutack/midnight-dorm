@@ -23,12 +23,11 @@ const level = (gold: number, power: number, value: number, rate: number, range: 
 const DOOR_HP = [80, 230, 440, 690, 970, 1_290, 1_630, 2_010, 2_410, 2_840] as const;
 const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const doorLevel = index + 1;
-  return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, doorLevel === 1 ? 0 : Math.ceil(doorLevel * 0.8), hp, 0, 0);
+  return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, 0, hp, 0, 0);
 });
 const BED_UPGRADE_GOLD = [0, 35, 90, 210, 460, 970, 2_000, 4_050, 8_200, 16_500] as const;
-const BED_UPGRADE_POWER = [0, 0, 1, 3, 6, 10, 16, 24, 35, 50] as const;
 const BED_LEVELS = BED_UPGRADE_GOLD.map((gold, index) =>
-  level(gold, BED_UPGRADE_POWER[index] as number, 2 ** index, 1, 0),
+  level(gold, 0, 2 ** index, 1, 0),
 );
 const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) =>
   level(45 * 2 ** index, 0, 2 ** index, 1, 0),
@@ -95,27 +94,27 @@ export const BALANCE = {
     },
     'basic-turret': {
       label: '수호 포탑',
-      description: '포탄을 발사하는 15단계 기본 포탑입니다.',
+      description: '단 하나의 공격 포탑입니다. 단계마다 더 견고한 수호포 외형으로 강화됩니다.',
       maxLevel: 15,
       levels: [level(10, 0, 13, 1, 4)],
     },
     'rapid-turret': {
-      label: '반딧불 연사포',
-      description: '빠른 탄환을 연속으로 발사하는 15단계 포탑입니다.',
+      label: '구형 연사포',
+      description: '이전 저장 데이터 호환용 설비입니다. 새 게임에서는 설치할 수 없습니다.',
       maxLevel: 15,
-      levels: [level(10, 1, 6, 0.34, 4)],
+      levels: [level(10, 0, 6, 0.34, 4)],
     },
     'frost-turret': {
-      label: '서리 레이저',
-      description: '귀신을 느리게 하는 레이저 포탑입니다.',
-      maxLevel: 15,
-      levels: [level(10, 2, 9, 1.1, 4)],
+      label: '서리 스프레이',
+      description: '전력 200으로 설치하는 감속 설비입니다. 여러 대의 감속 효과가 누적됩니다.',
+      maxLevel: 1,
+      levels: [level(0, 200, 0.12, 0.35, 4.5)],
     },
     'arc-turret': {
       label: '희귀 천둥포',
       description: '베테랑부터 설치할 수 있는 고위력 희귀 포탑입니다.',
       maxLevel: 15,
-      levels: [level(250, 25, 38, 1.55, 4)],
+      levels: [level(250, 0, 38, 1.55, 4)],
     },
     'golden-turret': {
       label: '황금 심판 포탑',
@@ -179,7 +178,7 @@ export const BALANCE = {
     },
     'range-amplifier': {
       label: '포탑 사거리 증폭기',
-      description: '같은 방 모든 포탑의 사거리를 레벨당 1칸 늘립니다.',
+      description: '내 수호 포탑 전체의 사거리를 레벨당 1칸 늘립니다.',
       maxLevel: 4,
       levels: [
         level(0, 180, 1, 0, 0),
@@ -197,8 +196,11 @@ export const BALANCE = {
   } satisfies Record<BuildingKind, BuildingDefinition>,
 } as const;
 
-const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret']);
-const RANK_TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret']);
+// Only the guardian turret is available in the live installation catalogue.
+// The legacy entries stay in the balance table so an old saved match can still
+// be read without crashing while it finishes.
+const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret']);
+const RANK_TURRETS = new Set<BuildingKind>(['basic-turret']);
 
 export function maxBuildingLevel(kind: BuildingKind, soloRank: RankId = 'beginner'): number {
   const benefits = rankBenefits(soloRank);
@@ -212,13 +214,13 @@ export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: R
   if (kind === 'golden-turret') {
     return {
       gold: safeLevel === 1 ? 0 : 150 * safeLevel * safeLevel,
-      power: safeLevel === 1 ? 0 : safeLevel,
+      power: 0,
     };
   }
   if (TURRETS.has(kind)) {
     const baseGold = kind === 'arc-turret' ? 250 : 10;
     const discount = kind === 'arc-turret' ? 1 - rankBenefits(soloRank).rareTurretDiscount : 1;
-    return { gold: Math.ceil(baseGold * safeLevel * safeLevel * discount), power: safeLevel === 1 ? buildingStats(kind, 1).power : 0 };
+    return { gold: Math.ceil(baseGold * safeLevel * safeLevel * discount), power: 0 };
   }
   const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
   return { gold: stats.gold, power: stats.power };
@@ -233,7 +235,7 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
   if (kind === 'golden-turret') {
     const scale = 1 + (safeLevel - 1) * 0.5;
     const rateScale = Math.max(0.1, 1 - (safeLevel - 1) * 0.065);
-    const cost = upgradeCostWithoutStats(kind, safeLevel, base.power);
+    const cost = upgradeCostWithoutStats(kind, safeLevel);
     return {
       gold: cost.gold,
       power: cost.power,
@@ -244,7 +246,7 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
   }
   const scale = 1 + (safeLevel - 1) * 0.34;
   const rateScale = Math.max(0.42, 1 - (safeLevel - 1) * 0.035);
-  const cost = upgradeCostWithoutStats(kind, safeLevel, base.power);
+  const cost = upgradeCostWithoutStats(kind, safeLevel);
   return {
     gold: cost.gold,
     power: cost.power,
@@ -256,11 +258,11 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
   };
 }
 
-function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number, initialPower: number): { gold: number; power: number } {
+function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number): { gold: number; power: number } {
   if (kind === 'golden-turret') {
     return {
       gold: safeLevel === 1 ? 0 : 150 * safeLevel * safeLevel,
-      power: safeLevel === 1 ? 0 : safeLevel,
+      power: 0,
     };
   }
   if (!TURRETS.has(kind)) {
@@ -268,5 +270,5 @@ function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number, initialP
     return { gold: stats.gold, power: stats.power };
   }
   const baseGold = kind === 'arc-turret' ? 250 : 10;
-  return { gold: baseGold * safeLevel * safeLevel, power: safeLevel === 1 ? initialPower : 0 };
+  return { gold: baseGold * safeLevel * safeLevel, power: 0 };
 }

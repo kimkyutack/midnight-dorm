@@ -12,8 +12,8 @@ import {
   normalizeTurretSkins,
 } from "../shared/customization";
 import {
-  characterTrait,
-  drawLimitForCharacter,
+  characterTraitForAppearance,
+  drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea } from "../shared/map";
@@ -62,6 +62,20 @@ import {
 const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
 ] as const;
+
+const LIVE_BUILD_KINDS = new Set<BuildingKind>([
+  'basic-turret',
+  'frost-turret',
+  'generator',
+  'repair-drone',
+  'electric-coil',
+  'floor-trap',
+  'shield-device',
+  'lucky-machine',
+  'gem-core',
+  'ghost-net',
+  'range-amplifier',
+]);
 
 const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
   'adrenal-shot': 4,
@@ -975,6 +989,8 @@ export class GameEngine {
       return { ok: false, error: "잠든 무덤은 방 기본 설비로만 배치됩니다." };
     if (kind === "bed" || kind === "reinforced-door")
       return { ok: false, error: "침대와 문은 기존 설비를 업그레이드하세요." };
+    if (!LIVE_BUILD_KINDS.has(kind))
+      return { ok: false, error: "현재는 수호 포탑과 방어 설비만 설치할 수 있습니다." };
     const player = this.state.players.find(
       (candidate) => candidate.id === playerId,
     );
@@ -1006,12 +1022,12 @@ export class GameEngine {
     if (
       kind === "range-amplifier" &&
       this.state.buildings.some(
-        (building) => building.roomId === roomId && building.kind === kind,
+        (building) => building.ownerId === playerId && building.kind === kind,
       )
     )
       return {
         ok: false,
-        error: "사거리 증폭기는 방마다 하나만 설치할 수 있습니다.",
+        error: "사거리 증폭기는 철거 전까지 하나만 설치할 수 있습니다.",
       };
     if (
       kind === "ghost-net" &&
@@ -1306,7 +1322,7 @@ export class GameEngine {
       return { ok: false, error: "자신의 랜덤 상자를 선택하세요." };
     if (this.state.status !== "PLAYING")
       return { ok: false, error: "게임이 시작된 뒤 뽑을 수 있습니다." };
-    const drawLimit = drawLimitForCharacter(player.appearance.character);
+    const drawLimit = drawLimitForAppearance(player.appearance);
     const cost = DRAW_COSTS[player.drawCount];
     if (player.drawCount >= drawLimit || !cost)
       return {
@@ -1493,7 +1509,7 @@ export class GameEngine {
         BALANCE.player.speed *
         rankBenefits(rank).speedMultiplier *
         combinedItemEffects(player.items).moveSpeedMultiplier *
-        characterTrait(player.appearance.character)
+        characterTraitForAppearance(player.appearance)
           .unclaimedMoveSpeedMultiplier *
         (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);
       player.position = moveInWalkableArea(
@@ -1560,7 +1576,7 @@ export class GameEngine {
         (candidate) => candidate.id === player.roomId,
       );
       const effects = combinedItemEffects(player.items);
-      const trait = characterTrait(player.appearance.character);
+      const trait = characterTraitForAppearance(player.appearance);
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       const bedLevel = room.bedLevels[player.bedIndex ?? 0] ?? 1;
@@ -1724,21 +1740,38 @@ export class GameEngine {
           );
         }
       }
+      if (building.kind === "frost-turret") {
+        for (const ghost of this.state.ghosts.filter(
+          (candidate) =>
+            candidate.hp > 0 &&
+            !candidate.healing &&
+            distance(candidate.position, building.tile) <= stats.range,
+        )) {
+          const stacks = this.state.buildings.filter(
+            (candidate) =>
+              candidate.kind === "frost-turret" &&
+              distance(candidate.tile, ghost.position) <=
+                buildingStats(candidate.kind, candidate.level).range,
+          ).length;
+          // Each spray adds 12% slow, capped so the ghost remains visible and
+          // can eventually retreat instead of becoming permanently frozen.
+          this.applyGhostSlow(
+            ghost,
+            stats.rate + 0.12,
+            Math.max(0.35, 1 - stats.value * stacks),
+          );
+        }
+      }
       const offensive = [
         "basic-turret",
-        "rapid-turret",
-        "frost-turret",
-        "arc-turret",
-        "golden-turret",
         "electric-coil",
       ].includes(building.kind);
-      const trait = characterTrait(owner?.appearance.character ?? '');
+      const trait = owner
+        ? characterTraitForAppearance(owner.appearance)
+        : characterTraitForAppearance(DEFAULT_APPEARANCE);
       const skinTrait = turretSkinTrait(
         building.skinId,
-        building.kind === 'basic-turret' ||
-          building.kind === 'rapid-turret' ||
-          building.kind === 'frost-turret' ||
-          building.kind === 'arc-turret'
+        building.kind === 'basic-turret'
           ? building.kind
           : undefined,
       );
@@ -1748,7 +1781,7 @@ export class GameEngine {
         ? 0
         : (this.state.buildings.find(
             (candidate) =>
-              candidate.roomId === building.roomId &&
+              candidate.ownerId === building.ownerId &&
               candidate.kind === "range-amplifier" &&
               Boolean(candidate.ownerId),
           )?.level ?? 0);
@@ -1772,12 +1805,6 @@ export class GameEngine {
         trait.turretDamageMultiplier *
         skinTrait.damageMultiplier;
       const appliedDamage = this.applyGhostDamage(nearest, damage);
-      if (building.kind === "frost-turret")
-        this.applyGhostSlow(
-          nearest,
-          1,
-          1 - (1 - 0.76) * skinTrait.frostSlowStrengthMultiplier,
-        );
       this.pendingEvents.push({
         kind: "turret-fire",
         position: building.tile,
@@ -1944,8 +1971,9 @@ export class GameEngine {
       });
     }
     if (ghost.retreating) {
-      if (distance(ghost.position, this.map.ghostSpawn) > 0.5)
-        this.moveGhostToward(ghost, this.map.ghostSpawn, dt);
+      const respawnTarget = this.closestRespawnPoint(ghost.position);
+      if (distance(ghost.position, respawnTarget) > 0.5)
+        this.moveGhostToward(ghost, respawnTarget, dt);
       else {
         ghost.retreating = false;
         ghost.healing = true;
@@ -2485,6 +2513,17 @@ export class GameEngine {
       },
       radius,
     );
+  }
+
+  private closestRespawnPoint(position: Vec2): Vec2 {
+    const zones = this.map.respawnZones;
+    if (zones.length === 0) return { ...this.map.ghostSpawn };
+    return zones
+      .map((zone) => ({
+        x: zone.x + (zone.width - 1) / 2,
+        y: zone.y + (zone.height - 1) / 2,
+      }))
+      .sort((a, b) => distance(position, a) - distance(position, b))[0] as Vec2;
   }
 
   private selectGhostTarget(ghost: GhostState): string | null {

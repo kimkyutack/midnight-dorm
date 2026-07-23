@@ -77,7 +77,7 @@ export function decideBotIntent(
   if (room.doorLevel < 3) return { type: 'upgrade', targetId: `door:${room.id}` };
 
   const owned = snapshot.buildings.filter((building) => building.roomId === room.id);
-  const priority: BuildingKind[] = ['generator', 'basic-turret', 'rapid-turret', 'frost-turret', 'electric-coil', 'shield-device', 'floor-trap'];
+  const priority: BuildingKind[] = ['generator', 'basic-turret', 'frost-turret', 'electric-coil', 'shield-device', 'floor-trap', 'gem-core'];
   for (const kind of priority) {
     if (owned.some((building) => building.kind === kind && (kind !== 'generator' || building.ownerId === bot.id))) continue;
     const stats = buildingStats(kind, 1);

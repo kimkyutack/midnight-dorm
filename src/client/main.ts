@@ -4,11 +4,12 @@ import {
   maxBuildingLevel,
   upgradeCost,
 } from "../shared/balance";
-import { combinedItemEffects, DRAW_COSTS, getRandomItem } from "../shared/randomItems";
+import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
 import { SHOP_CONSUMABLES, shopConsumableById } from "../shared/shopConsumables";
 import {
   characterTrait,
-  drawLimitForCharacter,
+  characterTraitForAppearance,
+  drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
@@ -20,7 +21,7 @@ import {
   defaultSkinForCharacter,
 } from "../shared/customization";
 import {
-  rankBadgeSymbol,
+  rankBadgeImage,
   rankBenefits,
   getStage,
   rankLabel,
@@ -125,7 +126,6 @@ const BUILD_PANEL_OPEN_GUARD_MS = 420;
 const BUILD_POINTER_ARM_WINDOW_MS = 1_600;
 const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "basic-turret",
-  "rapid-turret",
   "frost-turret",
   "generator",
   "repair-drone",
@@ -196,7 +196,7 @@ const escapeHtml = (value: string): string =>
 const formatTime = (seconds: number): string =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const rankIdentityHtml = (rank: RankId, badgeClass = ""): string =>
-  `<span class="rank-identity rank-${rank}"><i class="rank-badge ${badgeClass}" aria-hidden="true"><span>${rankBadgeSymbol(rank)}</span></i><b>${rankLabel(rank)}</b></span>`;
+  `<span class="rank-identity rank-${rank}"><img class="rank-badge ${badgeClass}" src="${rankBadgeImage(rank)}" alt="" aria-hidden="true" /><b>${rankLabel(rank)}</b></span>`;
 const playerFaceHtml = (appearance: AvatarAppearance): string => {
   const animal = appearance.character.replace("character-", "");
   return `<span class="player-face face-${escapeHtml(animal)}" aria-hidden="true"><i class="face-ear left"></i><i class="face-ear right"></i><b class="face-eye left"></b><b class="face-eye right"></b><em></em></span>`;
@@ -568,7 +568,9 @@ function cosmeticCollectionScreen(
   const currentAccount = account;
   const appearance = currentAccount.appearance;
   const shopping = screen === "shop";
-  const tabs = (Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[])
+  const visibleSlots = (Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[])
+    .filter((slot) => !shopping || slot !== "turret");
+  const tabs = visibleSlots
     .map(
       (slot) =>
         `<button class="custom-tab ${slot === activeSlot ? "active" : ""}" data-custom-slot="${slot}">${CUSTOM_SLOT_LABELS[slot]}</button>`,
@@ -625,13 +627,18 @@ function cosmeticCollectionScreen(
         ? `<button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
         : `<button disabled>${status}</button>`;
       const characterTraitInfo = item.slot === "character" ? characterTrait(item.id) : null;
+      const skinTraitInfo = item.slot === "skin" && item.characterId
+        ? characterTraitForAppearance({ character: item.characterId, skin: item.id })
+        : null;
       const turretTraitInfo = item.slot === "turret" ? turretSkinTrait(item.id, item.turretKind) : null;
       const traitLabel = characterTraitInfo && characterTraitInfo.id !== "none"
         ? characterTraitInfo.label
+        : skinTraitInfo && skinTraitInfo.id !== "none"
+          ? `${skinTraitInfo.label} 150%`
         : turretTraitInfo && item.unlock.kind !== "starter"
           ? turretTraitInfo.label
           : "";
-      const traitDescription = characterTraitInfo?.description ?? turretTraitInfo?.description ?? item.description;
+      const traitDescription = characterTraitInfo?.description ?? skinTraitInfo?.description ?? turretTraitInfo?.description ?? item.description;
       return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""}" data-cosmetic-preview="${item.id}" tabindex="0"><div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div><div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
@@ -641,7 +648,7 @@ function cosmeticCollectionScreen(
   const initialTurret = turretMode
     ? cosmeticById(currentAccount.turretSkins["basic-turret"])
     : undefined;
-  const initialTrait = characterTrait(appearance.character);
+  const initialTrait = characterTraitForAppearance(appearance);
   const initialTurretTrait = initialTurret?.turretKind
     ? turretSkinTrait(initialTurret.id, initialTurret.turretKind)
     : null;
@@ -1198,7 +1205,7 @@ function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "싱글" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${drawLimitForCharacter(me?.appearance.character ?? "")}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : ""}<div class="stage-copy"><span>${state.playMode === "solo" ? "싱글" : "멀티"} · ${state.stageLabel}</span><strong>${me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자"}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -1311,7 +1318,7 @@ function updateHud(): void {
   );
   setText(
     "[data-draw]",
-    `${me?.drawCount ?? 0}/${drawLimitForCharacter(me?.appearance.character ?? "")}`,
+    `${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}`,
   );
   setText("[data-time]", formatTime(snapshot.elapsed));
   const retreating = snapshot.ghosts.some(
@@ -1546,39 +1553,52 @@ function renderBuildPanel(tile: Tile): void {
   }
   const modeRank =
     snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
-  const benefits = rankBenefits(modeRank);
   const availableKinds: BuildingKind[] = [...BUILD_KINDS];
-  if (benefits.rareTurretUnlocked) availableKinds.push("arc-turret");
-  const goldenTicketCount = combinedItemEffects(me.items).goldenTurretTickets;
-  const goldenTurretCount = snapshot.buildings.filter(
-    (building) => building.ownerId === me.id && building.kind === "golden-turret",
-  ).length;
-  if (goldenTicketCount > goldenTurretCount)
-    availableKinds.push("golden-turret");
-  const buildNotes = [
-    !benefits.rareTurretUnlocked
-      ? "희귀 천둥포는 싱글 등급 베테랑부터 해금됩니다."
-      : "",
-    goldenTicketCount > 0
-      ? `황금 티켓 ${goldenTicketCount}장 · 황금 심판 포탑 ${goldenTurretCount}/${goldenTicketCount}대 설치`
-      : "",
-  ].filter(Boolean).map((note) => `<small class="odds-note">${note}</small>`).join("");
-  panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><div class="build-grid">${availableKinds
-    .map((kind) => {
-      const definition = BALANCE.buildings[kind];
-      const cost = upgradeCost(kind, 1, modeRank);
-      const tierClass = kind === "golden-turret" ? "mythic-build" : kind === "arc-turret" ? "rare-build" : "";
-      const powerOnly = cost.gold === 0 && cost.power > 0;
-      return `<button class="build-card catalog-card ${tierClass} ${powerOnly ? "power-only-build" : ""}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+  const buildCard = (kind: BuildingKind): string => {
+    const definition = BALANCE.buildings[kind];
+    const cost = upgradeCost(kind, 1, modeRank);
+    const powerOnly = cost.gold === 0 && cost.power > 0;
+    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+  };
+  const goldCards = availableKinds
+    .filter((kind) => upgradeCost(kind, 1, modeRank).gold > 0)
+    .map(buildCard)
+    .join("");
+  const powerCards = availableKinds
+    .filter((kind) => upgradeCost(kind, 1, modeRank).power > 0)
+    .map(buildCard)
+    .join("");
+  const supplyCards = me.consumables
+    .filter((owned) => owned.quantity > 0)
+    .map((owned) => {
+      const supply = shopConsumableById(owned.itemId);
+      if (!supply) return "";
+      return `<button class="build-card catalog-card supply-build-card" type="button" data-open-build-inventory><span class="catalog-art build-art"><img data-supply-art="${supply.id}" alt="${escapeHtml(supply.label)}" /></span><span class="build-card-copy"><strong>${escapeHtml(supply.label)} ×${owned.quantity}</strong><small>${escapeHtml(supply.description)}</small></span><span class="build-card-cost">보급함에서 사용</span></button>`;
     })
-    .join(
-      "",
-    )}</div>${buildNotes}`;
+    .join("") || '<p class="empty-build-tab">구매한 전투 보급이 없습니다.</p>';
+  panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><nav class="build-resource-tabs"><button class="active" data-build-tab="gold">골드</button><button data-build-tab="power">전력</button><button data-build-tab="supply">보급</button></nav><section class="build-tab-panel" data-build-tab-panel="gold"><div class="build-grid">${goldCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="power"><div class="build-grid">${powerCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="supply"><div class="build-grid">${supplyCards}</div></section>`;
   panel.classList.remove("hidden");
   hydrateCatalogArt(panel, {
     appearance: me.appearance,
     turretSkins: me.turretSkins,
   });
+  panel.querySelectorAll<HTMLButtonElement>("[data-build-tab]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const tab = button.dataset.buildTab;
+      panel.querySelectorAll("[data-build-tab]").forEach((candidate) =>
+        candidate.classList.toggle("active", candidate === button),
+      );
+      panel.querySelectorAll<HTMLElement>("[data-build-tab-panel]").forEach((section) =>
+        section.classList.toggle("hidden", section.dataset.buildTabPanel !== tab),
+      );
+    }),
+  );
+  panel.querySelectorAll<HTMLButtonElement>("[data-open-build-inventory]").forEach((button) =>
+    button.addEventListener("click", () => {
+      closeBuildPanel();
+      showInventory();
+    }),
+  );
   wireBuildPanelClose(panel);
   panel.querySelectorAll<HTMLButtonElement>("[data-build]").forEach((button) => {
     wirePanelAction(button, () => {
@@ -1644,7 +1664,7 @@ function renderTargetPanel(selection: SceneSelection): void {
     ? buildingRemovalMarkup(building, modeRank)
     : "";
   if (kind === "lucky-machine" && building) {
-    const drawLimit = drawLimitForCharacter(me.appearance.character);
+    const drawLimit = drawLimitForAppearance(me.appearance);
     const cost = me.drawCount < drawLimit ? DRAW_COSTS[me.drawCount] : undefined;
     const owned =
       me.items
@@ -1678,14 +1698,10 @@ function renderTargetPanel(selection: SceneSelection): void {
         ? doorDestroyed
           ? "파괴됨 · 복구 및 업그레이드 불가"
           : `현재 HP ${Math.ceil(room?.doorHp ?? 0)} / ${Math.ceil(room?.doorMaxHp ?? current.value)}`
-        : [
-              "basic-turret",
-              "rapid-turret",
-              "frost-turret",
-              "arc-turret",
-              "golden-turret",
-            ].includes(kind)
+        : kind === "basic-turret"
           ? `공격력 ${current.value} · 사거리 ${current.range}`
+          : kind === "frost-turret"
+            ? `이동 속도 ${Math.round(current.value * 100)}% 감소 · 범위 ${current.range}칸 · 중첩 가능`
           : `효과 수치 ${current.value}`;
   const unavailableLabel = doorDestroyed
     ? "문이 파괴되어 업그레이드할 수 없습니다"
@@ -2021,7 +2037,7 @@ function showInventory(): void {
       return `<article class="item-card supply-item ${used ? "spent" : ""}"><i>${item.icon}</i><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>${targetHint} · ${used ? "이번 판 사용 완료" : `남은 재고 ${quantity}개`}</small><button ${used || quantity <= 0 ? "disabled" : ""} data-use-consumable="${item.id}">${used ? "사용 완료" : "사용"}</button></article>`;
     })
     .join("");
-  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH BAG · ${me?.drawCount ?? 0}/${drawLimitForCharacter(me?.appearance.character ?? "")}</span><h2>이번 판 가방</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">랜덤 획득품</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
+  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH BAG · ${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}</span><h2>이번 판 가방</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">랜덤 획득품</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
   app.appendChild(modal);
   modal
     .querySelector("[data-close]")

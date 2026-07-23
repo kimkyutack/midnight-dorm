@@ -206,19 +206,9 @@ test("portrait home separates shop, owned customization and stage start", async 
       "data-skin-id",
       "skin-look-cat-ward",
     );
-    await page.getByRole("button", { name: "포탑", exact: true }).click();
-    const shopTurretCanvas = page.locator(".custom-avatar-canvas");
-    await expect(shopTurretCanvas).toHaveAttribute(
-      "data-preview-kind",
-      "turret",
-    );
-    await page
-      .locator(".cosmetic-card", { hasText: "수호포 · 호박등" })
-      .click();
-    await expect(shopTurretCanvas).toHaveAttribute(
-      "data-skin-id",
-      "turret-basic-pumpkin",
-    );
+    await expect(
+      page.getByRole("button", { name: "포탑", exact: true }),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
     await expect(page.getByRole("heading", { name: "스킨 보관함" })).toBeVisible();

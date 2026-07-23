@@ -121,7 +121,36 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
 export const characterTrait = (characterId: string): CharacterTrait =>
   CHARACTER_TRAITS[characterId] ?? NONE;
 
+/**
+ * A complete skin is an authored unit, so its passive is scaled as an effect
+ * (not by multiplying the raw cooldown multiplier). Future skins can supply a
+ * different multiplier in the cosmetic catalogue without changing combat code.
+ */
+export const characterTraitForAppearance = (appearance: AvatarAppearance): CharacterTrait => {
+  const base = characterTrait(appearance.character);
+  const multiplier = skinTraitMultiplier(appearance);
+  if (multiplier === 1 || base.id === 'none') return base;
+  const boostedMultiplier = (value: number): number => 1 + (value - 1) * multiplier;
+  const attackSpeed = 1 / Math.max(0.1, base.turretRateMultiplier);
+  return {
+    ...base,
+    label: `${base.label} · 스킨 강화`,
+    description: `스킨 효과: ${base.description.replace(/합니다\.$/, '')} 효과가 ${Math.round(multiplier * 100)}%로 적용됩니다.`,
+    turretDamageMultiplier: boostedMultiplier(base.turretDamageMultiplier),
+    turretRateMultiplier: 1 / (1 + (attackSpeed - 1) * multiplier),
+    goldPerSecond: base.goldPerSecond * multiplier,
+    extraDraws: Math.round(base.extraDraws * multiplier),
+    unclaimedMoveSpeedMultiplier: boostedMultiplier(base.unclaimedMoveSpeedMultiplier),
+    turretRangeBonus: base.turretRangeBonus * multiplier,
+  };
+};
+
 export const BASE_DRAW_LIMIT = 4;
 
 export const drawLimitForCharacter = (characterId: string): number =>
   BASE_DRAW_LIMIT + characterTrait(characterId).extraDraws;
+
+export const drawLimitForAppearance = (appearance: AvatarAppearance): number =>
+  BASE_DRAW_LIMIT + characterTraitForAppearance(appearance).extraDraws;
+import { skinTraitMultiplier } from './customization';
+import type { AvatarAppearance } from './types';

@@ -13,6 +13,7 @@ import type {
 import { cosmeticProductUrl } from './CosmeticAssets';
 import { baseConceptUrl } from './SkinAssets';
 import { createBuildingModel, createTurretPreviewModel } from './ThreeGameView';
+import { buildingAssetUrl } from './BuildingAssets';
 
 const WIDTH = 256;
 const HEIGHT = 210;
@@ -404,6 +405,11 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
   host.querySelectorAll<HTMLImageElement>('[data-building-art]').forEach((image) => {
     const kind = image.dataset.buildingArt as BuildingKind;
     if (!kind) return;
+    const imageAsset = buildingAssetUrl(kind);
+    if (imageAsset) {
+      setImage(image, imageAsset);
+      return;
+    }
     // 3D 캔버스가 일시적으로 복구 중이어도 설치 선택지 자체는 식별 가능해야 한다.
     setImage(image, buildingFallbackArt(kind));
     // 인게임은 이미 메인 Three.js 캔버스를 계속 렌더링한다. 모바일에서 두 번째

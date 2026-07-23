@@ -27,7 +27,8 @@ export interface MapDefinition {
   height: number;
   corridor: { x: number; y: number; width: number; height: number };
   corridorTiles: Tile[];
-  respawnZone: { x: number; y: number; width: number; height: number };
+  /** Eight walkable ghost recovery pads: four corners and four edge centres. */
+  respawnZones: Array<{ x: number; y: number; width: number; height: number }>;
   playerSpawn: Vec2;
   ghostSpawn: Vec2;
   rooms: MapRoom[];

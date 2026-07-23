@@ -3978,42 +3978,35 @@ select {
   font-size: inherit;
   font-weight: 1000;
 }
+.rank-master b,
+.rank-veteran b,
+.rank-legend b {
+  color: transparent;
+  background: linear-gradient(100deg, #b18bff, #f2d6ff, #8eeeff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 10px rgba(185, 151, 255, 0.46);
+}
+.rank-veteran b {
+  background-image: linear-gradient(100deg, #ff8d67, #ffe48b, #fff2d0);
+  text-shadow: 0 0 10px rgba(255, 190, 98, 0.5);
+}
+.rank-legend b {
+  background-image: linear-gradient(100deg, #ffffff, #ffd47a, #ff77c4);
+  text-shadow: 0 0 12px rgba(255, 125, 194, 0.62);
+}
 .rank-badge {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
+  display: block;
   flex: 0 0 27px;
   width: 27px;
   height: 31px;
-  color: inherit;
-  background: currentColor;
-  clip-path: polygon(50% 0, 92% 15%, 86% 72%, 50% 100%, 14% 72%, 8% 15%);
-  filter: drop-shadow(0 0 7px currentColor);
-}
-.rank-badge::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  background: linear-gradient(145deg, #202b3d, #080d18);
-  clip-path: inherit;
-}
-.rank-badge span {
-  position: relative;
-  z-index: 1;
-  display: block;
-  color: currentColor;
-  font-size: 13px;
-  font-style: normal;
-  line-height: 1;
-  text-shadow: 0 0 8px currentColor;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(128, 220, 255, 0.45));
 }
 .rank-badge-lg {
   flex-basis: 34px;
   width: 34px;
   height: 39px;
-}
-.rank-badge-lg span {
-  font-size: 17px;
 }
 .rank-badge-sm {
   flex-basis: 24px;
@@ -4024,9 +4017,6 @@ select {
   flex-basis: 20px;
   width: 20px;
   height: 23px;
-}
-.rank-badge-xs span {
-  font-size: 10px;
 }
 .rank-badge-game {
   flex-basis: 25px;
@@ -4588,6 +4578,43 @@ select {
 }
 .panel-wallet strong:last-child {
   color: #81eafa;
+}
+.build-resource-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 0 9px;
+  padding: 4px;
+  border: 1px solid rgba(184, 214, 255, 0.12);
+  border-radius: 13px;
+  background: rgba(3, 8, 17, 0.5);
+}
+.build-resource-tabs button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 9px;
+  color: #98aabd;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 900;
+}
+.build-resource-tabs button.active {
+  color: #06141e;
+  background: linear-gradient(135deg, #9eeff4, #72c9ef);
+  box-shadow: 0 3px 10px rgba(83, 204, 239, 0.26);
+}
+.build-tab-panel.hidden {
+  display: none;
+}
+.empty-build-tab {
+  grid-column: 1 / -1;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+.supply-build-card .build-card-cost {
+  color: #9eeff4;
 }
 .build-grid {
   display: grid;

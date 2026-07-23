@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
-import { CHARACTER_TRAITS, characterTrait, drawLimitForCharacter } from '../src/shared/characterTraits';
+import { CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
@@ -133,13 +133,15 @@ describe('deterministic shared world', () => {
     expect(doorVisualForLevel(11).label).toBe('다이아 티타늄');
   });
 
-  it('generates the same connected twelve-room variable map for a seed', () => {
+  it('generates the same compact eight-room map with eight recovery pads for a seed', () => {
     const first = generateMap(123_456);
     const second = generateMap(123_456);
     expect(first).toEqual(second);
     expect(validateMap(first)).toBe(true);
     expect(connectedWalkableCount(first)).toBe(first.walkable.length);
-    expect(first.rooms).toHaveLength(12);
+    expect(first.rooms).toHaveLength(8);
+    expect(first.respawnZones).toHaveLength(8);
+    expect(new Set(first.respawnZones.map((zone) => `${zone.x},${zone.y}`))).toHaveLength(8);
     expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 25)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
     expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(6);
@@ -201,11 +203,11 @@ describe('deterministic shared world', () => {
     expect(blocked.has(`${room.door.x},${room.door.y}`)).toBe(false);
   });
 
-  it('creates twenty-five-tile multiplayer rooms with two beds each', () => {
+  it('creates eight twenty-five-tile multiplayer rooms with two beds each', () => {
     const map = generateMap(7_707, 'multiplayer');
     expect(validateMap(map)).toBe(true);
     expect(map.playMode).toBe('multiplayer');
-    expect(map.rooms).toHaveLength(12);
+    expect(map.rooms).toHaveLength(8);
     expect(map.rooms.every((room) => room.floorTiles.length === 25)).toBe(true);
     expect(map.rooms.every((room) => room.beds.length === 2 && room.buildTiles.length === 23)).toBe(true);
   });
@@ -1135,75 +1137,34 @@ describe('requested progression and event rules', () => {
     expect(state.ghost.position).toEqual(engine.map.ghostSpawn);
   });
 
-  it('starts every turret at 10 gold and uses square prices through level 15', () => {
-    for (const kind of ['basic-turret', 'rapid-turret', 'frost-turret'] as const) {
-      expect(buildingStats(kind, 1).gold).toBe(10);
-      expect(maxBuildingLevel(kind)).toBe(15);
-      expect(upgradeCost(kind, 2).gold).toBe(40);
-      expect(upgradeCost(kind, 7).gold).toBe(490);
-      expect(upgradeCost(kind, 15).gold).toBe(2_250);
-    }
+  it('keeps the guardian turret as the sole live attack turret and makes frost spray a power-only utility', () => {
+    expect(buildingStats('basic-turret', 1)).toMatchObject({ gold: 10, power: 0, range: 4 });
+    expect(maxBuildingLevel('basic-turret')).toBe(15);
+    expect(upgradeCost('basic-turret', 2)).toEqual({ gold: 40, power: 0 });
+
+    expect(buildingStats('frost-turret', 1)).toMatchObject({ gold: 0, power: 200, value: 0.12, range: 4.5 });
+    expect(maxBuildingLevel('frost-turret')).toBe(1);
   });
 
-  it('keeps every turret level at the four-tile base firing range', () => {
-    for (const kind of ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret'] as const) {
-      for (let level = 1; level <= 17; level += 1) {
-        expect(buildingStats(kind, level).range).toBe(4);
-      }
-    }
-  });
-
-  it('limits golden judgment turrets by golden ticket count and grants their distinct ten-level power curve', () => {
+  it('rejects legacy multi-turret construction while allowing guardian and frost spray', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     begin(engine, playerId);
-    const { roomId } = assigned(engine, playerId);
-    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
-    const ticket = RANDOM_ITEMS.find((item) => item.id === 'golden-ticket');
-    if (!ticket || tiles.length < 2) throw new Error('missing golden ticket fixture');
-    const persisted = engine.serialize();
-    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
-    if (!player) throw new Error('missing golden ticket owner');
-    player.items = [{ itemId: ticket.id, label: ticket.label, rarity: ticket.rarity, count: 1 }];
-    player.gold = 100_000;
+    const { roomId, tile } = assigned(engine, playerId);
+    const state = engine.serialize();
+    const player = state.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing live-build owner');
+    player.gold = 1_000;
     player.power = 1_000;
-    engine.restore(persisted);
+    engine.restore(state);
 
-    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'golden-turret').ok).toBe(true);
-    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'golden-turret').ok).toBe(false);
-    expect(maxBuildingLevel('golden-turret')).toBe(10);
-    expect(buildingStats('golden-turret', 1).value).toBeGreaterThan(buildingStats('basic-turret', 15).value);
-    expect(buildingStats('golden-turret', 1).rate).toBeLessThan(buildingStats('rapid-turret', 1).rate);
-
-    const turretId = engine.snapshot().buildings.find((building) => building.kind === 'golden-turret')?.id;
-    if (!turretId) throw new Error('missing golden turret');
-    for (let level = 2; level <= 10; level += 1) expect(engine.upgrade(playerId, turretId).ok).toBe(true);
-    expect(engine.upgrade(playerId, turretId).ok).toBe(false);
-
-    const secondTicket = engine.serialize();
-    const ticketOwner = secondTicket.snapshot.players.find((candidate) => candidate.id === playerId);
-    if (!ticketOwner) throw new Error('missing second golden ticket owner');
-    ticketOwner.items[0]!.count = 2;
-    engine.restore(secondTicket);
-    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'golden-turret').ok).toBe(true);
-  });
-
-  it('lets one level-one golden judgment turret finish a normal-stage ghost', () => {
-    const engine = new GameEngine('GOLDENNORMAL', generateMap(82_700), false, { stageId: 'normal-5', playMode: 'solo' });
-    const player = engine.join({ nickname: '황금수호자', deviceId: 'golden-normal' });
-    begin(engine, player.player.id);
-    const { roomId, tile } = assigned(engine, player.player.id);
-    const ticket = RANDOM_ITEMS.find((item) => item.id === 'golden-ticket');
-    if (!ticket) throw new Error('missing golden ticket definition');
-    const persisted = engine.serialize();
-    const owner = persisted.snapshot.players.find((candidate) => candidate.id === player.player.id);
-    if (!owner) throw new Error('missing golden normal owner');
-    owner.items = [{ itemId: ticket.id, label: ticket.label, rarity: ticket.rarity, count: 1 }];
-    engine.restore(persisted);
-    expect(engine.build(player.player.id, roomId, tile, 'golden-turret').ok).toBe(true);
-    for (let index = 0; index < 1_400 && engine.snapshot().status === 'PLAYING'; index += 1) engine.tick(0.1);
-    expect(engine.snapshot().status).toBe('VICTORY');
-    expect(engine.snapshot().ghost.hp).toBe(0);
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+    const nextTile = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles[1];
+    if (!nextTile) throw new Error('missing legacy-build tile');
+    expect(engine.build(playerId, roomId, nextTile, 'rapid-turret').error).toContain('수호 포탑');
+    expect(engine.build(playerId, roomId, nextTile, 'arc-turret').error).toContain('수호 포탑');
+    expect(engine.build(playerId, roomId, nextTile, 'golden-turret').error).toContain('수호 포탑');
+    expect(engine.build(playerId, roomId, nextTile, 'frost-turret').ok).toBe(true);
   });
 
   it('authoritatively prevents base turret fire beyond four tiles', () => {
@@ -1645,7 +1606,7 @@ describe('requested progression and event rules', () => {
     expect(retreater?.path.length).toBeGreaterThan(0);
   });
 
-  it('lets a frost-hit ghost cross the retreat line alive and keep moving toward recovery', () => {
+  it('stacks frost spray slow while a low-HP ghost retreats to its nearest recovery pad', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -1654,21 +1615,26 @@ describe('requested progression and event rules', () => {
     const ghost = persisted.snapshot.ghosts[0];
     if (!ghost) throw new Error('missing frost retreat fixture');
     ghost.position = { ...tile };
-    ghost.hp = ghost.maxHp * .235;
+    ghost.hp = ghost.maxHp * .22;
     ghost.retreating = false;
     ghost.healing = false;
     ghost.retreatCount = 0;
     persisted.snapshot.ghost = ghost;
     persisted.snapshot.buildings.push({ id: 'frost-retreat', kind: 'frost-turret', roomId, ownerId: playerId, tile: { ...tile }, level: 1, cooldown: 0, hp: 100, skinId: 'turret-frost-snow' });
     engine.restore(persisted);
-    const before = Math.hypot(tile.x - engine.map.ghostSpawn.x, tile.y - engine.map.ghostSpawn.y);
+    const nearestPad = engine.map.respawnZones
+      .map((zone) => ({ x: zone.x + 1, y: zone.y + 1 }))
+      .sort((a, b) => Math.hypot(tile.x - a.x, tile.y - a.y) - Math.hypot(tile.x - b.x, tile.y - b.y))[0];
+    if (!nearestPad) throw new Error('missing recovery pad');
+    const before = Math.hypot(tile.x - nearestPad.x, tile.y - nearestPad.y);
     engine.drainEvents();
-    engine.tick(0.05);
+    engine.tick(0.1);
     const retreater = engine.snapshot().ghosts[0];
-    const after = retreater ? Math.hypot(retreater.position.x - engine.map.ghostSpawn.x, retreater.position.y - engine.map.ghostSpawn.y) : before;
+    const after = retreater ? Math.hypot(retreater.position.x - nearestPad.x, retreater.position.y - nearestPad.y) : before;
     const events = engine.drainEvents();
     expect(retreater?.hp).toBeGreaterThan(0);
     expect(retreater?.retreating).toBe(true);
+    expect(retreater?.slowMultiplier).toBeCloseTo(0.88, 5);
     expect(retreater?.slowUntil).toBeGreaterThan(engine.snapshot().elapsed);
     expect(after).not.toBe(before);
     expect(retreater?.path.length).toBeGreaterThan(0);
@@ -1752,7 +1718,7 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
     expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
-    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 10 }, { gold: 120, power: 20 }, { gold: 200, power: 40 }, { gold: 300, power: 60 }, { gold: 420, power: 90 }]);
+    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 0 }, { gold: 120, power: 0 }, { gold: 200, power: 0 }, { gold: 300, power: 0 }, { gold: 420, power: 0 }]);
 
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1769,7 +1735,7 @@ describe('requested progression and event rules', () => {
     for (let index = 0; index < 4; index += 1) expect(engine.drawItem(playerId, machineId).ok).toBe(true);
     expect(engine.snapshot().players[0]?.drawCount).toBe(4);
     expect(engine.snapshot().players[0]?.gold).toBe(580);
-    expect(engine.snapshot().players[0]?.power).toBe(930);
+    expect(engine.snapshot().players[0]?.power).toBe(1_000);
     expect(engine.drawItem(playerId, machineId).ok).toBe(false);
   });
 
@@ -1842,63 +1808,38 @@ describe('requested progression and event rules', () => {
     expect(engine.drawItem(playerId, machine.id).ok).toBe(false);
   });
 
-  it('applies equipped turret-skin damage, fire-rate, and frost-slow traits on the server', () => {
+  it('applies a complete character skin at 150% of its base trait on the server', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
     const { roomId, tile } = assigned(engine, playerId);
     const configured = engine.serialize();
     const owner = configured.snapshot.players.find((candidate) => candidate.id === playerId);
-    if (!owner) throw new Error('missing turret-skin owner');
+    if (!owner) throw new Error('missing skin-trait owner');
     owner.gold = 10_000;
     owner.power = 10_000;
-    owner.turretSkins = { ...owner.turretSkins, 'basic-turret': 'turret-basic-pumpkin' };
+    owner.appearance = { character: 'character-bear', skin: 'skin-look-bear-ward' };
     engine.restore(configured);
     expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
 
-    const pumpkinState = engine.serialize();
-    const pumpkin = pumpkinState.snapshot.buildings.find((building) => building.kind === 'basic-turret');
-    const ghost = pumpkinState.snapshot.ghosts[0];
-    if (!pumpkin || !ghost) throw new Error('missing pumpkin turret fixture');
-    expect(pumpkin.skinId).toBe('turret-basic-pumpkin');
-    ghost.position = { ...pumpkin.tile };
+    const skinnedState = engine.serialize();
+    const guardian = skinnedState.snapshot.buildings.find((building) => building.kind === 'basic-turret');
+    const ghost = skinnedState.snapshot.ghosts[0];
+    if (!guardian || !ghost) throw new Error('missing skinned guardian fixture');
+    ghost.position = { ...guardian.tile };
     ghost.hp = ghost.maxHp = 10_000;
     ghost.retreating = false;
     ghost.healing = false;
-    pumpkin.cooldown = 0;
-    pumpkinState.snapshot.ghost = ghost;
-    engine.restore(pumpkinState);
+    guardian.cooldown = 0;
+    skinnedState.snapshot.ghost = ghost;
+    engine.restore(skinnedState);
     engine.tick(0.01);
     const fire = engine.drainEvents().find((event) => event.kind === 'turret-fire');
-    expect(fire?.amount).toBeCloseTo(buildingStats('basic-turret', 1).value * 1.18, 5);
-    expect(engine.snapshot().buildings.find((building) => building.id === pumpkin.id)?.cooldown)
-      .toBeCloseTo(buildingStats('basic-turret', 1).rate / 1.02, 5);
-
-    const frostSetup = setup();
-    const frostPlayerId = frostSetup.ids[0] as string;
-    begin(frostSetup.engine, frostPlayerId);
-    const frostRoom = assigned(frostSetup.engine, frostPlayerId);
-    const frostState = frostSetup.engine.serialize();
-    const frostOwner = frostState.snapshot.players.find((candidate) => candidate.id === frostPlayerId);
-    if (!frostOwner) throw new Error('missing frost turret owner');
-    frostOwner.gold = 10_000;
-    frostOwner.power = 10_000;
-    frostOwner.turretSkins = { ...frostOwner.turretSkins, 'frost-turret': 'turret-frost-crystal' };
-    frostSetup.engine.restore(frostState);
-    expect(frostSetup.engine.build(frostPlayerId, frostRoom.roomId, frostRoom.tile, 'frost-turret').ok).toBe(true);
-    const crystalState = frostSetup.engine.serialize();
-    const crystal = crystalState.snapshot.buildings.find((building) => building.kind === 'frost-turret');
-    const frostGhost = crystalState.snapshot.ghosts[0];
-    if (!crystal || !frostGhost) throw new Error('missing crystal frost fixture');
-    frostGhost.position = { ...crystal.tile };
-    frostGhost.hp = frostGhost.maxHp = 10_000;
-    frostGhost.retreating = false;
-    frostGhost.healing = false;
-    crystal.cooldown = 0;
-    crystalState.snapshot.ghost = frostGhost;
-    frostSetup.engine.restore(crystalState);
-    frostSetup.engine.tick(0.01);
-    expect(frostSetup.engine.snapshot().ghosts[0]?.slowMultiplier).toBeCloseTo(0.64, 5);
+    expect(fire?.amount).toBeCloseTo(buildingStats('basic-turret', 1).value * 1.15, 5);
+    expect(characterTraitForAppearance({ character: 'character-cat', skin: 'skin-look-cat-ward' }).turretRateMultiplier)
+      .toBeCloseTo(1 / 1.225, 6);
+    expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-ward' }).goldPerSecond)
+      .toBe(1.5);
   });
 
   it('can create all nine primary ghost variants as match events', () => {
@@ -2018,13 +1959,13 @@ describe('persistent account progression', () => {
     expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(175);
   });
 
-  it('authorizes rare construction and elite join effects from server rank data', () => {
+  it('keeps elite join effects while legacy turret construction stays disabled for every rank', () => {
     const map = generateMap(81_281);
     const beginnerEngine = new GameEngine('BEGINNER', map, true);
     const beginner = beginnerEngine.join({ nickname: '초보생존자', deviceId: 'device-beginner', soloRank: 'beginner', multiplayerRank: 'beginner' });
     begin(beginnerEngine, beginner.player.id);
     const beginnerRoom = assigned(beginnerEngine, beginner.player.id);
-    expect(beginnerEngine.build(beginner.player.id, beginnerRoom.roomId, beginnerRoom.tile, 'arc-turret').error).toContain('베테랑');
+    expect(beginnerEngine.build(beginner.player.id, beginnerRoom.roomId, beginnerRoom.tile, 'arc-turret').error).toContain('수호 포탑');
 
     const veteranEngine = new GameEngine('VETERAN', generateMap(81_282), true);
     const veteran = veteranEngine.join({ nickname: '고참생존자', deviceId: 'device-veteran', soloRank: 'veteran', multiplayerRank: 'master' });
@@ -2038,7 +1979,8 @@ describe('persistent account progression', () => {
     persistedPlayer.gold = 1_000;
     persistedPlayer.power = 100;
     veteranEngine.restore(persisted);
-    expect(veteranEngine.build(veteran.player.id, veteranRoom.roomId, veteranRoom.tile, 'arc-turret').ok).toBe(true);
+    expect(veteranEngine.build(veteran.player.id, veteranRoom.roomId, veteranRoom.tile, 'arc-turret').error).toContain('수호 포탑');
+    expect(veteranEngine.build(veteran.player.id, veteranRoom.roomId, veteranRoom.tile, 'basic-turret').ok).toBe(true);
   });
 
   it('starts the last stage with substantially stronger ghosts and active skills', () => {
