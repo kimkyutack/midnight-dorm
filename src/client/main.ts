@@ -1778,6 +1778,9 @@ function renderTargetPanel(selection: SceneSelection): void {
     !doorDestroyed && !requirement && currentLevel < maxLevel
       ? upgradeCost(kind, nextLevel, modeRank)
       : null;
+  const canAffordUpgrade = Boolean(
+    cost && me.gold >= cost.gold && me.power >= cost.power,
+  );
   const effectLabel =
     kind === "bed"
       ? `초당 골드 ${(current.value * benefits.bedGoldMultiplier).toFixed(1)} · 등급 보너스 ×${benefits.bedGoldMultiplier.toFixed(1)}`
@@ -1793,7 +1796,7 @@ function renderTargetPanel(selection: SceneSelection): void {
   const unavailableLabel = doorDestroyed
     ? "문이 파괴되어 업그레이드할 수 없습니다"
     : requirement ?? "최고 레벨 달성";
-  panel.innerHTML = `${panelHeadingMarkup("UPGRADE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>현재 단계</span><strong>Lv.${currentLevel} / ${maxLevel}</strong></div><small>${effectLabel}</small></div>${cost ? `<button class="upgrade-cta" type="button" data-upgrade="${selection.targetId}"><span>Lv.${nextLevel} 업그레이드</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>${unavailableLabel}</button>`}${removalMarkup}`;
+  panel.innerHTML = `${panelHeadingMarkup("UPGRADE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>현재 단계</span><strong>Lv.${currentLevel} / ${maxLevel}</strong></div><small>${effectLabel}</small></div>${cost ? `<button class="upgrade-cta${canAffordUpgrade ? "" : " resource-insufficient"}" type="button" ${canAffordUpgrade ? `data-upgrade="${selection.targetId}"` : "disabled aria-disabled=\"true\""}><span>Lv.${nextLevel} 업그레이드${canAffordUpgrade ? "" : " · 재화 부족"}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>${unavailableLabel}</button>`}${removalMarkup}`;
   panel.classList.remove("hidden");
   wireBuildPanelClose(panel);
   const upgradeButton = panel.querySelector<HTMLButtonElement>("[data-upgrade]");

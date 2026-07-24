@@ -4873,6 +4873,19 @@ select {
   color: #15314a;
   font-size: 10px;
 }
+.upgrade-cta:disabled,
+.upgrade-cta.resource-insufficient {
+  cursor: not-allowed;
+  color: rgba(225, 236, 245, 0.72);
+  background: linear-gradient(120deg, #3a4c63, #263448);
+  border-color: rgba(161, 184, 204, 0.22);
+  box-shadow: none;
+  opacity: 0.7;
+}
+.upgrade-cta:disabled .resource-cost,
+.upgrade-cta.resource-insufficient .resource-cost {
+  color: rgba(225, 236, 245, 0.65);
+}
 .draw-cta {
   background: linear-gradient(120deg, #ffe4a0, #f8ac54);
 }

@@ -2517,13 +2517,18 @@ export class ThreeGameView {
       if (!ghost) continue;
       const beforeX = view.root.position.x;
       const beforeZ = view.root.position.z;
-      const amount = 1 - Math.exp(-8 * dt);
+      // Only the teleporter is allowed to make an intentional hard jump. The
+      // other variants receive snapshots at 10Hz, so a larger snap threshold
+      // plus a slightly faster interpolation keeps pursuit smooth on mobile
+      // instead of stepping one tile at a time under modest latency.
+      const intentionalTeleport = ghost.variant === 'teleporter';
+      const amount = 1 - Math.exp(-(intentionalTeleport ? 8 : 12) * dt);
       const targetDistance = Math.hypot(view.target.x - beforeX, view.target.z - beforeZ);
       // Ghost positions are server-authoritative.  Running them through the
       // survivor collision prediction made fast movers get caught at a wall
       // corner after a state jump, so the actual ghost could remain offscreen
       // while it was already attacking at its latest server position.
-      if (targetDistance > 1.1) {
+      if (targetDistance > (intentionalTeleport ? 1.1 : 2.4)) {
         view.root.position.x = view.target.x;
         view.root.position.z = view.target.z;
       } else {

@@ -1809,35 +1809,6 @@ export class GameEngine {
             distance(a.position, building.tile) -
             distance(b.position, building.tile),
         )[0];
-      if (building.kind === "ghost-net" && room && building.cooldown <= 0) {
-        const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
-        const target = mapRoom
-          ? this.state.ghosts.find(
-              (ghost) =>
-                ghost.hp > 0 &&
-                !ghost.retreating &&
-                !ghost.healing &&
-                ghost.targetRoomId === room.id &&
-                ghost.hp / Math.max(1, ghost.maxHp) <= 0.2 &&
-                this.canGhostStrikeDoor(ghost, mapRoom),
-            )
-          : undefined;
-        if (target) {
-          target.stunnedUntil = Math.max(
-            target.stunnedUntil,
-            this.state.elapsed + stats.value,
-          );
-          target.path = [];
-          building.cooldown = stats.rate;
-          this.pendingEvents.push({
-            kind: "ghost-net",
-            position: { ...target.position },
-            targetId: target.id,
-            buildingKind: building.kind,
-            amount: stats.value,
-          });
-        }
-      }
       if (
         building.kind === "shield-device" &&
         room &&
@@ -1929,6 +1900,56 @@ export class GameEngine {
           targetId: nearest.id,
           amount: appliedDamage,
         });
+    }
+    // 포탑 피해로 HP가 20% 아래로 내려가면 applyGhostDamage()가 같은 틱에
+    // 퇴각 상태를 표시한다. 그물은 그 직후에도 아직 문을 공격하던 위치에
+    // 있는 귀신을 1.5초 묶어야 하므로, 모든 공격 설비를 처리한 뒤 별도
+    // 단계로 판정한다. 설치 순서에 따라 그물이 먼저 검사되는 문제도 막는다.
+    this.updateGhostNets();
+  }
+
+  private updateGhostNets(): void {
+    for (const building of this.state.buildings) {
+      if (building.kind !== "ghost-net" || building.cooldown > 0) continue;
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === building.roomId,
+      );
+      const owner = this.state.players.find(
+        (candidate) => candidate.id === building.ownerId,
+      );
+      const mapRoom = room
+        ? this.map.rooms.find((candidate) => candidate.id === room.id)
+        : undefined;
+      if (!owner || !mapRoom) continue;
+      const stats = buildingStats(building.kind, building.level);
+      const target = this.state.ghosts
+        .filter(
+          (ghost) =>
+            ghost.hp > 0 &&
+            !ghost.healing &&
+            ghost.hp / Math.max(1, ghost.maxHp) <=
+              BALANCE.ghost.retreatThreshold &&
+            this.canGhostStrikeDoor(ghost, mapRoom),
+        )
+        .sort(
+          (left, right) =>
+            distance(left.position, building.tile) -
+            distance(right.position, building.tile),
+        )[0];
+      if (!target) continue;
+      target.stunnedUntil = Math.max(
+        target.stunnedUntil,
+        this.state.elapsed + stats.value,
+      );
+      target.path = [];
+      building.cooldown = stats.rate;
+      this.pendingEvents.push({
+        kind: "ghost-net",
+        position: { ...target.position },
+        targetId: target.id,
+        buildingKind: building.kind,
+        amount: stats.value,
+      });
     }
   }
 

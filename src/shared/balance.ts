@@ -76,10 +76,12 @@ export const BALANCE = {
     damageGrowthPerLevel: 0.58,
     shieldPenetrationPerLevel: 0.15,
     speed: 3.55,
-    // 미점유 생존자는 즉시 방을 찾아야 하므로 기존 1.5배의 정확히 두 배다.
-    outsideTargetSpeedMultiplier: 3,
+    // 방을 아직 점유하지 못한 생존자를 추격할 때도 일반 이동의 흐름을
+    // 유지한다. 과도한 배율은 10Hz 스냅샷 사이의 이동량을 키워 모바일에서
+    // 순간이동처럼 보이므로, 기본 생존자와 비슷한 속도로 제한한다.
+    outsideTargetSpeedMultiplier: 1.35,
     attackInterval: 1.25,
-    retreatThreshold: 0.23,
+    retreatThreshold: 0.2,
     healDurationSeconds: 7,
     // 후퇴를 시작한 귀신이 포탑 네 대에 곧바로 삭제되지 않도록 집중 사격 보정을 낮춘다.
     retreatDamageMultiplier: 1.45,
@@ -204,6 +206,11 @@ export const BALANCE = {
 // be read without crashing while it finishes.
 const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret']);
 
+function turretGoldCost(kind: BuildingKind, targetLevel: number): number {
+  const baseGold = kind === 'arc-turret' ? 250 : 10;
+  return baseGold * 2 ** Math.max(0, targetLevel - 1);
+}
+
 export function maxBuildingLevel(kind: BuildingKind, _soloRank: RankId = 'beginner'): number {
   return BALANCE.buildings[kind].maxLevel;
 }
@@ -217,8 +224,7 @@ export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: R
     };
   }
   if (TURRETS.has(kind)) {
-    const baseGold = kind === 'arc-turret' ? 250 : 10;
-    return { gold: Math.ceil(baseGold * safeLevel * safeLevel), power: 0 };
+    return { gold: turretGoldCost(kind, safeLevel), power: 0 };
   }
   const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
   return { gold: stats.gold, power: stats.power };
@@ -302,6 +308,5 @@ function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number): { gold:
     const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
     return { gold: stats.gold, power: stats.power };
   }
-  const baseGold = kind === 'arc-turret' ? 250 : 10;
-  return { gold: baseGold * safeLevel * safeLevel, power: 0 };
+  return { gold: turretGoldCost(kind, safeLevel), power: 0 };
 }

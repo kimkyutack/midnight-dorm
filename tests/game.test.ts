@@ -631,7 +631,7 @@ describe('authoritative game rules', () => {
       after.ghost.position.y - ghostPosition.y,
     );
     expect(after.ghost.targetPlayerId).toBe(playerId);
-    expect(BALANCE.ghost.outsideTargetSpeedMultiplier).toBe(3);
+    expect(BALANCE.ghost.outsideTargetSpeedMultiplier).toBeCloseTo(1.35, 5);
     expect(BALANCE.ghost.retreatSpeedMultiplier).toBeCloseTo(1.3, 5);
     expect(moved).toBeGreaterThan(BALANCE.ghost.speed * 0.14);
   });
@@ -727,9 +727,9 @@ describe('authoritative game rules', () => {
     expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
     const buildingId = engine.snapshot().buildings[0]?.id as string;
     expect(engine.upgrade(playerId, buildingId).ok).toBe(true);
-    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(950);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(970);
     expect(engine.removeBuilding(playerId, buildingId).ok).toBe(true);
-    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(985);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(991);
     expect(engine.snapshot().buildings).toHaveLength(0);
     expect(engine.build(playerId, roomId, tile, 'generator').ok).toBe(true);
   });
@@ -838,7 +838,7 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBeCloseTo(9, 5);
   });
 
-  it('nets only a low-health ghost attacking the owning room door for 1.5 seconds', () => {
+  it('nets a low-health ghost at the door even after turret damage starts its retreat', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -851,10 +851,10 @@ describe('authoritative game rules', () => {
     if (!player || !room || !mapRoom || !ghost) throw new Error('missing ghost-net fixture');
     player.power = 250;
     ghost.position = { ...mapRoom.door };
-    ghost.targetRoomId = roomId;
+    ghost.targetRoomId = null;
     ghost.targetPlayerId = null;
     ghost.hp = ghost.maxHp * 0.2;
-    ghost.retreating = false;
+    ghost.retreating = true;
     ghost.healing = false;
     ghost.stunnedUntil = 0;
     persisted.snapshot.ghost = ghost;
@@ -1423,7 +1423,9 @@ describe('requested progression and event rules', () => {
   it('keeps the guardian turret as the sole live attack turret and makes frost spray a power-only utility', () => {
     expect(buildingStats('basic-turret', 1)).toMatchObject({ gold: 10, power: 0, range: 4 });
     expect(maxBuildingLevel('basic-turret')).toBe(15);
-    expect(upgradeCost('basic-turret', 2)).toEqual({ gold: 40, power: 0 });
+    expect(upgradeCost('basic-turret', 2)).toEqual({ gold: 20, power: 0 });
+    expect(upgradeCost('basic-turret', 3)).toEqual({ gold: 40, power: 0 });
+    expect(upgradeCost('basic-turret', 4)).toEqual({ gold: 80, power: 0 });
 
     expect(buildingStats('frost-turret', 1)).toMatchObject({ gold: 0, power: 200, value: 0.16, range: 5 });
     expect(maxBuildingLevel('frost-turret')).toBe(1);
@@ -1521,7 +1523,7 @@ describe('requested progression and event rules', () => {
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     const room = persisted.snapshot.rooms.find((candidate) => candidate.id === roomId);
     if (!player || !room) throw new Error('missing player');
-    player.gold = 99_999;
+    player.gold = 500_000;
     player.power = 99_999;
     room.bedLevels = room.bedLevels.map(() => 15);
     room.bedLevel = 15;
@@ -1876,7 +1878,7 @@ describe('requested progression and event rules', () => {
     expect(buildingStats('repair-drone', 3).value).toBe(6);
   });
 
-  it('retreats toward the respawn area below twenty-three percent HP', () => {
+  it('retreats toward the respawn area below twenty percent HP', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
     const persisted = engine.serialize();
@@ -1884,7 +1886,7 @@ describe('requested progression and event rules', () => {
     expect(ghost).toBeDefined();
     if (!ghost) return;
     ghost.position = { ...engine.map.playerSpawn };
-    ghost.hp = ghost.maxHp * .22;
+    ghost.hp = ghost.maxHp * .19;
     persisted.snapshot.ghost = ghost;
     engine.restore(persisted);
     const before = Math.hypot(ghost.position.x - engine.map.ghostSpawn.x, ghost.position.y - engine.map.ghostSpawn.y);
@@ -1905,7 +1907,7 @@ describe('requested progression and event rules', () => {
     const ghost = persisted.snapshot.ghosts[0];
     if (!ghost) throw new Error('missing frost retreat fixture');
     ghost.position = { ...tile };
-    ghost.hp = ghost.maxHp * .22;
+    ghost.hp = ghost.maxHp * .19;
     ghost.retreating = false;
     ghost.healing = false;
     ghost.retreatCount = 0;
