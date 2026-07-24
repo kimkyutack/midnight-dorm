@@ -4,6 +4,12 @@ import type { BuildingKind, GameSnapshot, MapDefinition, PlayerState, Tile } fro
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 
+/** A stable bed reservation prevents unclaimed bots from changing course. */
+export interface BotBedTarget {
+  roomId: string;
+  bedIndex: number;
+}
+
 export type BotIntent =
   | { type: 'move'; dx: number; dy: number }
   | { type: 'interact' }
@@ -37,6 +43,7 @@ export function decideBotIntent(
   snapshot: GameSnapshot,
   map: MapDefinition,
   difficulty: BotDifficulty,
+  reservedBed: BotBedTarget | null = null,
 ): BotIntent {
   if (!bot.alive || (snapshot.status !== 'COUNTDOWN' && snapshot.status !== 'PLAYING')) return { type: 'idle' };
 
@@ -52,18 +59,16 @@ export function decideBotIntent(
           ),
         );
     }).sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed));
-    // During the countdown all bots start in the same corridor.  Letting each
-    // bot independently select index 0 makes them trail one another toward the
-    // same bed until the leader claims it.  Give each unclaimed bot a stable
-    // slot in the currently available list so they visibly fan out to distinct
-    // rooms even on the long, randomized ward layouts.
-    const unclaimedBotIndex = snapshot.players
-      .filter((player) => player.isBot && !player.roomId)
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .findIndex((player) => player.id === bot.id);
-    const availableTarget = available[
-      Math.max(0, unclaimedBotIndex) % Math.max(1, available.length)
-    ];
+    // The engine reserves a target before calling this function.  Do not
+    // derive a changing target from the live distance order here: as several
+    // bots move, that order changes every tick and makes them reverse at doors.
+    const availableTarget = reservedBed
+      ? available.find(
+          (candidate) =>
+            candidate.room.id === reservedBed.roomId &&
+            candidate.bedIndex === reservedBed.bedIndex,
+        )
+      : available[0];
     if (!availableTarget) return { type: 'idle' };
     if (distance(bot.position, availableTarget.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
     return movementAlongPath(bot, availableTarget.bed, map);

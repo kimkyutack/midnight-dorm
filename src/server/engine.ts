@@ -56,6 +56,7 @@ import { shopConsumableById } from "../shared/shopConsumables";
 import {
   BOT_REACTION_SECONDS,
   decideBotIntent,
+  type BotBedTarget,
   type BotDifficulty,
   type BotIntent,
 } from "./bots";
@@ -124,6 +125,7 @@ interface ReconnectRecord {
 interface BotRuntime {
   difficulty: BotDifficulty;
   reaction: number;
+  bedTarget: BotBedTarget | null;
 }
 
 export interface PersistedEngine {
@@ -459,7 +461,7 @@ export class GameEngine {
       this.reconnect.set(record.token, record);
     this.botRuntime.clear();
     for (const [id, runtime] of data.botRuntime)
-      this.botRuntime.set(id, runtime);
+      this.botRuntime.set(id, { ...runtime, bedTarget: runtime.bedTarget ?? null });
   }
 
   serialize(): PersistedEngine {
@@ -607,7 +609,7 @@ export class GameEngine {
     );
     bot.ready = true;
     this.state.players.push(bot);
-    this.botRuntime.set(id, { difficulty, reaction: this.rng.next() });
+    this.botRuntime.set(id, { difficulty, reaction: this.rng.next(), bedTarget: null });
     return { ok: true };
   }
 
@@ -1585,14 +1587,7 @@ export class GameEngine {
         combinedItemEffects(player.items).moveSpeedMultiplier *
         characterTraitForAppearance(player.appearance)
           .unclaimedMoveSpeedMultiplier *
-        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1) *
-        // Bots use separate bed targets during the short preparation phase.
-        // A modest traversal assist keeps all of those targets reachable on
-        // the largest generated layouts before combat begins; it never applies
-        // after the bot has claimed a bed or once PLAYING starts.
-        (player.isBot && !player.roomId && this.state.status === "COUNTDOWN"
-          ? 1.45
-          : 1);
+        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);
       player.position = moveInWalkableArea(
         this.map,
         player.position,
@@ -1612,10 +1607,19 @@ export class GameEngine {
       const runtime = this.botRuntime.get(bot.id);
       if (!runtime) continue;
       if (!bot.roomId) {
+        if (!this.isAvailableBotBedTarget(runtime.bedTarget))
+          runtime.bedTarget = this.reserveBedForBot(bot);
         this.applyBotIntent(
           bot.id,
-          decideBotIntent(bot, this.state, this.map, runtime.difficulty),
+          decideBotIntent(
+            bot,
+            this.state,
+            this.map,
+            runtime.difficulty,
+            runtime.bedTarget,
+          ),
         );
+        if (bot.roomId) runtime.bedTarget = null;
         continue;
       }
       runtime.reaction -= dt;
@@ -1631,6 +1635,39 @@ export class GameEngine {
       );
       this.applyBotIntent(bot.id, intent);
     }
+  }
+
+  private isAvailableBotBedTarget(target: BotBedTarget | null): target is BotBedTarget {
+    if (!target) return false;
+    const mapRoom = this.map.rooms.find((room) => room.id === target.roomId);
+    const room = this.state.rooms.find((candidate) => candidate.id === target.roomId);
+    if (!mapRoom || !room || !mapRoom.beds[target.bedIndex]) return false;
+    const roomCapacity = this.playMode === 'multiplayer' ? 2 : 1;
+    if (room.ownerIds.length >= roomCapacity) return false;
+    return !room.ownerIds.some((ownerId) =>
+      this.state.players.find((player) => player.id === ownerId)?.bedIndex === target.bedIndex,
+    );
+  }
+
+  private reserveBedForBot(bot: PlayerState): BotBedTarget | null {
+    const reserved = new Set(
+      [...this.botRuntime.entries()]
+        .filter(([botId, runtime]) => botId !== bot.id && this.isAvailableBotBedTarget(runtime.bedTarget))
+        .map(([, runtime]) => `${runtime.bedTarget?.roomId}:${runtime.bedTarget?.bedIndex}`),
+    );
+    const candidates = this.map.rooms.flatMap((room) =>
+      room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex })),
+    ).filter((candidate) => {
+      const target = { roomId: candidate.room.id, bedIndex: candidate.bedIndex };
+      return this.isAvailableBotBedTarget(target) && !reserved.has(`${target.roomId}:${target.bedIndex}`);
+    }).sort((left, right) =>
+      Math.hypot(bot.position.x - left.bed.x, bot.position.y - left.bed.y) -
+        Math.hypot(bot.position.x - right.bed.x, bot.position.y - right.bed.y) ||
+      left.room.id.localeCompare(right.room.id) ||
+      left.bedIndex - right.bedIndex,
+    );
+    const target = candidates[0];
+    return target ? { roomId: target.room.id, bedIndex: target.bedIndex } : null;
   }
 
   private applyBotIntent(botId: string, intent: BotIntent): void {

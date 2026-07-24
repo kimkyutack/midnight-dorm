@@ -1192,6 +1192,61 @@ describe('requested progression and event rules', () => {
     expect(bots.every((bot) => bot.velocity.x === 0 && bot.velocity.y === 0)).toBe(true);
   });
 
+  it('keeps each unclaimed bot on its reserved bed instead of re-ranking targets every tick', () => {
+    const engine = new GameEngine('BOTRESERVE', generateMap(79_113), false);
+    const host = engine.join({ nickname: '예약 확인', deviceId: 'device-bot-reserve' });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    engine.tick(0.1);
+    const initialTargets = new Map(
+      engine.serialize().botRuntime
+        .filter(([, runtime]) => runtime.bedTarget)
+        .map(([botId, runtime]) => [botId, `${runtime.bedTarget?.roomId}:${runtime.bedTarget?.bedIndex}`]),
+    );
+    expect(initialTargets.size).toBe(3);
+    expect(new Set(initialTargets.values()).size).toBe(3);
+    const previousDirections = new Map<string, { x: number; y: number }>();
+    for (let index = 0; index < 15; index += 1) {
+      engine.tick(0.1);
+      const state = engine.snapshot();
+      for (const bot of state.players.filter((player) => player.isBot && !player.roomId)) {
+        const target = engine.serialize().botRuntime.find(([botId]) => botId === bot.id)?.[1].bedTarget;
+        expect(`${target?.roomId}:${target?.bedIndex}`).toBe(initialTargets.get(bot.id));
+        const previous = previousDirections.get(bot.id);
+        if (previous) {
+          const dot = previous.x * bot.velocity.x + previous.y * bot.velocity.y;
+          expect(dot).toBeGreaterThanOrEqual(-0.05);
+        }
+        previousDirections.set(bot.id, bot.velocity);
+      }
+    }
+  });
+
+  it('moves unclaimed bots at the same rank-based speed as players', () => {
+    const engine = new GameEngine('BOTSPEED', generateMap(65_042), false);
+    const host = engine.join({ nickname: '속도 확인', deviceId: 'device-bot-speed' });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    const persisted = engine.serialize();
+    const human = persisted.snapshot.players.find((player) => player.id === host.player.id);
+    const bot = persisted.snapshot.players.find((player) => player.isBot);
+    if (!human || !bot) throw new Error('missing speed fixture');
+    for (const player of [human, bot]) {
+      player.soloRank = 'expert';
+      player.multiplayerRank = 'expert';
+      player.position = { ...engine.map.playerSpawn };
+      player.velocity = { x: 1, y: 0 };
+    }
+    engine.restore(persisted);
+    engine.tick(0.1);
+    const after = engine.snapshot();
+    const movedHuman = after.players.find((player) => player.id === human.id);
+    const movedBot = after.players.find((player) => player.id === bot.id);
+    expect(movedBot?.position).toEqual(movedHuman?.position);
+  });
+
   it('reaches a randomly selected occupied door across the expanded map', () => {
     const engine = new GameEngine('GHOSTPATH', generateMap(51_515), false);
     const player = engine.join({ nickname: '문지기', deviceId: 'device-ghost-path' });
