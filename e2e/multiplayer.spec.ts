@@ -141,6 +141,12 @@ test("portrait home separates shop, owned customization and stage start", async 
       page.getByRole("dialog", { name: "도전할 스테이지" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "닫기" }).click();
+    await page.locator("[data-profile-display-picker]").click();
+    await expect(
+      page.getByRole("dialog", { name: "인게임 라벨 설정" }),
+    ).toBeVisible();
+    await page.locator('[data-profile-display-mode="multiplayer"]').click();
+    await expect(page.locator(".home-account")).toContainText("친구랑하기 · 하수");
     await page.getByRole("button", { name: "설정" }).click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
     await page.getByRole("button", { name: "완료" }).click();
@@ -151,8 +157,10 @@ test("portrait home separates shop, owned customization and stage start", async 
         customPoints: number;
         appearance: { character: string };
         ownedCosmetics: string[];
+        profileDisplayMode: string;
       };
     };
+    expect(profile.profile.profileDisplayMode).toBe("multiplayer");
     expect(profile.profile.customPoints).toBe(0);
     expect(profile.profile.appearance.character).toBe("character-bunny");
     expect(profile.profile.ownedCosmetics).toContain("character-bunny");
@@ -212,7 +220,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toHaveCount(0);
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
-    await expect(page.getByRole("heading", { name: "스킨 보관함" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "내 보관함" })).toBeVisible();
     const avatarCanvas = page.locator(".skin-preview-canvas");
     await expect(avatarCanvas).toBeVisible();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");

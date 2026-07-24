@@ -433,7 +433,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="인게임 라벨 표시 설정"><div class="rank-emblem"><img class="home-profile-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></div><div><span>인게임 라벨</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>표시 설정</em></div></button><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="내 보관함">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="인게임 라벨 선택"><div class="rank-emblem"><img class="home-profile-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></div><div><span>인게임 라벨</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>표시 설정</em></div></button><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -589,6 +589,36 @@ function showHomeModePicker(): void {
   modal
     .querySelector("[data-home-join]")
     ?.addEventListener("click", () => void joinRoom());
+}
+
+function showProfileDisplayPicker(): void {
+  if (!account) return;
+  const currentAccount = account;
+  const modes: readonly ProfileDisplayMode[] = ['solo', 'multiplayer', 'ranked'];
+  const cards = modes.map((mode) => {
+    const display = accountProfileDisplayInfo(currentAccount, mode);
+    const selected = currentAccount.profileDisplayMode === mode;
+    return `<button class="profile-display-option ${display.className} ${selected ? 'selected' : ''}" data-profile-display-mode="${mode}" aria-pressed="${selected}"><img src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}"/><span><em>${display.modeLabel}</em><strong>${escapeHtml(display.rankText)}</strong><small>${escapeHtml(display.labelText)} · ${escapeHtml(currentAccount.nickname)}</small></span><b>${selected ? '표시 중' : '선택'}</b></button>`;
+  }).join('');
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>IN-GAME LABEL</small><h2 id="profile-display-title">인게임 라벨 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
+    'home-picker-modal profile-display-modal',
+  );
+  modal.querySelectorAll<HTMLButtonElement>('[data-profile-display-mode]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const next = button.dataset.profileDisplayMode as ProfileDisplayMode;
+      button.disabled = true;
+      void setProfileDisplayMode(next).then((updated) => {
+        account = updated;
+        modal.remove();
+        homeScreen();
+        toast('인게임 라벨을 변경했습니다.');
+      }).catch((error) => {
+        button.disabled = false;
+        toast(error instanceof Error ? error.message : '인게임 라벨을 저장하지 못했습니다.');
+      });
+    }),
+  );
 }
 
 function showHomeStagePicker(): void {
@@ -817,7 +847,7 @@ function cosmeticCollectionScreen(
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "SKIN LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "스킨 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? '' : 'is-empty'}">${cards || '<p class="empty-collection">보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다.</p>'}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? '' : 'is-empty'}">${cards || '<p class="empty-collection">보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다.</p>'}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -944,7 +974,7 @@ function cosmeticCollectionScreen(
                 try {
                   account = await purchaseCosmetic(itemId);
                   shopScreen(selectedSlot);
-                  toast("구매했습니다. 스킨 보관함에서 착용할 수 있습니다.");
+                  toast("구매했습니다. 내 보관함에서 착용할 수 있습니다.");
                 } catch (error) {
                   toast(
                     error instanceof Error
@@ -1390,13 +1420,14 @@ function updateLobby(state: GameSnapshot): void {
   container.innerHTML =
     state.players
       .map((player) => {
+        const profileDisplay = playerProfileDisplayInfo(player);
         const hostAction =
           !state.ranked && state.hostId === playerId && player.id !== playerId
             ? player.isBot
               ? `<button class="member-action" data-remove-bot="${player.id}">봇 제거</button>`
               : `<button class="member-action danger" data-kick-player="${player.id}">추방</button>`
             : "";
-        return `<article class="player-card rank-border-${player.displayRank}" data-player-id="${player.id}">${playerFaceHtml(player.appearance)}<div class="player-copy"><strong>${rankIdentityHtml(player.displayRank, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "대기열 보충 봇" : player.connected ? state.ranked ? "랭크 매치 배정 참가자" : `싱글 ${rankLabel(player.soloRank)} · 멀티 ${rankLabel(player.multiplayerRank)}` : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
+        return `<article class="player-card ${profileDisplay.className}" data-player-id="${player.id}">${playerFaceHtml(player.appearance)}<div class="player-copy"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "대기열 보충 봇" : player.connected ? state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
       })
       .join("") +
     (state.players.length < 4
@@ -1457,13 +1488,11 @@ function updateLobby(state: GameSnapshot): void {
 
 function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
-  const rankedProfile = state.ranked ? account?.ranked : undefined;
-  const stageBadge = state.ranked && rankedProfile
-    ? `<img class="ranked-home-badge" src="${rankedBadgeImage(rankedProfile.tier)}" alt="${RANKED_TIER_LABEL[rankedProfile.tier]}"/>`
-    : me ? rankIdentityHtml(me.displayRank, "rank-badge-game") : "";
-  const stageRankLabel = state.ranked && rankedProfile
-    ? `${RANKED_TIER_LABEL[rankedProfile.tier]} ${rankedProfile.rating} RP`
-    : me ? `${rankLabel(me.displayRank)} ${escapeHtml(me.nickname)}` : "생존자";
+  const profileDisplay = me ? playerProfileDisplayInfo(me) : null;
+  const stageBadge = profileDisplay ? profileBadgeHtml(profileDisplay, "rank-badge-game") : "";
+  const stageRankLabel = profileDisplay && me
+    ? `${escapeHtml(profileDisplay.labelText)} · ${escapeHtml(me.nickname)}`
+    : "생존자";
   setContent(
     "game",
     `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,

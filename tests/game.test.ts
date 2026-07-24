@@ -961,7 +961,9 @@ describe('authoritative game rules', () => {
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     if (!player) throw new Error('missing player');
-    player.gold = 400_000;
+    // Door and bed upgrades now both double from 20 / 25 gold respectively.
+    // Keep this fixture comfortably above the full 15-level cumulative cost.
+    player.gold = 1_000_000;
     player.power = 100_000;
     engine.restore(persisted);
     for (let level = 2; level <= 15; level += 1) expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);

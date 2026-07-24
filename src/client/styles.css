@@ -1128,6 +1128,22 @@
   padding: 8px 11px;
   border-radius: 16px;
 }
+.home-topbar button.home-account {
+  color: #edf3f4;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.home-topbar button.home-account.in-game-label {
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+.home-topbar button.home-account.in-game-label:hover,
+.home-topbar button.home-account.in-game-label:focus-visible {
+  border-color: rgba(137, 229, 238, 0.72);
+  background: rgba(14, 34, 43, 0.88);
+  outline: 0;
+  transform: translateY(-1px);
+}
 .home-topbar .home-account .rank-emblem {
   min-width: 50px;
   min-height: 42px;
@@ -1428,6 +1444,103 @@
 .home-mode-options b {
   color: #90dde4;
   font-size: 8px;
+}
+.profile-display-intro {
+  margin: -2px 0 13px;
+  color: rgba(225, 237, 240, 0.58);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.profile-display-options {
+  display: grid;
+  gap: 8px;
+}
+.profile-display-option {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid rgba(225, 237, 240, 0.12);
+  border-radius: 17px;
+  color: #edf3f4;
+  background: rgba(26, 37, 44, 0.64);
+  text-align: left;
+}
+.profile-display-option > img {
+  width: 38px;
+  height: 43px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.48));
+}
+.profile-display-option > span,
+.profile-display-option > span > * {
+  display: block;
+  min-width: 0;
+}
+.profile-display-option em {
+  color: #93e0e7;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.profile-display-option strong {
+  margin-top: 2px;
+  font-size: 14px;
+}
+.profile-display-option small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: rgba(224, 233, 235, 0.48);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-display-option > b {
+  color: #8edce4;
+  font-size: 8px;
+}
+.profile-display-option.selected {
+  border-color: #8edce4;
+  background: linear-gradient(115deg, rgba(65, 131, 139, 0.32), rgba(18, 35, 46, 0.74));
+  box-shadow: inset 0 0 0 1px rgba(150, 232, 238, 0.12);
+}
+.profile-display-option.ranked-profile.selected {
+  border-color: rgba(126, 212, 255, 0.78);
+  background: linear-gradient(115deg, rgba(29, 67, 111, 0.48), rgba(51, 28, 82, 0.68));
+}
+.profile-title-slot {
+  display: grid;
+  gap: 5px;
+  margin-top: 13px;
+  padding: 12px;
+  border: 1px dashed rgba(220, 232, 237, 0.16);
+  border-radius: 15px;
+  background: rgba(4, 10, 16, 0.38);
+}
+.profile-title-slot > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.profile-title-slot small {
+  color: #8ddbe3;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+.profile-title-slot strong {
+  color: rgba(231, 238, 239, 0.62);
+  font-size: 11px;
+}
+.profile-title-slot p {
+  margin: 0;
+  color: rgba(224, 233, 235, 0.43);
+  font-size: 8px;
+  line-height: 1.5;
 }
 .home-invite {
   margin-top: 12px;
