@@ -73,7 +73,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 
 ## PWA와 저장
 
-Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. manifest, SVG 파비콘, 192/512 PNG 홈 화면 아이콘은 `scripts/generate-icons.mjs`가 프로젝트 내부에서 생성합니다.
+Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. 탭 파비콘과 192/512 PNG 홈 화면 아이콘은 `public/icons/icon-scene-source.png`에서 만든 검증된 래스터 자산을 사용하며, `scripts/generate-icons.mjs`는 빌드 전에 해당 자산이 존재하는지만 확인합니다.
 
 localStorage에는 임의 UUID, 음량·진동, 로컬 기록, 최근 코드, 재접속 토큰만 저장합니다. 계정, 비밀번호 해시, 세션, 등급, XP, 스테이지와 매치 결과는 D1에 저장합니다. 실제 기기 식별자는 수집하지 않습니다.
 

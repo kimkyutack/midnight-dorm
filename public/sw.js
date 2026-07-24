@@ -1,9 +1,12 @@
-const CACHE = "midnight-dorm-shell-v7";
+const CACHE = "midnight-dorm-shell-v8";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
+  "/icons/favicon.png",
   "/icons/favicon.ico",
-  "/icons/icon-maskable.svg",
+  "/icons/android-icon-192x192.png",
+  "/icons/android-icon-512x512.png",
+  "/icons/icon-maskable-512.png",
   "/assets/cinematic/opening-chase.webp",
   "/assets/cinematic/dorm-home.webp",
   "/assets/cinematic/ghost-roster.webp",
