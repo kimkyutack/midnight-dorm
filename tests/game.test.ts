@@ -1364,7 +1364,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 2)).toBe(true);
   });
 
-  it('emits gold and power income once per second at each producing source', () => {
+  it('emits bed, item, trait, building, and power income separately at their sources', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -1383,6 +1383,8 @@ describe('requested progression and event rules', () => {
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     if (!player) throw new Error('missing income player');
     player.power = 125;
+    player.appearance = { character: 'character-puppy', skin: 'skin-basic-puppy' };
+    player.items = [{ itemId: 'gold-frog', label: '황금 두꺼비', rarity: 'epic', count: 1 }];
     player.goldIncomeElapsed = 0;
     player.powerIncomeElapsed = 0;
     engine.restore(persisted);
@@ -1393,6 +1395,8 @@ describe('requested progression and event rules', () => {
     engine.tick(0.05);
     const events = engine.drainEvents();
     expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.label === '특성' && event.amount === 1)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.label === '아이템' && event.amount === 4)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
     expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
   });

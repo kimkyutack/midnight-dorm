@@ -266,7 +266,7 @@ function playerProfileDisplay(player: PlayerState): PlayerProfileDisplay {
   return {
     badgeKey: `normal:${rank}`,
     badgeTexture: rankBadgeTexture(rank),
-    label: `${player.profileDisplayMode === 'multiplayer' ? '친구랑하기' : '혼자하기'} · ${rankLabel(rank)}`,
+    label: rankLabel(rank),
     rank,
   };
 }
@@ -2216,7 +2216,9 @@ export class ThreeGameView {
       const labelWidth = (view.label.userData.billboard as BillboardData).canvas.width;
       const labelScaleX = 2.16 * (labelWidth / 512);
       view.label.scale.set(labelScaleX, 0.59, 1);
-      view.badge.position.x = 0.1 - labelScaleX / 2 - 0.04;
+      // Preserve an extra 2px-equivalent clear gap between the badge and the
+      // dynamically sized nameplate.
+      view.badge.position.x = 0.1 - labelScaleX / 2 - 0.0485;
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
     for (const [id, view] of this.playerViews) {
@@ -2703,7 +2705,8 @@ export class ThreeGameView {
       // 512×128 캔버스와 동일한 4:1 비율을 유지한다. 애니메이션에서도
       // baseScale을 보존해야 모바일 원근 카메라에서 글자가 눌리지 않는다.
       popup.scale.set(1.5, 0.375, 1);
-      updateTextBillboard(popup, `${event.kind}:${event.amount}:${performance.now()}`, `${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`, event.kind === 'gold' ? '#ffd36f' : '#75e8ff', 'rgba(5,8,16,.72)');
+      const incomeLabel = event.label ? `${event.label} · ` : '';
+      updateTextBillboard(popup, `${event.kind}:${event.label ?? ''}:${event.amount}:${performance.now()}`, `${incomeLabel}${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`, event.kind === 'gold' ? '#ffd36f' : '#75e8ff', 'rgba(5,8,16,.72)');
       // The orthographic game camera looks down from high above. Keeping this
       // close to its producer makes each once-per-second income tick readable
       // instead of placing the billboard beyond the portrait viewport.

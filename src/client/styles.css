@@ -4458,7 +4458,7 @@ select {
 .rank-identity {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   vertical-align: middle;
   white-space: nowrap;
 }

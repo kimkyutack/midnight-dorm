@@ -1862,11 +1862,14 @@ export class GameEngine {
           building.ownerId === player.id &&
           (building.kind === "gem-core" || building.kind === "starter-grave"),
       );
+      // Keep the bed's floating income to the bed's own production. Random
+      // item and character-trait income are paid separately so a bed never
+      // appears to generate gold produced by another source.
       const bedGoldPerSecond =
         buildingStats("bed", bedLevel).value *
-          rankBenefits(activeRank).bedGoldMultiplier +
-        effects.goldPerSecond +
-        trait.goldPerSecond;
+        rankBenefits(activeRank).bedGoldMultiplier;
+      const itemGoldPerSecond = effects.goldPerSecond;
+      const traitGoldPerSecond = trait.goldPerSecond;
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
           total + buildingStats(building.kind, building.level).value,
@@ -1879,7 +1882,7 @@ export class GameEngine {
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
         if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
-        player.gold += bedGoldPerSecond + buildingGoldPerSecond;
+        player.gold += bedGoldPerSecond + itemGoldPerSecond + traitGoldPerSecond + buildingGoldPerSecond;
         // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
         // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
         // 실제 생산 위치마다 별도 이벤트를 보내서 침대와 무덤(보석)의
@@ -1890,6 +1893,22 @@ export class GameEngine {
             playerId: player.id,
             amount: bedGoldPerSecond,
             position: { ...playerBed },
+          });
+        if (traitGoldPerSecond > 0)
+          this.pendingEvents.push({
+            kind: "gold",
+            playerId: player.id,
+            amount: traitGoldPerSecond,
+            position: { ...player.position },
+            label: "특성",
+          });
+        if (itemGoldPerSecond > 0)
+          this.pendingEvents.push({
+            kind: "gold",
+            playerId: player.id,
+            amount: itemGoldPerSecond,
+            position: { ...player.position },
+            label: "아이템",
           });
         for (const building of goldBuildings) {
           const buildingIncome = buildingStats(building.kind, building.level).value;
