@@ -70,7 +70,6 @@ const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
 ] as const;
 const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
-
 const normalizeProfileDisplayMode = (value: unknown): ProfileDisplayMode =>
   value === 'multiplayer' || value === 'ranked' ? value : 'solo';
 const normalizeProfileRankedTier = (value: unknown): RankedTier =>
@@ -81,6 +80,10 @@ const normalizeProfileRankedRating = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.min(1_000_000, Math.floor(value)))
     : 800;
+const normalizeProfileRankedSeasonId = (value: unknown): string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(value)
+    ? value
+    : 'S1';
 
 const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'basic-turret',
@@ -444,6 +447,7 @@ export class GameEngine {
         player.multiplayerRank,
       );
       player.profileDisplayMode = normalizeProfileDisplayMode(player.profileDisplayMode);
+      player.profileRankedSeasonId = normalizeProfileRankedSeasonId(player.profileRankedSeasonId);
       player.profileRankedTier = normalizeProfileRankedTier(player.profileRankedTier);
       player.profileRankedRating = normalizeProfileRankedRating(player.profileRankedRating);
       player.appearance = normalizeAppearance(player.appearance);
@@ -568,6 +572,7 @@ export class GameEngine {
           player.multiplayerRank,
         );
         player.profileDisplayMode = normalizeProfileDisplayMode(identity.profileDisplayMode);
+        player.profileRankedSeasonId = normalizeProfileRankedSeasonId(identity.profileRankedSeasonId);
         player.profileRankedTier = normalizeProfileRankedTier(identity.profileRankedTier);
         player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
         player.profileAvatarUrl = identity.profileAvatarUrl ?? null;
@@ -612,6 +617,7 @@ export class GameEngine {
       identity.profileRankedTier,
       identity.profileRankedRating,
       identity.profileAvatarUrl,
+      identity.profileRankedSeasonId,
     );
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
@@ -3033,6 +3039,7 @@ export class GameEngine {
         player.profileRankedTier,
         player.profileRankedRating,
         player.profileAvatarUrl,
+        player.profileRankedSeasonId,
       );
       next.consumableLoadout = [...player.consumableLoadout];
       return { ...next, connected: player.connected, ready: player.isBot };
@@ -3092,6 +3099,7 @@ export class GameEngine {
     profileRankedTier: RankedTier = 'bronze',
     profileRankedRating = 800,
     profileAvatarUrl: string | null = null,
+    profileRankedSeasonId = 'S1',
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -3104,6 +3112,7 @@ export class GameEngine {
       multiplayerRank,
       displayRank: higherRank(soloRank, multiplayerRank),
       profileDisplayMode: normalizeProfileDisplayMode(profileDisplayMode),
+      profileRankedSeasonId: normalizeProfileRankedSeasonId(profileRankedSeasonId),
       profileRankedTier: normalizeProfileRankedTier(profileRankedTier),
       profileRankedRating: normalizeProfileRankedRating(profileRankedRating),
       profileAvatarUrl,

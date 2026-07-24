@@ -254,9 +254,9 @@ interface PlayerProfileDisplay {
 function playerProfileDisplay(player: PlayerState): PlayerProfileDisplay {
   if (player.profileDisplayMode === 'ranked') {
     return {
-      badgeKey: `ranked:${player.profileRankedTier}`,
+      badgeKey: `ranked:${player.profileRankedSeasonId ?? 'S1'}:${player.profileRankedTier}`,
       badgeTexture: rankedBadgeTexture(player.profileRankedTier),
-      label: `랭크전 · ${RANKED_TIER_LABEL[player.profileRankedTier]} ${player.profileRankedRating} RP`,
+      label: `${player.profileRankedSeasonId ?? 'S1'} ${RANKED_TIER_LABEL[player.profileRankedTier]}`,
       rank: null,
     };
   }
@@ -301,11 +301,24 @@ function updateTextBillboard(
   color = '#ffffff',
   background = 'rgba(5,8,17,.78)',
   gradient: readonly [string, string, string] | null = null,
+  fitToText = false,
 ): void {
   const data = sprite.userData.billboard as BillboardData;
   if (data.key === key) return;
   data.key = key;
-  const { canvas, context } = data;
+  const { canvas } = data;
+  let context = data.context;
+  if (fitToText) {
+    context.font = '800 42px sans-serif';
+    const requiredWidth = Math.min(960, Math.max(512, Math.ceil(context.measureText(text).width + 104)));
+    if (canvas.width !== requiredWidth) {
+      canvas.width = requiredWidth;
+      const nextContext = canvas.getContext('2d');
+      if (!nextContext) throw new Error('Canvas 2D context is unavailable');
+      context = nextContext;
+      data.context = nextContext;
+    }
+  }
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = background;
   context.beginPath();
@@ -2193,12 +2206,17 @@ export class ThreeGameView {
       }
       updateTextBillboard(
         view.label,
-        `${profileDisplay.badgeKey}:${player.nickname}`,
+        `${profileDisplay.badgeKey}:${profileDisplay.label}:${player.nickname}`,
         `${profileDisplay.label} · ${player.nickname}`,
         elite ? '#ecc9ff' : '#ffffff',
         'rgba(5,8,17,.78)',
         profileDisplay.rank ? rankLabelGradient(profileDisplay.rank) : null,
+        true,
       );
+      const labelWidth = (view.label.userData.billboard as BillboardData).canvas.width;
+      const labelScaleX = 2.16 * (labelWidth / 512);
+      view.label.scale.set(labelScaleX, 0.59, 1);
+      view.badge.position.x = 0.1 - labelScaleX / 2 - 0.04;
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
     for (const [id, view] of this.playerViews) {

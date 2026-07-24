@@ -17,6 +17,8 @@ export interface RankedQueuePlayer {
   rating: number;
   avatarUrl: string | null;
   tier: RankedTier;
+  /** Zero means the player has not completed a ranked contract yet. */
+  placementCompleted: number;
   joinedAt: number;
   lastSeenAt: number;
 }
@@ -27,6 +29,7 @@ export interface RankedQueueJoinInput {
   rating: number;
   avatarUrl: string | null;
   tier: RankedTier;
+  placementCompleted: number;
   testMode: boolean;
   ranked: RankedMatchState;
   stageId: StageId;
@@ -38,7 +41,7 @@ export interface RankedQueueStatus {
   playerCount: number;
   requiredPlayers: number;
   ratingWindow: number;
-  players: Array<Pick<RankedQueuePlayer, 'accountId' | 'nickname' | 'rating' | 'avatarUrl' | 'tier'>>;
+  players: Array<Pick<RankedQueuePlayer, 'accountId' | 'nickname' | 'rating' | 'avatarUrl' | 'tier' | 'placementCompleted'>>;
   roomCode?: string;
   botCount?: number;
 }
@@ -80,6 +83,7 @@ export class RankedQueue extends DurableObject<Env> {
           rating INTEGER NOT NULL,
           avatar_url TEXT NOT NULL DEFAULT '',
           tier TEXT NOT NULL DEFAULT 'bronze',
+          placement_count INTEGER NOT NULL DEFAULT 0,
           joined_at INTEGER NOT NULL,
           last_seen_at INTEGER NOT NULL,
           contract_id TEXT NOT NULL,
@@ -109,6 +113,8 @@ export class RankedQueue extends DurableObject<Env> {
         this.ctx.storage.sql.exec("ALTER TABLE ranked_queue_entries ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''");
       if (!entryColumns.some((column) => column.name === 'tier'))
         this.ctx.storage.sql.exec("ALTER TABLE ranked_queue_entries ADD COLUMN tier TEXT NOT NULL DEFAULT 'bronze'");
+      if (!entryColumns.some((column) => column.name === 'placement_count'))
+        this.ctx.storage.sql.exec("ALTER TABLE ranked_queue_entries ADD COLUMN placement_count INTEGER NOT NULL DEFAULT 0");
     });
   }
 
@@ -121,15 +127,16 @@ export class RankedQueue extends DurableObject<Env> {
     const existing = this.entryFor(input.accountId);
     this.ctx.storage.sql.exec(
       `INSERT INTO ranked_queue_entries (
-        account_id, nickname, rating, avatar_url, tier, joined_at, last_seen_at, contract_id,
+        account_id, nickname, rating, avatar_url, tier, placement_count, joined_at, last_seen_at, contract_id,
         season_id, contract_number, modifier, golden_turret_policy,
         supply_policy, stage_id, test_mode
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(account_id) DO UPDATE SET
         nickname = excluded.nickname,
         rating = excluded.rating,
         avatar_url = excluded.avatar_url,
         tier = excluded.tier,
+        placement_count = excluded.placement_count,
         last_seen_at = excluded.last_seen_at,
         contract_id = excluded.contract_id,
         season_id = excluded.season_id,
@@ -144,6 +151,7 @@ export class RankedQueue extends DurableObject<Env> {
       Math.max(0, Math.round(input.rating)),
       input.avatarUrl ?? '',
       input.tier,
+      Math.max(0, Math.min(5, Math.floor(input.placementCompleted))),
       existing?.joinedAt ?? now,
       now,
       input.ranked.contractId,
@@ -221,7 +229,7 @@ export class RankedQueue extends DurableObject<Env> {
       playerCount: compatible.length,
       requiredPlayers: REQUIRED_PLAYERS,
       ratingWindow: this.ratingWindowFor(entry, now),
-      players: compatible.slice(0, REQUIRED_PLAYERS).map(({ accountId, nickname, rating, avatarUrl, tier }) => ({ accountId, nickname, rating, avatarUrl, tier })),
+      players: compatible.slice(0, REQUIRED_PLAYERS).map(({ accountId, nickname, rating, avatarUrl, tier, placementCompleted }) => ({ accountId, nickname, rating, avatarUrl, tier, placementCompleted })),
     };
   }
 
@@ -241,7 +249,8 @@ export class RankedQueue extends DurableObject<Env> {
   private entries(): StoredEntry[] {
     return this.ctx.storage.sql.exec<StoredEntry>(
       `SELECT
-        account_id as accountId, nickname, rating, avatar_url as avatarUrl, tier, joined_at as joinedAt,
+        account_id as accountId, nickname, rating, avatar_url as avatarUrl, tier,
+        placement_count as placementCompleted, joined_at as joinedAt,
         last_seen_at as lastSeenAt, contract_id as contractId,
         season_id as seasonId, contract_number as contractNumber,
         modifier, golden_turret_policy as goldenTurretPolicy,
@@ -265,9 +274,24 @@ export class RankedQueue extends DurableObject<Env> {
   private compatibleEntries(anchor: StoredEntry, now: number): StoredEntry[] {
     const allowed = this.ratingWindowFor(anchor, now);
     return this.entries().filter((entry) =>
-      entry.contractId === anchor.contractId &&
+      this.isCompatibleBracket(anchor, entry) &&
       Math.abs(entry.rating - anchor.rating) <= allowed,
     );
+  }
+
+  /**
+   * The unranked queue deliberately shares only the bronze pool.  The worker
+   * additionally namespaces queue objects by bracket; keeping this guard here
+   * prevents stale or manually inserted Durable Object rows from crossing a
+   * ranked difficulty boundary.
+   */
+  private isCompatibleBracket(anchor: StoredEntry, entry: StoredEntry): boolean {
+    if (entry.contractId !== anchor.contractId || entry.stageId !== anchor.stageId) return false;
+    const anchorUnranked = anchor.placementCompleted < 1;
+    const entryUnranked = entry.placementCompleted < 1;
+    if (anchorUnranked || entryUnranked)
+      return anchor.tier === 'bronze' && entry.tier === 'bronze';
+    return anchor.tier === entry.tier;
   }
 
   private ratingWindowFor(entry: StoredEntry, now: number): number {
@@ -283,7 +307,7 @@ export class RankedQueue extends DurableObject<Env> {
       for (const anchor of candidates) {
         const matching = candidates
           .filter((entry) =>
-            entry.contractId === anchor.contractId &&
+            this.isCompatibleBracket(anchor, entry) &&
             Math.abs(entry.rating - anchor.rating) <= this.ratingWindowFor(anchor, now),
           )
           .slice(0, REQUIRED_PLAYERS);
@@ -296,7 +320,7 @@ export class RankedQueue extends DurableObject<Env> {
         const oldest = candidates[0];
         if (!oldest || now - oldest.joinedAt < BOT_FILL_AFTER_MS) break;
         selected = candidates
-          .filter((entry) => entry.contractId === oldest.contractId)
+          .filter((entry) => this.isCompatibleBracket(oldest, entry))
           .sort((left, right) =>
             Math.abs(left.rating - oldest.rating) - Math.abs(right.rating - oldest.rating) ||
             left.joinedAt - right.joinedAt,
@@ -361,16 +385,17 @@ export class RankedQueue extends DurableObject<Env> {
         this.ctx.storage.sql.exec('DELETE FROM ranked_queue_assignments WHERE account_id = ?', entry.accountId);
         this.ctx.storage.sql.exec(
           `INSERT INTO ranked_queue_entries (
-            account_id, nickname, rating, avatar_url, tier, joined_at, last_seen_at, contract_id,
+            account_id, nickname, rating, avatar_url, tier, placement_count, joined_at, last_seen_at, contract_id,
             season_id, contract_number, modifier, golden_turret_policy,
             supply_policy, stage_id, test_mode
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(account_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
           entry.accountId,
           entry.nickname,
           entry.rating,
           entry.avatarUrl ?? '',
           entry.tier,
+          entry.placementCompleted,
           entry.joinedAt,
           Date.now(),
           entry.contractId,

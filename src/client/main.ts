@@ -186,7 +186,7 @@ interface RankedQueueResponse {
   playerCount: number;
   requiredPlayers: number;
   ratingWindow: number;
-  players: Array<{ accountId: string; nickname: string; rating: number; avatarUrl: string | null; tier: RankedTier }>;
+  players: Array<{ accountId: string; nickname: string; rating: number; avatarUrl: string | null; tier: RankedTier; placementCompleted: number }>;
   roomCode?: string;
   botCount?: number;
 }
@@ -270,12 +270,12 @@ function accountProfileDisplayInfo(
   mode: ProfileDisplayMode = currentAccount.profileDisplayMode,
 ): ProfileDisplayInfo {
   if (mode === 'ranked') {
-    const rankText = `${RANKED_TIER_LABEL[currentAccount.ranked.tier]} · ${currentAccount.ranked.rating} RP`;
+    const rankText = `${currentAccount.ranked.seasonId} ${RANKED_TIER_LABEL[currentAccount.ranked.tier]}`;
     return {
       mode,
-      modeLabel: '랭크전',
+      modeLabel: `${currentAccount.ranked.seasonId} 랭크전`,
       rankText,
-      labelText: `랭크전 · ${rankText}`,
+      labelText: rankText,
       badgeUrl: rankedBadgeImage(currentAccount.ranked.tier),
       badgeAlt: `${RANKED_TIER_LABEL[currentAccount.ranked.tier]} 랭크 뱃지`,
       className: `ranked-profile tier-${currentAccount.ranked.tier}`,
@@ -296,12 +296,12 @@ function accountProfileDisplayInfo(
 
 function playerProfileDisplayInfo(player: PlayerState): ProfileDisplayInfo {
   if (player.profileDisplayMode === 'ranked') {
-    const rankText = `${RANKED_TIER_LABEL[player.profileRankedTier]} · ${player.profileRankedRating} RP`;
+    const rankText = `${player.profileRankedSeasonId ?? 'S1'} ${RANKED_TIER_LABEL[player.profileRankedTier]}`;
     return {
       mode: 'ranked',
-      modeLabel: '랭크전',
+      modeLabel: `${player.profileRankedSeasonId ?? 'S1'} 랭크전`,
       rankText,
-      labelText: `랭크전 · ${rankText}`,
+      labelText: rankText,
       badgeUrl: rankedBadgeImage(player.profileRankedTier),
       badgeAlt: `${RANKED_TIER_LABEL[player.profileRankedTier]} 랭크 뱃지`,
       className: `ranked-profile tier-${player.profileRankedTier}`,
@@ -640,7 +640,9 @@ async function compactProfileAvatar(file: File): Promise<string> {
 function showProfileDisplayPicker(): void {
   if (!account) return;
   const currentAccount = account;
-  const modes: readonly ProfileDisplayMode[] = ['solo', 'multiplayer', 'ranked'];
+  const modes: readonly ProfileDisplayMode[] = currentAccount.ranked.contractsPlayed > 0
+    ? ['solo', 'multiplayer', 'ranked']
+    : ['solo', 'multiplayer'];
   const cards = modes.map((mode) => {
     const display = accountProfileDisplayInfo(currentAccount, mode);
     const selected = currentAccount.profileDisplayMode === mode;
@@ -731,6 +733,11 @@ function showHomeStagePicker(): void {
 function showRankingPreview(): void {
   if (!account) return;
   const currentAccount = account;
+  const hasPlayedRanked = currentAccount.ranked.contractsPlayed > 0;
+  const rankedStatus = hasPlayedRanked ? RANKED_TIER_LABEL[currentAccount.ranked.tier] : 'Unranked';
+  const rankedStatusBadge = hasPlayedRanked
+    ? rankedBadgeImage(currentAccount.ranked.tier)
+    : rankBadgeImage('beginner');
   const crown = currentAccount.ranked.tier === 'challenger' || currentAccount.ranked.tier === 'master'
     ? 'gold'
     : currentAccount.ranked.tier === 'diamond' || currentAccount.ranked.tier === 'platinum'
@@ -739,7 +746,7 @@ function showRankingPreview(): void {
   const crownForPlacement = (placement: number): 'gold' | 'silver' | 'bronze' | null =>
     placement === 1 ? 'gold' : placement <= 5 ? 'silver' : placement <= 20 ? 'bronze' : null;
   dismissibleModal(
-    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 새벽 랭크전</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedBadgeImage(currentAccount.ranked.tier)}" alt="${RANKED_TIER_LABEL[currentAccount.ranked.tier]}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/></strong><p>${RANKED_TIER_LABEL[currentAccount.ranked.tier]} · ${currentAccount.ranked.rating} RP · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">2주 시즌 · 48시간 계약 7개 · 최고 5개 점수 반영. 시즌 종료 뒤 순위 보상과 한정 칭호를 지급합니다.</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
+    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 새벽 랭크전</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ''}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ''} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">2주 시즌 · 48시간 계약 7개 · 최고 5개 점수 반영. 시즌 종료 뒤 순위 보상과 한정 칭호를 지급합니다.</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
     "home-picker-modal",
   );
   const board = document.querySelector<HTMLOListElement>('[data-ranked-leaderboard]');
@@ -1325,9 +1332,14 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
   const elapsed = formatTime(queue.elapsedSeconds);
   const slots = Array.from({ length: queue.requiredPlayers }, (_, index) => {
     const player = queue.players[index];
-    return player
-      ? `<li class="ranked-queue-player"><span class="queue-avatar">${profileAvatarHtml(player.avatarUrl, 'queue-avatar profile-avatar')}</span><div><strong>${escapeHtml(player.nickname)}</strong><small>${player.rating} RP</small></div><span class="queue-tier"><img src="${rankedBadgeImage(player.tier)}" alt="${escapeHtml(RANKED_TIER_LABEL[player.tier])}"/></span></li>`
-      : `<li class="ranked-queue-player vacant"><span class="queue-avatar">＋</span><div><strong>동일 등급 생존자 탐색 중</strong><small>현재 범위 ±${queue.ratingWindow} RP</small></div><b>SEARCH</b></li>`;
+    if (player) {
+      const isUnranked = player.placementCompleted < 1;
+      const tierLabel = isUnranked ? 'Unranked' : RANKED_TIER_LABEL[player.tier];
+      const tierBadge = isUnranked ? rankBadgeImage('beginner') : rankedBadgeImage(player.tier);
+      const queueMeta = isUnranked ? '첫 랭크전 배치 중' : `${player.rating} RP`;
+      return `<li class="ranked-queue-player"><span class="queue-avatar">${profileAvatarHtml(player.avatarUrl, 'queue-avatar profile-avatar')}</span><div><strong>${escapeHtml(player.nickname)}</strong><small>${queueMeta}</small></div><span class="queue-tier"><img src="${tierBadge}" alt="${escapeHtml(tierLabel)}"/><small>${tierLabel}</small></span></li>`;
+    }
+    return `<li class="ranked-queue-player vacant"><span class="queue-avatar">＋</span><div><strong>동일 등급 생존자 탐색 중</strong><small>현재 범위 ±${queue.ratingWindow} RP</small></div><b>SEARCH</b></li>`;
   }).join('');
   setContent(
     'ranked-queue',
@@ -2589,15 +2601,13 @@ function showSettings(): void {
   audio.play("button");
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
-  // Logging out in the middle of a live match would abandon the active room
-  // without giving the player the dedicated leave-game confirmation flow.
-  // Keep account actions available everywhere else, but omit them while play
-  // is actually underway.
-  const isActiveMatch = currentView === "game" && snapshot?.status === "PLAYING";
+  // Game screens provide a dedicated leave-game action. Logging out from this
+  // modal can orphan that session, so account actions stay on menu settings.
+  const isInGameSettings = currentView === "game";
   const leaveAction = network
     ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>'
     : "";
-  const logoutAction = account && !isActiveMatch
+  const logoutAction = account && !isInGameSettings
     ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
     : "";
   modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;

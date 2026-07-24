@@ -149,8 +149,12 @@ test("portrait home separates shop, owned customization and stage start", async 
       "accept",
       "image/jpeg,image/png,image/webp",
     );
+    await expect(page.locator('[data-profile-display-mode="ranked"]')).toHaveCount(0);
     await page.locator('[data-profile-display-mode="multiplayer"]').click();
     await expect(page.locator(".home-account")).toContainText("친구랑하기 · 하수");
+    await page.locator('[data-ranking]').click();
+    await expect(page.getByRole('dialog', { name: 'S1 새벽 랭크전' })).toContainText('Unranked · 배치 0/5');
+    await page.getByRole('button', { name: '닫기' }).click();
     await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
     await page.getByRole("button", { name: "완료" }).click();
@@ -525,6 +529,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await page.getByRole("button", { name: "설정", exact: true }).click();
     const vibration = page.locator("[data-vibration]");
     await expect(vibration).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "로그아웃" })).toHaveCount(0);
     await vibration.click();
     await expect(vibration).toHaveAttribute("aria-pressed", "false");
     await page.getByRole("button", { name: "완료" }).click();

@@ -3,7 +3,7 @@ import { getStage, unlockedStageIndex } from '../shared/progression';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
 import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
-import { createRoomCode, rankedMatchForContract, rankedStageForContract } from './rankedMatch';
+import { createRoomCode, rankedMatchForContract, rankedMatchmakingTier, rankedStageForTier } from './rankedMatch';
 
 export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
@@ -57,7 +57,11 @@ async function routeRankedQueue(request: Request, env: Env): Promise<Response> {
   const seasonId = rankedSeasonId();
   const contractNumber = rankedContractNumber();
   const ranked = rankedMatchForContract(seasonId, contractNumber);
-  const queue = env.RANKED_QUEUE.getByName(`${seasonId}:${ranked.contractId}`);
+  const hasPlayedRanked = profile.ranked.contractsPlayed > 0;
+  const matchmakingTier = rankedMatchmakingTier(profile.ranked.tier, hasPlayedRanked);
+  // Unranked entrants deliberately use this bronze namespace. Higher tiers
+  // receive a separate queue and a correspondingly harder ranked stage.
+  const queue = env.RANKED_QUEUE.getByName(`${seasonId}:${ranked.contractId}:${matchmakingTier}`);
   const pathname = new URL(request.url).pathname;
   if (pathname.endsWith('/join') && request.method === 'POST') {
     const hostname = new URL(request.url).hostname;
@@ -67,10 +71,11 @@ async function routeRankedQueue(request: Request, env: Env): Promise<Response> {
       nickname: profile.nickname,
       rating: profile.ranked.rating,
       avatarUrl: profile.profileAvatarUrl,
-      tier: profile.ranked.tier,
+      tier: matchmakingTier,
+      placementCompleted: profile.ranked.placementCompleted,
       testMode: Boolean(body.testMode) && (hostname === 'localhost' || hostname === '127.0.0.1'),
       ranked,
-      stageId: rankedStageForContract(contractNumber),
+      stageId: rankedStageForTier(matchmakingTier),
     }));
   }
   if (pathname.endsWith('/status') && request.method === 'GET') {
@@ -97,6 +102,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-solo-rank', profile.soloRank);
   headers.set('x-multiplayer-rank', profile.multiplayerRank);
   headers.set('x-profile-display-mode', profile.profileDisplayMode);
+  headers.set('x-profile-ranked-season-id', profile.ranked.seasonId);
   headers.set('x-profile-ranked-tier', profile.ranked.tier);
   headers.set('x-profile-ranked-rating', String(profile.ranked.rating));
   headers.set('x-profile-avatar-url', profile.profileAvatarUrl ?? '');

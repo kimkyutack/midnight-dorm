@@ -190,9 +190,7 @@ function profileFromRow(
   const selectedPlayMode = row.selected_play_mode === 'multiplayer' || row.selected_play_mode === 'ranked'
     ? row.selected_play_mode
     : 'solo';
-  const profileDisplayMode: ProfileDisplayMode = row.profile_display_mode === 'multiplayer' || row.profile_display_mode === 'ranked'
-    ? row.profile_display_mode
-    : 'solo';
+  const requestedProfileDisplayMode = row.profile_display_mode;
   const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
   const profileAvatarUrl = row.profile_avatar && avatarUpdatedAt > 0
     ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
@@ -202,6 +200,11 @@ function profileFromRow(
   const rankedRating = seasonIsCurrent ? Math.max(0, row.ranked_rating ?? 800) : 800;
   const rankedPlacements = seasonIsCurrent ? Math.max(0, row.ranked_placement_count ?? 0) : 0;
   const rankedContracts = seasonIsCurrent ? Math.max(0, row.ranked_contracts_played ?? 0) : 0;
+  const profileDisplayMode: ProfileDisplayMode = requestedProfileDisplayMode === 'ranked' && rankedContracts > 0
+    ? 'ranked'
+    : requestedProfileDisplayMode === 'multiplayer'
+      ? 'multiplayer'
+      : 'solo';
   return {
     id: row.id,
     username: row.username,
@@ -480,6 +483,11 @@ async function setProfileDisplayMode(request: Request, db: D1Database): Promise<
   try { body = await request.json(); } catch { return Response.json({ error: '표시할 등급을 확인해주세요.' }, { status: 400 }); }
   if (body.displayMode !== 'solo' && body.displayMode !== 'multiplayer' && body.displayMode !== 'ranked')
     return Response.json({ error: '지원하지 않는 등급 표시입니다.' }, { status: 400 });
+  if (body.displayMode === 'ranked') {
+    const currentProfile = await profileForRow(db, row);
+    if (currentProfile.ranked.contractsPlayed < 1)
+      return Response.json({ error: '첫 랭크전을 완료한 뒤부터 랭크 라벨을 선택할 수 있습니다.' }, { status: 400 });
+  }
   await db.prepare('UPDATE accounts SET profile_display_mode = ?, updated_at = ? WHERE id = ?')
     .bind(body.displayMode, Date.now(), row.id).run();
   const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();

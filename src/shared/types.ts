@@ -152,6 +152,8 @@ export interface PlayerState {
   displayRank: RankId;
   /** Public presentation only; gameplay always uses the real match mode. */
   profileDisplayMode: ProfileDisplayMode;
+  /** Current season rank, present only when the player chooses the ranked label. */
+  profileRankedSeasonId?: string;
   profileRankedTier: RankedTier;
   profileRankedRating: number;
   /** Public, versioned same-origin profile image URL when the player chose one. */
@@ -282,7 +284,7 @@ export type GhostVariant =
 
 export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'veteran' | 'legend';
 export type PlayMode = 'solo' | 'multiplayer';
-/** Which progression identity a player chooses to show on their in-game label. */
+/** The progression identity a player chooses to show on an in-game label. */
 export type ProfileDisplayMode = PlayMode | 'ranked';
 export type StageId = `${string}-${number}`;
 
@@ -436,6 +438,7 @@ export interface JoinIdentity {
   soloRank?: RankId;
   multiplayerRank?: RankId;
   profileDisplayMode?: ProfileDisplayMode;
+  profileRankedSeasonId?: string;
   profileRankedTier?: RankedTier;
   profileRankedRating?: number;
   profileAvatarUrl?: string | null;

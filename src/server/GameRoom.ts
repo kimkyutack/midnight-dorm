@@ -139,6 +139,7 @@ export class GameRoom extends DurableObject<Env> {
     const soloRank = (request.headers.get('x-solo-rank') ?? 'beginner') as RankId;
     const multiplayerRank = (request.headers.get('x-multiplayer-rank') ?? 'beginner') as RankId;
     const profileDisplayMode = profileDisplayModeFromHeader(request.headers.get('x-profile-display-mode'));
+    const profileRankedSeasonId = request.headers.get('x-profile-ranked-season-id')?.trim().slice(0, 16) || 'S1';
     const profileRankedTier = rankedTierFromHeader(request.headers.get('x-profile-ranked-tier'));
     const requestedRankedRating = Number(request.headers.get('x-profile-ranked-rating'));
     const profileRankedRating = Number.isFinite(requestedRankedRating)
@@ -186,6 +187,7 @@ export class GameRoom extends DurableObject<Env> {
         soloRank,
         multiplayerRank,
         profileDisplayMode,
+        profileRankedSeasonId,
         profileRankedTier,
         profileRankedRating,
         profileAvatarUrl,

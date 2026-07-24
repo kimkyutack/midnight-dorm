@@ -1,4 +1,4 @@
-import type { RankedMatchState, StageId } from '../shared/types';
+import type { RankedMatchState, RankedTier, StageId } from '../shared/types';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -42,19 +42,25 @@ export function rankedMatchForContract(
   };
 }
 
-export function rankedStageForContract(contractNumber: number): StageId {
-  // 랭크 계약은 개인 혼자하기 진행도를 재사용하지 않는다. 계약마다 서버가
-  // 고정한 난이도를 모든 참가자에게 동일하게 적용한다. S1 첫 계약은 노말을
-  // 건너뛴 악몽 3으로 시작해, 입장 조건(노말 5)과 실제 경쟁 난이도 사이에
-  // 분명한 간격을 둔다.
-  const schedule: readonly StageId[] = [
-    'nightmare-3',
-    'nightmare-4',
-    'nightmare-5',
-    'hell-1',
-    'hell-2',
-    'hell-3',
-    'hell-4',
-  ];
-  return schedule[Math.min(schedule.length - 1, Math.max(0, contractNumber - 1))] as StageId;
+/**
+ * Contracts keep their common map seed and modifier, while the combat stage
+ * scales with the team's matchmaking bracket. Unranked entrants use the
+ * bronze bracket until their first result is recorded.
+ */
+export function rankedStageForTier(tier: RankedTier): StageId {
+  const stages: Readonly<Record<RankedTier, StageId>> = {
+    bronze: 'nightmare-1',
+    silver: 'hell-1',
+    gold: 'inferno-1',
+    platinum: 'epic-1',
+    diamond: 'mythic-1',
+    master: 'legendary-1',
+    challenger: 'legendary-15',
+  };
+  return stages[tier];
+}
+
+/** Unranked players share the bronze bracket and can never meet silver+. */
+export function rankedMatchmakingTier(tier: RankedTier, hasPlayedRanked: boolean): RankedTier {
+  return hasPlayedRanked ? tier : 'bronze';
 }
