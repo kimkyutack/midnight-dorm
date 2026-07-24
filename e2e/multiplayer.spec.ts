@@ -64,7 +64,7 @@ async function enter(
 
 async function createMultiplayerRoom(page: Page): Promise<void> {
   await page.getByRole("button", { name: /플레이 방식/ }).click();
-  await page.getByRole("button", { name: /멀티 플레이/ }).click();
+  await page.getByRole("button", { name: /친구랑하기/ }).click();
   await page.getByTestId("home-stage-start").click();
 }
 
@@ -241,12 +241,12 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       page.getByRole("dialog", { name: "플레이 방식 선택" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /멀티 플레이/ }).click();
+    await page.getByRole("button", { name: /친구랑하기/ }).click();
     await expect(
-      page.getByRole("button", { name: /플레이 방식 멀티 플레이/ }),
+      page.getByRole("button", { name: /플레이 방식 친구랑하기/ }),
     ).toBeVisible();
     await page.getByRole("button", { name: /플레이 방식/ }).click();
-    await page.getByRole("button", { name: /싱글 플레이/ }).click();
+    await page.locator("[data-home-mode='solo']").click();
     await page.getByTestId("home-stage-start").click();
     await expect(page.locator(".lobby-screen")).toBeVisible();
     const lobbyLayout = await page.locator(".lobby-shell").evaluate((shell) => {

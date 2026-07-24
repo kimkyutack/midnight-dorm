@@ -1,4 +1,42 @@
-export type GameStatus = 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
+export type GameStatus = 'LOBBY' | 'EVENT_INTRO' | 'COUNTDOWN' | 'PLAYING' | 'OVERTIME' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
+
+/** Server-authoritative match modifier.  The client only renders this state. */
+export type MatchModifier = 'none' | 'time-attack';
+
+export interface DifficultyRuleState {
+  modifier: MatchModifier;
+  /** Seconds left in the frozen event banner. */
+  introRemaining: number;
+  /** Time Attack combat clock; null outside that event. */
+  timeAttackRemaining: number | null;
+  /** Number of one-minute overtime scaling ticks already applied. */
+  overtimeStacks: number;
+  /** High difficulty ghost mechanics chosen when the room is created. */
+  controlAdaptation: boolean;
+  barrierLayers: number;
+  directionalShield: boolean;
+}
+
+export type RankedTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master' | 'challenger';
+
+export interface RankedProfile {
+  seasonId: string;
+  rating: number;
+  tier: RankedTier;
+  placementCompleted: number;
+  eligible: boolean;
+  contractsPlayed: number;
+  bestContractScores: number[];
+}
+
+export interface RankedMatchState {
+  seasonId: string;
+  contractId: string;
+  contractNumber: number;
+  modifier: MatchModifier;
+  goldenTurretPolicy: 'disabled' | 'loaned' | 'objective' | 'penalized';
+  supplyPolicy: 'disabled' | 'loaned' | 'penalized';
+}
 
 export interface Vec2 {
   x: number;
@@ -112,6 +150,10 @@ export interface PlayerState {
   soloRank: RankId;
   multiplayerRank: RankId;
   displayRank: RankId;
+  /** Public presentation only; gameplay always uses the real match mode. */
+  profileDisplayMode: ProfileDisplayMode;
+  profileRankedTier: RankedTier;
+  profileRankedRating: number;
   appearance: AvatarAppearance;
   color: number;
   isBot: boolean;
@@ -210,6 +252,17 @@ export interface GhostState {
   retreatCount: number;
   skillCooldown: number;
   abilityCooldown: number;
+  /** High-difficulty control adaptation. It survives recovery retreats. */
+  controlResolve: number;
+  controlImmuneUntil: number;
+  /** One net can trigger for each selected door-attack attempt. */
+  netTriggeredTargetRoomId: string | null;
+  barrierLayers: number;
+  mistUntil: number;
+  /** A short crossfire window used by directional-shield encounters. */
+  shieldCrossfireUntil: number;
+  shieldCrossfireRoomId: string | null;
+  directionalShieldDisabledUntil: number;
   summonerId?: string;
 }
 
@@ -227,6 +280,8 @@ export type GhostVariant =
 
 export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'veteran' | 'legend';
 export type PlayMode = 'solo' | 'multiplayer';
+/** Which progression identity a player chooses to show on their in-game label. */
+export type ProfileDisplayMode = PlayMode | 'ranked';
 export type StageId = `${string}-${number}`;
 
 /**
@@ -251,6 +306,10 @@ export interface AccountProfile {
   multiplayerXp: number;
   soloStageIndex: number;
   multiplayerStageIndex: number;
+  selectedPlayMode: 'solo' | 'multiplayer' | 'ranked';
+  /** Saved independently from selectedPlayMode to avoid changing match choice. */
+  profileDisplayMode: ProfileDisplayMode;
+  ranked: RankedProfile;
   victories: number;
   customPoints: number;
   ownedCosmetics: string[];
@@ -279,6 +338,8 @@ export interface GameSnapshot {
   stageLabel: string;
   stageIndex: number;
   playMode: PlayMode;
+  difficulty: DifficultyRuleState;
+  ranked: RankedMatchState | null;
   goldSuppressedUntil: number;
   repairSuppressedUntil: number;
   winner: 'survivors' | 'ghost' | null;
@@ -370,6 +431,9 @@ export interface JoinIdentity {
   accountId?: string;
   soloRank?: RankId;
   multiplayerRank?: RankId;
+  profileDisplayMode?: ProfileDisplayMode;
+  profileRankedTier?: RankedTier;
+  profileRankedRating?: number;
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
   consumables?: OwnedConsumable[];

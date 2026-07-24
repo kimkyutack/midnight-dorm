@@ -26,12 +26,12 @@ const level = (gold: number, power: number, value: number, rate: number, range: 
 const DOOR_HP = [80, 150, 235, 350, 500, 690, 920, 1_180, 1_480, 1_820, 2_210, 2_660, 3_160, 3_720, 4_360] as const;
 const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const doorLevel = index + 1;
-  const gold = doorLevel === 1 ? 0 : 10 * 2 ** (doorLevel - 2);
+  const gold = doorLevel === 1 ? 0 : 20 * 2 ** (doorLevel - 2);
   return level(gold, doorLevel >= 6 ? Math.ceil(gold * 0.1) : 0, hp, 0, 0);
 });
 const BED_LEVELS = Array.from({ length: 15 }, (_, index) => {
   const bedLevel = index + 1;
-  const gold = bedLevel === 1 ? 0 : 8 * 2 ** (bedLevel - 2);
+  const gold = bedLevel === 1 ? 0 : 25 * 2 ** (bedLevel - 2);
   return level(gold, bedLevel >= 6 ? Math.ceil(gold * 0.1) : 0, 2 ** index, 1, 0);
 });
 const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) => {

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
-import { isEliteRank, rankBadgeImage, rankBenefits, rankLabel, rankLabelGradient } from '../../shared/progression';
+import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
-import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, Tile, TurretKind, Vec2 } from '../../shared/types';
+import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
 import { buildingAssetUrl } from './BuildingAssets';
 
@@ -92,7 +92,7 @@ interface PlayerView {
   appearanceKey: string;
   label: THREE.Sprite;
   badge: THREE.Sprite;
-  badgeRank: RankId;
+  badgeKey: string;
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
   seed: number;
@@ -220,6 +220,7 @@ function makeBillboard(width = 512, height = 128): THREE.Sprite {
 }
 
 const rankBadgeTextures = new Map<RankId, THREE.Texture>();
+const rankedBadgeTextures = new Map<RankedTier, THREE.Texture>();
 
 function rankBadgeTexture(rank: RankId): THREE.Texture {
   let texture = rankBadgeTextures.get(rank);
@@ -232,9 +233,48 @@ function rankBadgeTexture(rank: RankId): THREE.Texture {
   return texture;
 }
 
-function makeRankBadge(rank: RankId): THREE.Sprite {
+function rankedBadgeTexture(tier: RankedTier): THREE.Texture {
+  let texture = rankedBadgeTextures.get(tier);
+  if (!texture) {
+    texture = new THREE.TextureLoader().load(rankedBadgeImage(tier));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    rankedBadgeTextures.set(tier, texture);
+  }
+  return texture;
+}
+
+interface PlayerProfileDisplay {
+  badgeKey: string;
+  badgeTexture: THREE.Texture;
+  label: string;
+  rank: RankId | null;
+}
+
+function playerProfileDisplay(player: PlayerState): PlayerProfileDisplay {
+  if (player.profileDisplayMode === 'ranked') {
+    return {
+      badgeKey: `ranked:${player.profileRankedTier}`,
+      badgeTexture: rankedBadgeTexture(player.profileRankedTier),
+      label: `랭크전 · ${RANKED_TIER_LABEL[player.profileRankedTier]} ${player.profileRankedRating} RP`,
+      rank: null,
+    };
+  }
+  const rank = player.profileDisplayMode === 'multiplayer'
+    ? player.multiplayerRank
+    : player.soloRank;
+  return {
+    badgeKey: `normal:${rank}`,
+    badgeTexture: rankBadgeTexture(rank),
+    label: `${player.profileDisplayMode === 'multiplayer' ? '친구랑하기' : '혼자하기'} · ${rankLabel(rank)}`,
+    rank,
+  };
+}
+
+function makeProfileBadge(player: PlayerState): THREE.Sprite {
+  const display = playerProfileDisplay(player);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: rankBadgeTexture(rank),
+    map: display.badgeTexture,
     transparent: true,
     depthTest: false,
     depthWrite: false,
@@ -244,11 +284,14 @@ function makeRankBadge(rank: RankId): THREE.Sprite {
   return sprite;
 }
 
-function updateRankBadge(sprite: THREE.Sprite, rank: RankId): void {
+function updateProfileBadge(sprite: THREE.Sprite, player: PlayerState): string {
+  const display = playerProfileDisplay(player);
   const material = sprite.material as THREE.SpriteMaterial;
-  if (material.map === rankBadgeTexture(rank)) return;
-  material.map = rankBadgeTexture(rank);
-  material.needsUpdate = true;
+  if (material.map !== display.badgeTexture) {
+    material.map = display.badgeTexture;
+    material.needsUpdate = true;
+  }
+  return display.badgeKey;
 }
 
 function updateTextBillboard(
@@ -2112,7 +2155,8 @@ export class ThreeGameView {
         const label = makeBillboard();
         label.scale.set(2.16, 0.59, 1);
         label.position.set(0.1, PLAYER_HEIGHT + 0.36, -0.72);
-        const badge = makeRankBadge(player.displayRank);
+        const profileDisplay = playerProfileDisplay(player);
+        const badge = makeProfileBadge(player);
         badge.position.set(-1.02, PLAYER_HEIGHT + 0.36, -0.75);
         root.add(label, badge);
         this.scene.add(root);
@@ -2123,7 +2167,7 @@ export class ThreeGameView {
           appearanceKey,
           label,
           badge,
-          badgeRank: player.displayRank,
+          badgeKey: profileDisplay.badgeKey,
           target: worldPoint(player.position),
           lastPosition: worldPoint(player.position),
           seed: player.id.length * 0.71,
@@ -2142,18 +2186,18 @@ export class ThreeGameView {
         view.root.position.copy(view.target);
         view.lastPosition.copy(view.target);
       }
-      const elite = isEliteRank(player.displayRank);
-      if (view.badgeRank !== player.displayRank) {
-        updateRankBadge(view.badge, player.displayRank);
-        view.badgeRank = player.displayRank;
+      const profileDisplay = playerProfileDisplay(player);
+      const elite = profileDisplay.rank ? isEliteRank(profileDisplay.rank) : false;
+      if (view.badgeKey !== profileDisplay.badgeKey) {
+        view.badgeKey = updateProfileBadge(view.badge, player);
       }
       updateTextBillboard(
         view.label,
-        `${player.displayRank}:${player.nickname}`,
-        `${rankLabel(player.displayRank)} · ${player.nickname}`,
+        `${profileDisplay.badgeKey}:${player.nickname}`,
+        `${profileDisplay.label} · ${player.nickname}`,
         elite ? '#ecc9ff' : '#ffffff',
         'rgba(5,8,17,.78)',
-        rankLabelGradient(player.displayRank),
+        profileDisplay.rank ? rankLabelGradient(profileDisplay.rank) : null,
       );
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
@@ -2536,6 +2580,11 @@ export class ThreeGameView {
         view.root.position.z += (view.target.z - beforeZ) * amount;
       }
       view.root.visible = ghost.hp > 0;
+      // Time Attack enlargement happens once on the server at overtime entry;
+      // this visual scale mirrors that authoritative state without growing on
+      // every render frame.
+      const overtimeScale = this.snapshotData.status === 'OVERTIME' && ghost.variant !== 'minion' ? 2 : 1;
+      view.root.scale.setScalar(overtimeScale);
       const dx = view.root.position.x - beforeX;
       const dz = view.root.position.z - beforeZ;
       const moving = Math.hypot(dx, dz) > 0.001;

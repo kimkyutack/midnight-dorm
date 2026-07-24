@@ -29,6 +29,14 @@ export const purchaseConsumable = (itemId: string, quantity: 1 | 5): Promise<Acc
   method: 'POST', body: JSON.stringify({ itemId, quantity }),
 });
 
+export const setSelectedPlayMode = (playMode: 'solo' | 'multiplayer' | 'ranked'): Promise<AccountProfile> => authRequest('/api/auth/play-mode', {
+  method: 'POST', body: JSON.stringify({ playMode }),
+});
+
+export const setProfileDisplayMode = (displayMode: 'solo' | 'multiplayer' | 'ranked'): Promise<AccountProfile> => authRequest('/api/auth/profile-display', {
+  method: 'POST', body: JSON.stringify({ displayMode }),
+});
+
 export async function logoutAccount(): Promise<void> {
   const response = await fetch('/api/auth/logout', {
     method: 'POST',

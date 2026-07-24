@@ -434,7 +434,16 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
     try {
       const id = image.dataset.supplyArt as ConsumableId;
       if (!id) return;
-      setImage(image, getRenderer().render(`supply:${id}`, createSupplyModel(id), 'supply'));
+      // These raster props are the canonical mobile shop assets.  They avoid
+      // opening a second WebGL renderer while a match is already rendering.
+      image.addEventListener('error', () => {
+        try {
+          setImage(image, getRenderer().render(`supply:${id}`, createSupplyModel(id), 'supply'));
+        } catch (error) {
+          console.warn(`Supply thumbnail unavailable: ${id}`, error);
+        }
+      }, { once: true });
+      setImage(image, `/assets/consumables/${id}.png`);
     } catch (error) {
       console.warn(`Supply thumbnail unavailable: ${image.dataset.supplyArt ?? ''}`, error);
     }

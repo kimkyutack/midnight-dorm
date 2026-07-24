@@ -1,4 +1,4 @@
-import type { AccountProfile, PlayMode, RankId, StageId } from './types';
+import type { AccountProfile, DifficultyRuleState, PlayMode, RankedTier, RankId, StageId } from './types';
 
 export const RANKS = [
   { id: 'beginner', label: '하수', minXp: 0 },
@@ -53,6 +53,60 @@ export interface StageDefinition {
   skills: GhostStageSkill[];
   victoryXp: number;
 }
+
+export interface DifficultyModifierPreset {
+  timeAttackChance: number;
+  controlAdaptation: boolean;
+  barrierLayers: number;
+  directionalShield: boolean;
+}
+
+const DIFFICULTY_MODIFIERS: Readonly<Record<string, DifficultyModifierPreset>> = {
+  easy: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
+  normal: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
+  nightmare: { timeAttackChance: 0.07, controlAdaptation: true, barrierLayers: 0, directionalShield: false },
+  hell: { timeAttackChance: 0.12, controlAdaptation: true, barrierLayers: 1, directionalShield: false },
+  inferno: { timeAttackChance: 0.18, controlAdaptation: true, barrierLayers: 2, directionalShield: true },
+  epic: { timeAttackChance: 0.25, controlAdaptation: true, barrierLayers: 3, directionalShield: true },
+  mythic: { timeAttackChance: 0.30, controlAdaptation: true, barrierLayers: 4, directionalShield: true },
+  legendary: { timeAttackChance: 0.35, controlAdaptation: true, barrierLayers: 5, directionalShield: true },
+};
+
+/** The random roll is made once by the room engine and then stored in its snapshot. */
+export function difficultyRuleForStage(stage: StageDefinition, timeAttack = false): DifficultyRuleState {
+  const preset = DIFFICULTY_MODIFIERS[stage.tier] ?? (DIFFICULTY_MODIFIERS.easy as DifficultyModifierPreset);
+  return {
+    modifier: timeAttack ? 'time-attack' : 'none',
+    introRemaining: timeAttack ? 2 : 0,
+    timeAttackRemaining: timeAttack ? 300 : null,
+    overtimeStacks: 0,
+    controlAdaptation: preset.controlAdaptation,
+    barrierLayers: preset.barrierLayers,
+    directionalShield: preset.directionalShield,
+  };
+}
+
+export function timeAttackChanceForStage(stage: StageDefinition): number {
+  return (DIFFICULTY_MODIFIERS[stage.tier] ?? (DIFFICULTY_MODIFIERS.easy as DifficultyModifierPreset)).timeAttackChance;
+}
+
+export const RANKED_TIER_LABEL: Readonly<Record<RankedTier, string>> = {
+  bronze: '브론즈', silver: '실버', gold: '골드', platinum: '플래티넘',
+  diamond: '다이아몬드', master: '마스터', challenger: '챌린저',
+};
+
+export function rankedTierForRating(rating: number): RankedTier {
+  if (rating >= 2_400) return 'challenger';
+  if (rating >= 2_000) return 'master';
+  if (rating >= 1_650) return 'diamond';
+  if (rating >= 1_350) return 'platinum';
+  if (rating >= 1_100) return 'gold';
+  if (rating >= 850) return 'silver';
+  return 'bronze';
+}
+
+export const rankedBadgeImage = (tier: RankedTier): string => `/assets/ranks/season-${tier}.png`;
+export const rankedCrownImage = (tier: 'bronze' | 'silver' | 'gold'): string => `/assets/ranks/crown-${tier}.png`;
 
 export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
   Array.from({ length: tier.count }, (_, offset) => ({ tier, level: offset + 1 })),

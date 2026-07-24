@@ -25,11 +25,13 @@ import {
   RANDOM_ITEMS,
 } from "../shared/randomItems";
 import {
+  difficultyRuleForStage,
   getStage,
   higherRank,
   isEliteRank,
   rankBenefits,
   rankLabel,
+  timeAttackChanceForStage,
   type StageDefinition,
 } from "../shared/progression";
 import { SeededRandom, hashString } from "../shared/rng";
@@ -46,7 +48,10 @@ import type {
   MapDefinition,
   PlayMode,
   PlayerState,
+  ProfileDisplayMode,
   RankId,
+  RankedMatchState,
+  RankedTier,
   RoomState,
   Tile,
   TurretKind,
@@ -64,9 +69,22 @@ import {
 const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
 ] as const;
+const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
+
+const normalizeProfileDisplayMode = (value: unknown): ProfileDisplayMode =>
+  value === 'multiplayer' || value === 'ranked' ? value : 'solo';
+const normalizeProfileRankedTier = (value: unknown): RankedTier =>
+  typeof value === 'string' && RANKED_TIERS.has(value as RankedTier)
+    ? value as RankedTier
+    : 'bronze';
+const normalizeProfileRankedRating = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(1_000_000, Math.floor(value)))
+    : 800;
 
 const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'basic-turret',
+  'golden-turret',
   'frost-turret',
   'generator',
   'repair-drone',
@@ -152,6 +170,8 @@ export interface ActionResult {
 export interface MatchConfig {
   stageId?: string;
   playMode?: PlayMode;
+  /** Ranked contracts provide a deterministic modifier and shared loadout rules. */
+  ranked?: RankedMatchState | null;
 }
 
 const finite = (value: number, fallback = 0): number =>
@@ -180,6 +200,7 @@ export class GameEngine {
   private turretSuppressedUntil = 0;
   private readonly stage: StageDefinition;
   private readonly playMode: PlayMode;
+  private readonly ranked: RankedMatchState | null;
   private rematchVotes = new Set<string>();
   private state: GameSnapshot;
   lastHumanActivity = Date.now();
@@ -195,6 +216,7 @@ export class GameEngine {
     this.testMode = testMode;
     this.stage = getStage(config.stageId);
     this.playMode = config.playMode ?? map.playMode;
+    this.ranked = config.ranked ?? null;
     this.rng = new SeededRandom(map.seed ^ hashString(roomCode));
     this.state = this.createInitialState();
   }
@@ -218,6 +240,10 @@ export class GameEngine {
       lastDoorHitAt: -1_000_000,
       doorRegenAccumulator: -1,
     }));
+    const timeAttack = this.ranked
+      ? this.ranked.modifier === 'time-attack'
+      : !this.testMode && this.rng.next() < timeAttackChanceForStage(this.stage);
+    const difficulty = difficultyRuleForStage(this.stage, timeAttack);
     const eventRoll = this.testMode ? 0 : this.rng.next();
     const variants: GhostVariant[] = this.testMode
       ? ["wanderer"]
@@ -241,6 +267,7 @@ export class GameEngine {
     const ghosts = variants.map((variant, index) =>
       this.makeGhost(variant, index),
     );
+    for (const ghost of ghosts) ghost.barrierLayers = difficulty.barrierLayers;
     const starterKinds: readonly BuildingKind[] = [
       "generator",
       "starter-grave",
@@ -303,6 +330,8 @@ export class GameEngine {
       stageLabel: this.stage.label,
       stageIndex: this.stage.index,
       playMode: this.playMode,
+      difficulty,
+      ranked: this.ranked,
       goldSuppressedUntil: 0,
       repairSuppressedUntil: 0,
       winner: null,
@@ -352,6 +381,14 @@ export class GameEngine {
       skillCooldown: variant === "caster" ? 8 : 20,
       abilityCooldown:
         variant === "teleporter" ? 12 : variant === "undead" ? 10 : 20,
+      controlResolve: 0,
+      controlImmuneUntil: 0,
+      netTriggeredTargetRoomId: null,
+      barrierLayers: 0,
+      mistUntil: 0,
+      shieldCrossfireUntil: 0,
+      shieldCrossfireRoomId: null,
+      directionalShieldDisabledUntil: 0,
     };
   }
 
@@ -365,6 +402,8 @@ export class GameEngine {
     this.state.stageLabel ??= this.stage.label;
     this.state.stageIndex ??= this.stage.index;
     this.state.playMode ??= this.playMode;
+    this.state.difficulty ??= difficultyRuleForStage(this.stage, false);
+    this.state.ranked ??= this.ranked;
     this.state.goldSuppressedUntil ??= 0;
     this.state.repairSuppressedUntil ??= 0;
     for (const ghost of this.state.ghosts) {
@@ -387,6 +426,14 @@ export class GameEngine {
           : ghost.variant === "undead"
             ? 10
             : 20;
+      ghost.controlResolve ??= 0;
+      ghost.controlImmuneUntil ??= 0;
+      ghost.netTriggeredTargetRoomId ??= null;
+      ghost.barrierLayers ??= this.state.difficulty.barrierLayers;
+      ghost.mistUntil ??= 0;
+      ghost.shieldCrossfireUntil ??= 0;
+      ghost.shieldCrossfireRoomId ??= null;
+      ghost.directionalShieldDisabledUntil ??= 0;
     }
     for (const player of this.state.players) {
       player.accountId ??= null;
@@ -396,6 +443,9 @@ export class GameEngine {
         player.soloRank,
         player.multiplayerRank,
       );
+      player.profileDisplayMode = normalizeProfileDisplayMode(player.profileDisplayMode);
+      player.profileRankedTier = normalizeProfileRankedTier(player.profileRankedTier);
+      player.profileRankedRating = normalizeProfileRankedRating(player.profileRankedRating);
       player.appearance = normalizeAppearance(player.appearance);
       player.turretSkins = normalizeTurretSkins(player.turretSkins);
       player.bedIndex ??= null;
@@ -517,18 +567,25 @@ export class GameEngine {
           player.soloRank,
           player.multiplayerRank,
         );
+        player.profileDisplayMode = normalizeProfileDisplayMode(identity.profileDisplayMode);
+        player.profileRankedTier = normalizeProfileRankedTier(identity.profileRankedTier);
+        player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
         player.appearance = normalizeAppearance(
           identity.appearance ?? player.appearance,
         );
         player.turretSkins = normalizeTurretSkins(
           identity.turretSkins ?? player.turretSkins,
         );
-        player.consumables = (identity.consumables ?? player.consumables)
-          .filter((item) => shopConsumableById(item.itemId) && Number.isInteger(item.quantity) && item.quantity > 0)
-          .map((item) => ({ itemId: item.itemId, quantity: item.quantity }));
-        player.consumableLoadout = player.consumableLoadout.filter((itemId) =>
-          player.consumables.some((owned) => owned.itemId === itemId && owned.quantity > 0),
-        );
+        // Loaned ranked supplies are room-owned.  A reconnect must never
+        // replace the remaining loaned stack with the account's inventory.
+        if (this.state.ranked?.supplyPolicy !== 'loaned') {
+          player.consumables = (identity.consumables ?? player.consumables)
+            .filter((item) => shopConsumableById(item.itemId) && Number.isInteger(item.quantity) && item.quantity > 0)
+            .map((item) => ({ itemId: item.itemId, quantity: item.quantity }));
+          player.consumableLoadout = player.consumableLoadout.filter((itemId) =>
+            player.consumables.some((owned) => owned.itemId === itemId && owned.quantity > 0),
+          );
+        }
         this.lastHumanActivity = now;
         return { player, reconnectToken: record.token, reconnected: true };
       }
@@ -550,6 +607,9 @@ export class GameEngine {
       identity.appearance,
       identity.turretSkins,
       identity.consumables,
+      identity.profileDisplayMode,
+      identity.profileRankedTier,
+      identity.profileRankedRating,
     );
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
@@ -567,6 +627,18 @@ export class GameEngine {
     this.state.hostId ??= id;
     this.lastHumanActivity = now;
     return { player, reconnectToken: token, reconnected: false };
+  }
+
+  /** Gives every participant the same room-scoped supplies for a loan contract. */
+  grantRankedLoanedSupplies(playerId: string, itemIds: ConsumableId[]): void {
+    if (this.state.ranked?.supplyPolicy !== 'loaned' || this.state.status !== 'LOBBY') return;
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    if (!player) return;
+    const loadout = [...new Set(itemIds)]
+      .filter((itemId) => Boolean(shopConsumableById(itemId)))
+      .slice(0, 3);
+    player.consumables = loadout.map((itemId) => ({ itemId, quantity: 1 }));
+    player.consumableLoadout = [...loadout];
   }
 
   disconnect(playerId: string, now = Date.now()): void {
@@ -753,7 +825,7 @@ export class GameEngine {
     }
   }
 
-  start(playerId: string): ActionResult {
+  start(playerId: string, bypassReadyCheck = false): ActionResult {
     if (this.state.hostId !== playerId)
       return { ok: false, error: "방장만 게임을 시작할 수 있습니다." };
     if (this.state.status !== "LOBBY")
@@ -763,11 +835,27 @@ export class GameEngine {
     const unreadyHuman = this.state.players.find(
       (player) => !player.isBot && player.id !== playerId && !player.ready,
     );
-    if (unreadyHuman)
+    if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    this.state.status = "COUNTDOWN";
-    this.state.countdown = this.testMode ? 1.2 : BALANCE.countdownSeconds;
+    this.state.status = this.state.difficulty.modifier === 'time-attack'
+      ? 'EVENT_INTRO'
+      : 'COUNTDOWN';
+    this.state.countdown = this.countdownSecondsForMatch();
+    this.state.difficulty.introRemaining = this.state.status === 'EVENT_INTRO' ? 2 : 0;
     return { ok: true };
+  }
+
+  /**
+   * Browser E2E matches normally compress a no-bot preparation phase so the
+   * suite can reach combat quickly.  A solo match is different: the bots must
+   * visibly traverse the same corridors and claim beds before combat starts.
+   * Keep its simulated 30-second preparation phase while preserving the
+   * accelerated no-bot fixture used by the rest of the test suite.
+   */
+  private countdownSecondsForMatch(): number {
+    return this.testMode && this.botRuntime.size === 0
+      ? 1.2
+      : BALANCE.countdownSeconds;
   }
 
   setConsumableLoadout(playerId: string, itemIds: ConsumableId[]): ActionResult {
@@ -790,7 +878,8 @@ export class GameEngine {
     const player = this.state.players.find((candidate) => candidate.id === playerId);
     const item = shopConsumableById(message.itemId);
     if (!player || !item || !player.alive) return { ok: false, error: '전술 보급을 사용할 수 없습니다.' };
-    if (this.state.status !== 'PLAYING') return { ok: false, error: '전술 보급은 귀신이 움직인 뒤 사용할 수 있습니다.' };
+    if (this.state.ranked?.supplyPolicy === 'disabled') return { ok: false, error: '이 랭크 계약에서는 개인 전투 보급품을 사용할 수 없습니다.' };
+    if (this.state.status !== 'PLAYING' && this.state.status !== 'OVERTIME') return { ok: false, error: '전술 보급은 귀신이 움직인 뒤 사용할 수 있습니다.' };
     if (!player.consumableLoadout.includes(item.id)) return { ok: false, error: '대기실에서 선택한 보급품만 사용할 수 있습니다.' };
     if (player.usedConsumables.includes(item.id)) return { ok: false, error: '이 보급품은 이번 판에 이미 사용했습니다.' };
     if (!player.consumables.some((owned) => owned.itemId === item.id && owned.quantity > 0)) return { ok: false, error: '보급 재고가 없습니다.' };
@@ -923,7 +1012,7 @@ export class GameEngine {
     if (!player || !player.alive)
       return { ok: false, error: "상호작용할 수 없습니다." };
     if (player.roomId) return { ok: false, error: "이미 침대를 점유했습니다." };
-    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return {
         ok: false,
         error: "준비 시간이 시작된 뒤 침대를 점유할 수 있습니다.",
@@ -1022,7 +1111,7 @@ export class GameEngine {
     const room = this.state.rooms.find((candidate) => candidate.id === roomId);
     if (!player || !player.alive || !room)
       return { ok: false, error: "건설할 수 없습니다." };
-    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return { ok: false, error: "게임 중에만 건설할 수 있습니다." };
     if (!room.ownerIds.includes(playerId) || player.roomId !== roomId)
       return { ok: false, error: "자신이 머무는 방에만 건설할 수 있습니다." };
@@ -1072,10 +1161,22 @@ export class GameEngine {
         (building) =>
           building.ownerId === playerId && building.kind === "golden-turret",
       ).length;
-      if (installedCount >= ticketCount)
+      const rankedPolicy = this.state.ranked?.goldenTurretPolicy;
+      if (rankedPolicy === 'disabled')
+        return { ok: false, error: '이 랭크 계약에서는 황금 심판 포탑을 사용할 수 없습니다.' };
+      const allowedCount = rankedPolicy === 'loaned' ? 1 : ticketCount;
+      if (installedCount >= allowedCount && rankedPolicy !== 'loaned') {
         return {
           ok: false,
-          error: "황금 티켓 1장당 황금 심판 포탑은 한 대만 설치할 수 있습니다.",
+          error: '수호 포탑 외 공격 포탑인 황금 심판 포탑은 황금 티켓 1장당 한 대만 설치할 수 있습니다.',
+        };
+      }
+      if (installedCount >= allowedCount)
+        return {
+          ok: false,
+          error: rankedPolicy === 'loaned'
+            ? '이 계약에서는 대여 황금 심판 포탑을 한 대만 설치할 수 있습니다.'
+            : "황금 티켓 1장당 황금 심판 포탑은 한 대만 설치할 수 있습니다.",
         };
     }
     const buildCost = upgradeCost(kind, 1, activeRank);
@@ -1243,7 +1344,7 @@ export class GameEngine {
     if (!player || !player.alive || !player.roomId || !building || !room)
       return { ok: false, error: "철거할 설비를 찾을 수 없습니다." };
     if (
-      (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING") ||
+      (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME') ||
       player.roomId !== building.roomId ||
       !room.ownerIds.includes(playerId)
     ) {
@@ -1284,7 +1385,7 @@ export class GameEngine {
     if (!player || !building || !room || !player.alive || !player.roomId)
       return { ok: false, error: '이동할 설비를 찾을 수 없습니다.' };
     if (
-      (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING') ||
+      (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING' && this.state.status !== 'OVERTIME') ||
       player.roomId !== building.roomId ||
       !room.ownerIds.includes(playerId) ||
       building.ownerId !== playerId
@@ -1396,7 +1497,7 @@ export class GameEngine {
       machine.roomId !== player.roomId
     )
       return { ok: false, error: "자신의 랜덤 상자를 선택하세요." };
-    if (this.state.status !== "PLAYING")
+    if (this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return { ok: false, error: "게임이 시작된 뒤 뽑을 수 있습니다." };
     const drawLimit = drawLimitForAppearance(player.appearance);
     const cost = DRAW_COSTS[player.drawCount];
@@ -1461,12 +1562,24 @@ export class GameEngine {
     this.expireDisconnected(now);
     this.updatePlayers(dt);
     this.updateBots(dt);
-    if (this.state.status === "COUNTDOWN") {
+    if (this.state.status === 'EVENT_INTRO') {
+      // Time Attack announcement deliberately freezes every simulation system.
+      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
+      if (this.state.difficulty.introRemaining <= 0) {
+        this.state.status = 'COUNTDOWN';
+        this.state.countdown = this.countdownSecondsForMatch();
+      }
+    } else if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);
       this.state.countdown = Math.max(0, this.state.countdown - dt);
       if (this.state.countdown <= 0) this.beginPlaying();
-    } else if (this.state.status === "PLAYING") {
+    } else if (this.state.status === "PLAYING" || this.state.status === 'OVERTIME') {
       this.state.elapsed += dt;
+      if (this.state.status === 'PLAYING' && this.state.difficulty.timeAttackRemaining !== null) {
+        this.state.difficulty.timeAttackRemaining = Math.max(0, this.state.difficulty.timeAttackRemaining - dt);
+        if (this.state.difficulty.timeAttackRemaining <= 0) this.beginOvertime();
+      }
+      if (this.state.status === 'OVERTIME') this.updateOvertime(dt);
       this.updateEconomy(dt);
       this.updateBuildings(dt);
       this.updateGhosts(dt);
@@ -1519,8 +1632,32 @@ export class GameEngine {
     this.syncPrimaryGhost();
   }
 
+  private beginOvertime(): void {
+    if (this.state.status === 'OVERTIME') return;
+    this.state.status = 'OVERTIME';
+    this.state.difficulty.overtimeStacks = 0;
+    this.applyOvertimeGrowth();
+    this.pendingEvents.push({ kind: 'ghost-skill', position: { ...this.state.ghost.position }, targetId: this.state.ghost.id, label: 'TIME ATTACK 초과 · 귀신 각성' });
+  }
+
+  private updateOvertime(dt: number): void {
+    if (this.state.difficulty.timeAttackRemaining === null) return;
+    this.state.difficulty.timeAttackRemaining -= dt;
+    const stacks = 1 + Math.max(0, Math.floor(Math.abs(this.state.difficulty.timeAttackRemaining) / 60));
+    while (this.state.difficulty.overtimeStacks < stacks) this.applyOvertimeGrowth();
+  }
+
+  private applyOvertimeGrowth(): void {
+    this.state.difficulty.overtimeStacks += 1;
+    for (const ghost of this.state.ghosts) {
+      const hpRatio = ghost.maxHp > 0 ? ghost.hp / ghost.maxHp : 1;
+      ghost.maxHp *= 2;
+      ghost.hp = Math.max(1, ghost.maxHp * hpRatio);
+    }
+  }
+
   private updatePlayers(dt: number): void {
-    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING")
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return;
     const roomCapacity = this.playMode === "multiplayer" ? 2 : 1;
     const blockedRoomFloorTiles = fullRoomFloorKeys(
@@ -1603,6 +1740,7 @@ export class GameEngine {
   }
 
   private updateBots(dt: number): void {
+    if (this.state.status !== 'COUNTDOWN' && this.state.status !== 'PLAYING' && this.state.status !== 'OVERTIME') return;
     for (const bot of this.state.players.filter((player) => player.isBot)) {
       const runtime = this.botRuntime.get(bot.id);
       if (!runtime) continue;
@@ -1827,12 +1965,13 @@ export class GameEngine {
             !candidate.healing &&
             distance(candidate.position, building.tile) <= stats.range,
         )) {
-          const stacks = this.state.buildings.filter(
+          const frostSources = this.state.buildings.filter(
             (candidate) =>
               candidate.kind === "frost-turret" &&
               distance(candidate.tile, ghost.position) <=
                 buildingStats(candidate.kind, candidate.level).range,
-          ).length;
+          );
+          const stacks = frostSources.length;
           // Each upgraded spray adds 16% slow, capped so the ghost remains
           // visible and can eventually retreat instead of becoming frozen.
           this.applyGhostSlow(
@@ -1840,10 +1979,15 @@ export class GameEngine {
             stats.rate + 0.12,
             Math.max(0.35, 1 - stats.value * stacks),
           );
+          // Count adaptation exactly once per ghost/tick, regardless of how
+          // many overlapping spray objects happen to be iterated first.
+          if (frostSources[0]?.id === building.id)
+            this.applyControlAdaptation(ghost, stacks, dt);
         }
       }
       const offensive = [
         "basic-turret",
+        "golden-turret",
         "electric-coil",
       ].includes(building.kind);
       const trait = owner
@@ -1884,7 +2028,7 @@ export class GameEngine {
         effects.turretDamageMultiplier *
         trait.turretDamageMultiplier *
         skinTrait.damageMultiplier;
-      const appliedDamage = this.applyGhostDamage(nearest, damage);
+      const appliedDamage = this.applyGhostDamage(nearest, damage, building.roomId, building.kind);
       this.pendingEvents.push({
         kind: "turret-fire",
         position: building.tile,
@@ -1920,27 +2064,37 @@ export class GameEngine {
       const mapRoom = room
         ? this.map.rooms.find((candidate) => candidate.id === room.id)
         : undefined;
-      if (!owner || !mapRoom) continue;
+      if (!owner || !mapRoom || !room) continue;
       const stats = buildingStats(building.kind, building.level);
       const target = this.state.ghosts
-        .filter(
-          (ghost) =>
-            ghost.hp > 0 &&
+        .filter((ghost) => {
+          // A turret can push HP below 20% in this same frame and set the
+          // retreat flag before the net pass runs. If the ghost is still on
+          // this door's legal attack tile, that is the same door attack
+          // attempt and the net must still fire exactly once.
+          const wasJustForcedToRetreatAtThisDoor =
+            ghost.retreating && this.canGhostStrikeDoor(ghost, mapRoom);
+          return ghost.hp > 0 &&
             !ghost.healing &&
-            ghost.hp / Math.max(1, ghost.maxHp) <=
-              BALANCE.ghost.retreatThreshold &&
-            this.canGhostStrikeDoor(ghost, mapRoom),
-        )
+            ghost.hp / Math.max(1, ghost.maxHp) <= BALANCE.ghost.retreatThreshold &&
+            (ghost.targetRoomId === room.id || wasJustForcedToRetreatAtThisDoor) &&
+            ghost.netTriggeredTargetRoomId !== room.id &&
+            this.canGhostStrikeDoor(ghost, mapRoom);
+        })
         .sort(
           (left, right) =>
             distance(left.position, building.tile) -
             distance(right.position, building.tile),
         )[0];
       if (!target) continue;
-      target.stunnedUntil = Math.max(
-        target.stunnedUntil,
-        this.state.elapsed + stats.value,
-      );
+      const resolveAfter = this.state.difficulty.controlAdaptation
+        ? Math.min(100, target.controlResolve + 60)
+        : 0;
+      const duration = resolveAfter >= 100 ? 0.45 : resolveAfter >= 70 ? 0.9 : stats.value;
+      target.controlResolve = resolveAfter >= 100 ? 50 : resolveAfter;
+      target.stunnedUntil = Math.max(target.stunnedUntil, this.state.elapsed + duration);
+      if (resolveAfter >= 100) target.controlImmuneUntil = target.stunnedUntil + 2.5;
+      target.netTriggeredTargetRoomId = room.id;
       target.path = [];
       building.cooldown = stats.rate;
       this.pendingEvents.push({
@@ -1948,7 +2102,7 @@ export class GameEngine {
         position: { ...target.position },
         targetId: target.id,
         buildingKind: building.kind,
-        amount: stats.value,
+        amount: duration,
       });
     }
   }
@@ -1958,6 +2112,7 @@ export class GameEngine {
     duration: number,
     multiplier: number,
   ): void {
+    if (this.state.elapsed < ghost.controlImmuneUntil) return;
     const normalizedMultiplier = clamp(multiplier, 0.35, 1);
     if (this.state.elapsed >= ghost.slowUntil)
       ghost.slowMultiplier = normalizedMultiplier;
@@ -1967,6 +2122,23 @@ export class GameEngine {
         normalizedMultiplier,
       );
     ghost.slowUntil = Math.max(ghost.slowUntil, this.state.elapsed + duration);
+  }
+
+  private applyControlAdaptation(ghost: GhostState, stacks: number, dt: number): void {
+    if (!this.state.difficulty.controlAdaptation || this.state.elapsed < ghost.controlImmuneUntil) return;
+    const perSecond = stacks >= 3 ? 54 : stacks === 2 ? 30 : 12;
+    ghost.controlResolve = Math.min(100, ghost.controlResolve + perSecond * dt);
+    if (ghost.controlResolve < 100) return;
+    ghost.controlResolve = 50;
+    ghost.controlImmuneUntil = this.state.elapsed + 2.5;
+    ghost.slowUntil = this.state.elapsed;
+    ghost.slowMultiplier = 1;
+    this.pendingEvents.push({
+      kind: 'ghost-skill',
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      label: '제어 적응 · 2.5초 면역',
+    });
   }
 
   private updateDoorRegeneration(dt: number): void {
@@ -2006,16 +2178,70 @@ export class GameEngine {
     }
   }
 
-  private applyGhostDamage(ghost: GhostState, damage: number): number {
+  private applyGhostDamage(
+    ghost: GhostState,
+    damage: number,
+    sourceRoomId?: string,
+    buildingKind?: BuildingKind,
+  ): number {
     // 리스폰 지점의 7초 회복은 보장한다. 후퇴 중에는 계속 포탑 피해를 받아 처치될 수 있다.
-    if (ghost.healing) return 0;
+    if (ghost.healing || this.state.elapsed < ghost.mistUntil) return 0;
     if (this.state.elapsed < (this.retreatGuardUntil.get(ghost.id) ?? 0))
       return 0;
     const before = ghost.hp;
+    let directionalMultiplier = 1;
+    if (this.state.difficulty.directionalShield && sourceRoomId) {
+      if (
+        ghost.shieldCrossfireRoomId &&
+        ghost.shieldCrossfireRoomId !== sourceRoomId &&
+        this.state.elapsed < ghost.shieldCrossfireUntil
+      ) {
+        ghost.directionalShieldDisabledUntil = this.state.elapsed + 6;
+        ghost.shieldCrossfireUntil = 0;
+        ghost.shieldCrossfireRoomId = null;
+        this.pendingEvents.push({
+          kind: 'ghost-skill',
+          position: { ...ghost.position },
+          targetId: ghost.id,
+          label: '교차 사격 · 방향 보호막 해제',
+        });
+      } else {
+        ghost.shieldCrossfireRoomId = sourceRoomId;
+        ghost.shieldCrossfireUntil = this.state.elapsed + 3;
+      }
+      const attackingRoomShielded = ghost.targetRoomId === sourceRoomId &&
+        this.state.elapsed >= ghost.directionalShieldDisabledUntil;
+      if (attackingRoomShielded) {
+        // Golden turret ignores half of the 65% directional mitigation.
+        directionalMultiplier = buildingKind === 'golden-turret' ? 0.675 : 0.35;
+      }
+    }
     // 도망치는 동안은 방어선의 집중 사격에 노출되어, 충분한 화력이 있으면 회복 전에 처치할 수 있다.
     const appliedDamage =
-      damage * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
+      damage * directionalMultiplier * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
     const next = Math.max(0, before - appliedDamage);
+    if (next <= 0 && ghost.barrierLayers > 0) {
+      ghost.barrierLayers -= 1;
+      ghost.hp = 1;
+      ghost.retreating = true;
+      ghost.retreatCount += 1;
+      ghost.targetRoomId = null;
+      ghost.targetPlayerId = null;
+      ghost.path = [];
+      ghost.stunnedUntil = this.state.elapsed;
+      ghost.slowUntil = this.state.elapsed;
+      ghost.slowMultiplier = 1;
+      ghost.controlImmuneUntil = this.state.elapsed + 0.8;
+      ghost.mistUntil = this.state.elapsed + 0.8;
+      this.retreatGuardUntil.set(ghost.id, this.state.elapsed + 0.8);
+      this.pendingEvents.push({
+        kind: 'ghost-skill',
+        position: { ...ghost.position },
+        targetId: ghost.id,
+        label: `방어막 파괴 · ${ghost.barrierLayers}겹 남음`,
+      });
+      return Math.max(0, before - ghost.hp);
+    }
     const crossesRetreatLine =
       ghost.variant !== "minion" &&
       !ghost.retreating &&
@@ -2130,6 +2356,7 @@ export class GameEngine {
         ghost.healingStartHp = ghost.hp;
         ghost.targetPlayerId = null;
         ghost.targetRoomId = this.selectGhostTarget(ghost);
+        ghost.netTriggeredTargetRoomId = null;
         this.pendingEvents.push({
           kind: "ghost-return",
           position: { ...ghost.position },
@@ -2179,8 +2406,8 @@ export class GameEngine {
       if (ghost.attackCooldown > 0) return;
       const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
       ghost.attackCooldown =
-        BALANCE.ghost.attackInterval /
-        (attackSpeed * (ghost.rage ? 1.5 : 1));
+        Math.max(0.2, BALANCE.ghost.attackInterval /
+        (attackSpeed * (ghost.rage ? 1.5 : 1) * 2 ** this.state.difficulty.overtimeStacks));
       this.eliminatePlayer(ghost, outsideTarget);
       return;
     }
@@ -2268,10 +2495,11 @@ export class GameEngine {
           (BALANCE.ghost.damageGrowthPerLevel + this.stage.levelDamageGrowth)) *
       variantDamage *
       this.stage.damageMultiplier *
-      rankPressure;
+      rankPressure *
+      2 ** this.state.difficulty.overtimeStacks;
     const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
     ghost.attackCooldown =
-      BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1));
+      Math.max(0.2, BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1) * 2 ** this.state.difficulty.overtimeStacks));
     if (room.doorHp > 0 && canStrikeDoor) {
       const rawShieldReduction =
         this.state.elapsed < room.shieldUntil
@@ -2786,6 +3014,9 @@ export class GameEngine {
         player.appearance,
         player.turretSkins,
         player.consumables,
+        player.profileDisplayMode,
+        player.profileRankedTier,
+        player.profileRankedRating,
       );
       next.consumableLoadout = [...player.consumableLoadout];
       return { ...next, connected: player.connected, ready: player.isBot };
@@ -2841,6 +3072,9 @@ export class GameEngine {
     appearance = DEFAULT_APPEARANCE,
     turretSkins = DEFAULT_TURRET_SKINS,
     consumables: PlayerState['consumables'] = [],
+    profileDisplayMode: ProfileDisplayMode = 'solo',
+    profileRankedTier: RankedTier = 'bronze',
+    profileRankedRating = 800,
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -2852,6 +3086,9 @@ export class GameEngine {
       soloRank,
       multiplayerRank,
       displayRank: higherRank(soloRank, multiplayerRank),
+      profileDisplayMode: normalizeProfileDisplayMode(profileDisplayMode),
+      profileRankedTier: normalizeProfileRankedTier(profileRankedTier),
+      profileRankedRating: normalizeProfileRankedRating(profileRankedRating),
       appearance: normalizeAppearance(appearance),
       turretSkins: normalizeTurretSkins(turretSkins),
       color: COLORS[this.state.players.length % COLORS.length] as number,

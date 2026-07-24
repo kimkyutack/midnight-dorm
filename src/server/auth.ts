@@ -1,12 +1,29 @@
-import { getStage, higherRank, rankFromXp, rankLabel, STAGES } from '../shared/progression';
+import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { shopConsumableById } from '../shared/shopConsumables';
-import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
+import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, ProfileDisplayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
 const PASSWORD_SCHEME = 'pbkdf2-sha256';
 const PBKDF2_ITERATIONS = 100_000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1_000;
+const RANKED_SEASON_ZERO_KST = Date.UTC(2026, 6, 20, 0, 0, 0) - KST_OFFSET_MS;
+const RANKED_SEASON_MS = 14 * 24 * 60 * 60 * 1_000;
+const RANKED_CONTRACT_MS = 48 * 60 * 60 * 1_000;
+
+/** Two-week seasons begin at Monday 00:00 KST. */
+export function rankedSeasonId(now = Date.now()): string {
+  const index = Math.max(1, Math.floor((now - RANKED_SEASON_ZERO_KST) / RANKED_SEASON_MS) + 1);
+  return `S${index}`;
+}
+
+/** Contract windows are anchored to each two-week season, never to Unix time. */
+export function rankedContractNumber(now = Date.now()): number {
+  const seasonIndex = Math.max(0, Math.floor((now - RANKED_SEASON_ZERO_KST) / RANKED_SEASON_MS));
+  const seasonStart = RANKED_SEASON_ZERO_KST + seasonIndex * RANKED_SEASON_MS;
+  return Math.min(7, Math.max(1, Math.floor((now - seasonStart) / RANKED_CONTRACT_MS) + 1));
+}
 
 interface AccountRow {
   id: string;
@@ -21,6 +38,12 @@ interface AccountRow {
   victories: number;
   login_failures: number;
   locked_until: number;
+  selected_play_mode?: string;
+  profile_display_mode?: string;
+  ranked_rating?: number;
+  ranked_season_id?: string;
+  ranked_placement_count?: number;
+  ranked_contracts_played?: number;
   created_at: number;
 }
 
@@ -53,6 +76,12 @@ async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
     ['locked_until', 'INTEGER NOT NULL DEFAULT 0'],
     ['updated_at', 'INTEGER NOT NULL DEFAULT 0'],
     ['last_login_at', 'INTEGER NOT NULL DEFAULT 0'],
+    ['selected_play_mode', `TEXT NOT NULL DEFAULT 'solo'`],
+    ['profile_display_mode', `TEXT NOT NULL DEFAULT 'solo'`],
+    ['ranked_rating', 'INTEGER NOT NULL DEFAULT 800'],
+    ['ranked_season_id', `TEXT NOT NULL DEFAULT ''`],
+    ['ranked_placement_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['ranked_contracts_played', 'INTEGER NOT NULL DEFAULT 0'],
   ] as const;
   const missing = definitions
     .filter(([column]) => !existing.has(column))
@@ -64,7 +93,7 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   // D1 promises are request-scoped in Workers. Never cache this promise at module
   // scope: a later request would try to await I/O created by another request.
   await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, selected_play_mode TEXT NOT NULL DEFAULT 'solo', profile_display_mode TEXT NOT NULL DEFAULT 'solo', ranked_rating INTEGER NOT NULL DEFAULT 800, ranked_season_id TEXT NOT NULL DEFAULT '', ranked_placement_count INTEGER NOT NULL DEFAULT 0, ranked_contracts_played INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
@@ -78,6 +107,9 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_consumable_uses (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, used_at INTEGER NOT NULL, target TEXT NOT NULL DEFAULT '{}', UNIQUE (match_id, account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_consumable_uses_match ON match_consumable_uses(match_id, account_id)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ranked_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, season_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_number INTEGER NOT NULL, score INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), elapsed_seconds INTEGER NOT NULL, door_hp_ratio REAL NOT NULL, supplies_used INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_ranked_results_season_score ON ranked_results(season_id, score DESC, created_at ASC)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_ranked_results_account ON ranked_results(account_id, season_id, created_at DESC)'),
   ]);
   await ensureLegacyAuthColumns(db);
 }
@@ -127,6 +159,7 @@ function profileFromRow(
   purchasedCosmetics: string[],
   turretLoadout: TurretLoadoutRow | null,
   consumables: OwnedConsumable[],
+  generalMatchCount: number,
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
@@ -149,6 +182,17 @@ function profileFromRow(
         ...requestedAppearance,
         skin: defaultSkinForCharacter(requestedAppearance.character),
       };
+  const selectedPlayMode = row.selected_play_mode === 'multiplayer' || row.selected_play_mode === 'ranked'
+    ? row.selected_play_mode
+    : 'solo';
+  const profileDisplayMode: ProfileDisplayMode = row.profile_display_mode === 'multiplayer' || row.profile_display_mode === 'ranked'
+    ? row.profile_display_mode
+    : 'solo';
+  const currentSeason = rankedSeasonId();
+  const seasonIsCurrent = row.ranked_season_id === currentSeason;
+  const rankedRating = seasonIsCurrent ? Math.max(0, row.ranked_rating ?? 800) : 800;
+  const rankedPlacements = seasonIsCurrent ? Math.max(0, row.ranked_placement_count ?? 0) : 0;
+  const rankedContracts = seasonIsCurrent ? Math.max(0, row.ranked_contracts_played ?? 0) : 0;
   return {
     id: row.id,
     username: row.username,
@@ -160,6 +204,19 @@ function profileFromRow(
     multiplayerXp: row.multiplayer_xp,
     soloStageIndex: row.solo_stage_index,
     multiplayerStageIndex: row.multiplayer_stage_index,
+    selectedPlayMode,
+    profileDisplayMode,
+    ranked: {
+      seasonId: currentSeason,
+      rating: rankedRating,
+      tier: rankedTierForRating(rankedRating),
+      placementCompleted: rankedPlacements,
+      // Normal 5 is index 5, so the next unlocked index is 6 only after
+      // that stage is actually cleared. Ranked matches never count here.
+      eligible: row.solo_stage_index >= 6 && generalMatchCount >= 10,
+      contractsPlayed: rankedContracts,
+      bestContractScores: [],
+    },
     victories: row.victories,
     customPoints: customization?.custom_points ?? 0,
     // Old individual equipment purchases remain in the database for audit
@@ -191,7 +248,21 @@ function parseAppearance(value: string | undefined): AvatarAppearance {
 }
 
 async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountProfile> {
-  const [customization, cosmetics, turretLoadout, consumables] = await Promise.all([
+  const currentSeason = rankedSeasonId();
+  if (row.ranked_season_id !== currentSeason) {
+    await db.prepare(`UPDATE accounts
+      SET ranked_season_id = ?, ranked_rating = 800, ranked_placement_count = 0,
+        ranked_contracts_played = 0, updated_at = ?
+      WHERE id = ?`).bind(currentSeason, Date.now(), row.id).run();
+    row = {
+      ...row,
+      ranked_season_id: currentSeason,
+      ranked_rating: 800,
+      ranked_placement_count: 0,
+      ranked_contracts_played: 0,
+    };
+  }
+  const [customization, cosmetics, turretLoadout, consumables, rankedScores, generalMatches] = await Promise.all([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id).first<CustomizationRow>(),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
@@ -200,14 +271,35 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       .bind(row.id).first<TurretLoadoutRow>(),
     db.prepare('SELECT item_id, quantity FROM account_consumables WHERE account_id = ? AND quantity > 0 ORDER BY updated_at DESC')
       .bind(row.id).all<ConsumableRow>(),
+    db.prepare(`WITH contract_attempts AS (
+        SELECT score, created_at,
+          ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY score DESC, created_at ASC) AS contract_rank
+        FROM ranked_results
+        WHERE account_id = ? AND season_id = ?
+      )
+      SELECT score FROM contract_attempts
+      WHERE contract_rank = 1
+      ORDER BY score DESC, created_at ASC
+      LIMIT 5`)
+      .bind(row.id, rankedSeasonId()).all<{ score: number }>(),
+    db.prepare(`SELECT COUNT(*) AS count
+      FROM match_results m
+      WHERE m.account_id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM ranked_results r
+          WHERE r.match_id = m.match_id AND r.account_id = m.account_id
+        )`).bind(row.id).first<{ count: number }>(),
   ]);
-  return profileFromRow(
+  const profile = profileFromRow(
     row,
     customization,
     cosmetics.results?.map((item) => item.item_id) ?? [],
     turretLoadout,
     (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
+    Math.max(0, generalMatches?.count ?? 0),
   );
+  profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);
+  return profile;
 }
 
 function cookieValue(request: Request): string | null {
@@ -337,6 +429,34 @@ async function logout(request: Request, db: D1Database): Promise<Response> {
   const token = cookieValue(request);
   if (token) await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
   return Response.json({ ok: true }, { headers: { 'set-cookie': sessionCookie(request, '', 0) } });
+}
+
+async function setSelectedPlayMode(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { playMode?: string };
+  try { body = await request.json(); } catch { return Response.json({ error: '플레이 방식을 확인해주세요.' }, { status: 400 }); }
+  if (body.playMode !== 'solo' && body.playMode !== 'multiplayer' && body.playMode !== 'ranked')
+    return Response.json({ error: '지원하지 않는 플레이 방식입니다.' }, { status: 400 });
+  await db.prepare('UPDATE accounts SET selected_play_mode = ?, updated_at = ? WHERE id = ?')
+    .bind(body.playMode, Date.now(), row.id).run();
+  const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();
+  return Response.json({ profile: await profileForRow(db, updated ?? row) });
+}
+
+async function setProfileDisplayMode(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { displayMode?: string };
+  try { body = await request.json(); } catch { return Response.json({ error: '표시할 등급을 확인해주세요.' }, { status: 400 }); }
+  if (body.displayMode !== 'solo' && body.displayMode !== 'multiplayer' && body.displayMode !== 'ranked')
+    return Response.json({ error: '지원하지 않는 등급 표시입니다.' }, { status: 400 });
+  await db.prepare('UPDATE accounts SET profile_display_mode = ?, updated_at = ? WHERE id = ?')
+    .bind(body.displayMode, Date.now(), row.id).run();
+  const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();
+  return Response.json({ profile: await profileForRow(db, updated ?? row) });
 }
 
 async function customize(request: Request, db: D1Database, action: 'purchase' | 'equip'): Promise<Response> {
@@ -477,6 +597,8 @@ export async function routeAuth(request: Request, db: D1Database, bootstrapSchem
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
+    if (url.pathname === '/api/auth/play-mode' && request.method === 'POST') return setSelectedPlayMode(request, db);
+    if (url.pathname === '/api/auth/profile-display' && request.method === 'POST') return setProfileDisplayMode(request, db);
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);
@@ -493,13 +615,17 @@ export async function routeAuth(request: Request, db: D1Database, bootstrapSchem
 
 export async function recordMatchResult(
   db: D1Database,
-  input: { matchId: string; accountId: string; playMode: PlayMode; stageIndex: number; victory: boolean; elapsed: number },
+  input: { matchId: string; accountId: string; playMode: PlayMode; stageIndex: number; victory: boolean; elapsed: number; timeAttack?: boolean },
   bootstrapSchema = false,
 ): Promise<void> {
   if (bootstrapSchema) await ensureAuthSchema(db);
   const stage = getStage(STAGES[input.stageIndex]?.id);
-  const xp = input.victory ? stage.victoryXp : Math.max(10, Math.floor(stage.victoryXp * 0.18));
-  const points = input.victory ? customizationReward(input.stageIndex) : 0;
+  const baseXp = input.victory ? stage.victoryXp : Math.max(10, Math.floor(stage.victoryXp * 0.18));
+  const basePoints = input.victory ? customizationReward(input.stageIndex) : 0;
+  // The 35% event bonus is awarded only for a successful Time Attack clear.
+  const eventBonus = input.victory && input.timeAttack ? 1.35 : 1;
+  const xp = Math.round(baseXp * eventBonus);
+  const points = Math.round(basePoints * eventBonus);
   const inserted = await db.prepare(`INSERT OR IGNORE INTO match_results (match_id, account_id, play_mode, stage_index, victory, xp_awarded, elapsed_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(input.matchId, input.accountId, input.playMode, input.stageIndex, input.victory ? 1 : 0, xp, Math.floor(input.elapsed), Date.now()).run();
   if ((inserted.meta.changes ?? 0) === 0) return;
@@ -515,4 +641,76 @@ export async function recordMatchResult(
     db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
       .bind(points, now, input.accountId),
   ]);
+}
+
+export async function recordRankedMatchResult(
+  db: D1Database,
+  input: {
+    matchId: string;
+    accountId: string;
+    seasonId: string;
+    contractId: string;
+    contractNumber: number;
+    victory: boolean;
+    elapsed: number;
+    doorHpRatio: number;
+    suppliesUsed: number;
+  },
+  bootstrapSchema = false,
+): Promise<void> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const safeDoorHp = Math.max(0, Math.min(1, input.doorHpRatio));
+  const timeScore = Math.max(0, 1_200 - Math.floor(input.elapsed * 2));
+  const score = Math.max(0, (input.victory ? 7_500 : 1_200) + timeScore + Math.round(safeDoorHp * 1_000) - input.suppliesUsed * 180);
+  const previousBest = await db.prepare(`SELECT MAX(score) AS score, COUNT(*) AS attempts
+    FROM ranked_results
+    WHERE account_id = ? AND season_id = ? AND contract_id = ?`)
+    .bind(input.accountId, input.seasonId, input.contractId)
+    .first<{ score: number | null; attempts: number }>();
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO ranked_results (match_id, account_id, season_id, contract_id, contract_number, score, victory, elapsed_seconds, door_hp_ratio, supplies_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(input.matchId, input.accountId, input.seasonId, input.contractId, input.contractNumber, score, input.victory ? 1 : 0, Math.floor(input.elapsed), safeDoorHp, input.suppliesUsed, Date.now()).run();
+  if ((inserted.meta.changes ?? 0) === 0) return;
+  // Rating is intentionally modest; the final leaderboard uses the best five
+  // contract scores, so one lucky room cannot decide a two-week season.
+  const ratingDelta = input.victory ? 28 + Math.round(safeDoorHp * 12) : -12;
+  const firstAttemptForContract = (previousBest?.attempts ?? 0) === 0;
+  const improvedContractScore = firstAttemptForContract || score > (previousBest?.score ?? -1);
+  const now = Date.now();
+  if (improvedContractScore) {
+    await db.prepare(`UPDATE accounts
+      SET ranked_season_id = ?, ranked_rating = MAX(0, ranked_rating + ?),
+        ranked_placement_count = MIN(5, ranked_placement_count + 1),
+        ranked_contracts_played = ranked_contracts_played + ?, updated_at = ?
+      WHERE id = ?`)
+      .bind(input.seasonId, ratingDelta, firstAttemptForContract ? 1 : 0, now, input.accountId).run();
+  } else {
+    await db.prepare(`UPDATE accounts
+      SET ranked_season_id = ?, ranked_placement_count = MIN(5, ranked_placement_count + 1), updated_at = ?
+      WHERE id = ?`)
+      .bind(input.seasonId, now, input.accountId).run();
+  }
+}
+
+export async function rankedLeaderboard(db: D1Database, seasonId = rankedSeasonId()): Promise<Array<{ nickname: string; score: number; rank: number }>> {
+  const rows = await db.prepare(`WITH contract_attempts AS (
+      SELECT r.account_id, r.contract_id, r.score, r.created_at,
+        ROW_NUMBER() OVER (PARTITION BY r.account_id, r.contract_id ORDER BY r.score DESC, r.created_at ASC) AS contract_rank
+      FROM ranked_results r
+      WHERE r.season_id = ?
+    ), scored AS (
+      SELECT account_id, score, created_at,
+        ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY score DESC, created_at ASC) AS score_rank
+      FROM contract_attempts
+      WHERE contract_rank = 1
+    ), totals AS (
+      SELECT account_id, SUM(score) AS score, MIN(created_at) AS attained_at
+      FROM scored
+      WHERE score_rank <= 5
+      GROUP BY account_id
+    )
+    SELECT a.nickname AS nickname, totals.score AS score
+    FROM totals JOIN accounts a ON a.id = totals.account_id
+    ORDER BY totals.score DESC, totals.attained_at ASC
+    LIMIT 50`).bind(seasonId).all<{ nickname: string; score: number }>();
+  return (rows.results ?? []).map((row, index) => ({ nickname: row.nickname, score: row.score, rank: index + 1 }));
 }

@@ -44,6 +44,9 @@ function envelope(message: Intent, sequence = 1): ClientMessage {
 
 function begin(engine: GameEngine, hostId: string): GameSnapshot {
   expect(engine.start(hostId).ok).toBe(true);
+  // Time Attack deliberately freezes inputs for a two-second opening banner.
+  // Tests that prepare a bed first must advance this server-owned phase.
+  for (let index = 0; index < 40 && engine.snapshot().status === 'EVENT_INTRO'; index += 1) engine.tick(0.1);
   const beds = engine.map.rooms.flatMap((room) =>
     room.beds.map((bed) => ({ roomId: room.id, bed })),
   );
@@ -981,10 +984,10 @@ describe('authoritative game rules', () => {
     player.power = 200_000;
     engine.restore(persisted);
 
-    expect(upgradeCost('bed', 2)).toEqual({ gold: 8, power: 0 });
-    expect(upgradeCost('bed', 6)).toEqual({ gold: 128, power: 13 });
-    expect(upgradeCost('reinforced-door', 2)).toEqual({ gold: 10, power: 0 });
-    expect(upgradeCost('reinforced-door', 6)).toEqual({ gold: 160, power: 16 });
+    expect(upgradeCost('bed', 2)).toEqual({ gold: 25, power: 0 });
+    expect(upgradeCost('bed', 6)).toEqual({ gold: 400, power: 40 });
+    expect(upgradeCost('reinforced-door', 2)).toEqual({ gold: 20, power: 0 });
+    expect(upgradeCost('reinforced-door', 6)).toEqual({ gold: 320, power: 32 });
     expect(upgradeCost('generator', 1)).toEqual({ gold: 200, power: 0 });
     expect(upgradeCost('generator', 5)).toEqual({ gold: 3_200, power: 320 });
 

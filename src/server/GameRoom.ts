@@ -3,8 +3,8 @@ import { BALANCE } from '../shared/balance';
 import { normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
-import type { ConsumableId, OwnedConsumable, PlayMode, RankId, ServerMessage, StageId } from '../shared/types';
-import { consumeMatchConsumable, recordMatchResult } from './auth';
+import type { ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
+import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
 import { shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
 import type { Env } from './worker';
@@ -22,6 +22,29 @@ interface InitPayload {
   testMode: boolean;
   stageId: StageId;
   playMode: PlayMode;
+  ranked?: RankedMatchState | null;
+  rankedQueue?: RankedQueueRoomConfig | null;
+}
+
+interface RankedQueueRoomConfig {
+  expectedAccountIds: string[];
+  botCount: number;
+}
+
+const RANKED_LOANED_SUPPLIES: readonly ConsumableId[] = [
+  'scout-flare',
+  'quick-mortar',
+  'toolbelt-voucher',
+];
+
+const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
+
+function profileDisplayModeFromHeader(value: string | null): ProfileDisplayMode {
+  return value === 'multiplayer' || value === 'ranked' ? value : 'solo';
+}
+
+function rankedTierFromHeader(value: string | null): RankedTier {
+  return value && RANKED_TIERS.has(value as RankedTier) ? value as RankedTier : 'bronze';
 }
 
 export class GameRoom extends DurableObject<Env> {
@@ -31,6 +54,7 @@ export class GameRoom extends DurableObject<Env> {
   private persistAccumulator = 0;
   private recordedMatchId: string | null = null;
   private recordingMatchId: string | null = null;
+  private rankedQueue: RankedQueueRoomConfig | null = null;
   private readonly ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -46,6 +70,7 @@ export class GameRoom extends DurableObject<Env> {
         )
       `);
       const persisted = await this.ctx.storage.get<PersistedEngine>('engine');
+      this.rankedQueue = await this.ctx.storage.get<RankedQueueRoomConfig>('ranked-queue') ?? null;
       const row = this.ctx.storage.sql.exec<{ code: string; seed: number; test_mode: number }>(
         'SELECT code, seed, test_mode FROM room_meta WHERE id = 1',
       ).toArray()[0];
@@ -87,7 +112,13 @@ export class GameRoom extends DurableObject<Env> {
       return Response.json({ error: 'invalid room metadata' }, { status: 400 });
     }
     const map = generateMap(payload.seed, payload.playMode);
-    this.engine = new GameEngine(payload.code, map, payload.testMode, { stageId: payload.stageId, playMode: payload.playMode });
+    this.engine = new GameEngine(payload.code, map, payload.testMode, { stageId: payload.stageId, playMode: payload.playMode, ranked: payload.ranked ?? null });
+    this.rankedQueue = payload.rankedQueue && payload.ranked
+      ? {
+          expectedAccountIds: [...new Set(payload.rankedQueue.expectedAccountIds)].slice(0, 4),
+          botCount: Math.max(0, Math.min(4, Math.floor(payload.rankedQueue.botCount))),
+        }
+      : null;
     this.ctx.storage.sql.exec(
       'INSERT INTO room_meta (id, code, seed, test_mode, created_at) VALUES (1, ?, ?, ?, ?)',
       payload.code,
@@ -95,6 +126,7 @@ export class GameRoom extends DurableObject<Env> {
       payload.testMode ? 1 : 0,
       Date.now(),
     );
+    if (this.rankedQueue) await this.ctx.storage.put('ranked-queue', this.rankedQueue);
     await this.persist();
     return Response.json({ code: payload.code, seed: payload.seed });
   }
@@ -106,6 +138,12 @@ export class GameRoom extends DurableObject<Env> {
     const accountId = request.headers.get('x-account-id') ?? undefined;
     const soloRank = (request.headers.get('x-solo-rank') ?? 'beginner') as RankId;
     const multiplayerRank = (request.headers.get('x-multiplayer-rank') ?? 'beginner') as RankId;
+    const profileDisplayMode = profileDisplayModeFromHeader(request.headers.get('x-profile-display-mode'));
+    const profileRankedTier = rankedTierFromHeader(request.headers.get('x-profile-ranked-tier'));
+    const requestedRankedRating = Number(request.headers.get('x-profile-ranked-rating'));
+    const profileRankedRating = Number.isFinite(requestedRankedRating)
+      ? Math.max(0, Math.min(1_000_000, Math.floor(requestedRankedRating)))
+      : 800;
     const appearanceHeader = request.headers.get('x-avatar-appearance');
     const turretSkinsHeader = request.headers.get('x-turret-skins');
     const consumablesHeader = request.headers.get('x-consumable-inventory');
@@ -134,11 +172,30 @@ export class GameRoom extends DurableObject<Env> {
     const deviceId = url.searchParams.get('deviceId') ?? '';
     const reconnectToken = url.searchParams.get('reconnectToken') ?? undefined;
     if (!/^[a-zA-Z0-9-]{8,80}$/.test(deviceId)) return Response.json({ error: '기기 세션이 올바르지 않습니다.' }, { status: 400 });
+    if (this.rankedQueue && (!accountId || !this.rankedQueue.expectedAccountIds.includes(accountId))) {
+      return Response.json({ error: '이 랭크 매치에 배정된 참가자만 입장할 수 있습니다.' }, { status: 403 });
+    }
     let result;
     try {
-      result = engine.join({ nickname, deviceId, reconnectToken, accountId, soloRank, multiplayerRank, appearance, turretSkins, consumables });
+      result = engine.join({
+        nickname,
+        deviceId,
+        reconnectToken,
+        accountId,
+        soloRank,
+        multiplayerRank,
+        profileDisplayMode,
+        profileRankedTier,
+        profileRankedRating,
+        appearance,
+        turretSkins,
+        consumables,
+      });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : '참가할 수 없습니다.' }, { status: 409 });
+    }
+    if (!result.reconnected && engine.snapshot().ranked?.supplyPolicy === 'loaned') {
+      engine.grantRankedLoanedSupplies(result.player.id, [...RANKED_LOANED_SUPPLIES]);
     }
 
     for (const oldSocket of this.ctx.getWebSockets()) {
@@ -156,8 +213,10 @@ export class GameRoom extends DurableObject<Env> {
       lastBuildAt: 0,
     };
     server.serializeAttachment(attachment);
+    const autoStarted = this.maybeStartRankedQueueMatch();
     this.startTicking();
     this.sendWelcome(server, attachment);
+    if (autoStarted) this.broadcastSnapshot();
     void this.persist();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -202,6 +261,17 @@ export class GameRoom extends DurableObject<Env> {
       this.sendWelcome(socket, attachment);
       return;
     }
+    if (
+      this.rankedQueue &&
+      (parsed.message.type === 'ready' ||
+        parsed.message.type === 'start' ||
+        parsed.message.type === 'add-bot' ||
+        parsed.message.type === 'remove-bot' ||
+        parsed.message.type === 'kick-player')
+    ) {
+      this.sendError(socket, 'ACTION_REJECTED', '랭크전은 대기열 배정 후 자동으로 시작됩니다.');
+      return;
+    }
     if (parsed.message.type === 'use-consumable') {
       const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
       const definition = shopConsumableById(parsed.message.itemId);
@@ -210,15 +280,18 @@ export class GameRoom extends DurableObject<Env> {
         this.sendError(socket, 'ACTION_REJECTED', validation.error ?? '전술 보급을 사용할 수 없습니다.');
         return;
       }
-      const consumed = await consumeMatchConsumable(this.env.DB, {
-        matchId: engine.snapshot().matchId,
-        accountId: player.accountId,
-        itemId: definition.id,
-        target: { roomId: parsed.message.roomId, targetId: parsed.message.targetId, tile: parsed.message.tile },
-      }, this.env.DATA_ENV === 'local-e2e');
-      if (!consumed.ok) {
-        this.sendError(socket, 'ACTION_REJECTED', consumed.error);
-        return;
+      const usesLoanedSupply = engine.snapshot().ranked?.supplyPolicy === 'loaned';
+      if (!usesLoanedSupply) {
+        const consumed = await consumeMatchConsumable(this.env.DB, {
+          matchId: engine.snapshot().matchId,
+          accountId: player.accountId,
+          itemId: definition.id,
+          target: { roomId: parsed.message.roomId, targetId: parsed.message.targetId, tile: parsed.message.tile },
+        }, this.env.DATA_ENV === 'local-e2e');
+        if (!consumed.ok) {
+          this.sendError(socket, 'ACTION_REJECTED', consumed.error);
+          return;
+        }
       }
       const result = engine.useConsumable(attachment.playerId, parsed.message);
       if (!result.ok) {
@@ -332,6 +405,27 @@ export class GameRoom extends DurableObject<Env> {
     this.tickTimer = null;
   }
 
+  /** Starts a ranked lobby only after every queued human has connected. */
+  private maybeStartRankedQueueMatch(): boolean {
+    const engine = this.engine;
+    const queue = this.rankedQueue;
+    if (!engine || !queue || engine.snapshot().status !== 'LOBBY') return false;
+    const expected = new Set(queue.expectedAccountIds);
+    const joined = new Set(
+      engine.snapshot().players
+        .filter((player) => !player.isBot && player.accountId && expected.has(player.accountId))
+        .map((player) => player.accountId as string),
+    );
+    if (joined.size !== expected.size || expected.size === 0) return false;
+    const hostId = engine.snapshot().hostId;
+    if (!hostId) return false;
+    for (let index = 0; index < queue.botCount; index += 1) {
+      const bot = engine.addBot(hostId, 'normal');
+      if (!bot.ok) return false;
+    }
+    return engine.start(hostId, true).ok;
+  }
+
   private broadcastSnapshot(): void {
     if (!this.engine) return;
     const snapshot = this.engine.snapshot();
@@ -394,14 +488,33 @@ export class GameRoom extends DurableObject<Env> {
     this.recordingMatchId = snapshot.matchId;
     const victory = snapshot.status === 'VICTORY';
     try {
-      await Promise.all(snapshot.players.filter((player) => !player.isBot && player.accountId).map((player) => recordMatchResult(this.env.DB, {
-        matchId: snapshot.matchId,
-        accountId: player.accountId as string,
-        playMode: snapshot.playMode,
-        stageIndex: snapshot.stageIndex,
-        victory,
-        elapsed: snapshot.elapsed,
-      }, this.env.DATA_ENV === 'local-e2e')));
+      await Promise.all(snapshot.players.filter((player) => !player.isBot && player.accountId).map(async (player) => {
+        await recordMatchResult(this.env.DB, {
+          matchId: snapshot.matchId,
+          accountId: player.accountId as string,
+          playMode: snapshot.playMode,
+          stageIndex: snapshot.stageIndex,
+          victory,
+          elapsed: snapshot.elapsed,
+          timeAttack: snapshot.difficulty.modifier === 'time-attack',
+        }, this.env.DATA_ENV === 'local-e2e');
+        if (!snapshot.ranked) return;
+        const ownedRooms = snapshot.rooms.filter((room) => room.ownerIds.includes(player.id));
+        const doorHpRatio = ownedRooms.length > 0
+          ? ownedRooms.reduce((total, room) => total + room.doorHp / Math.max(1, room.doorMaxHp), 0) / ownedRooms.length
+          : 0;
+        await recordRankedMatchResult(this.env.DB, {
+          matchId: snapshot.matchId,
+          accountId: player.accountId as string,
+          seasonId: snapshot.ranked.seasonId,
+          contractId: snapshot.ranked.contractId,
+          contractNumber: snapshot.ranked.contractNumber,
+          victory,
+          elapsed: snapshot.elapsed,
+          doorHpRatio,
+          suppliesUsed: snapshot.ranked.supplyPolicy === 'penalized' ? player.usedConsumables.length : 0,
+        }, this.env.DATA_ENV === 'local-e2e');
+      }));
       this.recordedMatchId = snapshot.matchId;
     } catch (error) {
       console.error('Failed to record match result', error);

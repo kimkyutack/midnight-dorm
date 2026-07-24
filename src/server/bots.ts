@@ -45,7 +45,12 @@ export function decideBotIntent(
   difficulty: BotDifficulty,
   reservedBed: BotBedTarget | null = null,
 ): BotIntent {
-  if (!bot.alive || (snapshot.status !== 'COUNTDOWN' && snapshot.status !== 'PLAYING')) return { type: 'idle' };
+  if (
+    !bot.alive ||
+    (snapshot.status !== 'COUNTDOWN' &&
+      snapshot.status !== 'PLAYING' &&
+      snapshot.status !== 'OVERTIME')
+  ) return { type: 'idle' };
 
   if (!bot.roomId) {
     const roomCapacity = snapshot.playMode === 'multiplayer' ? 2 : 1;
