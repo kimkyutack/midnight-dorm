@@ -2839,6 +2839,7 @@ function updateTestApi(): void {
 
 document.addEventListener("pointerdown", () => audio.unlock(), { once: true });
 document.addEventListener("visibilitychange", () => {
+  audio.setPageVisible(!document.hidden);
   if (!game) return;
   if (document.hidden) game.pause();
   else {

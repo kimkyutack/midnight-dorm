@@ -2007,8 +2007,8 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().ghosts[0]?.retreatCount).toBe(2);
   });
 
-  it('offers thirty weighted items with only two blanks and keeps the fifth draw fox-exclusive', () => {
-    expect(RANDOM_ITEMS).toHaveLength(30);
+  it('offers twenty-nine weighted items with only two blanks and keeps the fifth draw fox-exclusive', () => {
+    expect(RANDOM_ITEMS).toHaveLength(29);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0)).toHaveLength(2);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0).map((item) => item.id).sort()).toEqual(['cracked-mirror', 'wet-socks']);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.effect).toMatchObject({ goldPerSecond: 500, powerPerSecond: 150 });
@@ -2016,6 +2016,8 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.find((item) => item.id === 'golden-ticket')?.effect.goldenTurretTickets).toBe(1);
     expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
     expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'turret-overhaul-kit')?.effect.turretLevelIncrease).toBe(1);
+    expect(RANDOM_ITEMS.some((item) => item.id === 'runner-shoes' || item.id === 'escape-scarf')).toBe(false);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
     expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 0 }, { gold: 120, power: 0 }, { gold: 200, power: 0 }, { gold: 300, power: 0 }, { gold: 420, power: 0 }]);
 
@@ -2036,6 +2038,34 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().players[0]?.gold).toBe(580);
     expect(engine.snapshot().players[0]?.power).toBe(1_000);
     expect(engine.drawItem(playerId, machineId).ok).toBe(false);
+  });
+
+  it('raises every already-installed turret by one when the overhaul kit is drawn', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    const machineTile = mapRoom?.buildTiles.find((candidate) => candidate.x !== tile.x || candidate.y !== tile.y);
+    if (!machineTile) throw new Error('missing lucky-machine tile');
+    expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+    expect(engine.build(playerId, roomId, machineTile, 'lucky-machine').ok).toBe(true);
+    const prepared = engine.serialize();
+    const player = prepared.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing turret owner');
+    player.gold = 1_000;
+    player.power = 1_000;
+    engine.restore(prepared);
+    const totalWeight = RANDOM_ITEMS.reduce((sum, item) => sum + item.weight, 0);
+    const kitIndex = RANDOM_ITEMS.findIndex((item) => item.id === 'turret-overhaul-kit');
+    if (kitIndex < 0) throw new Error('missing turret overhaul kit');
+    const precedingWeight = RANDOM_ITEMS.slice(0, kitIndex).reduce((sum, item) => sum + item.weight, 0);
+    const random = vi.spyOn(SeededRandom.prototype, 'next').mockReturnValueOnce((precedingWeight + 0.01) / totalWeight);
+    const machineId = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine')?.id;
+    if (!machineId) throw new Error('missing lucky machine');
+    expect(engine.drawItem(playerId, machineId).ok).toBe(true);
+    expect(engine.snapshot().buildings.find((building) => building.kind === 'basic-turret')?.level).toBe(2);
+    random.mockRestore();
   });
 
   it('applies survivor economy, turret damage, fire-rate, and extra-draw traits on the server', () => {

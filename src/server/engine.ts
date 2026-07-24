@@ -1545,6 +1545,16 @@ export class GameEngine {
         rarity: item.rarity,
         count: 1,
       });
+    if (item.effect.turretLevelIncrease) {
+      const upgradeAmount = Math.max(0, Math.floor(item.effect.turretLevelIncrease));
+      for (const building of this.state.buildings) {
+        if (
+          building.ownerId !== playerId ||
+          !['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret'].includes(building.kind)
+        ) continue;
+        building.level = Math.min(maxBuildingLevel(building.kind), building.level + upgradeAmount);
+      }
+    }
     if (item.effect.doorHpMultiplier && player.roomId) {
       const room = this.state.rooms.find(
         (candidate) => candidate.id === player.roomId,
@@ -1731,7 +1741,6 @@ export class GameEngine {
       const speed =
         BALANCE.player.speed *
         rankBenefits(rank).speedMultiplier *
-        combinedItemEffects(player.items).moveSpeedMultiplier *
         characterTraitForAppearance(player.appearance)
           .unclaimedMoveSpeedMultiplier *
         (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);

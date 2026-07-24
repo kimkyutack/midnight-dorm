@@ -6,7 +6,8 @@ export interface RandomItemEffect {
   turretDamageMultiplier?: number;
   turretRateMultiplier?: number;
   turretRangeBonus?: number;
-  moveSpeedMultiplier?: number;
+  /** Applied immediately to the owner's turrets that already exist. */
+  turretLevelIncrease?: number;
   doorRepairPerSecond?: number;
   doorHpMultiplier?: number;
   goldenTurretTickets?: number;
@@ -47,12 +48,11 @@ export const RANDOM_ITEMS: readonly RandomItemDefinition[] = [
   { id: 'iron-heart', label: '철문 심장', description: '문의 최대 내구도가 30% 증가합니다.', rarity: 'rare', weight: 3.2, effect: { doorHpMultiplier: 1.3 } },
   { id: 'long-scope', label: '심야 망원경', description: '포탑 사거리가 2칸 증가합니다.', rarity: 'rare', weight: 3.5, effect: { turretRangeBonus: 2 } },
   { id: 'repair-spider', label: '수리 거미', description: '문을 초당 3만큼 수리합니다.', rarity: 'rare', weight: 3.8, effect: { doorRepairPerSecond: 3 } },
-  { id: 'runner-shoes', label: '핏빛 운동화', description: '플레이어 이동 속도가 25% 증가합니다.', rarity: 'rare', weight: 4, effect: { moveSpeedMultiplier: 1.25 } },
+  { id: 'turret-overhaul-kit', label: '포탑 일괄 강화 키트', description: '현재 설치된 모든 포탑의 레벨이 1 상승합니다.', rarity: 'rare', weight: 4, effect: { turretLevelIncrease: 1 } },
   { id: 'silver-moth', label: '은빛 나방', description: '매초 골드 1.5를 생산합니다.', rarity: 'rare', weight: 4.2, effect: { goldPerSecond: 1.5 } },
   { id: 'armored-hinge', label: '강철 경첩', description: '문의 최대 내구도가 18% 증가합니다.', rarity: 'rare', weight: 4.4, effect: { doorHpMultiplier: 1.18 } },
   { id: 'field-medkit', label: '현장 수리함', description: '문을 초당 1.8만큼 수리합니다.', rarity: 'rare', weight: 4.6, effect: { doorRepairPerSecond: 1.8 } },
   { id: 'tracking-chip', label: '추적 칩', description: '포탑 사거리가 1칸 증가합니다.', rarity: 'rare', weight: 4.8, effect: { turretRangeBonus: 1 } },
-  { id: 'escape-scarf', label: '탈출 스카프', description: '플레이어 이동 속도가 16% 증가합니다.', rarity: 'rare', weight: 5, effect: { moveSpeedMultiplier: 1.16 } },
   { id: 'pocket-cell', label: '주머니 전지', description: '매초 전력 2를 생산합니다.', rarity: 'uncommon', weight: 7.2, effect: { powerPerSecond: 2 } },
   { id: 'oiled-spring', label: '기름 먹은 용수철', description: '포탑 발사 간격이 10% 짧아집니다.', rarity: 'uncommon', weight: 7.6, effect: { turretRateMultiplier: 0.9 } },
   { id: 'sharp-nail', label: '날카로운 못', description: '포탑 피해가 12% 증가합니다.', rarity: 'uncommon', weight: 8, effect: { turretDamageMultiplier: 1.12 } },
@@ -76,7 +76,7 @@ export function combinedItemEffects(itemIds: readonly { itemId: string; count: n
     turretDamageMultiplier: 1,
     turretRateMultiplier: 1,
     turretRangeBonus: 0,
-    moveSpeedMultiplier: 1,
+    turretLevelIncrease: 0,
     doorRepairPerSecond: 0,
     doorHpMultiplier: 1,
     goldenTurretTickets: 0,
@@ -89,7 +89,6 @@ export function combinedItemEffects(itemIds: readonly { itemId: string; count: n
     result.turretDamageMultiplier *= Math.pow(effect.turretDamageMultiplier ?? 1, owned.count);
     result.turretRateMultiplier *= Math.pow(effect.turretRateMultiplier ?? 1, owned.count);
     result.turretRangeBonus += (effect.turretRangeBonus ?? 0) * owned.count;
-    result.moveSpeedMultiplier *= Math.pow(effect.moveSpeedMultiplier ?? 1, owned.count);
     result.doorRepairPerSecond += (effect.doorRepairPerSecond ?? 0) * owned.count;
     result.doorHpMultiplier *= Math.pow(effect.doorHpMultiplier ?? 1, owned.count);
     result.goldenTurretTickets += (effect.goldenTurretTickets ?? 0) * owned.count;

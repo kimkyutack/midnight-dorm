@@ -2467,7 +2467,6 @@ export class ThreeGameView {
     const localRank = this.snapshotData.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const localSpeed = BALANCE.player.speed
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
-      * combinedItemEffects(local?.items ?? []).moveSpeedMultiplier
       * characterTraitForAppearance(local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' }).unclaimedMoveSpeedMultiplier
       * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
     // The authoritative worker blocks full-room floor tiles for unclaimed

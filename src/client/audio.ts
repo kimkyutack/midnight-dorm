@@ -10,6 +10,7 @@ export class SynthAudio {
   private activeBackground: BackgroundTrack | null = null;
   private backgroundUnlockArmed = false;
   private musicMuted = false;
+  private pageVisible = typeof document === 'undefined' || !document.hidden;
   volume = 0.65;
   musicVolume = 0.42;
 
@@ -50,12 +51,22 @@ export class SynthAudio {
       Object.values(this.background).forEach((track) => track?.pause());
       return;
     }
-    if (this.activeBackground) void this.playBackground(this.activeBackground);
+    if (this.activeBackground && this.pageVisible) void this.playBackground(this.activeBackground);
+  }
+
+  /** Stop looping BGM while the browser/app is backgrounded. */
+  setPageVisible(visible: boolean): void {
+    this.pageVisible = visible;
+    if (!visible) {
+      Object.values(this.background).forEach((track) => track?.pause());
+      return;
+    }
+    if (this.activeBackground && !this.musicMuted) void this.playBackground(this.activeBackground);
   }
 
   setBackgroundTrack(track: BackgroundTrack | null): void {
     if (this.activeBackground === track) {
-      if (track && !this.musicMuted) void this.playBackground(track);
+      if (track && !this.musicMuted && this.pageVisible) void this.playBackground(track);
       return;
     }
 
@@ -65,7 +76,7 @@ export class SynthAudio {
     previous?.pause();
     this.activeBackground = track;
 
-    if (!track || this.musicMuted) return;
+    if (!track || this.musicMuted || !this.pageVisible) return;
     const next = this.background[track];
     if (next) next.currentTime = 0;
     void this.playBackground(track);
@@ -109,7 +120,7 @@ export class SynthAudio {
   }
 
   private async playBackground(trackName: BackgroundTrack): Promise<void> {
-    if (this.musicMuted || this.activeBackground !== trackName) return;
+    if (this.musicMuted || !this.pageVisible || this.activeBackground !== trackName) return;
     const track = this.background[trackName];
     if (!track) return;
     track.volume = this.musicVolume;
@@ -127,7 +138,7 @@ export class SynthAudio {
       document.removeEventListener('pointerdown', resume, true);
       document.removeEventListener('keydown', resume, true);
       this.backgroundUnlockArmed = false;
-      if (this.activeBackground && !this.musicMuted) {
+      if (this.activeBackground && !this.musicMuted && this.pageVisible) {
         void this.playBackground(this.activeBackground);
       }
     };
