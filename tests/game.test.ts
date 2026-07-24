@@ -185,7 +185,7 @@ describe('deterministic shared world', () => {
     expect(doorVisualForLevel(11).label).toBe('다이아 티타늄');
   });
 
-  it('generates the same compact eight-room map with eight recovery pads for a seed', () => {
+  it('generates the same seeded eight-room ward with eight recovery pads', () => {
     const first = generateMap(123_456);
     const second = generateMap(123_456);
     expect(first).toEqual(second);
@@ -194,16 +194,39 @@ describe('deterministic shared world', () => {
     expect(first.rooms).toHaveLength(8);
     expect(first.respawnZones).toHaveLength(8);
     expect(new Set(first.respawnZones.map((zone) => `${zone.x},${zone.y}`))).toHaveLength(8);
-    expect([first.width, first.height]).toEqual([63, 35]);
-    expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 25)).toBe(true);
+    expect([first.width, first.height]).toEqual([59, 37]);
+    expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 30)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
-    expect(new Set(first.rooms.map((room) => room.shape)).size).toBeGreaterThanOrEqual(6);
-    const covered = new Set([
+    expect(new Set(first.rooms.map((room) => room.shape)).size).toBe(8);
+    const placedTiles = [
       ...first.corridorTiles,
       ...first.rooms.flatMap((room) => room.floorTiles),
       ...first.walls,
-    ].map((tile) => `${tile.x},${tile.y}`));
-    expect(covered).toHaveLength(first.width * first.height);
+    ];
+    expect(new Set(placedTiles.map((tile) => `${tile.x},${tile.y}`))).toHaveLength(placedTiles.length);
+    expect(placedTiles.length).toBeLessThan(first.width * first.height);
+  });
+
+  it('varies room silhouettes, positions and corridor routes across match seeds', () => {
+    const maps = Array.from({ length: 16 }, (_, index) => generateMap(41_000 + index));
+    const layouts = new Set(maps.map((map) => map.rooms
+      .map((room) => `${room.shape}:${room.bounds.x},${room.bounds.y}:${room.door.x},${room.door.y}`)
+      .join('|')));
+    const corridorLayouts = new Set(maps.map((map) =>
+      map.corridorTiles.map((tile) => `${tile.x},${tile.y}`).sort().join('|'),
+    ));
+    expect(layouts.size).toBeGreaterThan(12);
+    expect(corridorLayouts.size).toBeGreaterThan(12);
+    for (const map of maps) {
+      expect(validateMap(map)).toBe(true);
+      expect(new Set(map.rooms.map((room) => room.shape)).size).toBe(8);
+      for (const room of map.rooms) {
+        const path = findPath(map, map.playerSpawn, room.bed);
+        expect(path.some(
+          (tile) => tile.x === room.door.x && tile.y === room.door.y,
+        )).toBe(true);
+      }
+    }
   });
 
   it('finds a traversable A* route from spawn to every bed', () => {
@@ -262,13 +285,13 @@ describe('deterministic shared world', () => {
     expect(blocked.has(`${room.door.x},${room.door.y}`)).toBe(false);
   });
 
-  it('creates eight twenty-five-tile multiplayer rooms with two beds each', () => {
+  it('creates eight varied multiplayer rooms with two beds each', () => {
     const map = generateMap(7_707, 'multiplayer');
     expect(validateMap(map)).toBe(true);
     expect(map.playMode).toBe('multiplayer');
     expect(map.rooms).toHaveLength(8);
-    expect(map.rooms.every((room) => room.floorTiles.length === 25)).toBe(true);
-    expect(map.rooms.every((room) => room.beds.length === 2 && room.buildTiles.length === 23)).toBe(true);
+    expect(map.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 30)).toBe(true);
+    expect(map.rooms.every((room) => room.beds.length === 2 && room.buildTiles.length === room.floorTiles.length - 2)).toBe(true);
   });
 });
 
