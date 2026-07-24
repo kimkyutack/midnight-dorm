@@ -2596,13 +2596,16 @@ export class ThreeGameView {
   private playEvent(event: GameEvent): void {
     if (event.kind === 'door-hit' && event.targetId && event.position) {
       const attacker = this.ghostViews.get(event.targetId);
-      // A snapshot can contain a door-hit followed by a teleport or a target
-      // change. Replaying that old attack at the new corridor position made
-      // ghosts visibly strike empty air. The event's door location is the
-      // authoritative anchor, so only animate if the newest ghost position is
-      // still beside that same door.
-      if (!attacker || attacker.target.distanceToSquared(worldPoint(event.position)) > 1.2 * 1.2) return;
-      attacker.attackStartedAt = performance.now() - ghostAttackDuration(attacker.variant) / 3;
+      // A blink/sprint snapshot can arrive alongside an older door-hit. The
+      // actor's own recorded strike origin is the reliable anchor: it allows
+      // legitimate door attacks from the corridor approach, while rejecting
+      // attacks whose ghost has already moved somewhere else.
+      const origin = event.sourcePosition ?? event.position;
+      const maximumDrift = event.sourcePosition ? 0.72 : 1.2;
+      if (!attacker || attacker.target.distanceToSquared(worldPoint(origin)) > maximumDrift * maximumDrift) return;
+      // Start close to frame zero so short mobile attack sheets are visible
+      // instead of immediately advancing to their middle frame.
+      attacker.attackStartedAt = performance.now() - 70;
     }
     if (event.kind === 'ghost-net' && event.position) {
       const net = mesh(

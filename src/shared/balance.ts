@@ -1,4 +1,3 @@
-import { rankBenefits } from './progression';
 import type { BuildingKind, RankId } from './types';
 
 export interface BuildingLevelStats {
@@ -204,12 +203,8 @@ export const BALANCE = {
 // The legacy entries stay in the balance table so an old saved match can still
 // be read without crashing while it finishes.
 const TURRETS = new Set<BuildingKind>(['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret']);
-const RANK_TURRETS = new Set<BuildingKind>(['basic-turret']);
 
-export function maxBuildingLevel(kind: BuildingKind, soloRank: RankId = 'beginner'): number {
-  const benefits = rankBenefits(soloRank);
-  if (kind === 'reinforced-door') return BALANCE.buildings[kind].maxLevel;
-  if (RANK_TURRETS.has(kind)) return BALANCE.buildings[kind].maxLevel + benefits.turretLevelBonus;
+export function maxBuildingLevel(kind: BuildingKind, _soloRank: RankId = 'beginner'): number {
   return BALANCE.buildings[kind].maxLevel;
 }
 
@@ -223,8 +218,7 @@ export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: R
   }
   if (TURRETS.has(kind)) {
     const baseGold = kind === 'arc-turret' ? 250 : 10;
-    const discount = kind === 'arc-turret' ? 1 - rankBenefits(soloRank).rareTurretDiscount : 1;
-    return { gold: Math.ceil(baseGold * safeLevel * safeLevel * discount), power: 0 };
+    return { gold: Math.ceil(baseGold * safeLevel * safeLevel), power: 0 };
   }
   const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
   return { gold: stats.gold, power: stats.power };
@@ -267,8 +261,7 @@ export function upgradeRequirement(
 }
 
 export function buildingStats(kind: BuildingKind, requestedLevel: number): BuildingLevelStats {
-  const absoluteMax = RANK_TURRETS.has(kind) ? BALANCE.buildings[kind].maxLevel + 2 : BALANCE.buildings[kind].maxLevel;
-  const safeLevel = Math.max(1, Math.min(absoluteMax, Math.floor(requestedLevel)));
+  const safeLevel = Math.max(1, Math.min(BALANCE.buildings[kind].maxLevel, Math.floor(requestedLevel)));
   const definition = BALANCE.buildings[kind];
   if (!TURRETS.has(kind)) return definition.levels[safeLevel - 1] as BuildingLevelStats;
   const base = definition.levels[0] as BuildingLevelStats;

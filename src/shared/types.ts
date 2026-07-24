@@ -309,6 +309,8 @@ export type GameEventKind =
 export interface GameEvent {
   kind: GameEventKind;
   position?: Vec2;
+  /** World position of the actor that produced the event, when it matters for replay. */
+  sourcePosition?: Vec2;
   playerId?: string;
   roomId?: string;
   amount?: number;

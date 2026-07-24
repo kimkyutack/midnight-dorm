@@ -705,7 +705,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(afterRapidBuilds.snapshot?.buildings).toHaveLength(
       beforeRapidBuilds + 1,
     );
-    expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe("generator");
+    expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe("basic-turret");
 
     const secondId = (await state(second)).playerId;
     await second.reload();

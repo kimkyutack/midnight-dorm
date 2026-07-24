@@ -2,7 +2,7 @@ import type { BuildingKind } from '../../shared/types';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
-const BUILDING_ART_VERSION = 'cute-tile-v5';
+const BUILDING_ART_VERSION = 'cute-tile-v6';
 
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',

@@ -51,10 +51,22 @@ export function decideBotIntent(
             snapshot.players.some((player) => player.id === ownerId && player.bedIndex === bedIndex),
           ),
         );
-    }).sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed))[0];
-    if (!available) return { type: 'idle' };
-    if (distance(bot.position, available.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
-    return movementAlongPath(bot, available.bed, map);
+    }).sort((a, b) => distance(bot.position, a.bed) - distance(bot.position, b.bed));
+    // During the countdown all bots start in the same corridor.  Letting each
+    // bot independently select index 0 makes them trail one another toward the
+    // same bed until the leader claims it.  Give each unclaimed bot a stable
+    // slot in the currently available list so they visibly fan out to distinct
+    // rooms even on the long, randomized ward layouts.
+    const unclaimedBotIndex = snapshot.players
+      .filter((player) => player.isBot && !player.roomId)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .findIndex((player) => player.id === bot.id);
+    const availableTarget = available[
+      Math.max(0, unclaimedBotIndex) % Math.max(1, available.length)
+    ];
+    if (!availableTarget) return { type: 'idle' };
+    if (distance(bot.position, availableTarget.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
+    return movementAlongPath(bot, availableTarget.bed, map);
   }
 
   const room = snapshot.rooms.find((candidate) => candidate.id === bot.roomId);

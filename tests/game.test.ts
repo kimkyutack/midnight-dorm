@@ -380,9 +380,9 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('swift').movementUrl)
-      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v2');
+      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v3');
     expect(ghostSpriteDefinition('swift').attackUrl)
-      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v2');
+      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v3');
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
@@ -1146,6 +1146,7 @@ describe('nine primary ghost variants', () => {
     engine.tick(0.1);
     const hit = engine.drainEvents().find((event) => event.kind === 'door-hit' && event.targetId === ghost.id);
     expect(hit?.amount).toBeCloseTo(BALANCE.ghost.baseDamage * 2.5, 5);
+    expect(hit?.sourcePosition).toEqual(mapRoom.door);
     expect(engine.snapshot().ghost.attackCooldown).toBeCloseTo(BALANCE.ghost.attackInterval / 0.3, 5);
   });
 });
@@ -2212,17 +2213,16 @@ describe('persistent account progression', () => {
     expect(higherRank('legend', 'master')).toBe('legend');
   });
 
-  it('applies solo-rank benefits to movement, limits and the rare turret', () => {
+  it('applies solo-rank benefits while construction ceilings stay fixed', () => {
     expect(rankBenefits('beginner').speedMultiplier).toBe(1);
     expect(rankBenefits('beginner').bedGoldMultiplier).toBe(1);
     expect(rankBenefits('intermediate').bedGoldMultiplier).toBe(1.1);
     expect(rankBenefits('legend').bedGoldMultiplier).toBe(1.5);
     expect(rankBenefits('legend').ghostDifficultyMultiplier).toBe(1.25);
-    expect(rankBenefits('veteran').rareTurretUnlocked).toBe(true);
     expect(maxBuildingLevel('reinforced-door', 'expert')).toBe(15);
-    expect(maxBuildingLevel('basic-turret', 'master')).toBe(16);
-    expect(maxBuildingLevel('basic-turret', 'legend')).toBe(17);
-    expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(175);
+    expect(maxBuildingLevel('basic-turret', 'master')).toBe(15);
+    expect(maxBuildingLevel('basic-turret', 'legend')).toBe(15);
+    expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(250);
   });
 
   it('keeps elite join effects while legacy turret construction stays disabled for every rank', () => {

@@ -47,7 +47,7 @@ interface AtlasLayer {
 
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
-const GHOST_ATLAS_VERSION = 'ghost-atlas-v2';
+const GHOST_ATLAS_VERSION = 'ghost-atlas-v3';
 let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
 
 /**

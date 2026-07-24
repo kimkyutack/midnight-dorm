@@ -1064,12 +1064,6 @@ export class GameEngine {
       };
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
-    const benefits = rankBenefits(activeRank);
-    if (kind === "arc-turret" && !benefits.rareTurretUnlocked)
-      return {
-        ok: false,
-        error: "희귀 천둥포는 싱글 등급 베테랑부터 설치할 수 있습니다.",
-      };
     if (kind === "golden-turret") {
       const ticketCount = combinedItemEffects(player.items).goldenTurretTickets;
       const installedCount = this.state.buildings.filter(
@@ -1591,7 +1585,14 @@ export class GameEngine {
         combinedItemEffects(player.items).moveSpeedMultiplier *
         characterTraitForAppearance(player.appearance)
           .unclaimedMoveSpeedMultiplier *
-        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);
+        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1) *
+        // Bots use separate bed targets during the short preparation phase.
+        // A modest traversal assist keeps all of those targets reachable on
+        // the largest generated layouts before combat begins; it never applies
+        // after the bot has claimed a bed or once PLAYING starts.
+        (player.isBot && !player.roomId && this.state.status === "COUNTDOWN"
+          ? 1.45
+          : 1);
       player.position = moveInWalkableArea(
         this.map,
         player.position,
@@ -2273,6 +2274,10 @@ export class GameEngine {
       this.pendingEvents.push({
         kind: "door-hit",
         position: mapRoom.door,
+        // Keep the strike origin so clients can replay the attack only at the
+        // position where it actually happened. A later blink/sprint snapshot
+        // must not either hide a valid hit or animate it at the new location.
+        sourcePosition: { ...ghost.position },
         roomId: room.id,
         targetId: ghost.id,
         amount: damage,
