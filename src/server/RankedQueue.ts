@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { RankedMatchState, StageId } from '../shared/types';
+import type { RankedMatchState, RankedTier, StageId } from '../shared/types';
 import { contractSeed, createRoomCode } from './rankedMatch';
 import type { Env } from './worker';
 
@@ -15,6 +15,8 @@ export interface RankedQueuePlayer {
   accountId: string;
   nickname: string;
   rating: number;
+  avatarUrl: string | null;
+  tier: RankedTier;
   joinedAt: number;
   lastSeenAt: number;
 }
@@ -23,6 +25,8 @@ export interface RankedQueueJoinInput {
   accountId: string;
   nickname: string;
   rating: number;
+  avatarUrl: string | null;
+  tier: RankedTier;
   testMode: boolean;
   ranked: RankedMatchState;
   stageId: StageId;
@@ -34,7 +38,7 @@ export interface RankedQueueStatus {
   playerCount: number;
   requiredPlayers: number;
   ratingWindow: number;
-  players: Array<Pick<RankedQueuePlayer, 'nickname' | 'rating'>>;
+  players: Array<Pick<RankedQueuePlayer, 'accountId' | 'nickname' | 'rating' | 'avatarUrl' | 'tier'>>;
   roomCode?: string;
   botCount?: number;
 }
@@ -74,6 +78,8 @@ export class RankedQueue extends DurableObject<Env> {
           account_id TEXT PRIMARY KEY,
           nickname TEXT NOT NULL,
           rating INTEGER NOT NULL,
+          avatar_url TEXT NOT NULL DEFAULT '',
+          tier TEXT NOT NULL DEFAULT 'bronze',
           joined_at INTEGER NOT NULL,
           last_seen_at INTEGER NOT NULL,
           contract_id TEXT NOT NULL,
@@ -98,6 +104,11 @@ export class RankedQueue extends DurableObject<Env> {
       this.ctx.storage.sql.exec(
         'CREATE INDEX IF NOT EXISTS idx_ranked_queue_entries_contract ON ranked_queue_entries(contract_id, joined_at)',
       );
+      const entryColumns = this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(ranked_queue_entries)').toArray();
+      if (!entryColumns.some((column) => column.name === 'avatar_url'))
+        this.ctx.storage.sql.exec("ALTER TABLE ranked_queue_entries ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''");
+      if (!entryColumns.some((column) => column.name === 'tier'))
+        this.ctx.storage.sql.exec("ALTER TABLE ranked_queue_entries ADD COLUMN tier TEXT NOT NULL DEFAULT 'bronze'");
     });
   }
 
@@ -110,13 +121,15 @@ export class RankedQueue extends DurableObject<Env> {
     const existing = this.entryFor(input.accountId);
     this.ctx.storage.sql.exec(
       `INSERT INTO ranked_queue_entries (
-        account_id, nickname, rating, joined_at, last_seen_at, contract_id,
+        account_id, nickname, rating, avatar_url, tier, joined_at, last_seen_at, contract_id,
         season_id, contract_number, modifier, golden_turret_policy,
         supply_policy, stage_id, test_mode
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(account_id) DO UPDATE SET
         nickname = excluded.nickname,
         rating = excluded.rating,
+        avatar_url = excluded.avatar_url,
+        tier = excluded.tier,
         last_seen_at = excluded.last_seen_at,
         contract_id = excluded.contract_id,
         season_id = excluded.season_id,
@@ -129,6 +142,8 @@ export class RankedQueue extends DurableObject<Env> {
       input.accountId,
       input.nickname.slice(0, 12),
       Math.max(0, Math.round(input.rating)),
+      input.avatarUrl ?? '',
+      input.tier,
       existing?.joinedAt ?? now,
       now,
       input.ranked.contractId,
@@ -206,7 +221,7 @@ export class RankedQueue extends DurableObject<Env> {
       playerCount: compatible.length,
       requiredPlayers: REQUIRED_PLAYERS,
       ratingWindow: this.ratingWindowFor(entry, now),
-      players: compatible.slice(0, REQUIRED_PLAYERS).map(({ nickname, rating }) => ({ nickname, rating })),
+      players: compatible.slice(0, REQUIRED_PLAYERS).map(({ accountId, nickname, rating, avatarUrl, tier }) => ({ accountId, nickname, rating, avatarUrl, tier })),
     };
   }
 
@@ -226,7 +241,7 @@ export class RankedQueue extends DurableObject<Env> {
   private entries(): StoredEntry[] {
     return this.ctx.storage.sql.exec<StoredEntry>(
       `SELECT
-        account_id as accountId, nickname, rating, joined_at as joinedAt,
+        account_id as accountId, nickname, rating, avatar_url as avatarUrl, tier, joined_at as joinedAt,
         last_seen_at as lastSeenAt, contract_id as contractId,
         season_id as seasonId, contract_number as contractNumber,
         modifier, golden_turret_policy as goldenTurretPolicy,
@@ -346,14 +361,16 @@ export class RankedQueue extends DurableObject<Env> {
         this.ctx.storage.sql.exec('DELETE FROM ranked_queue_assignments WHERE account_id = ?', entry.accountId);
         this.ctx.storage.sql.exec(
           `INSERT INTO ranked_queue_entries (
-            account_id, nickname, rating, joined_at, last_seen_at, contract_id,
+            account_id, nickname, rating, avatar_url, tier, joined_at, last_seen_at, contract_id,
             season_id, contract_number, modifier, golden_turret_policy,
             supply_policy, stage_id, test_mode
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(account_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
           entry.accountId,
           entry.nickname,
           entry.rating,
+          entry.avatarUrl ?? '',
+          entry.tier,
           entry.joinedAt,
           Date.now(),
           entry.contractId,

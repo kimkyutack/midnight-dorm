@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="기본 프로필">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#173b52"/><stop offset="1" stop-color="#0b162b"/></linearGradient>
+    <linearGradient id="hood" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#9eeaf0"/><stop offset="1" stop-color="#4d89ad"/></linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="80" fill="url(#bg)"/>
+  <circle cx="80" cy="79" r="58" fill="#10243b" stroke="#83ddeb" stroke-width="4"/>
+  <path d="M32 132c5-31 23-47 48-47s43 16 48 47" fill="url(#hood)"/>
+  <ellipse cx="80" cy="70" rx="35" ry="31" fill="#f5e6cf"/>
+  <path d="M46 59 37 28l22 15M114 59l9-31-22 15" fill="#f5e6cf" stroke="#e9cda7" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="67" cy="69" rx="5" ry="7" fill="#142133"/><ellipse cx="93" cy="69" rx="5" ry="7" fill="#142133"/>
+  <path d="M74 82q6 6 12 0" fill="none" stroke="#bd6e78" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="80" cy="23" r="5" fill="#ffd66f"/><path d="m80 12 4 8h-8z" fill="#fff2b7"/>
+</svg>

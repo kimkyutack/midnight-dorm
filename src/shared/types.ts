@@ -154,6 +154,8 @@ export interface PlayerState {
   profileDisplayMode: ProfileDisplayMode;
   profileRankedTier: RankedTier;
   profileRankedRating: number;
+  /** Public, versioned same-origin profile image URL when the player chose one. */
+  profileAvatarUrl?: string | null;
   appearance: AvatarAppearance;
   color: number;
   isBot: boolean;
@@ -309,6 +311,8 @@ export interface AccountProfile {
   selectedPlayMode: 'solo' | 'multiplayer' | 'ranked';
   /** Saved independently from selectedPlayMode to avoid changing match choice. */
   profileDisplayMode: ProfileDisplayMode;
+  /** Small, server-served image selected from the device photo library. */
+  profileAvatarUrl: string | null;
   ranked: RankedProfile;
   victories: number;
   customPoints: number;
@@ -434,6 +438,7 @@ export interface JoinIdentity {
   profileDisplayMode?: ProfileDisplayMode;
   profileRankedTier?: RankedTier;
   profileRankedRating?: number;
+  profileAvatarUrl?: string | null;
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
   consumables?: OwnedConsumable[];

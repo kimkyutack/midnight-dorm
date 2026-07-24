@@ -1,7 +1,7 @@
 import type { GameRoom } from './GameRoom';
 import { getStage, unlockedStageIndex } from '../shared/progression';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
-import { getAuthenticatedProfile, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
+import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
 import { createRoomCode, rankedMatchForContract, rankedStageForContract } from './rankedMatch';
 
@@ -66,6 +66,8 @@ async function routeRankedQueue(request: Request, env: Env): Promise<Response> {
       accountId: profile.id,
       nickname: profile.nickname,
       rating: profile.ranked.rating,
+      avatarUrl: profile.profileAvatarUrl,
+      tier: profile.ranked.tier,
       testMode: Boolean(body.testMode) && (hostname === 'localhost' || hostname === '127.0.0.1'),
       ranked,
       stageId: rankedStageForContract(contractNumber),
@@ -97,6 +99,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-profile-display-mode', profile.profileDisplayMode);
   headers.set('x-profile-ranked-tier', profile.ranked.tier);
   headers.set('x-profile-ranked-rating', String(profile.ranked.rating));
+  headers.set('x-profile-avatar-url', profile.profileAvatarUrl ?? '');
   headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
   headers.set('x-turret-skins', encodeURIComponent(JSON.stringify(profile.turretSkins)));
   headers.set('x-consumable-inventory', encodeURIComponent(JSON.stringify(profile.consumables)));
@@ -111,6 +114,10 @@ export default {
     }
     const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (authResponse) return authResponse;
+    const avatarMatch = url.pathname.match(/^\/api\/profile-avatar\/([a-zA-Z0-9-]{8,80})$/);
+    if (avatarMatch && request.method === 'GET') {
+      return profileAvatarResponse(env.DB, avatarMatch[1] as string, env.DATA_ENV === 'local-e2e');
+    }
     if (url.pathname === '/api/ranked/season' && request.method === 'GET') {
       const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
       if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });

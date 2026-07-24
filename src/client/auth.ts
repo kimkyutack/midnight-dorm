@@ -37,6 +37,10 @@ export const setProfileDisplayMode = (displayMode: 'solo' | 'multiplayer' | 'ran
   method: 'POST', body: JSON.stringify({ displayMode }),
 });
 
+export const setProfileAvatar = (avatarData: string | null): Promise<AccountProfile> => authRequest('/api/auth/profile-avatar', {
+  method: 'POST', body: JSON.stringify({ avatarData }),
+});
+
 export async function logoutAccount(): Promise<void> {
   const response = await fetch('/api/auth/logout', {
     method: 'POST',

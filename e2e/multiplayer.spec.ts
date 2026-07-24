@@ -143,11 +143,15 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByRole("button", { name: "닫기" }).click();
     await page.locator("[data-profile-display-picker]").click();
     await expect(
-      page.getByRole("dialog", { name: "인게임 라벨 설정" }),
+      page.getByRole("dialog", { name: "프로필 설정" }),
     ).toBeVisible();
+    await expect(page.locator("[data-profile-photo-input]")).toHaveAttribute(
+      "accept",
+      "image/jpeg,image/png,image/webp",
+    );
     await page.locator('[data-profile-display-mode="multiplayer"]').click();
     await expect(page.locator(".home-account")).toContainText("친구랑하기 · 하수");
-    await page.getByRole("button", { name: "설정" }).click();
+    await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
     await page.getByRole("button", { name: "완료" }).click();
     const profileResponse = await page.request.get("/api/auth/me");
@@ -158,12 +162,27 @@ test("portrait home separates shop, owned customization and stage start", async 
         appearance: { character: string };
         ownedCosmetics: string[];
         profileDisplayMode: string;
+        profileAvatarUrl: string | null;
       };
     };
     expect(profile.profile.profileDisplayMode).toBe("multiplayer");
     expect(profile.profile.customPoints).toBe(0);
     expect(profile.profile.appearance.character).toBe("character-bunny");
     expect(profile.profile.ownedCosmetics).toContain("character-bunny");
+    const avatarUpdate = await page.request.post("/api/auth/profile-avatar", {
+      data: {
+        avatarData:
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL8wwAAAABJRU5ErkJggg==",
+      },
+    });
+    expect(avatarUpdate).toBeOK();
+    const avatarProfile = (await avatarUpdate.json()) as {
+      profile: { profileAvatarUrl: string | null };
+    };
+    expect(avatarProfile.profile.profileAvatarUrl).toMatch(/^\/api\/profile-avatar\//);
+    const avatarAsset = await page.request.get(avatarProfile.profile.profileAvatarUrl as string);
+    expect(avatarAsset).toBeOK();
+    expect(avatarAsset.headers()["content-type"]).toBe("image/png");
     expect(
       (
         await page.request.post("/api/customize/purchase", {
@@ -363,7 +382,9 @@ async function sleepInBed(page: Page, roomId: string, bedIndex: number): Promise
           )?.beds[targetBedIndex];
           if (!game || !map || !player || !bed) return Infinity;
           const distance = Math.hypot(player.position.x - bed.x, player.position.y - bed.y);
-          if (distance <= 1.25) {
+          // Keep the browser driver inside the server's 1.7-tile interaction
+          // range, without requiring a fragile exact tile centre.
+          if (distance <= 1.65) {
             game.move(0, 0);
             return distance;
           }
@@ -399,7 +420,7 @@ async function sleepInBed(page: Page, roomId: string, bedIndex: number): Promise
         }, { targetRoomId: roomId, targetBedIndex: bedIndex }),
       { timeout: 12_000, intervals: [100] },
     )
-    .toBeLessThanOrEqual(1.25);
+    .toBeLessThanOrEqual(1.65);
   await page.evaluate(() => {
     window.__DORM_TEST__?.move(0, 0);
     window.__DORM_TEST__?.interact();
@@ -501,7 +522,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),
     ).toBeCloseTo(Math.SQRT2, 1);
-    await page.getByRole("button", { name: "설정" }).click();
+    await page.getByRole("button", { name: "설정", exact: true }).click();
     const vibration = page.locator("[data-vibration]");
     await expect(vibration).toHaveAttribute("aria-pressed", "true");
     await vibration.click();
@@ -539,7 +560,7 @@ test("three solo bots visibly pathfind through doors before the normal countdown
         sequenceSamples[index - 1] as number,
       );
 
-    await page.getByRole("button", { name: "설정" }).click();
+    await page.getByRole("button", { name: "설정", exact: true }).click();
     await expect(page.locator("[data-vibration]")).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -793,7 +814,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
 
     await first.goto("/?dev=1&fresh=1&automation=1");
     await expect(first.locator(".game-home")).toBeVisible();
-    await first.getByRole("button", { name: "설정" }).click();
+    await first.locator("[data-home-settings]").click();
     await first.getByRole("button", { name: "로그아웃" }).click();
     await first.getByLabel("아이디").fill(firstUsername);
     await first

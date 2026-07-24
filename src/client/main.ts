@@ -44,6 +44,7 @@ import type {
   PlayMode,
   PlayerState,
   ProfileDisplayMode,
+  RankedTier,
   RankId,
   StageId,
   Tile,
@@ -58,6 +59,7 @@ import {
   purchaseCosmetic,
   purchaseConsumable,
   registerAccount,
+  setProfileAvatar,
   setProfileDisplayMode,
   setSelectedPlayMode,
 } from "./auth";
@@ -184,7 +186,7 @@ interface RankedQueueResponse {
   playerCount: number;
   requiredPlayers: number;
   ratingWindow: number;
-  players: Array<{ nickname: string; rating: number }>;
+  players: Array<{ accountId: string; nickname: string; rating: number; avatarUrl: string | null; tier: RankedTier }>;
   roomCode?: string;
   botCount?: number;
 }
@@ -324,6 +326,13 @@ const playerFaceHtml = (appearance: AvatarAppearance): string => {
   const animal = appearance.character.replace("character-", "");
   return `<span class="player-face face-${escapeHtml(animal)}" aria-hidden="true"><i class="face-ear left"></i><i class="face-ear right"></i><b class="face-eye left"></b><b class="face-eye right"></b><em></em></span>`;
 };
+const DEFAULT_PROFILE_AVATAR = '/assets/ui/default-profile.svg';
+const profileAvatarHtml = (avatarUrl: string | null | undefined, className = 'player-face profile-avatar'): string =>
+  `<img class="${className}" src="${escapeHtml(avatarUrl || DEFAULT_PROFILE_AVATAR)}" alt="" />`;
+const playerPortraitHtml = (player: PlayerState): string =>
+  player.profileAvatarUrl
+    ? profileAvatarHtml(player.profileAvatarUrl)
+    : playerFaceHtml(player.appearance);
 
 function backgroundTrackForView(view: string): BackgroundTrack | null {
   if (view === "game") return "ingame";
@@ -426,6 +435,7 @@ function homeScreen(): void {
     ? currentAccount.multiplayerRank
     : currentAccount.soloRank;
   const profileDisplay = accountProfileDisplayInfo(currentAccount);
+  const profileAvatar = currentAccount.profileAvatarUrl ?? DEFAULT_PROFILE_AVATAR;
   const benefits = rankBenefits(selectedNormalRank);
   const stage = selectedHomeStage(currentAccount, homePlayMode);
   const modeLabel = homePlayMode === "solo" ? "혼자하기" : homePlayMode === 'multiplayer' ? "친구랑하기" : "랭크전";
@@ -433,7 +443,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="인게임 라벨 선택"><div class="rank-emblem"><img class="home-profile-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></div><div><span>인게임 라벨</span><strong>${escapeHtml(currentAccount.nickname)}</strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>표시 설정</em></div></button><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -591,6 +601,42 @@ function showHomeModePicker(): void {
     ?.addEventListener("click", () => void joinRoom());
 }
 
+async function compactProfileAvatar(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('이미지 파일만 선택할 수 있습니다.');
+  if (file.size > 12 * 1024 * 1024) throw new Error('12MB 이하의 사진을 선택해주세요.');
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const source = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('사진을 읽지 못했습니다. 다른 파일을 선택해주세요.'));
+      image.src = sourceUrl;
+    });
+    for (const side of [192, 160, 128]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = side;
+      canvas.height = side;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('사진을 처리할 수 없습니다.');
+      const sourceSide = Math.min(source.naturalWidth, source.naturalHeight);
+      const sx = (source.naturalWidth - sourceSide) / 2;
+      const sy = (source.naturalHeight - sourceSide) / 2;
+      context.drawImage(source, sx, sy, sourceSide, sourceSide, 0, 0, side, side);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82));
+      if (!blob || blob.size > 72 * 1024) continue;
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('사진을 처리하지 못했습니다.'));
+        reader.onerror = () => reject(new Error('사진을 처리하지 못했습니다.'));
+        reader.readAsDataURL(blob);
+      });
+    }
+    throw new Error('사진을 더 작게 압축하지 못했습니다. 다른 사진을 선택해주세요.');
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
 function showProfileDisplayPicker(): void {
   if (!account) return;
   const currentAccount = account;
@@ -601,7 +647,7 @@ function showProfileDisplayPicker(): void {
     return `<button class="profile-display-option ${display.className} ${selected ? 'selected' : ''}" data-profile-display-mode="${mode}" aria-pressed="${selected}"><img src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}"/><span><em>${display.modeLabel}</em><strong>${escapeHtml(display.rankText)}</strong><small>${escapeHtml(display.labelText)} · ${escapeHtml(currentAccount.nickname)}</small></span><b>${selected ? '표시 중' : '선택'}</b></button>`;
   }).join('');
   const modal = dismissibleModal(
-    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>IN-GAME LABEL</small><h2 id="profile-display-title">인게임 라벨 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
+    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>PROFILE SETTINGS</small><h2 id="profile-display-title">프로필 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><section class="profile-photo-editor"><img src="${escapeHtml(currentAccount.profileAvatarUrl ?? DEFAULT_PROFILE_AVATAR)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/><strong>${escapeHtml(currentAccount.nickname)}</strong><div><label class="btn ghost profile-photo-select">사진 선택<input type="file" accept="image/jpeg,image/png,image/webp" data-profile-photo-input/></label><button class="btn ghost" data-profile-avatar-reset ${currentAccount.profileAvatarUrl ? '' : 'disabled'}>기본 이미지</button></div><small>사진은 정사각형으로 안전하게 축소되어 저장됩니다.</small></section><h3 class="profile-display-heading">인게임 라벨 설정</h3><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
     'home-picker-modal profile-display-modal',
   );
   modal.querySelectorAll<HTMLButtonElement>('[data-profile-display-mode]').forEach((button) =>
@@ -619,6 +665,39 @@ function showProfileDisplayPicker(): void {
       });
     }),
   );
+  modal.querySelector<HTMLInputElement>('[data-profile-photo-input]')?.addEventListener('change', (event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.disabled = true;
+    void compactProfileAvatar(file)
+      .then((avatarData) => setProfileAvatar(avatarData))
+      .then((updated) => {
+        account = updated;
+        modal.remove();
+        homeScreen();
+        showProfileDisplayPicker();
+        toast('프로필 사진을 저장했습니다.');
+      })
+      .catch((error) => {
+        input.disabled = false;
+        toast(error instanceof Error ? error.message : '프로필 사진을 저장하지 못했습니다.');
+      });
+  });
+  modal.querySelector<HTMLButtonElement>('[data-profile-avatar-reset]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    void setProfileAvatar(null).then((updated) => {
+      account = updated;
+      modal.remove();
+      homeScreen();
+      showProfileDisplayPicker();
+      toast('기본 프로필 이미지로 되돌렸습니다.');
+    }).catch((error) => {
+      button.disabled = false;
+      toast(error instanceof Error ? error.message : '프로필 사진을 변경하지 못했습니다.');
+    });
+  });
 }
 
 function showHomeStagePicker(): void {
@@ -1247,7 +1326,7 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
   const slots = Array.from({ length: queue.requiredPlayers }, (_, index) => {
     const player = queue.players[index];
     return player
-      ? `<li class="ranked-queue-player"><span class="queue-avatar">${escapeHtml(player.nickname.slice(0, 1))}</span><div><strong>${escapeHtml(player.nickname)}</strong><small>${player.rating} RP</small></div><b>READY</b></li>`
+      ? `<li class="ranked-queue-player"><span class="queue-avatar">${profileAvatarHtml(player.avatarUrl, 'queue-avatar profile-avatar')}</span><div><strong>${escapeHtml(player.nickname)}</strong><small>${player.rating} RP</small></div><span class="queue-tier"><img src="${rankedBadgeImage(player.tier)}" alt="${escapeHtml(RANKED_TIER_LABEL[player.tier])}"/></span></li>`
       : `<li class="ranked-queue-player vacant"><span class="queue-avatar">＋</span><div><strong>동일 등급 생존자 탐색 중</strong><small>현재 범위 ±${queue.ratingWindow} RP</small></div><b>SEARCH</b></li>`;
   }).join('');
   setContent(
@@ -1427,7 +1506,7 @@ function updateLobby(state: GameSnapshot): void {
               ? `<button class="member-action" data-remove-bot="${player.id}">봇 제거</button>`
               : `<button class="member-action danger" data-kick-player="${player.id}">추방</button>`
             : "";
-        return `<article class="player-card ${profileDisplay.className}" data-player-id="${player.id}">${playerFaceHtml(player.appearance)}<div class="player-copy"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "대기열 보충 봇" : player.connected ? state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
+        return `<article class="player-card ${profileDisplay.className}" data-player-id="${player.id}">${playerPortraitHtml(player)}<div class="player-copy"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong><span>${player.isBot ? "대기열 보충 봇" : player.connected ? state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
       })
       .join("") +
     (state.players.length < 4
@@ -1495,7 +1574,7 @@ function gameScreen(state: GameSnapshot): void {
     : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerFaceHtml(me.appearance)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -1639,14 +1718,16 @@ function updateHud(): void {
   if (phase) {
     phase.classList.toggle("countdown", isCountdown);
     phase.classList.toggle('time-attack-intro', isEventIntro);
-    phase.textContent = isEventIntro
-      ? 'TIME ATTACK\n당신에게 5분의 시간이 주어졌습니다.\n5분안에 귀신을 물리치고 탈출하세요.'
-      : isCountdown
-      ? `${Math.ceil(snapshot.countdown)}`
-      : (skillWarning ??
-          (retreating
-            ? "⚠ 귀신이 후퇴합니다"
-            : `${snapshot.stageLabel} · ${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`));
+    if (isEventIntro) {
+      phase.innerHTML = '<strong>TIME ATTACK</strong><span>당신에게 5분의 시간이 주어졌습니다.<br/>5분 안에 귀신을 물리치고 탈출하세요.</span>';
+    } else {
+      phase.textContent = isCountdown
+        ? `${Math.ceil(snapshot.countdown)}`
+        : (skillWarning ??
+            (retreating
+              ? "⚠ 귀신이 후퇴합니다"
+              : `${snapshot.stageLabel} · ${snapshot.matchEvent} · 문 타격으로 귀신이 성장합니다`));
+    }
     phase.setAttribute(
       "aria-label",
       isCountdown
@@ -1667,6 +1748,7 @@ function updateHud(): void {
   }
   const net = app.querySelector<HTMLElement>("[data-network]");
   if (net) net.textContent = `연결됨 · ${Math.round(ping)}ms`;
+  refreshOpenPanelAffordability();
 }
 
 function updateHudTeammates(): void {
@@ -1679,7 +1761,7 @@ function updateHudTeammates(): void {
   const identity = teammates
     .map(
       (player) =>
-        `${player.id}:${player.nickname}:${player.appearance.character}:${player.roomId ?? "outside"}`,
+        `${player.id}:${player.nickname}:${player.appearance.character}:${player.profileAvatarUrl ?? ''}:${player.roomId ?? "outside"}`,
     )
     .join("|");
   if (list.dataset.players === identity) return;
@@ -1688,7 +1770,7 @@ function updateHudTeammates(): void {
   list.innerHTML = teammates
     .map(
       (player) =>
-        `<button type="button" class="hud-teammate" data-focus-teammate="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.nickname)} 위치로 카메라 이동">${playerFaceHtml(player.appearance)}<span>${escapeHtml(player.nickname)}</span></button>`,
+        `<button type="button" class="hud-teammate" data-focus-teammate="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.nickname)} 위치로 카메라 이동">${playerPortraitHtml(player)}<span>${escapeHtml(player.nickname)}</span></button>`,
     )
     .join("");
   list
@@ -1870,6 +1952,35 @@ function wirePanelAction(
   });
 }
 
+function canAffordResources(player: PlayerState, gold: number, power: number): boolean {
+  return player.gold + 1e-6 >= gold && player.power + 1e-6 >= power;
+}
+
+/** Keeps an open install/upgrade sheet live while passive income changes. */
+function refreshOpenPanelAffordability(): void {
+  if (!snapshot || currentView !== 'game') return;
+  const panel = app.querySelector<HTMLElement>('[data-build-panel]');
+  if (!panel || panel.classList.contains('hidden')) return;
+  const me = snapshot.players.find((player) => player.id === playerId);
+  if (!me) return;
+  setText('[data-owned-gold]', Math.floor(me.gold).toString());
+  setText('[data-owned-power]', Math.floor(me.power).toString());
+  panel.querySelectorAll<HTMLButtonElement>('[data-cost-gold]').forEach((button) => {
+    const gold = Number(button.dataset.costGold ?? 0);
+    const power = Number(button.dataset.costPower ?? 0);
+    const affordable = Number.isFinite(gold) && Number.isFinite(power) && canAffordResources(me, gold, power);
+    button.disabled = !affordable;
+    button.classList.toggle('resource-insufficient', !affordable);
+    button.setAttribute('aria-disabled', String(!affordable));
+    const actionLabel = button.querySelector<HTMLElement>('[data-cost-action-label]');
+    if (actionLabel?.dataset.readyLabel) {
+      actionLabel.textContent = affordable
+        ? actionLabel.dataset.readyLabel
+        : `${actionLabel.dataset.readyLabel} · 재화 부족`;
+    }
+  });
+}
+
 function renderBuildPanel(tile: Tile): void {
   if (!snapshot) return;
   const me = snapshot.players.find((player) => player.id === playerId);
@@ -1900,7 +2011,8 @@ function renderBuildPanel(tile: Tile): void {
     const definition = BALANCE.buildings[kind];
     const cost = upgradeCost(kind, 1, modeRank);
     const powerOnly = cost.gold === 0 && cost.power > 0;
-    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}" type="button" data-build="${kind}"><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+    const affordable = canAffordResources(me, cost.gold, cost.power);
+    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${affordable ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}" ${affordable ? '' : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
   };
   const goldCards = availableKinds
     // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
@@ -1922,6 +2034,7 @@ function renderBuildPanel(tile: Tile): void {
     .join("") || '<p class="empty-build-tab">구매한 전투 보급이 없습니다.</p>';
   panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><nav class="build-resource-tabs"><button class="active" data-build-tab="gold">골드</button><button data-build-tab="power">전력</button><button data-build-tab="supply">보급</button></nav><section class="build-tab-panel" data-build-tab-panel="gold"><div class="build-grid">${goldCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="power"><div class="build-grid">${powerCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="supply"><div class="build-grid">${supplyCards}</div></section>`;
   panel.classList.remove("hidden");
+  refreshOpenPanelAffordability();
   hydrateCatalogArt(panel, {
     appearance: me.appearance,
     turretSkins: me.turretSkins,
@@ -2017,8 +2130,10 @@ function renderTargetPanel(selection: SceneSelection): void {
             `${escapeHtml(item.label)}${item.count > 1 ? ` ×${item.count}` : ""}`,
         )
         .join(" · ") || "아직 획득한 아이템이 없습니다.";
-    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / ${drawLimit}회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta" type="button" data-draw><span>${me.drawCount + 1}번째 랜덤 뽑기</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>이번 판 ${drawLimit}회 완료</button>`}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
+    const canAffordDraw = Boolean(cost && canAffordResources(me, cost.gold, cost.power));
+    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / ${drawLimit}회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta${canAffordDraw ? '' : ' resource-insufficient'}" type="button" data-draw data-cost-gold="${cost.gold}" data-cost-power="${cost.power}" ${canAffordDraw ? '' : 'disabled aria-disabled="true"'}><span data-cost-action-label data-ready-label="${me.drawCount + 1}번째 랜덤 뽑기">${me.drawCount + 1}번째 랜덤 뽑기${canAffordDraw ? '' : ' · 재화 부족'}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>이번 판 ${drawLimit}회 완료</button>`}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
     panel.classList.remove("hidden");
+    refreshOpenPanelAffordability();
     wireBuildPanelClose(panel);
     panel
       .querySelector("[data-draw]")
@@ -2057,8 +2172,9 @@ function renderTargetPanel(selection: SceneSelection): void {
   const unavailableLabel = doorDestroyed
     ? "문이 파괴되어 업그레이드할 수 없습니다"
     : requirement ?? "최고 레벨 달성";
-  panel.innerHTML = `${panelHeadingMarkup("UPGRADE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>현재 단계</span><strong>Lv.${currentLevel} / ${maxLevel}</strong></div><small>${effectLabel}</small></div>${cost ? `<button class="upgrade-cta${canAffordUpgrade ? "" : " resource-insufficient"}" type="button" ${canAffordUpgrade ? `data-upgrade="${selection.targetId}"` : "disabled aria-disabled=\"true\""}><span>Lv.${nextLevel} 업그레이드${canAffordUpgrade ? "" : " · 재화 부족"}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>${unavailableLabel}</button>`}${removalMarkup}`;
+  panel.innerHTML = `${panelHeadingMarkup("UPGRADE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>현재 단계</span><strong>Lv.${currentLevel} / ${maxLevel}</strong></div><small>${effectLabel}</small></div>${cost ? `<button class="upgrade-cta${canAffordUpgrade ? "" : " resource-insufficient"}" type="button" data-upgrade="${selection.targetId}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}" ${canAffordUpgrade ? '' : 'disabled aria-disabled="true"'}><span data-cost-action-label data-ready-label="Lv.${nextLevel} 업그레이드">Lv.${nextLevel} 업그레이드${canAffordUpgrade ? "" : " · 재화 부족"}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>${unavailableLabel}</button>`}${removalMarkup}`;
   panel.classList.remove("hidden");
+  refreshOpenPanelAffordability();
   wireBuildPanelClose(panel);
   const upgradeButton = panel.querySelector<HTMLButtonElement>("[data-upgrade]");
   if (upgradeButton)

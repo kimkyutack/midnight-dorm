@@ -7,6 +7,7 @@ const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
 const PASSWORD_SCHEME = 'pbkdf2-sha256';
 const PBKDF2_ITERATIONS = 100_000;
+const PROFILE_AVATAR_MAX_BYTES = 72 * 1024;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1_000;
 const RANKED_SEASON_ZERO_KST = Date.UTC(2026, 6, 20, 0, 0, 0) - KST_OFFSET_MS;
 const RANKED_SEASON_MS = 14 * 24 * 60 * 60 * 1_000;
@@ -40,6 +41,8 @@ interface AccountRow {
   locked_until: number;
   selected_play_mode?: string;
   profile_display_mode?: string;
+  profile_avatar?: string;
+  profile_avatar_updated_at?: number;
   ranked_rating?: number;
   ranked_season_id?: string;
   ranked_placement_count?: number;
@@ -78,6 +81,8 @@ async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
     ['last_login_at', 'INTEGER NOT NULL DEFAULT 0'],
     ['selected_play_mode', `TEXT NOT NULL DEFAULT 'solo'`],
     ['profile_display_mode', `TEXT NOT NULL DEFAULT 'solo'`],
+    ['profile_avatar', `TEXT NOT NULL DEFAULT ''`],
+    ['profile_avatar_updated_at', 'INTEGER NOT NULL DEFAULT 0'],
     ['ranked_rating', 'INTEGER NOT NULL DEFAULT 800'],
     ['ranked_season_id', `TEXT NOT NULL DEFAULT ''`],
     ['ranked_placement_count', 'INTEGER NOT NULL DEFAULT 0'],
@@ -93,7 +98,7 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   // D1 promises are request-scoped in Workers. Never cache this promise at module
   // scope: a later request would try to await I/O created by another request.
   await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, selected_play_mode TEXT NOT NULL DEFAULT 'solo', profile_display_mode TEXT NOT NULL DEFAULT 'solo', ranked_rating INTEGER NOT NULL DEFAULT 800, ranked_season_id TEXT NOT NULL DEFAULT '', ranked_placement_count INTEGER NOT NULL DEFAULT 0, ranked_contracts_played INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, selected_play_mode TEXT NOT NULL DEFAULT 'solo', profile_display_mode TEXT NOT NULL DEFAULT 'solo', profile_avatar TEXT NOT NULL DEFAULT '', profile_avatar_updated_at INTEGER NOT NULL DEFAULT 0, ranked_rating INTEGER NOT NULL DEFAULT 800, ranked_season_id TEXT NOT NULL DEFAULT '', ranked_placement_count INTEGER NOT NULL DEFAULT 0, ranked_contracts_played INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
@@ -188,6 +193,10 @@ function profileFromRow(
   const profileDisplayMode: ProfileDisplayMode = row.profile_display_mode === 'multiplayer' || row.profile_display_mode === 'ranked'
     ? row.profile_display_mode
     : 'solo';
+  const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
+  const profileAvatarUrl = row.profile_avatar && avatarUpdatedAt > 0
+    ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
+    : null;
   const currentSeason = rankedSeasonId();
   const seasonIsCurrent = row.ranked_season_id === currentSeason;
   const rankedRating = seasonIsCurrent ? Math.max(0, row.ranked_rating ?? 800) : 800;
@@ -206,6 +215,7 @@ function profileFromRow(
     multiplayerStageIndex: row.multiplayer_stage_index,
     selectedPlayMode,
     profileDisplayMode,
+    profileAvatarUrl,
     ranked: {
       seasonId: currentSeason,
       rating: rankedRating,
@@ -315,6 +325,23 @@ function sessionCookie(request: Request, token: string, maxAgeSeconds: number): 
 function checkOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
   return !origin || origin === new URL(request.url).origin;
+}
+
+function profileAvatarPayload(value: string): { mime: 'image/jpeg' | 'image/png' | 'image/webp'; encoded: string } | null {
+  const match = value.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match) return null;
+  const encoded = match[2] as string;
+  const estimatedBytes = Math.floor((encoded.length * 3) / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+  if (estimatedBytes <= 0 || estimatedBytes > PROFILE_AVATAR_MAX_BYTES) return null;
+  return { mime: match[1] as 'image/jpeg' | 'image/png' | 'image/webp', encoded };
+}
+
+function decodeAvatarPayload(encoded: string): Uint8Array | null {
+  try {
+    return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
 }
 
 async function createSession(db: D1Database, accountId: string): Promise<string> {
@@ -459,6 +486,51 @@ async function setProfileDisplayMode(request: Request, db: D1Database): Promise<
   return Response.json({ profile: await profileForRow(db, updated ?? row) });
 }
 
+async function setProfileAvatar(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { avatarData?: unknown };
+  try { body = await request.json(); } catch { return Response.json({ error: '프로필 사진을 확인해주세요.' }, { status: 400 }); }
+  const avatarData = body.avatarData;
+  if (avatarData !== null && typeof avatarData !== 'string')
+    return Response.json({ error: '프로필 사진 형식이 올바르지 않습니다.' }, { status: 400 });
+  if (typeof avatarData === 'string' && !profileAvatarPayload(avatarData))
+    return Response.json({ error: '사진은 72KB 이하의 JPEG, PNG 또는 WebP여야 합니다.' }, { status: 400 });
+  const now = Date.now();
+  await db.prepare('UPDATE accounts SET profile_avatar = ?, profile_avatar_updated_at = ?, updated_at = ? WHERE id = ?')
+    .bind(avatarData ?? '', now, now, row.id).run();
+  const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();
+  return Response.json({ profile: await profileForRow(db, updated ?? row) });
+}
+
+/**
+ * Player portraits are intentionally tiny, validated images.  Profile photos
+ * are public in rooms, so this endpoint is unauthenticated but only returns
+ * a pre-validated account asset and never proxies arbitrary URLs.
+ */
+export async function profileAvatarResponse(
+  db: D1Database,
+  accountId: string,
+  bootstrapSchema = false,
+): Promise<Response> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const row = await db.prepare('SELECT profile_avatar FROM accounts WHERE id = ?')
+    .bind(accountId).first<{ profile_avatar: string }>();
+  const payload = row?.profile_avatar ? profileAvatarPayload(row.profile_avatar) : null;
+  if (!payload) return new Response(null, { status: 404 });
+  const bytes = decodeAvatarPayload(payload.encoded);
+  if (!bytes) return new Response(null, { status: 404 });
+  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Response(body, {
+    headers: {
+      'content-type': payload.mime,
+      'cache-control': 'public, max-age=604800, immutable',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 async function customize(request: Request, db: D1Database, action: 'purchase' | 'equip'): Promise<Response> {
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   const row = await authenticatedRowFromReadySchema(request, db);
@@ -599,6 +671,7 @@ export async function routeAuth(request: Request, db: D1Database, bootstrapSchem
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
     if (url.pathname === '/api/auth/play-mode' && request.method === 'POST') return setSelectedPlayMode(request, db);
     if (url.pathname === '/api/auth/profile-display' && request.method === 'POST') return setProfileDisplayMode(request, db);
+    if (url.pathname === '/api/auth/profile-avatar' && request.method === 'POST') return setProfileAvatar(request, db);
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);

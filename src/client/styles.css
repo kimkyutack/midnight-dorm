@@ -1520,6 +1520,31 @@
   border-radius: 15px;
   background: rgba(4, 10, 16, 0.38);
 }
+.profile-photo-editor {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  margin: 0 0 15px;
+  padding: 4px 0 15px;
+  border-bottom: 1px solid rgba(202, 227, 234, 0.12);
+}
+.profile-photo-editor > img {
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  object-fit: cover;
+  border: 2px solid rgba(137, 232, 241, 0.78);
+  border-radius: 50%;
+  background: #11253a;
+  box-shadow: 0 0 0 4px rgba(83, 197, 213, 0.1), 0 8px 22px rgba(0, 0, 0, 0.42);
+}
+.profile-photo-editor > strong { font-size: 14px; }
+.profile-photo-editor > div { display: flex; gap: 7px; }
+.profile-photo-editor .btn { min-height: 30px; font-size: 9px; }
+.profile-photo-select { display: inline-grid; place-items: center; cursor: pointer; }
+.profile-photo-select input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.profile-photo-editor > small { color: rgba(218, 234, 238, 0.48); font-size: 8px; }
+.profile-display-heading { margin: 0; color: #eef8fb; font-size: 15px; }
 .profile-title-slot > div {
   display: flex;
   align-items: baseline;
@@ -1758,6 +1783,25 @@
   font-size: 14px;
   font-weight: 950;
 }
+.queue-avatar.profile-avatar {
+  display: block;
+  overflow: hidden;
+  object-fit: cover;
+  border: 1px solid rgba(148, 237, 242, 0.56);
+  background: #152a3c;
+}
+.queue-tier {
+  display: grid;
+  width: 28px;
+  height: 31px;
+  place-items: center;
+}
+.queue-tier img {
+  width: 28px;
+  height: 31px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.52));
+}
 .vacant .queue-avatar { color: #8ba7b2; background: rgba(100, 133, 148, 0.2); }
 .ranked-queue-player strong,
 .ranked-queue-player small { display: block; }
@@ -1804,6 +1848,13 @@
   border-radius: 48% 48% 46% 46%;
   background: #e6c2b7;
   box-shadow: inset 0 -7px rgba(121, 70, 60, 0.08);
+}
+.player-face.profile-avatar {
+  display: block;
+  overflow: hidden;
+  object-fit: cover;
+  border: 1px solid rgba(183, 238, 243, 0.36);
+  background: #122536;
 }
 .face-cat {
   background: #aeb9ce;
@@ -2528,15 +2579,38 @@
 }
 .time-attack-clock.overtime { animation: time-attack-pulse .8s ease-in-out infinite alternate; }
 .phase-banner.time-attack-intro {
+  top: 50%;
+  left: 50%;
+  z-index: 40;
   width: min(88vw, 440px);
   padding: 28px 22px;
   border-color: rgba(255, 74, 86, .85);
   color: #ff4b5d;
   background: rgba(8, 3, 7, .92);
   box-shadow: 0 0 36px rgba(255, 42, 69, .48);
-  font-size: clamp(20px, 7vw, 32px);
-  line-height: 1.42;
-  white-space: pre-line;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+}
+.phase-banner.time-attack-intro strong,
+.phase-banner.time-attack-intro span {
+  display: block;
+}
+.phase-banner.time-attack-intro strong {
+  margin-bottom: 12px;
+  color: #ff354d;
+  font-size: clamp(42px, 13vw, 68px);
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  line-height: 0.92;
+  text-shadow: 0 0 18px rgba(255, 32, 62, 0.84), 0 4px 0 rgba(67, 0, 11, 0.72);
+}
+.phase-banner.time-attack-intro span {
+  color: #fff0f2;
+  font-size: clamp(13px, 3.9vw, 17px);
+  font-weight: 800;
 }
 @keyframes time-attack-pulse { from { transform: scale(.97); } to { transform: scale(1.04); } }
 .trait-ribbon {
@@ -3629,6 +3703,36 @@ button {
   flex: 0 0 auto;
   min-width: 76px;
   min-height: 52px;
+}
+.home-profile-photo {
+  display: grid;
+  flex: 0 0 50px;
+  width: 50px;
+  height: 50px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid rgba(135, 226, 236, 0.62);
+  border-radius: 50%;
+  background: #102536;
+  box-shadow: 0 0 0 3px rgba(105, 210, 223, 0.08), 0 5px 14px rgba(0, 0, 0, 0.35);
+}
+.home-profile-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.home-account strong {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+}
+.home-inline-badge {
+  display: inline-block;
+  width: 20px;
+  height: 22px;
+  object-fit: contain;
+  vertical-align: -5px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.52));
 }
 .home-account.ranked-profile {
   border-color: rgba(126, 212, 255, 0.54);
@@ -5173,6 +5277,16 @@ select {
   );
   box-shadow: inset 0 0 18px rgba(242, 178, 255, 0.09);
 }
+.build-card:disabled,
+.build-card.resource-insufficient {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: saturate(0.42) brightness(0.78);
+}
+.build-card:disabled .build-card-cost,
+.build-card.resource-insufficient .build-card-cost {
+  color: rgba(210, 222, 229, 0.52);
+}
 .target-level {
   display: flex;
   align-items: center;
@@ -6621,6 +6735,21 @@ select {
     overflow: visible;
     color: #ff4057;
     font-size: clamp(62px, 23cqw, 100px);
+    text-overflow: clip;
+    white-space: normal;
+  }
+  /* The event notice must stay above the mobile HUD instead of inheriting
+     the ordinary phase chip's top offset. */
+  #app[data-view="game"] .phase-banner.time-attack-intro {
+    top: 50%;
+    left: 50%;
+    z-index: 40;
+    width: min(88vw, 440px);
+    max-width: min(88vw, 440px);
+    padding: 28px 22px;
+    overflow: visible;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
     text-overflow: clip;
     white-space: normal;
   }

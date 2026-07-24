@@ -570,6 +570,7 @@ export class GameEngine {
         player.profileDisplayMode = normalizeProfileDisplayMode(identity.profileDisplayMode);
         player.profileRankedTier = normalizeProfileRankedTier(identity.profileRankedTier);
         player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
+        player.profileAvatarUrl = identity.profileAvatarUrl ?? null;
         player.appearance = normalizeAppearance(
           identity.appearance ?? player.appearance,
         );
@@ -610,6 +611,7 @@ export class GameEngine {
       identity.profileDisplayMode,
       identity.profileRankedTier,
       identity.profileRankedRating,
+      identity.profileAvatarUrl,
     );
     this.state.players.push(player);
     if (isEliteRank(player.displayRank)) {
@@ -681,7 +683,9 @@ export class GameEngine {
     );
     bot.ready = true;
     this.state.players.push(bot);
-    this.botRuntime.set(id, { difficulty, reaction: this.rng.next(), bedTarget: null });
+    // Let a newly spawned bot choose a bed immediately; random first-think
+    // delays made the whole survivor line freeze at the beginning of a match.
+    this.botRuntime.set(id, { difficulty, reaction: 0, bedTarget: null });
     return { ok: true };
   }
 
@@ -1747,17 +1751,28 @@ export class GameEngine {
       if (!bot.roomId) {
         if (!this.isAvailableBotBedTarget(runtime.bedTarget))
           runtime.bedTarget = this.reserveBedForBot(bot);
+        // Repathing on every simulation tick makes a bot flip between two
+        // rounded A* waypoints right at a doorway.  Keep the chosen vector for
+        // a short, fixed window: it is smooth on the client and still reacts
+        // before it can overshoot a tile.
+        runtime.reaction -= dt;
+        if (runtime.reaction > 0) continue;
+        const intent = decideBotIntent(
+          bot,
+          this.state,
+          this.map,
+          runtime.difficulty,
+          runtime.bedTarget,
+        );
         this.applyBotIntent(
           bot.id,
-          decideBotIntent(
-            bot,
-            this.state,
-            this.map,
-            runtime.difficulty,
-            runtime.bedTarget,
-          ),
+          intent,
         );
-        if (bot.roomId) runtime.bedTarget = null;
+        runtime.reaction = intent.type === 'move' ? 0.16 : 0.28;
+        if (bot.roomId) {
+          runtime.bedTarget = null;
+          runtime.reaction = 0;
+        }
         continue;
       }
       runtime.reaction -= dt;
@@ -3017,6 +3032,7 @@ export class GameEngine {
         player.profileDisplayMode,
         player.profileRankedTier,
         player.profileRankedRating,
+        player.profileAvatarUrl,
       );
       next.consumableLoadout = [...player.consumableLoadout];
       return { ...next, connected: player.connected, ready: player.isBot };
@@ -3075,6 +3091,7 @@ export class GameEngine {
     profileDisplayMode: ProfileDisplayMode = 'solo',
     profileRankedTier: RankedTier = 'bronze',
     profileRankedRating = 800,
+    profileAvatarUrl: string | null = null,
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -3089,6 +3106,7 @@ export class GameEngine {
       profileDisplayMode: normalizeProfileDisplayMode(profileDisplayMode),
       profileRankedTier: normalizeProfileRankedTier(profileRankedTier),
       profileRankedRating: normalizeProfileRankedRating(profileRankedRating),
+      profileAvatarUrl,
       appearance: normalizeAppearance(appearance),
       turretSkins: normalizeTurretSkins(turretSkins),
       color: COLORS[this.state.players.length % COLORS.length] as number,

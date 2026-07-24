@@ -144,6 +144,7 @@ export class GameRoom extends DurableObject<Env> {
     const profileRankedRating = Number.isFinite(requestedRankedRating)
       ? Math.max(0, Math.min(1_000_000, Math.floor(requestedRankedRating)))
       : 800;
+    const profileAvatarUrl = request.headers.get('x-profile-avatar-url') || null;
     const appearanceHeader = request.headers.get('x-avatar-appearance');
     const turretSkinsHeader = request.headers.get('x-turret-skins');
     const consumablesHeader = request.headers.get('x-consumable-inventory');
@@ -187,6 +188,7 @@ export class GameRoom extends DurableObject<Env> {
         profileDisplayMode,
         profileRankedTier,
         profileRankedRating,
+        profileAvatarUrl,
         appearance,
         turretSkins,
         consumables,

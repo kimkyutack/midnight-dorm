@@ -14,6 +14,7 @@ import { stageThemeFor } from '../src/shared/stageThemes';
 import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
+import { rankedStageForContract } from '../src/server/rankedMatch';
 import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
@@ -1180,6 +1181,27 @@ describe('accelerated long simulation', () => {
 });
 
 describe('requested progression and event rules', () => {
+  it('uses a fixed non-normal ranked contract difficulty schedule', () => {
+    expect([
+      rankedStageForContract(1),
+      rankedStageForContract(2),
+      rankedStageForContract(3),
+      rankedStageForContract(4),
+      rankedStageForContract(5),
+      rankedStageForContract(6),
+      rankedStageForContract(7),
+    ]).toEqual([
+      'nightmare-3',
+      'nightmare-4',
+      'nightmare-5',
+      'hell-1',
+      'hell-2',
+      'hell-3',
+      'hell-4',
+    ]);
+    expect(rankedStageForContract(99)).toBe('hell-4');
+  });
+
   it('routes three bots through doorways and claims distinct beds before countdown ends', () => {
     const engine = new GameEngine('BOTPATH1', generateMap(42_424), false);
     const host = engine.join({ nickname: '사람생존자', deviceId: 'device-human-path' });
