@@ -29,8 +29,8 @@ const icon = (size, maskable = false) => `<?xml version="1.0" encoding="UTF-8"?>
 await mkdir("public/icons", { recursive: true });
 await writeFile("public/icons/favicon.ico", icon(512));
 await writeFile("public/icons/icon-maskable.svg", icon(512, true));
-await writeFile("public/icons/icon-192.png", makePng(192));
-await writeFile("public/icons/icon-512.png", makePng(512));
+await writeFile("public/icons/android-icon-192x192.png", makePng(192));
+await writeFile("public/icons/android-icon-512x512.png", makePng(512));
 
 function makePng(size) {
   const pixels = Buffer.alloc(size * size * 4);
