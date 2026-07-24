@@ -47,7 +47,6 @@ export type BuildingKind =
   | 'generator'
   | 'repair-drone'
   | 'electric-coil'
-  | 'floor-trap'
   | 'shield-device'
   | 'lucky-machine'
   | 'gem-core'
@@ -195,7 +194,7 @@ export interface GhostState {
   slowUntil: number;
   /** 그물 설비가 이동과 공격을 완전히 멈추는 서버 기준 시각. */
   stunnedUntil: number;
-  /** 활성 감속 배율. 그림자 덫의 레벨별 감속 효과를 서버가 권한 있게 보존한다. */
+  /** 활성 감속 배율. 중첩된 서리 스프레이 효과를 서버가 권한 있게 보존한다. */
   slowMultiplier: number;
   rage: boolean;
   phase: number;

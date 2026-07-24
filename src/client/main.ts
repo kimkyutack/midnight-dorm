@@ -3,6 +3,7 @@ import {
   buildingStats,
   maxBuildingLevel,
   upgradeCost,
+  upgradeRequirement,
 } from "../shared/balance";
 import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
 import { SHOP_CONSUMABLES, shopConsumableById } from "../shared/shopConsumables";
@@ -137,7 +138,6 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "generator",
   "repair-drone",
   "electric-coil",
-  "floor-trap",
   "shield-device",
   "lucky-machine",
   "gem-core",
@@ -156,7 +156,6 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   generator: "⚡",
   "repair-drone": "✚",
   "electric-coil": "⌁",
-  "floor-trap": "✹",
   "shield-device": "⬡",
   "lucky-machine": "✧",
   "gem-core": "◈",
@@ -1771,8 +1770,12 @@ function renderTargetPanel(selection: SceneSelection): void {
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
   const doorDestroyed = selection.type === "door" && (room?.doorHp ?? 0) <= 0;
+  const requirement = upgradeRequirement(kind, currentLevel, {
+    bedLevel: room?.bedLevels[me.bedIndex ?? 0] ?? 1,
+    doorLevel: room?.doorLevel ?? 1,
+  });
   const cost =
-    !doorDestroyed && currentLevel < maxLevel
+    !doorDestroyed && !requirement && currentLevel < maxLevel
       ? upgradeCost(kind, nextLevel, modeRank)
       : null;
   const effectLabel =
@@ -1789,7 +1792,7 @@ function renderTargetPanel(selection: SceneSelection): void {
           : `효과 수치 ${current.value}`;
   const unavailableLabel = doorDestroyed
     ? "문이 파괴되어 업그레이드할 수 없습니다"
-    : "최고 레벨 달성";
+    : requirement ?? "최고 레벨 달성";
   panel.innerHTML = `${panelHeadingMarkup("UPGRADE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>현재 단계</span><strong>Lv.${currentLevel} / ${maxLevel}</strong></div><small>${effectLabel}</small></div>${cost ? `<button class="upgrade-cta" type="button" data-upgrade="${selection.targetId}"><span>Lv.${nextLevel} 업그레이드</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>${unavailableLabel}</button>`}${removalMarkup}`;
   panel.classList.remove("hidden");
   wireBuildPanelClose(panel);

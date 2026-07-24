@@ -7,7 +7,7 @@ const clientTypes = new Set([
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
-  'electric-coil', 'floor-trap', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'starter-grave',
+  'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'starter-grave',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

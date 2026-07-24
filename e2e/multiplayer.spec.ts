@@ -691,8 +691,8 @@ test("two real browser contexts share a room, building, combat and reconnection"
     const beforeRapidBuilds =
       (await state(first)).snapshot?.buildings.length ?? 0;
     await first.evaluate(() => {
-      window.__DORM_TEST__?.buildFirst("generator");
-      window.__DORM_TEST__?.buildFirst("floor-trap");
+      window.__DORM_TEST__?.buildFirst("basic-turret");
+      window.__DORM_TEST__?.buildFirst("basic-turret");
     });
     await expect
       .poll(async () => (await state(first)).snapshot?.buildings.length ?? 0, {

@@ -3,6 +3,7 @@ import {
   buildingStats,
   maxBuildingLevel,
   upgradeCost,
+  upgradeRequirement,
 } from "../shared/balance";
 import {
   botAppearance,
@@ -69,7 +70,6 @@ const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'generator',
   'repair-drone',
   'electric-coil',
-  'floor-trap',
   'shield-device',
   'lucky-machine',
   'gem-core',
@@ -1155,6 +1155,11 @@ export class GameEngine {
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       if (level >= maxBuildingLevel(kind, activeRank))
         return { ok: false, error: "이미 최고 단계입니다." };
+      const requirement = upgradeRequirement(kind, level, {
+        bedLevel: room.bedLevels[player.bedIndex ?? 0] ?? 1,
+        doorLevel: room.doorLevel,
+      });
+      if (requirement) return { ok: false, error: requirement };
       const cost = upgradeCost(kind, level + 1, activeRank);
       if (player.gold < cost.gold || player.power < cost.power)
         return { ok: false, error: "골드 또는 전력이 부족합니다." };
@@ -1197,6 +1202,11 @@ export class GameEngine {
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (building.level >= maxBuildingLevel(building.kind, activeRank))
       return { ok: false, error: "이미 최고 단계입니다." };
+    const requirement = upgradeRequirement(building.kind, building.level, {
+      bedLevel: buildingRoom.bedLevels[player.bedIndex ?? 0] ?? 1,
+      doorLevel: buildingRoom.doorLevel,
+    });
+    if (requirement) return { ok: false, error: requirement };
     const baseCost = upgradeCost(building.kind, building.level + 1, activeRank);
     const discounted = player.upgradeDiscountTargetId === building.id;
     const discountRate = discounted
@@ -1801,21 +1811,6 @@ export class GameEngine {
         room.shieldUntil = this.state.elapsed + stats.rate;
         building.cooldown = stats.rate + 8;
       }
-      if (building.kind === "floor-trap") {
-        for (const ghost of this.state.ghosts.filter(
-          (candidate) =>
-            candidate.hp > 0 &&
-            distance(candidate.position, building.tile) <= stats.range,
-        )) {
-          // value는 이동속도 감소율(24/34/45%)이다. 후퇴 상태에도 같은
-          // 감속을 유지해 리스폰으로 전력 질주하는 귀신을 실제로 붙잡는다.
-          this.applyGhostSlow(
-            ghost,
-            stats.rate,
-            Math.max(0.35, 1 - stats.value),
-          );
-        }
-      }
       if (building.kind === "frost-turret") {
         for (const ghost of this.state.ghosts.filter(
           (candidate) =>
@@ -1829,8 +1824,8 @@ export class GameEngine {
               distance(candidate.tile, ghost.position) <=
                 buildingStats(candidate.kind, candidate.level).range,
           ).length;
-          // Each spray adds 12% slow, capped so the ghost remains visible and
-          // can eventually retreat instead of becoming permanently frozen.
+          // Each upgraded spray adds 16% slow, capped so the ghost remains
+          // visible and can eventually retreat instead of becoming frozen.
           this.applyGhostSlow(
             ghost,
             stats.rate + 0.12,

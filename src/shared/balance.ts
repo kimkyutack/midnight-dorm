@@ -20,18 +20,26 @@ const level = (gold: number, power: number, value: number, rate: number, range: 
   gold, power, value, rate, range,
 });
 
-const DOOR_HP = [80, 230, 440, 690, 970, 1_290, 1_630, 2_010, 2_410, 2_840] as const;
+// The first few door upgrades are intentionally inexpensive now, so the
+// health curve grows more gently than the former quadratic-price curve. The
+// later levels still give a meaningful end-game wall without making a cheap
+// early door upgrade decide the whole match.
+const DOOR_HP = [80, 150, 235, 350, 500, 690, 920, 1_180, 1_480, 1_820, 2_210, 2_660, 3_160, 3_720, 4_360] as const;
 const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const doorLevel = index + 1;
-  return level(doorLevel === 1 ? 0 : 15 * doorLevel * doorLevel, 0, hp, 0, 0);
+  const gold = doorLevel === 1 ? 0 : 10 * 2 ** (doorLevel - 2);
+  return level(gold, doorLevel >= 6 ? Math.ceil(gold * 0.1) : 0, hp, 0, 0);
 });
-const BED_UPGRADE_GOLD = [0, 35, 90, 210, 460, 970, 2_000, 4_050, 8_200, 16_500] as const;
-const BED_LEVELS = BED_UPGRADE_GOLD.map((gold, index) =>
-  level(gold, 0, 2 ** index, 1, 0),
-);
-const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) =>
-  level(45 * 2 ** index, 0, 2 ** index, 1, 0),
-);
+const BED_LEVELS = Array.from({ length: 15 }, (_, index) => {
+  const bedLevel = index + 1;
+  const gold = bedLevel === 1 ? 0 : 8 * 2 ** (bedLevel - 2);
+  return level(gold, bedLevel >= 6 ? Math.ceil(gold * 0.1) : 0, 2 ** index, 1, 0);
+});
+const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) => {
+  const generatorLevel = index + 1;
+  const gold = 200 * 2 ** index;
+  return level(gold, generatorLevel >= 5 ? Math.ceil(gold * 0.1) : 0, 2 ** index, 1, 0);
+});
 
 export const BALANCE = {
   tickRate: 20,
@@ -85,13 +93,13 @@ export const BALANCE = {
     bed: {
       label: '꿈결 침대',
       description: '레벨마다 골드 생산량이 정확히 2배가 됩니다.',
-      maxLevel: 10,
+      maxLevel: 15,
       levels: BED_LEVELS,
     },
     'reinforced-door': {
       label: '봉인 강화문',
-      description: '10단계 외형으로 강화되며, 단계마다 방어 소재가 뚜렷하게 바뀝니다.',
-      maxLevel: 10,
+      description: '15단계 외형으로 강화되며, 단계마다 방어 소재가 뚜렷하게 바뀝니다.',
+      maxLevel: 15,
       levels: DOOR_LEVELS,
     },
     'basic-turret': {
@@ -108,9 +116,9 @@ export const BALANCE = {
     },
     'frost-turret': {
       label: '서리 스프레이',
-      description: '전력 200으로 설치하는 감속 설비입니다. 여러 대의 감속 효과가 누적됩니다.',
+      description: '전력 200으로 설치하는 강화 감속 설비입니다. 여러 대의 감속 효과가 누적됩니다.',
       maxLevel: 1,
-      levels: [level(0, 200, 0.12, 0.35, 4.5)],
+      levels: [level(0, 200, 0.16, 0.5, 5)],
     },
     'arc-turret': {
       label: '희귀 천둥포',
@@ -131,22 +139,16 @@ export const BALANCE = {
       levels: GENERATOR_LEVELS,
     },
     'repair-drone': {
-      label: '바느질 수리봇',
-      description: '전력만 사용해 방문을 꾸준히 수리합니다.',
+      label: '문 수리대',
+      description: '골드를 사용해 방문을 꾸준히 수리합니다.',
       maxLevel: 3,
-      levels: [level(0, 6, 1.5, 1, 0), level(0, 10, 3, 1, 0), level(0, 16, 6, 1, 0)],
+      levels: [level(70, 0, 1.5, 1, 0), level(140, 0, 3, 1, 0), level(280, 0, 6, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',
       description: '전력만 사용해 가까운 귀신에게 지속 범위 피해를 줍니다.',
       maxLevel: 3,
       levels: [level(0, 12, 7, 0.75, 4.5), level(0, 18, 14, 0.65, 5), level(0, 27, 28, 0.52, 5.5)],
-    },
-    'floor-trap': {
-      label: '그림자 덫',
-      description: '전력만 사용해 귀신의 이동 속도를 크게 낮춥니다.',
-      maxLevel: 3,
-      levels: [level(0, 4, 0.24, 3, 1.3), level(0, 7, 0.34, 4, 1.5), level(0, 11, 0.45, 5, 1.8)],
     },
     'shield-device': {
       label: '새벽 보호막',
@@ -226,6 +228,42 @@ export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: R
   }
   const stats = BALANCE.buildings[kind].levels[safeLevel - 1] as BuildingLevelStats;
   return { gold: stats.gold, power: stats.power };
+}
+
+/**
+ * Server-authoritative level gates shared with the HUD. `bedLevel` is the
+ * upgrading survivor's own bed, which keeps co-op players from borrowing a
+ * teammate's progression to unlock the room's shared defenses.
+ */
+export function upgradeRequirement(
+  kind: BuildingKind,
+  currentLevel: number,
+  context: { bedLevel: number; doorLevel: number },
+): string | null {
+  const targetLevel = currentLevel + 1;
+  if (kind === 'bed') {
+    const requiredDoorLevel = targetLevel === 4 ? 3
+      : targetLevel === 6 ? 5
+        : targetLevel === 8 ? 7
+          : targetLevel >= 9 ? targetLevel
+            : 0;
+    return context.doorLevel < requiredDoorLevel
+      ? `문 Lv.${requiredDoorLevel} 필요`
+      : null;
+  }
+  if (kind === 'basic-turret') {
+    const requiredBedLevel = targetLevel === 6 ? 6
+      : targetLevel === 10 ? 10
+        : targetLevel === 13 ? 13
+          : targetLevel === 14 ? 14
+            : targetLevel === 15 ? 15
+              : 0;
+    if (context.bedLevel < requiredBedLevel)
+      return `침대 Lv.${requiredBedLevel} 필요`;
+    if (targetLevel === 15 && context.doorLevel < 15)
+      return '문 Lv.15 필요';
+  }
+  return null;
 }
 
 export function buildingStats(kind: BuildingKind, requestedLevel: number): BuildingLevelStats {

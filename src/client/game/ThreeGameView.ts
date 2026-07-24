@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BALANCE, maxBuildingLevel, upgradeCost } from '../../shared/balance';
+import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
@@ -182,6 +182,10 @@ interface TimedEffect {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 const damp = (current: number, target: number, speed: number, dt: number): number => THREE.MathUtils.lerp(current, target, 1 - Math.exp(-speed * dt));
+const dampAngle = (current: number, target: number, speed: number, dt: number): number => {
+  const difference = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + difference * (1 - Math.exp(-speed * dt));
+};
 const worldPoint = (point: Vec2, y = FLOOR_Y): THREE.Vector3 => new THREE.Vector3(point.x, y, point.y);
 
 function standardMaterial(color: THREE.ColorRepresentation, options: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
@@ -1270,7 +1274,6 @@ function buildingColor(kind: BuildingKind): number {
     generator: 0x68efa4,
     'repair-drone': 0xff7ca7,
     'electric-coil': 0xbd80ff,
-    'floor-trap': 0xe56870,
     'shield-device': 0x879eff,
     'lucky-machine': 0xff6eaa,
     'gem-core': 0x69e7ff,
@@ -1303,24 +1306,31 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
     // the frame drops that appeared once a room was built out.
     const texture = cachedBuildingTexture(imageAsset);
     const art = mesh(
-      // Building art is normalized to a tile-safe 512px canvas. Keep a small
-      // margin so even the widest turret tier never crosses the tile border.
-      new THREE.PlaneGeometry(0.98, 0.98),
+      // The art itself now uses a tight silhouette. Let it almost fill one
+      // tile so a turret, repair stand, or generator is identifiable without
+      // opening its detail panel.
+      new THREE.PlaneGeometry(1.2, 1.2),
       new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
-        premultipliedAlpha: true,
+        premultipliedAlpha: false,
+        alphaTest: 0.025,
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
-      [0, 0.075, 0],
+      [0, 0.105, 0],
     );
+    // Guardian art is authored with the single barrel pointing toward the
+    // bottom of the tile. Its circular base lets this pivot visibly track a
+    // target while the tile anchor and HUD remain fixed.
+    const artPivot = new THREE.Group();
     art.rotation.x = -Math.PI / 2;
     art.renderOrder = 5;
-    root.add(art);
+    artPivot.add(art);
+    root.add(artPivot);
     root.userData.renderMode = 'building-image';
     root.userData.imageAsset = imageAsset;
-    return { root, barrel: null };
+    return { root, barrel: building.kind === 'basic-turret' ? artPivot : null };
   }
   const turret = ['basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret'].includes(building.kind);
   const turretTier = turret ? Math.min(4, Math.floor((Math.max(1, building.level) - 1) / 3)) : 0;
@@ -1400,9 +1410,6 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
     const coil = mesh(new THREE.TorusGeometry(0.2, 0.045, 8, 24), accent, [0, 0.58, 0]);
     coil.rotation.x = Math.PI / 2;
     root.add(coil, mesh(new THREE.BoxGeometry(0.12, 0.58, 0.12), accent, [0, 0.52, 0]));
-  } else if (building.kind === 'floor-trap') {
-    root.scale.y = 0.42;
-    for (const x of [-0.22, 0, 0.22]) root.add(mesh(new THREE.ConeGeometry(0.08, 0.42, 5), accent, [x, 0.42, 0]));
   } else if (building.kind === 'shield-device') {
     const shield = mesh(new THREE.SphereGeometry(0.36, 16, 10), new THREE.MeshPhysicalMaterial({ color, transparent: true, opacity: 0.26, transmission: 0.12, roughness: 0.12 }), [0, 0.46, 0]);
     root.add(shield);
@@ -1781,7 +1788,7 @@ export class ThreeGameView {
     this.lastFrame = time;
     this.animatePlayers(time, dt);
     this.animateGhosts(time, dt);
-    this.animateTurrets();
+    this.animateTurrets(dt);
     this.animateDoors(dt);
     this.animateEffects(time);
     this.syncBuildableTiles(time);
@@ -1863,22 +1870,23 @@ export class ThreeGameView {
     const corridorKeys = new Set(this.mapData.corridorTiles.map((tile) => `${tile.x},${tile.y}`));
     const corridorTiles = this.mapData.corridorTiles;
     const roomTiles = this.mapData.walkable.filter((tile) => !corridorKeys.has(`${tile.x},${tile.y}`));
-    const floorTexture = this.loadEnvironmentTexture(this.theme.floorAsset);
+    const corridorTexture = this.loadEnvironmentTexture(this.theme.corridorAsset);
+    const roomTexture = this.loadEnvironmentTexture(this.theme.roomAsset);
     const wallTexture = this.loadEnvironmentTexture(this.theme.wallAsset);
-    this.addTileInstances(corridorTiles, this.theme.corridor, floorTexture, 0, 'corridor');
-    this.addTileInstances(roomTiles, this.theme.room, floorTexture, 0.003, 'room');
+    this.addTileInstances(corridorTiles, corridorTexture, 0);
+    this.addTileInstances(roomTiles, roomTexture, 0.003);
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
-    const horizontalPlusGeometry = new THREE.BoxGeometry(0.3, 0.026, 0.07);
-    const verticalPlusGeometry = new THREE.BoxGeometry(0.07, 0.026, 0.3);
-    const plusColor = new THREE.Color(this.theme.marker).lerp(new THREE.Color(0xffffff), 0.58);
+    const horizontalPlusGeometry = new THREE.BoxGeometry(0.18, 0.022, 0.042);
+    const verticalPlusGeometry = new THREE.BoxGeometry(0.042, 0.022, 0.18);
+    const plusColor = new THREE.Color(this.theme.marker).lerp(new THREE.Color(0xffffff), 0.3);
     const plusMaterial = standardMaterial(plusColor, {
       emissive: plusColor,
-      emissiveIntensity: 0.45,
+      emissiveIntensity: 0.16,
       roughness: 0.42,
       metalness: 0.08,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.22,
       depthWrite: false,
     });
     for (const tile of buildTiles) {
@@ -1890,7 +1898,7 @@ export class ThreeGameView {
       horizontal.renderOrder = 2_200;
       vertical.renderOrder = 2_200;
       marker.add(horizontal, vertical);
-      marker.position.set(tile.x, 0.055, tile.y);
+      marker.position.set(tile.x, 0.095, tile.y);
       marker.visible = false;
       marker.userData.plusMaterial = plusMaterial;
       this.buildTileMarkers.set(`${tile.x},${tile.y}`, marker);
@@ -1898,14 +1906,13 @@ export class ThreeGameView {
     }
     const matrix = new THREE.Matrix4();
 
-    const wallGeometry = new THREE.BoxGeometry(1, 0.58, 1);
-    const wallColor = new THREE.Color(this.theme.wallCap).lerp(new THREE.Color(0x000000), 0.18);
-    const wallMaterial = standardMaterial(wallColor, {
+    // Walls use a dedicated raised-block texture. A basic material avoids
+    // device-specific lighting precision turning the top face black.
+    const wallGeometry = new THREE.BoxGeometry(0.98, 0.58, 0.98);
+    const wallMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
       map: wallTexture,
-      roughness: 0.9,
-      metalness: this.theme.decor === 'hospital' ? 0.12 : 0.04,
-      emissive: this.theme.wallCap,
-      emissiveIntensity: 0.18,
+      fog: true,
     });
     const walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, this.mapData.walls.length);
     walls.castShadow = true;
@@ -1981,38 +1988,17 @@ export class ThreeGameView {
 
   private addTileInstances(
     tiles: Tile[],
-    color: THREE.ColorRepresentation,
     texture: THREE.Texture,
     y: number,
-    surface: 'room' | 'corridor',
   ): void {
-    // A single authored image carries the wear and shallow bevel. Keep room
-    // and corridor hues deliberately separate instead of washing both into
-    // the same gray under mobile lighting.
-    const source = new THREE.Color(color);
-    const isBaseHospitalCorridor =
-      surface === 'corridor' && this.theme.id === 'hospital';
-    const tint = surface === 'room'
-      ? source.clone().lerp(new THREE.Color(0x58c69c), 0.24)
-      : isBaseHospitalCorridor
-        // iOS Safari can render the lit, dark gray floor texture several
-        // stops darker than Chromium. A brighter blue base makes the normal
-        // ward corridor readable and clearly separate from the gray walls.
-        ? new THREE.Color(0x4b9bad)
-        : source.clone().lerp(new THREE.Color(0x101c2b), 0.42);
-    const geometry = new THREE.PlaneGeometry(0.98, 0.98);
-    // The normal-stage corridor is navigation-critical. MeshBasicMaterial
-    // keeps its authored color independent of device lighting precision,
-    // preventing iPhone WebGL from turning the corridor into the black fog.
-    const material = isBaseHospitalCorridor
-      ? new THREE.MeshBasicMaterial({ color: tint, map: texture, fog: true })
-      : standardMaterial(tint, {
-          map: texture,
-          roughness: 0.93,
-          metalness: 0.02,
-          emissive: tint.clone().multiplyScalar(surface === 'room' ? 0.18 : 0.24),
-          emissiveIntensity: surface === 'room' ? 0.32 : 0.44,
-        });
+    // Room and corridor each have authored art. Keep it at its source color
+    // on every device; no theme-specific colour fallback or lighting tint.
+    const geometry = new THREE.BoxGeometry(0.98, 0.08, 0.98);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: texture,
+      fog: true,
+    });
     const floors = new THREE.InstancedMesh(
       geometry,
       material,
@@ -2021,28 +2007,10 @@ export class ThreeGameView {
     floors.receiveShadow = true;
     const matrix = new THREE.Matrix4();
     const position = new THREE.Vector3();
-    const scale = new THREE.Vector3(1, 1, 1);
-    const layFlat = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      -Math.PI / 2,
-    );
-    const turn = new THREE.Quaternion();
-    const orientation = new THREE.Quaternion();
-    const instanceTint = new THREE.Color();
     tiles.forEach((tile, index) => {
-      const variant = Math.abs(tile.x * 17 + tile.y * 31) % 4;
-      turn.setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        variant * (Math.PI / 2),
-      );
-      orientation.copy(turn).multiply(layFlat);
-      position.set(tile.x, y + 0.025, tile.y);
-      matrix.compose(position, orientation, scale);
+      position.set(tile.x, y + 0.04, tile.y);
+      matrix.makeTranslation(position.x, position.y, position.z);
       floors.setMatrixAt(index, matrix);
-      const shade = isBaseHospitalCorridor
-        ? 0.98 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.015
-        : 0.91 + (Math.abs(tile.x * 13 + tile.y * 29) % 4) * 0.025;
-      floors.setColorAt(index, instanceTint.setRGB(shade, shade, shade));
     });
     this.scene.add(floors);
   }
@@ -2070,10 +2038,10 @@ export class ThreeGameView {
       marker.visible = active;
       if (!active) continue;
       const material = marker.userData.plusMaterial as THREE.MeshStandardMaterial;
-      material.opacity = 0.34 + pulse * 0.5;
-      material.emissiveIntensity = 0.45 + pulse * 1.25;
-      marker.position.y = 0.055 + pulse * 0.012;
-      const scale = 0.9 + pulse * 0.17;
+      material.opacity = 0.16 + pulse * 0.14;
+      material.emissiveIntensity = 0.12 + pulse * 0.22;
+      marker.position.y = 0.095 + pulse * 0.006;
+      const scale = 0.94 + pulse * 0.06;
       marker.scale.set(scale, 1, scale);
     }
   }
@@ -2112,7 +2080,11 @@ export class ThreeGameView {
         ? upgradeCost('bed', level + 1, rank ?? 'beginner')
         : null;
       const ownsThisBed = local?.alive && local.roomId === view.roomId && local.bedIndex === view.bedIndex;
-      const canUpgrade = Boolean(nextCost && ownsThisBed && local
+      const requirement = upgradeRequirement('bed', level, {
+        bedLevel: level,
+        doorLevel: room?.doorLevel ?? 1,
+      });
+      const canUpgrade = Boolean(nextCost && !requirement && ownsThisBed && local
         && local.gold >= nextCost.gold && local.power >= nextCost.power);
       view.upgrade.visible = canUpgrade;
       if (canUpgrade) updateUpgradeBillboard(view.upgrade, `bed:${level}`, true);
@@ -2272,7 +2244,7 @@ export class ThreeGameView {
         const upgrade = makeBillboard(192, 192);
         // 탑다운 화면에서는 건물 위쪽으로 빼면 화살표가 옆 타일로 밀려 보인다.
         // 작은 오버레이로 건물 중앙에 겹쳐 두어, 유령기숙사처럼 즉시 알아볼 수 있게 한다.
-        upgrade.scale.set(0.46, 0.46, 1);
+        upgrade.scale.set(0.42, 0.42, 1);
         upgrade.position.set(0, 0.48, 0);
         model.root.add(level, upgrade);
         this.scene.add(model.root);
@@ -2297,8 +2269,13 @@ export class ThreeGameView {
         building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
           ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
           : null;
+      const room = snapshot.rooms.find((candidate) => candidate.id === building.roomId);
+      const requirement = upgradeRequirement(building.kind, building.level, {
+        bedLevel: room?.bedLevels[local?.bedIndex ?? 0] ?? 1,
+        doorLevel: room?.doorLevel ?? 1,
+      });
       const isUpgradeable = Boolean(
-        nextCost && local?.alive && local.roomId === building.roomId,
+        nextCost && !requirement && local?.alive && local.roomId === building.roomId,
       );
       const canAffordUpgrade = Boolean(
         nextCost &&
@@ -2402,7 +2379,11 @@ export class ThreeGameView {
       const nextCost = intact && state.doorLevel < maxBuildingLevel('reinforced-door', rank ?? 'beginner')
         ? upgradeCost('reinforced-door', state.doorLevel + 1, rank ?? 'beginner')
         : null;
-      const canUpgrade = Boolean(nextCost && local?.alive && local.roomId === state.id
+      const requirement = upgradeRequirement('reinforced-door', state.doorLevel, {
+        bedLevel: state.bedLevels[local?.bedIndex ?? 0] ?? 1,
+        doorLevel: state.doorLevel,
+      });
+      const canUpgrade = Boolean(nextCost && !requirement && local?.alive && local.roomId === state.id
         && local.gold >= nextCost.gold && local.power >= nextCost.power);
       view.upgrade.visible = canUpgrade;
       if (canUpgrade) updateUpgradeBillboard(view.upgrade, `door:${state.doorLevel}`, true);
@@ -2569,14 +2550,28 @@ export class ThreeGameView {
     }
   }
 
-  private animateTurrets(): void {
+  private animateTurrets(dt: number): void {
     for (const [id, view] of this.buildingViews) {
       if (!view.barrel) continue;
       const building = this.snapshotData.buildings.find((candidate) => candidate.id === id);
       if (!building) continue;
-      const nearest = this.snapshotData.ghosts.filter((ghost) => ghost.hp > 0)
+      const owner = this.snapshotData.players.find((player) => player.id === building.ownerId);
+      const rangeBonus = this.snapshotData.buildings.find((candidate) =>
+        candidate.ownerId === building.ownerId && candidate.kind === 'range-amplifier'
+      )?.level ?? 0;
+      const range = buildingStats('basic-turret', building.level).range
+        + (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus + combinedItemEffects(owner.items).turretRangeBonus : 0)
+        + rangeBonus;
+      const nearest = this.snapshotData.ghosts.filter((ghost) =>
+        ghost.hp > 0 && !ghost.healing
+          && Math.hypot(ghost.position.x - building.tile.x, ghost.position.y - building.tile.y) <= range,
+      )
         .sort((a, b) => Math.hypot(a.position.x - building.tile.x, a.position.y - building.tile.y) - Math.hypot(b.position.x - building.tile.x, b.position.y - building.tile.y))[0];
-      if (nearest) view.barrel.rotation.y = Math.atan2(nearest.position.x - building.tile.x, nearest.position.y - building.tile.y);
+      const door = this.mapData.rooms.find((room) => room.id === building.roomId)?.door;
+      const target = nearest?.position ?? door;
+      if (!target) continue;
+      const desired = Math.atan2(target.x - building.tile.x, target.y - building.tile.y);
+      view.barrel.rotation.y = dampAngle(view.barrel.rotation.y, desired, 15, dt);
     }
   }
 
