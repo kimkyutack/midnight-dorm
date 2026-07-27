@@ -1796,6 +1796,13 @@ export class ThreeGameView {
     this.lastSelectionKey = '';
   }
 
+  resetTransientInteraction(): void {
+    this.cancelBuildingDrag();
+    this.selectionMarker.visible = false;
+    this.nearbyLootId = null;
+    this.suppressSelections(450);
+  }
+
   zoomBy(magnificationFactor: number): void {
     if (!Number.isFinite(magnificationFactor) || magnificationFactor <= 0) return;
     this.cameraDistanceScale = clamp(

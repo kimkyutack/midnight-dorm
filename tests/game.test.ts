@@ -848,6 +848,32 @@ describe('authoritative game rules', () => {
     expect(generators.every((building) => building.kind === 'generator')).toBe(true);
   });
 
+  it('keeps building IDs unique after restoring a legacy room without persisted counters', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    const funded = engine.serialize();
+    const player = funded.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player || tiles.length < 2) throw new Error('missing reconnect ID fixture');
+    player.gold = 1_000;
+    player.power = 1_000;
+    engine.restore(funded);
+    expect(engine.build(playerId, roomId, tiles[0] as Tile, 'basic-turret').ok).toBe(true);
+
+    const legacy = engine.serialize();
+    delete legacy.buildCounter;
+    delete legacy.lootCounter;
+    const restored = new GameEngine('TESTROOM', engine.map, true);
+    restored.restore(legacy);
+    expect(restored.build(playerId, roomId, tiles[1] as Tile, 'generator').ok).toBe(true);
+
+    const buildings = restored.snapshot().buildings.filter((building) => building.roomId === roomId);
+    expect(buildings.map((building) => building.kind)).toEqual(['basic-turret', 'generator']);
+    expect(new Set(buildings.map((building) => building.id)).size).toBe(buildings.length);
+  });
+
   it('rejects purchases when resources are insufficient', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);

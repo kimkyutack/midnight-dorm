@@ -1801,7 +1801,6 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
   let firstWelcome = true;
   roomNetwork.on("welcome", ({ playerId: id, map, snapshot: initial }) => {
     if (network !== roomNetwork) return;
-    const previous = snapshot;
     playerId = id;
     mapData = map;
     snapshot = initial;
@@ -1817,9 +1816,16 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
         roomNetwork.addBot("normal");
       }
     } else {
+      // A repeated welcome marks an authoritative reconnect boundary. Do not
+      // keep a target captured from the pre-disconnect scene because that
+      // object may have moved, changed, or been removed while offline.
+      selectedTile = null;
+      selectedTarget = null;
+      soulVialTargetingId = null;
+      closeBuildPanel();
+      game?.resetTransientInteraction();
       renderForSnapshot(initial, false);
       game?.updateSnapshot(initial, []);
-      refreshSelectionPanel(previous);
     }
     updateTestApi();
   });

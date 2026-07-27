@@ -167,6 +167,10 @@ export interface PersistedEngine {
   reconnect: ReconnectRecord[];
   botRuntime: Array<[string, BotRuntime]>;
   testMode: boolean;
+  /** Optional for compatibility with rooms saved before counters were persisted. */
+  buildCounter?: number;
+  /** Optional for compatibility with rooms saved before counters were persisted. */
+  lootCounter?: number;
 }
 
 export interface JoinResult {
@@ -558,6 +562,21 @@ export class GameEngine {
       building.soulChargeDamage ??= 0;
       building.powerPanelMode ??= 'attack';
     }
+    // A Durable Object restart recreates the engine instance. Restoring the
+    // objects without restoring these counters reused IDs such as
+    // `building-1`, causing client render maps and detail lookup to point at
+    // different buildings after reconnect. Derive counters for legacy rooms
+    // and persist them for all new snapshots.
+    const restoredBuildCounter = this.state.buildings.reduce((maximum, building) => {
+      const match = /^(?:building-|loot-item:)(\d+)$/.exec(building.id);
+      return match ? Math.max(maximum, Number(match[1])) : maximum;
+    }, 0);
+    const restoredLootCounter = this.state.lootDrops.reduce((maximum, drop) => {
+      const match = /^loot:(\d+)$/.exec(drop.id);
+      return match ? Math.max(maximum, Number(match[1])) : maximum;
+    }, 0);
+    this.buildCounter = Math.max(0, data.buildCounter ?? 0, restoredBuildCounter);
+    this.lootCounter = Math.max(0, data.lootCounter ?? 0, restoredLootCounter);
     this.serverSeq = this.state.serverSeq;
     this.reconnect.clear();
     for (const record of data.reconnect)
@@ -577,6 +596,8 @@ export class GameEngine {
       reconnect: [...this.reconnect.values()],
       botRuntime: [...this.botRuntime.entries()],
       testMode: this.testMode,
+      buildCounter: this.buildCounter,
+      lootCounter: this.lootCounter,
     };
   }
 
@@ -1288,8 +1309,12 @@ export class GameEngine {
       : 1;
     player.gold -= buildCost.gold;
     player.power -= buildCost.power;
+    let buildingId: string;
+    do {
+      buildingId = `building-${++this.buildCounter}`;
+    } while (this.state.buildings.some((candidate) => candidate.id === buildingId));
     const building: BuildingState = {
-      id: `building-${++this.buildCounter}`,
+      id: buildingId,
       kind,
       roomId,
       ownerId: playerId,
@@ -1846,8 +1871,12 @@ export class GameEngine {
       const item = pool.find((candidate) => (roll -= candidate.weight) <= 0) ?? pool[pool.length - 1];
       if (!item) continue;
       const now = this.matchClock();
+      let lootId: string;
+      do {
+        lootId = `loot:${++this.lootCounter}`;
+      } while (this.state.lootDrops.some((candidate) => candidate.id === lootId));
       const drop = {
-        id: `loot:${++this.lootCounter}`,
+        id: lootId,
         itemId: item.id,
         tile: { ...tile },
         spawnedAt: now,
@@ -1884,8 +1913,12 @@ export class GameEngine {
       .sort(() => this.rng.next() - 0.5)[0];
     if (!drop || !tile) return;
     const rewardKind = this.rewardBuildingKind(drop.itemId);
+    let buildingId: string;
+    do {
+      buildingId = `loot-item:${++this.buildCounter}`;
+    } while (this.state.buildings.some((candidate) => candidate.id === buildingId));
     const building: BuildingState = {
-      id: `loot-item:${++this.buildCounter}`,
+      id: buildingId,
       kind: rewardKind,
       itemId: drop.itemId,
       roomId: room.id,

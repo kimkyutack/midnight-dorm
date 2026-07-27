@@ -1132,10 +1132,11 @@
 }
 .home-topbar .home-account > div:last-child {
   display: flex;
-  height: 54px;
-  min-height: 54px;
+  align-self: center;
+  height: 44px;
+  min-height: 44px;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
 }
 .home-profile-stack {
   display: flex;
@@ -3974,6 +3975,11 @@ button {
   vertical-align: -5px;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.52));
 }
+.home-account .home-inline-badge.rank-badge {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 22px;
+}
 .home-account.ranked-profile {
   border-color: rgba(126, 212, 255, 0.54);
   background: linear-gradient(
@@ -4004,23 +4010,24 @@ button {
   display: block;
 }
 .home-account > div:last-child > span {
-  color: var(--muted);
-  font-size: 8px;
-  font-weight: 850;
+  display: none;
 }
 .home-account strong {
-  margin: 2px 0;
+  margin: 0;
   font-size: 16px;
+  line-height: 1;
 }
 .home-account small {
   color: #d6e4ec;
   font-size: 9px;
+  line-height: 1;
 }
 .home-account em {
-  margin-top: 3px;
+  margin-top: 0;
   color: var(--gold);
   font-size: 7px;
   font-style: normal;
+  line-height: 1;
 }
 .home-logout {
   position: absolute;
@@ -7555,8 +7562,7 @@ select {
     min-height: 70px;
     padding-block: 6px;
   }
-  .home-topbar .home-account > div:last-child > span,
-  .home-topbar .home-account em {
+  .home-topbar .home-account > div:last-child > span {
     display: none;
   }
   .home-topbar .home-account strong {
