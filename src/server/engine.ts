@@ -22,6 +22,7 @@ import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
   DRAW_COSTS,
+  getRandomItem,
   RANDOM_ITEMS,
 } from "../shared/randomItems";
 import {
@@ -69,6 +70,9 @@ import {
 const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
 ] as const;
+// Human survivors are intentionally faster, but bots retain the original
+// baseline so their established pacing and difficulty do not change.
+const BOT_BASE_SPEED = 4.8;
 const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
 const normalizeProfileDisplayMode = (value: unknown): ProfileDisplayMode =>
   value === 'multiplayer' || value === 'ranked' ? value : 'solo';
@@ -147,6 +151,8 @@ interface BotRuntime {
   difficulty: BotDifficulty;
   reaction: number;
   bedTarget: BotBedTarget | null;
+  /** Keeps a newly calculated route from visibly snapping 180 degrees. */
+  lastMove: { x: number; y: number } | null;
 }
 
 export interface PersistedEngine {
@@ -200,6 +206,9 @@ export class GameEngine {
   private readonly retreatGuardUntil = new Map<string, number>();
   private serverSeq = 0;
   private buildCounter = 0;
+  private lootCounter = 0;
+  /** Rolled once at the beginning of every match; released with the countdown. */
+  private countdownLootPending = false;
   private turretSuppressedUntil = 0;
   private readonly stage: StageDefinition;
   private readonly playMode: PlayMode;
@@ -326,6 +335,7 @@ export class GameEngine {
       players: [],
       rooms,
       buildings: starterBuildings,
+      lootDrops: [],
       ghost: ghosts[0] as GhostState,
       ghosts,
       matchEvent: eventNames[variants[0] as GhostVariant],
@@ -409,6 +419,7 @@ export class GameEngine {
     this.state.ranked ??= this.ranked;
     this.state.goldSuppressedUntil ??= 0;
     this.state.repairSuppressedUntil ??= 0;
+    this.state.lootDrops ??= [];
     for (const ghost of this.state.ghosts) {
       ghost.displayName ??= "복도 순찰자";
       ghost.variant ??= "wanderer";
@@ -456,6 +467,7 @@ export class GameEngine {
       player.goldIncomeElapsed = Math.max(0, finite(player.goldIncomeElapsed, 0));
       player.powerIncomeElapsed = Math.max(0, finite(player.powerIncomeElapsed, 0));
       player.drawCount ??= 0;
+      player.carriedLootId ??= null;
       player.firstGuardianBuilt ??= false;
       player.items ??= [];
       player.consumables ??= [];
@@ -515,7 +527,11 @@ export class GameEngine {
       this.reconnect.set(record.token, record);
     this.botRuntime.clear();
     for (const [id, runtime] of data.botRuntime)
-      this.botRuntime.set(id, { ...runtime, bedTarget: runtime.bedTarget ?? null });
+      this.botRuntime.set(id, {
+        ...runtime,
+        bedTarget: runtime.bedTarget ?? null,
+        lastMove: runtime.lastMove ?? null,
+      });
   }
 
   serialize(): PersistedEngine {
@@ -691,7 +707,12 @@ export class GameEngine {
     this.state.players.push(bot);
     // Let a newly spawned bot choose a bed immediately; random first-think
     // delays made the whole survivor line freeze at the beginning of a match.
-    this.botRuntime.set(id, { difficulty, reaction: 0, bedTarget: null });
+    this.botRuntime.set(id, {
+      difficulty,
+      reaction: 0,
+      bedTarget: null,
+      lastMove: null,
+    });
     return { ok: true };
   }
 
@@ -823,6 +844,8 @@ export class GameEngine {
         return this.removeBuilding(playerId, message.buildingId);
       case "draw-item":
         return this.drawItem(playerId, message.machineId);
+      case "pickup-loot":
+        return this.pickupLoot(playerId, message.lootId);
       case "set-consumable-loadout":
         return this.setConsumableLoadout(playerId, message.itemIds);
       case "use-consumable":
@@ -852,6 +875,10 @@ export class GameEngine {
       : 'COUNTDOWN';
     this.state.countdown = this.countdownSecondsForMatch();
     this.state.difficulty.introRemaining = this.state.status === 'EVENT_INTRO' ? 2 : 0;
+    // Countdown cargo is a short, optional opening event.  It is absent from
+    // deterministic test matches so existing simulation fixtures stay stable.
+    this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
+    if (this.state.status === 'COUNTDOWN') this.releaseCountdownLoot();
     return { ok: true };
   }
 
@@ -1100,6 +1127,7 @@ export class GameEngine {
         }
       }
     }
+    this.placeCarriedLoot(player, candidate.room);
     return { ok: true };
   }
 
@@ -1166,7 +1194,7 @@ export class GameEngine {
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (kind === "golden-turret") {
-      const ticketCount = combinedItemEffects(player.items).goldenTurretTickets;
+      const ticketCount = this.itemEffectsFor(player).goldenTurretTickets;
       const installedCount = this.state.buildings.filter(
         (building) =>
           building.ownerId === playerId && building.kind === "golden-turret",
@@ -1507,8 +1535,11 @@ export class GameEngine {
       machine.roomId !== player.roomId
     )
       return { ok: false, error: "자신의 랜덤 상자를 선택하세요." };
-    if (this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
-      return { ok: false, error: "게임이 시작된 뒤 뽑을 수 있습니다." };
+    // A claimed room may use its random chest throughout preparation too.
+    // Waiting for PLAYING made a ready room needlessly unresponsive while the
+    // countdown was still visible.
+    if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
+      return { ok: false, error: "게임 준비 또는 전투 중에만 뽑을 수 있습니다." };
     const drawLimit = drawLimitForAppearance(player.appearance);
     const cost = DRAW_COSTS[player.drawCount];
     if (player.drawCount >= drawLimit || !cost)
@@ -1534,37 +1565,19 @@ export class GameEngine {
       RANDOM_ITEMS[RANDOM_ITEMS.length - 1];
     if (!item)
       return { ok: false, error: "아이템 목록을 불러오지 못했습니다." };
-    const owned = player.items.find(
-      (candidate) => candidate.itemId === item.id,
-    );
-    if (owned) owned.count += 1;
-    else
-      player.items.push({
-        itemId: item.id,
-        label: item.label,
-        rarity: item.rarity,
-        count: 1,
-      });
-    if (item.effect.turretLevelIncrease) {
-      const upgradeAmount = Math.max(0, Math.floor(item.effect.turretLevelIncrease));
-      for (const building of this.state.buildings) {
-        if (
-          building.ownerId !== playerId ||
-          !['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret'].includes(building.kind)
-        ) continue;
-        building.level = Math.min(maxBuildingLevel(building.kind), building.level + upgradeAmount);
-      }
-    }
-    if (item.effect.doorHpMultiplier && player.roomId) {
-      const room = this.state.rooms.find(
-        (candidate) => candidate.id === player.roomId,
-      );
-      if (room) {
-        const gained = room.doorMaxHp * (item.effect.doorHpMultiplier - 1);
-        room.doorMaxHp += gained;
-        if (room.doorHp > 0) room.doorHp += gained;
-      }
-    }
+    // A draw is no longer an invisible bag bonus.  The machine itself turns
+    // into a removable reward object, so every buff has an obvious physical
+    // source in the claimed room.
+    machine.kind = 'random-item';
+    machine.itemId = item.id;
+    machine.skinId = '';
+    machine.level = 1;
+    machine.cooldown = 0;
+    machine.hp = 100;
+    machine.investedGold = 0;
+    machine.investedPower = 0;
+    machine.investmentByPlayer = {};
+    this.activateRandomItem(player, item.id, machine.roomId);
     this.pendingEvents.push({
       kind: "item-draw",
       playerId,
@@ -1574,6 +1587,123 @@ export class GameEngine {
       position: machine.tile,
     });
     return { ok: true };
+  }
+
+  /** Returns the effects from old saved inventory plus visible placed rewards. */
+  private itemEffectsFor(player: PlayerState) {
+    const placed = this.state.buildings
+      .filter((building) => building.ownerId === player.id && building.kind === 'random-item' && building.itemId)
+      .map((building) => ({ itemId: building.itemId as string, count: 1 }));
+    return combinedItemEffects([...player.items, ...placed]);
+  }
+
+  private activateRandomItem(player: PlayerState, itemId: string, roomId: string): void {
+    const item = getRandomItem(itemId);
+    if (!item) return;
+    if (item.effect.turretLevelIncrease) {
+      const amount = Math.max(0, Math.floor(item.effect.turretLevelIncrease));
+      for (const building of this.state.buildings) {
+        if (building.ownerId !== player.id || !['basic-turret', 'rapid-turret', 'arc-turret', 'golden-turret'].includes(building.kind)) continue;
+        building.level = Math.min(maxBuildingLevel(building.kind), building.level + amount);
+      }
+    }
+    if (item.effect.doorHpMultiplier) {
+      const room = this.state.rooms.find((candidate) => candidate.id === roomId);
+      if (!room) return;
+      const gained = room.doorMaxHp * (item.effect.doorHpMultiplier - 1);
+      room.doorMaxHp += gained;
+      if (room.doorHp > 0) room.doorHp += gained;
+    }
+  }
+
+  private releaseCountdownLoot(): void {
+    if (!this.countdownLootPending || this.state.lootDrops.length > 0) return;
+    this.countdownLootPending = false;
+    const candidates = [...this.map.corridorTiles]
+      .filter((tile) => distance(tile, this.map.playerSpawn) > 3)
+      .sort(() => this.rng.next() - 0.5);
+    const count = Math.min(candidates.length, 5 + Math.floor(this.rng.next() * 3));
+    for (let index = 0; index < count; index += 1) {
+      const tile = candidates[index];
+      if (!tile) continue;
+      // Countdown loot is deliberately an early economic catch-up.  Gold and
+      // power producers account for most drops, while combat utility remains
+      // possible but uncommon.
+      const countdownPool = RANDOM_ITEMS.filter((item) =>
+        item.effect.goldPerSecond || item.effect.powerPerSecond
+          ? true
+          : this.rng.next() < 0.18,
+      );
+      const pool = countdownPool.length > 0 ? countdownPool : RANDOM_ITEMS;
+      const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
+      let roll = this.rng.next() * totalWeight;
+      const item = pool.find((candidate) => (roll -= candidate.weight) <= 0) ?? pool[pool.length - 1];
+      if (!item) continue;
+      const now = this.matchClock();
+      const drop = {
+        id: `loot:${++this.lootCounter}`,
+        itemId: item.id,
+        tile: { ...tile },
+        spawnedAt: now,
+        landsAt: now + 3,
+        carriedBy: null,
+      };
+      this.state.lootDrops.push(drop);
+      this.pendingEvents.push({ kind: 'item-drop', itemId: item.id, label: item.label, rarity: item.rarity, position: { ...tile } });
+    }
+  }
+
+  private pickupLoot(playerId: string, lootId: string): ActionResult {
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    const drop = this.state.lootDrops.find((candidate) => candidate.id === lootId);
+    if (!player || !player.alive || player.roomId || player.carriedLootId || !drop || drop.carriedBy || this.matchClock() < drop.landsAt) {
+      return { ok: false, error: '지금은 이 보상을 주울 수 없습니다.' };
+    }
+    if (distance(player.position, drop.tile) > BALANCE.player.interactionRange) {
+      return { ok: false, error: '보상 가까이로 이동하세요.' };
+    }
+    drop.carriedBy = player.id;
+    player.carriedLootId = drop.id;
+    const item = getRandomItem(drop.itemId);
+    this.pendingEvents.push({ kind: 'item-pickup', playerId, itemId: drop.itemId, label: item?.label ?? '랜덤 보상', rarity: item?.rarity, position: { ...drop.tile } });
+    return { ok: true };
+  }
+
+  private placeCarriedLoot(player: PlayerState, room: RoomState): void {
+    if (!player.carriedLootId) return;
+    const drop = this.state.lootDrops.find((candidate) => candidate.id === player.carriedLootId && candidate.carriedBy === player.id);
+    const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+    const tile = mapRoom?.buildTiles
+      .filter((candidate) => !this.state.buildings.some((building) => building.tile.x === candidate.x && building.tile.y === candidate.y))
+      .sort(() => this.rng.next() - 0.5)[0];
+    if (!drop || !tile) return;
+    const building: BuildingState = {
+      id: `loot-item:${++this.buildCounter}`,
+      kind: 'random-item',
+      itemId: drop.itemId,
+      roomId: room.id,
+      ownerId: player.id,
+      skinId: '',
+      tile: { ...tile, roomId: room.id },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 0,
+      investedPower: 0,
+      investmentByPlayer: {},
+    };
+    this.state.buildings.push(building);
+    this.state.lootDrops = this.state.lootDrops.filter((candidate) => candidate.id !== drop.id);
+    player.carriedLootId = null;
+    this.activateRandomItem(player, drop.itemId, room.id);
+    const item = getRandomItem(drop.itemId);
+    this.pendingEvents.push({ kind: 'build', playerId: player.id, roomId: room.id, buildingKind: 'random-item', itemId: drop.itemId, label: item?.label ?? '랜덤 보상', position: { ...tile } });
+  }
+
+  private matchClock(): number {
+    return this.state.status === 'COUNTDOWN'
+      ? Math.max(0, BALANCE.countdownSeconds - this.state.countdown)
+      : BALANCE.countdownSeconds + this.state.elapsed;
   }
 
   tick(realDt: number, now = Date.now()): void {
@@ -1588,6 +1718,7 @@ export class GameEngine {
       if (this.state.difficulty.introRemaining <= 0) {
         this.state.status = 'COUNTDOWN';
         this.state.countdown = this.countdownSecondsForMatch();
+        this.releaseCountdownLoot();
       }
     } else if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);
@@ -1738,8 +1869,9 @@ export class GameEngine {
       }
       const rank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+      const baseSpeed = player.isBot ? BOT_BASE_SPEED : BALANCE.player.speed;
       const speed =
-        BALANCE.player.speed *
+        baseSpeed *
         rankBenefits(rank).speedMultiplier *
         characterTraitForAppearance(player.appearance)
           .unclaimedMoveSpeedMultiplier *
@@ -1783,7 +1915,10 @@ export class GameEngine {
           bot.id,
           intent,
         );
-        runtime.reaction = intent.type === 'move' ? 0.16 : 0.28;
+        // Human survivors are 30% faster, so refresh a
+        // corridor waypoint every simulation step so bots do not overshoot
+        // it, reverse, and visibly stutter at a room entrance.
+        runtime.reaction = intent.type === 'move' ? 0.1 : 0.28;
         if (bot.roomId) {
           runtime.bedTarget = null;
           runtime.reaction = 0;
@@ -1839,11 +1974,30 @@ export class GameEngine {
   }
 
   private applyBotIntent(botId: string, intent: BotIntent): void {
-    if (intent.type === "move")
-      this.setMovement(botId, intent.dx, intent.dy, this.serverSeq);
+    const runtime = this.botRuntime.get(botId);
+    if (intent.type === "move") {
+      let dx = intent.dx;
+      let dy = intent.dy;
+      const previous = runtime?.lastMove;
+      // A fresh path can select the prior grid node after a high-speed bot
+      // crossed its centre. Ease a sharp reversal through the current
+      // heading instead of showing a one-frame backward step.
+      if (previous && previous.x * dx + previous.y * dy < -0.05) {
+        const easedX = previous.x * 0.78 + dx * 0.22;
+        const easedY = previous.y * 0.78 + dy * 0.22;
+        const magnitude = Math.hypot(easedX, easedY);
+        if (magnitude > 0.001) {
+          dx = easedX / magnitude;
+          dy = easedY / magnitude;
+        }
+      }
+      this.setMovement(botId, dx, dy, this.serverSeq);
+      if (runtime) runtime.lastMove = { x: dx, y: dy };
+    }
     else {
       const bot = this.state.players.find((player) => player.id === botId);
       if (bot) bot.velocity = { x: 0, y: 0 };
+      if (runtime) runtime.lastMove = null;
       if (intent.type === "interact") this.interact(botId);
       else if (intent.type === "build")
         this.build(botId, intent.roomId, intent.tile, intent.kind);
@@ -1861,7 +2015,11 @@ export class GameEngine {
       const mapRoom = this.map.rooms.find(
         (candidate) => candidate.id === player.roomId,
       );
-      const effects = combinedItemEffects(player.items);
+      const effects = this.itemEffectsFor(player);
+      const inventoryEffects = combinedItemEffects(player.items);
+      const placedItemBuildings = this.state.buildings.filter(
+        (building) => building.ownerId === player.id && building.kind === 'random-item' && building.itemId,
+      );
       const trait = characterTraitForAppearance(player.appearance);
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
@@ -1877,7 +2035,11 @@ export class GameEngine {
       const bedGoldPerSecond =
         buildingStats("bed", bedLevel).value *
         rankBenefits(activeRank).bedGoldMultiplier;
-      const itemGoldPerSecond = effects.goldPerSecond;
+      const placedItemGoldPerSecond = placedItemBuildings.reduce(
+        (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0),
+        0,
+      );
+      const inventoryGoldPerSecond = inventoryEffects.goldPerSecond;
       const traitGoldPerSecond = trait.goldPerSecond;
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
@@ -1891,7 +2053,7 @@ export class GameEngine {
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
         if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
-        player.gold += bedGoldPerSecond + itemGoldPerSecond + traitGoldPerSecond + buildingGoldPerSecond;
+        player.gold += bedGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + traitGoldPerSecond + buildingGoldPerSecond;
         // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
         // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
         // 실제 생산 위치마다 별도 이벤트를 보내서 침대와 무덤(보석)의
@@ -1902,6 +2064,7 @@ export class GameEngine {
             playerId: player.id,
             amount: bedGoldPerSecond,
             position: { ...playerBed },
+            label: '침대',
           });
         if (traitGoldPerSecond > 0)
           this.pendingEvents.push({
@@ -1911,14 +2074,26 @@ export class GameEngine {
             position: { ...player.position },
             label: "특성",
           });
-        if (itemGoldPerSecond > 0)
+        if (inventoryGoldPerSecond > 0)
           this.pendingEvents.push({
             kind: "gold",
             playerId: player.id,
-            amount: itemGoldPerSecond,
+            amount: inventoryGoldPerSecond,
             position: { ...player.position },
-            label: "아이템",
+            label: "보관 아이템",
           });
+        for (const building of placedItemBuildings) {
+          const item = getRandomItem(building.itemId ?? '');
+          const amount = item?.effect.goldPerSecond ?? 0;
+          if (amount <= 0) continue;
+          this.pendingEvents.push({
+            kind: 'gold',
+            playerId: player.id,
+            amount,
+            position: { ...building.tile },
+            label: item?.label ?? '랜덤 보상',
+          });
+        }
         for (const building of goldBuildings) {
           const buildingIncome = buildingStats(building.kind, building.level).value;
           if (buildingIncome <= 0) continue;
@@ -1939,24 +2114,34 @@ export class GameEngine {
       player.powerIncomeElapsed += dt;
       while (player.powerIncomeElapsed + 1e-9 >= 1) {
         player.powerIncomeElapsed -= 1;
-        const powerBefore = player.power;
+        const placedItemPowerPerSecond = placedItemBuildings.reduce(
+          (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.powerPerSecond ?? 0),
+          0,
+        );
         const powerPerSecond = generators.reduce(
           (total, generator) => total + buildingStats("generator", generator.level).value,
-          effects.powerPerSecond,
+          inventoryEffects.powerPerSecond + placedItemPowerPerSecond,
         );
         player.power += powerPerSecond;
-        const powerGained = Math.floor(player.power) - Math.floor(powerBefore);
-        if (powerGained > 0)
+        if (inventoryEffects.powerPerSecond > 0)
           this.pendingEvents.push({
             kind: "power",
             playerId: player.id,
-            amount: powerGained,
-            position: generators[0]
-              ? { ...generators[0].tile }
-              : playerBed
-                ? { ...playerBed }
-                : undefined,
+            amount: inventoryEffects.powerPerSecond,
+            position: { ...player.position },
+            label: '보관 아이템',
           });
+        for (const generator of generators) {
+          const amount = buildingStats('generator', generator.level).value;
+          if (amount <= 0) continue;
+          this.pendingEvents.push({ kind: 'power', playerId: player.id, amount, position: { ...generator.tile }, label: '달빛 발전기' });
+        }
+        for (const building of placedItemBuildings) {
+          const item = getRandomItem(building.itemId ?? '');
+          const amount = item?.effect.powerPerSecond ?? 0;
+          if (amount <= 0) continue;
+          this.pendingEvents.push({ kind: 'power', playerId: player.id, amount, position: { ...building.tile }, label: item?.label ?? '랜덤 보상' });
+        }
       }
       if (
         room.doorHp > 0 &&
@@ -1981,7 +2166,7 @@ export class GameEngine {
       );
       // 아직 점유되지 않은 방의 기본 설비는 보이기만 하고 생산·공격하지 않는다.
       if (!owner) continue;
-      const effects = combinedItemEffects(owner?.items ?? []);
+      const effects = owner ? this.itemEffectsFor(owner) : combinedItemEffects([]);
       if (
         building.kind === "repair-drone" &&
         room &&
@@ -3166,6 +3351,7 @@ export class GameEngine {
       reconnectUntil: 0,
       score: 0,
       drawCount: 0,
+      carriedLootId: null,
       firstGuardianBuilt: false,
       items: [],
       consumables: consumables

@@ -151,7 +151,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await expect(page.locator('[data-profile-display-mode="ranked"]')).toHaveCount(0);
     await page.locator('[data-profile-display-mode="multiplayer"]').click();
-    await expect(page.locator(".home-account")).toContainText("친구랑하기 · 하수");
+    // The profile label deliberately shows the chosen rank only; play mode is
+    // selected separately and no longer takes space in the in-game label.
+    await expect(page.locator(".home-account")).toContainText("하수");
     await page.locator('[data-ranking]').click();
     await expect(page.getByRole('dialog', { name: 'S1 새벽 랭크전' })).toContainText('Unranked · 배치 0/5');
     await page.getByRole('button', { name: '닫기' }).click();

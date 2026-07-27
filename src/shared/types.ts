@@ -90,7 +90,9 @@ export type BuildingKind =
   | 'gem-core'
   | 'ghost-net'
   | 'range-amplifier'
-  | 'starter-grave';
+  | 'starter-grave'
+  /** A drawn or countdown loot reward. It is placed like a small building. */
+  | 'random-item';
 
 export type TurretKind = 'basic-turret' | 'rapid-turret' | 'frost-turret' | 'arc-turret';
 export type TurretSkinLoadout = Record<TurretKind, string>;
@@ -180,6 +182,8 @@ export interface PlayerState {
   reconnectUntil: number;
   score: number;
   drawCount: number;
+  /** One countdown loot reward can be carried until the survivor claims a bed. */
+  carriedLootId: string | null;
   /** The hamster passive applies only to the first guardian turret this player builds. */
   firstGuardianBuilt: boolean;
   items: OwnedItem[];
@@ -222,9 +226,21 @@ export interface BuildingState {
   level: number;
   cooldown: number;
   hp: number;
+  /** Present only for a placed random reward. */
+  itemId?: string;
   investedGold?: number;
   investedPower?: number;
   investmentByPlayer?: Record<string, { gold: number; power: number }>;
+}
+
+/** A reward falling into a corridor during the preparation countdown. */
+export interface LootDropState {
+  id: string;
+  itemId: string;
+  tile: Tile;
+  spawnedAt: number;
+  landsAt: number;
+  carriedBy: string | null;
 }
 
 export interface GhostState {
@@ -337,6 +353,7 @@ export interface GameSnapshot {
   players: PlayerState[];
   rooms: RoomState[];
   buildings: BuildingState[];
+  lootDrops: LootDropState[];
   ghost: GhostState;
   ghosts: GhostState[];
   matchEvent: string;
@@ -368,6 +385,8 @@ export type GameEventKind =
   | 'ghost-skill'
   | 'ghost-net'
   | 'item-draw'
+  | 'item-drop'
+  | 'item-pickup'
   | 'consumable-use'
   | 'elite-join'
   | 'victory'
@@ -409,6 +428,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
+  | (BaseMessage & { type: 'pickup-loot'; lootId: string })
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })
   | (BaseMessage & { type: 'use-consumable'; itemId: ConsumableId; roomId?: string; targetId?: string; tile?: Tile })
   | (BaseMessage & { type: 'rematch' })

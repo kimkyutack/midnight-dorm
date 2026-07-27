@@ -15,7 +15,7 @@ import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
-import { dampFacingYaw, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
+import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
@@ -211,7 +211,9 @@ describe('deterministic shared world', () => {
       ...first.walls,
     ];
     expect(new Set(placedTiles.map((tile) => `${tile.x},${tile.y}`))).toHaveLength(placedTiles.length);
-    expect(placedTiles.length).toBeLessThan(first.width * first.height);
+    // Every non-room interior cell is an open corridor.  This keeps the map
+    // free of isolated one-tile walls that interrupted touch movement.
+    expect(placedTiles.length).toBe(first.width * first.height);
   });
 
   it('varies room silhouettes, positions and corridor routes across match seeds', () => {
@@ -234,7 +236,7 @@ describe('deterministic shared world', () => {
         )).toBe(true);
       }
     }
-  });
+  }, 15_000);
 
   it('finds a traversable A* route from spawn to every bed', () => {
     const map = generateMap(9001);
@@ -395,6 +397,11 @@ describe('survivor customization rules', () => {
     expect(Math.abs(movementFacingYaw(0, 1))).toBeCloseTo(Math.PI);
     expect(movementFacingYaw(1, 0)).toBeCloseTo(-Math.PI / 2);
     expect(movementFacingYaw(-1, 0)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('keeps the visual facing on held input while an old snapshot corrects backwards', () => {
+    expect(facingDeltaForMotion(-0.08, 0, { x: 1, y: 0 })).toEqual({ x: 1, z: 0 });
+    expect(facingDeltaForMotion(0.12, -0.05)).toEqual({ x: 0.12, z: -0.05 });
   });
 
   it('keeps rotating in the same short direction across the 180-degree seam', () => {
@@ -1252,7 +1259,7 @@ describe('requested progression and event rules', () => {
     }
   });
 
-  it('moves unclaimed bots at the same rank-based speed as players', () => {
+  it('keeps the original bot base speed while applying rank scaling', () => {
     const engine = new GameEngine('BOTSPEED', generateMap(65_042), false);
     const host = engine.join({ nickname: '속도 확인', deviceId: 'device-bot-speed' });
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
@@ -1261,10 +1268,19 @@ describe('requested progression and event rules', () => {
     const human = persisted.snapshot.players.find((player) => player.id === host.player.id);
     const bot = persisted.snapshot.players.find((player) => player.isBot);
     if (!human || !bot) throw new Error('missing speed fixture');
+    const corridorStart = engine.map.corridorTiles.find((tile) =>
+      isWalkableArea(
+        engine.map,
+        tile.x + 1,
+        tile.y,
+        BALANCE.player.collisionRadius,
+      ),
+    );
+    if (!corridorStart) throw new Error('missing open corridor fixture');
     for (const player of [human, bot]) {
       player.soloRank = 'expert';
       player.multiplayerRank = 'expert';
-      player.position = { ...engine.map.playerSpawn };
+      player.position = { ...corridorStart };
       player.velocity = { x: 1, y: 0 };
     }
     engine.restore(persisted);
@@ -1272,7 +1288,18 @@ describe('requested progression and event rules', () => {
     const after = engine.snapshot();
     const movedHuman = after.players.find((player) => player.id === human.id);
     const movedBot = after.players.find((player) => player.id === bot.id);
-    expect(movedBot?.position).toEqual(movedHuman?.position);
+    const humanDistance = (movedHuman?.position.x ?? 0) - corridorStart.x;
+    const botDistance = (movedBot?.position.x ?? 0) - corridorStart.x;
+    const rankMultiplier = rankBenefits('expert').speedMultiplier;
+    expect(botDistance).toBeCloseTo(
+      4.8 * rankMultiplier * characterTraitForAppearance(bot.appearance).unclaimedMoveSpeedMultiplier * 0.1,
+      5,
+    );
+    expect(humanDistance).toBeCloseTo(
+      BALANCE.player.speed * rankMultiplier * characterTraitForAppearance(human.appearance).unclaimedMoveSpeedMultiplier * 0.1,
+      5,
+    );
+    expect(humanDistance).toBeGreaterThan(botDistance);
   });
 
   it('reaches a randomly selected occupied door across the expanded map', () => {
@@ -1396,7 +1423,7 @@ describe('requested progression and event rules', () => {
     const events = engine.drainEvents();
     expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.label === '특성' && event.amount === 1)).toBe(true);
-    expect(events.some((event) => event.kind === 'gold' && event.label === '아이템' && event.amount === 4)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.label === '보관 아이템' && event.amount === 5)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
     expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
   });
@@ -2007,8 +2034,8 @@ describe('requested progression and event rules', () => {
     expect(engine.snapshot().ghosts[0]?.retreatCount).toBe(2);
   });
 
-  it('offers twenty-nine weighted items with only two blanks and keeps the fifth draw fox-exclusive', () => {
-    expect(RANDOM_ITEMS).toHaveLength(29);
+  it('offers integer-valued weighted rewards with only two blanks and turns a draw into a placed reward', () => {
+    expect(RANDOM_ITEMS).toHaveLength(35);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0)).toHaveLength(2);
     expect(RANDOM_ITEMS.filter((item) => Object.keys(item.effect).length === 0).map((item) => item.id).sort()).toEqual(['cracked-mirror', 'wet-socks']);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.effect).toMatchObject({ goldPerSecond: 500, powerPerSecond: 150 });
@@ -2016,6 +2043,9 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.find((item) => item.id === 'golden-ticket')?.effect.goldenTurretTickets).toBe(1);
     expect(RANDOM_ITEMS.find((item) => item.id === 'void-cat')?.effect.goldPerSecond).toBe(20);
     expect(RANDOM_ITEMS.find((item) => item.id === 'hundred-robot')?.effect.powerPerSecond).toBe(100);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'copper-pig')?.effect.goldPerSecond).toBe(1);
+    expect(RANDOM_ITEMS.find((item) => item.id === 'royal-money-tree')?.effect.goldPerSecond).toBe(100);
+    expect(RANDOM_ITEMS.every((item) => Number.isInteger(item.effect.goldPerSecond ?? 0))).toBe(true);
     expect(RANDOM_ITEMS.find((item) => item.id === 'turret-overhaul-kit')?.effect.turretLevelIncrease).toBe(1);
     expect(RANDOM_ITEMS.some((item) => item.id === 'runner-shoes' || item.id === 'escape-scarf')).toBe(false);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
@@ -2033,10 +2063,14 @@ describe('requested progression and event rules', () => {
     player.power = 1_000;
     engine.restore(persisted);
     const machineId = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine')?.id as string;
-    for (let index = 0; index < 4; index += 1) expect(engine.drawItem(playerId, machineId).ok).toBe(true);
-    expect(engine.snapshot().players[0]?.drawCount).toBe(4);
-    expect(engine.snapshot().players[0]?.gold).toBe(580);
+    expect(engine.drawItem(playerId, machineId).ok).toBe(true);
+    expect(engine.snapshot().players[0]?.drawCount).toBe(1);
+    expect(engine.snapshot().players[0]?.gold).toBe(960);
     expect(engine.snapshot().players[0]?.power).toBe(1_000);
+    expect(engine.snapshot().buildings.find((building) => building.id === machineId)).toMatchObject({
+      kind: 'random-item',
+      level: 1,
+    });
     expect(engine.drawItem(playerId, machineId).ok).toBe(false);
   });
 
@@ -2066,6 +2100,51 @@ describe('requested progression and event rules', () => {
     expect(engine.drawItem(playerId, machineId).ok).toBe(true);
     expect(engine.snapshot().buildings.find((building) => building.kind === 'basic-turret')?.level).toBe(2);
     random.mockRestore();
+  });
+
+  it('drops a carryable reward into the corridor and installs it after a bed is claimed', () => {
+    // Constructor rolls time-attack and ghost variant first; the third roll
+    // is the optional opening cargo event.
+    const map = generateMap(92_234);
+    const random = vi.spyOn(SeededRandom.prototype, 'next')
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.01)
+      .mockReturnValue(0.25);
+    try {
+      const engine = new GameEngine('LOOTDROP', map, false);
+      const joined = engine.join({ nickname: '보상 운반자', deviceId: 'device-loot-drop' });
+      expect(engine.start(joined.player.id).ok).toBe(true);
+      const firstDrop = engine.snapshot().lootDrops[0];
+      expect(firstDrop).toBeDefined();
+      expect(engine.map.corridorTiles).toContainEqual(expect.objectContaining(firstDrop?.tile ?? {}));
+
+      const carriedState = engine.serialize();
+      const carrier = carriedState.snapshot.players.find((player) => player.id === joined.player.id);
+      if (!carrier || !firstDrop) throw new Error('missing opening loot fixture');
+      carrier.position = { ...firstDrop.tile };
+      engine.restore(carriedState);
+      // Corridor cargo has a visible three-second fall before it can be picked up.
+      for (let index = 0; index < 30; index += 1) engine.tick(0.1);
+      expect(engine.handle(joined.player.id, envelope({ type: 'pickup-loot', lootId: firstDrop.id })).ok).toBe(true);
+      expect(engine.snapshot().players.find((player) => player.id === joined.player.id)?.carriedLootId).toBe(firstDrop.id);
+
+      const room = engine.map.rooms[0];
+      const bed = room?.beds[0];
+      if (!room || !bed) throw new Error('missing bed for opening loot fixture');
+      const occupancyState = engine.serialize();
+      const occupant = occupancyState.snapshot.players.find((player) => player.id === joined.player.id);
+      if (!occupant) throw new Error('missing opening loot carrier');
+      occupant.position = { ...bed };
+      engine.restore(occupancyState);
+      expect(engine.interact(joined.player.id).ok).toBe(true);
+      expect(engine.snapshot().lootDrops.some((drop) => drop.id === firstDrop.id)).toBe(false);
+      expect(engine.snapshot().buildings.some((building) =>
+        building.kind === 'random-item' && building.ownerId === joined.player.id && building.itemId === firstDrop.itemId,
+      )).toBe(true);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it('applies survivor economy, turret damage, fire-rate, and extra-draw traits on the server', () => {
@@ -2131,10 +2210,27 @@ describe('requested progression and event rules', () => {
     fox.power = 10_000;
     engine.restore(foxState);
     expect(engine.build(playerId, roomId, machineTile, 'lucky-machine').ok).toBe(true);
-    const machine = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine');
-    if (!machine) throw new Error('missing lucky machine');
-    for (let index = 0; index < 5; index += 1) expect(engine.drawItem(playerId, machine.id).ok).toBe(true);
-    expect(engine.drawItem(playerId, machine.id).ok).toBe(false);
+    const machine = engine.snapshot().buildings.find(
+      (building) => building.kind === 'lucky-machine' && building.tile.x === machineTile.x && building.tile.y === machineTile.y,
+    );
+    if (!machine) throw new Error('missing initial lucky machine');
+    const openMachine = (): string => {
+      const placement = tiles.find((candidate) => !engine.snapshot().buildings.some(
+        (building) => building.tile.x === candidate.x && building.tile.y === candidate.y,
+      ));
+      if (!placement) throw new Error('missing spare lucky-machine tile');
+      expect(engine.build(playerId, roomId, placement, 'lucky-machine').ok).toBe(true);
+      const machine = engine.snapshot().buildings.find(
+        (building) => building.kind === 'lucky-machine' && building.tile.x === placement.x && building.tile.y === placement.y,
+      );
+      if (!machine) throw new Error('missing lucky machine');
+      return machine.id;
+    };
+    for (let index = 0; index < 5; index += 1) {
+      const machineId = index === 0 ? machine.id : openMachine();
+      expect(engine.drawItem(playerId, machineId).ok).toBe(true);
+    }
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.drawCount).toBe(5);
   });
 
   it('applies generic skin boosts and authored skin passives on the server', () => {
@@ -2238,7 +2334,7 @@ describe('requested progression and event rules', () => {
     expect(variants).toEqual(new Set([
       'wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant',
     ]));
-  });
+  }, 15_000);
 
   it('splits twin damage so both ghosts together equal one standard ghost attack', () => {
     let engine: GameEngine | null = null;

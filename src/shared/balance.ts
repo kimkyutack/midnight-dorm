@@ -53,7 +53,10 @@ export const BALANCE = {
   countdownSeconds: 30,
   player: {
     maxHp: 100,
-    speed: 4.8,
+    // Touch movement begins from anywhere on the battlefield. A modest base
+    // increase keeps the longer gesture travel responsive without making
+    // ghosts look as though they teleport between snapshots.
+    speed: 6.24,
     startingGold: 100,
     startingPower: 18,
     interactionRange: 1.7,
@@ -93,19 +96,19 @@ export const BALANCE = {
   buildings: {
     bed: {
       label: '꿈결 침대',
-      description: '레벨마다 골드 생산량이 정확히 2배가 됩니다.',
+      description: '매초 골드를 얻습니다. 레벨이 오르면 획득 골드가 2배가 됩니다.',
       maxLevel: 15,
       levels: BED_LEVELS,
     },
     'reinforced-door': {
       label: '봉인 강화문',
-      description: '15단계 외형으로 강화되며, 단계마다 방어 소재가 뚜렷하게 바뀝니다.',
+      description: '귀신이 방에 들어오는 것을 막습니다. 레벨이 오르면 HP가 늘어납니다.',
       maxLevel: 15,
       levels: DOOR_LEVELS,
     },
     'basic-turret': {
       label: '수호 포탑',
-      description: '단 하나의 공격 포탑입니다. 단계마다 더 견고한 수호포 외형으로 강화됩니다.',
+      description: '가까운 귀신을 자동으로 공격합니다.',
       maxLevel: 15,
       levels: [level(10, 0, 13, 1, 4)],
     },
@@ -117,7 +120,7 @@ export const BALANCE = {
     },
     'frost-turret': {
       label: '서리 스프레이',
-      description: '전력 200으로 설치하는 강화 감속 설비입니다. 여러 대의 감속 효과가 누적됩니다.',
+      description: '귀신을 느리게 만듭니다. 여러 대를 설치하면 더 느려집니다.',
       maxLevel: 1,
       levels: [level(0, 200, 0.16, 0.5, 5)],
     },
@@ -135,37 +138,37 @@ export const BALANCE = {
     },
     generator: {
       label: '달빛 발전기',
-      description: '침대와 같이 10단계까지 강화되며 매초 전력이 2배씩 늘어납니다.',
+      description: '매초 전기를 얻습니다. 레벨이 오르면 획득 전기가 2배가 됩니다.',
       maxLevel: 10,
       levels: GENERATOR_LEVELS,
     },
     'repair-drone': {
       label: '문 수리대',
-      description: '골드를 사용해 방문을 꾸준히 수리합니다.',
+      description: '매초 문 HP를 회복합니다.',
       maxLevel: 3,
       levels: [level(70, 0, 1.5, 1, 0), level(140, 0, 3, 1, 0), level(280, 0, 6, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',
-      description: '전력만 사용해 가까운 귀신에게 지속 범위 피해를 줍니다.',
+      description: '가까운 귀신에게 계속 피해를 줍니다.',
       maxLevel: 3,
       levels: [level(0, 12, 7, 0.75, 4.5), level(0, 18, 14, 0.65, 5), level(0, 27, 28, 0.52, 5.5)],
     },
     'shield-device': {
       label: '새벽 보호막',
-      description: '전력만 사용해 귀신이 주는 방문 피해를 일시적으로 줄입니다.',
+      description: '문이 받는 피해를 잠시 줄여줍니다.',
       maxLevel: 3,
       levels: [level(0, 9, 0.3, 5, 0), level(0, 14, 0.45, 7, 0), level(0, 20, 0.6, 9, 0)],
     },
     'lucky-machine': {
       label: '심야 랜덤 상자',
-      description: '한 판에 네 번, 확률형 아이템을 뽑습니다.',
+      description: '골드를 내고 랜덤 보상 하나를 뽑습니다.',
       maxLevel: 1,
       levels: [level(0, 0, 0, 0, 0)],
     },
     'gem-core': {
       label: '월광 보석',
-      description: '전력을 응축해 매초 골드를 생산합니다.',
+      description: '매초 골드를 얻습니다.',
       maxLevel: 5,
       levels: [
         level(0, 125, 8, 1, 0),
@@ -177,13 +180,13 @@ export const BALANCE = {
     },
     'ghost-net': {
       label: '봉쇄 그물 발사기',
-      description: '문을 공격하는 HP 20% 이하 귀신을 1.5초 멈춥니다.',
+      description: '문을 공격하는 약한 귀신을 1.5초 멈춥니다.',
       maxLevel: 1,
       levels: [level(0, 250, 1.5, 12, 0)],
     },
     'range-amplifier': {
       label: '포탑 사거리 증폭기',
-      description: '내 수호 포탑 전체의 사거리를 레벨당 1칸 늘립니다.',
+      description: '내 수호 포탑 모두의 사거리를 1칸 늘립니다.',
       maxLevel: 4,
       levels: [
         level(0, 180, 1, 0, 0),
@@ -194,9 +197,15 @@ export const BALANCE = {
     },
     'starter-grave': {
       label: '잠든 무덤',
-      description: '방을 점유하면 소유권을 얻고 매초 골드 1을 생산합니다.',
+      description: '방을 점유하면 매초 골드 1을 얻습니다.',
       maxLevel: 1,
       levels: [level(0, 0, 1, 1, 0)],
+    },
+    'random-item': {
+      label: '랜덤 보상',
+      description: '랜덤 상자에서 나온 보상입니다. 필요 없으면 철거할 수 있습니다.',
+      maxLevel: 1,
+      levels: [level(0, 0, 0, 0, 0)],
     },
   } satisfies Record<BuildingKind, BuildingDefinition>,
 } as const;

@@ -94,6 +94,7 @@ export class SynthAudio {
       'door-hit': [92, 52, 'square', .13], 'player-hit': [190, 70, 'sawtooth', .1], death: [220, 45, 'triangle', .45],
       'ghost-level-up': [120, 440, 'sawtooth', .35], 'ghost-retreat': [180, 70, 'triangle', .32],
       'ghost-return': [75, 240, 'sawtooth', .4], 'ghost-skill': [340, 45, 'square', .42], 'ghost-net': [920, 170, 'triangle', .22], 'item-draw': [360, 1260, 'sine', .5],
+      'item-drop': [760, 320, 'sine', .2], 'item-pickup': [440, 1120, 'triangle', .18],
       'consumable-use': [640, 1160, 'sine', .18],
       'elite-join': [260, 1380, 'triangle', .65],
       victory: [440, 990, 'triangle', .55], defeat: [180, 48, 'sawtooth', .65],

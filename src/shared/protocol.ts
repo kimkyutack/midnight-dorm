@@ -3,11 +3,11 @@ import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
   'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'move-building', 'upgrade',
-  'remove-building', 'draw-item', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
+  'remove-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
-  'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'starter-grave',
+  'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'starter-grave', 'random-item',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,7 +52,7 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
     case 'build':
       if (typeof value.roomId !== 'string' || !isRecord(value.tile)
         || !Number.isInteger(value.tile.x) || !Number.isInteger(value.tile.y)
-        || !buildingKinds.has(value.kind as BuildingKind) || value.kind === 'bed' || value.kind === 'reinforced-door') {
+        || !buildingKinds.has(value.kind as BuildingKind) || value.kind === 'bed' || value.kind === 'reinforced-door' || value.kind === 'random-item') {
         return { ok: false, error: 'invalid building request' };
       }
       break;
@@ -70,6 +70,9 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'draw-item':
       if (typeof value.machineId !== 'string') return { ok: false, error: 'invalid lucky machine' };
+      break;
+    case 'pickup-loot':
+      if (typeof value.lootId !== 'string') return { ok: false, error: 'invalid loot drop' };
       break;
     case 'set-consumable-loadout':
       if (!Array.isArray(value.itemIds) || value.itemIds.length > 3 || new Set(value.itemIds).size !== value.itemIds.length

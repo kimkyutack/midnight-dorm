@@ -132,6 +132,7 @@ export class GameNetwork {
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }
+  pickupLoot(lootId: string): void { this.send({ type: 'pickup-loot', lootId }); }
   setConsumableLoadout(itemIds: ConsumableId[]): void { this.send({ type: 'set-consumable-loadout', itemIds }); }
   useConsumable(itemId: ConsumableId, target: { roomId?: string; targetId?: string; tile?: Tile } = {}): void {
     this.send({ type: 'use-consumable', itemId, ...target });

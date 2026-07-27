@@ -351,6 +351,17 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
     corridor.add(tileKey(draft.approach.x, draft.approach.y));
   }
 
+  // The earlier route-only layout left isolated one-tile wall islands across
+  // otherwise empty space.  They added no tactical choice and repeatedly
+  // blocked touch movement.  Keep only room outlines and the map boundary as
+  // walls; every other interior cell is a usable corridor.
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const key = tileKey(x, y);
+      if (!blocked.has(key)) corridor.add(key);
+    }
+  }
+
   const rooms: MapRoom[] = drafts.map((draft, index) => {
     const roomId = `room-${index + 1}`;
     const floorTiles = draft.floorTiles.map((tile) => ({ ...tile, roomId }));

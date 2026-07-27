@@ -3,12 +3,13 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequireme
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
-import { combinedItemEffects } from '../../shared/randomItems';
+import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
+import { facingDeltaForMotion } from './avatarMath';
 import { buildingAssetUrl } from './BuildingAssets';
 
 const CAMERA_HEIGHT = 18;
@@ -25,6 +26,7 @@ const BUILDING_DRAG_HOLD_MS = 380;
 const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
+const LOCAL_MAX_PREDICTION_LEAD = 2.6;
 const buildingTextureLoader = new THREE.TextureLoader();
 const buildingTextureCache = new Map<string, THREE.Texture>();
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
@@ -67,6 +69,7 @@ interface ViewPayload {
   playerId: string;
   snapshot: GameSnapshot;
   onSleep?: () => void;
+  onPickupLoot?: (lootId: string) => void;
 }
 
 interface BillboardData {
@@ -116,6 +119,13 @@ interface BuildingView {
   upgrade: THREE.Sprite;
   modelLevel: number;
   skinId: string;
+  kind: BuildingKind;
+  itemId?: string;
+}
+
+interface LootView {
+  root: THREE.Group;
+  itemId: string;
 }
 
 interface DoorView {
@@ -1336,6 +1346,7 @@ function buildingColor(kind: BuildingKind): number {
     'ghost-net': 0xf4d36d,
     'range-amplifier': 0x8bafff,
     'starter-grave': 0x8b97a5,
+    'random-item': 0xffca62,
   };
   return colors[kind];
 }
@@ -1353,9 +1364,22 @@ function turretSkinColor(building: BuildingState): number {
   return buildingColor(building.kind);
 }
 
+/** A shared reward illustration still reads as distinct loot by its tier tint. */
+function randomRewardTint(itemId?: string): number {
+  const effect = itemId ? getRandomItem(itemId)?.effect : undefined;
+  const gold = effect?.goldPerSecond ?? 0;
+  if (gold >= 500) return 0xf5a4ff;
+  if (gold >= 100) return 0xffe8a0;
+  if (gold >= 50) return 0xffba65;
+  if (gold >= 20) return 0xffd66d;
+  if (gold > 0) return 0xfff1c4;
+  if ((effect?.powerPerSecond ?? 0) > 0) return 0xa8f8ff;
+  return 0xffffff;
+}
+
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
-  const imageAsset = buildingAssetUrl(building.kind, building.level);
+  const imageAsset = buildingAssetUrl(building.kind, building.level, building.itemId);
   if (imageAsset) {
     // A room can contain many copies of the same building. Reusing the GPU
     // texture avoids a new decode/upload for every installation and removes
@@ -1368,6 +1392,7 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
       new THREE.PlaneGeometry(1.2, 1.2),
       new THREE.MeshBasicMaterial({
         map: texture,
+        color: building.kind === 'random-item' ? randomRewardTint(building.itemId) : 0xffffff,
         transparent: true,
         premultipliedAlpha: false,
         alphaTest: 0.025,
@@ -1617,12 +1642,14 @@ export class ThreeGameView {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly sleepButton: HTMLButtonElement;
   private readonly onSleep: () => void;
+  private readonly onPickupLoot: (lootId: string) => void;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly selectionSurface: THREE.Mesh;
   private readonly playerViews = new Map<string, PlayerView>();
   private readonly ghostViews = new Map<string, GhostView>();
   private readonly buildingViews = new Map<string, BuildingView>();
+  private readonly lootViews = new Map<string, LootView>();
   private readonly doorViews = new Map<string, DoorView>();
   private readonly bedViews = new Map<string, BedView>();
   private readonly effects: TimedEffect[] = [];
@@ -1650,6 +1677,7 @@ export class ThreeGameView {
   private selectionBlockedUntil = 0;
   private paused = false;
   private destroyed = false;
+  private nearbyLootId: string | null = null;
 
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
@@ -1657,6 +1685,7 @@ export class ThreeGameView {
     this.playerId = payload.playerId;
     this.snapshotData = payload.snapshot;
     this.onSleep = payload.onSleep ?? (() => undefined);
+    this.onPickupLoot = payload.onPickupLoot ?? (() => undefined);
     this.portraitLayout = host.clientHeight > host.clientWidth;
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
@@ -1686,7 +1715,8 @@ export class ThreeGameView {
     this.sleepButton.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      this.onSleep();
+      if (this.nearbyLootId) this.onPickupLoot(this.nearbyLootId);
+      else this.onSleep();
     });
     this.host.appendChild(this.sleepButton);
 
@@ -1786,6 +1816,7 @@ export class ThreeGameView {
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncBeds(snapshot);
     this.syncBuildings(snapshot);
+    this.syncLootDrops(snapshot);
     this.syncDoors(snapshot);
     this.syncBuildableTiles(performance.now());
     for (const event of events) this.playEvent(event);
@@ -1844,6 +1875,7 @@ export class ThreeGameView {
     this.lastFrame = time;
     this.animatePlayers(time, dt);
     this.animateGhosts(time, dt);
+    this.animateLoot();
     this.animateTurrets(dt);
     this.animateDoors(dt);
     this.animateEffects(time);
@@ -1860,9 +1892,33 @@ export class ThreeGameView {
       local.roomId ||
       (this.snapshotData.status !== 'COUNTDOWN' && this.snapshotData.status !== 'PLAYING')
     ) {
+      this.nearbyLootId = null;
       this.sleepButton.hidden = true;
       return;
     }
+    const clock = this.snapshotData.status === 'COUNTDOWN'
+      ? Math.max(0, BALANCE.countdownSeconds - this.snapshotData.countdown)
+      : BALANCE.countdownSeconds + this.snapshotData.elapsed;
+    const nearbyLoot = !local.carriedLootId
+      ? this.snapshotData.lootDrops
+          .filter((drop) => !drop.carriedBy && clock >= drop.landsAt)
+          .map((drop) => ({
+            drop,
+            distance: Math.hypot(drop.tile.x - local.position.x, drop.tile.y - local.position.y),
+          }))
+          .filter((candidate) => candidate.distance <= BALANCE.player.interactionRange)
+          .sort((left, right) => left.distance - right.distance)[0]
+      : undefined;
+    if (nearbyLoot) {
+      const item = getRandomItem(nearbyLoot.drop.itemId);
+      this.nearbyLootId = nearbyLoot.drop.id;
+      this.sleepButton.innerHTML = '<span aria-hidden="true">✦</span> 줍기';
+      this.sleepButton.setAttribute('aria-label', `${item?.label ?? '랜덤 보상'} 줍기`);
+      this.positionInteractionButton(nearbyLoot.drop.tile);
+      this.sleepButton.hidden = false;
+      return;
+    }
+    this.nearbyLootId = null;
     const roomCapacity = this.snapshotData.playMode === 'multiplayer' ? 2 : 1;
     const nearest = this.mapData.rooms
       .flatMap((mapRoom) => {
@@ -1891,14 +1947,79 @@ export class ThreeGameView {
       this.sleepButton.hidden = true;
       return;
     }
-    const screen = worldPoint(nearest.bed, 0.35).project(this.camera);
+    this.sleepButton.innerHTML = '<span aria-hidden="true">☾</span> 잠자기';
+    this.sleepButton.setAttribute('aria-label', '가까운 침대에서 잠자기');
+    this.positionInteractionButton(nearest.bed);
+    this.sleepButton.hidden = false;
+  }
+
+  private positionInteractionButton(tile: Vec2): void {
+    const screen = worldPoint(tile, 0.35).project(this.camera);
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
     const x = (screen.x * 0.5 + 0.5) * width;
     const y = (-screen.y * 0.5 + 0.5) * height;
     this.sleepButton.style.left = `${clamp(x + 52, 64, width - 64)}px`;
     this.sleepButton.style.top = `${clamp(y - 24, 76, height - 58)}px`;
-    this.sleepButton.hidden = false;
+  }
+
+  private syncLootDrops(snapshot: GameSnapshot): void {
+    const active = new Set(snapshot.lootDrops.map((drop) => drop.id));
+    for (const drop of snapshot.lootDrops) {
+      let view = this.lootViews.get(drop.id);
+      if (view && view.itemId !== drop.itemId) {
+        this.scene.remove(view.root);
+        this.lootViews.delete(drop.id);
+        view = undefined;
+      }
+      if (!view) {
+        const model = createBuildingModel({
+          id: `drop:${drop.id}`,
+          kind: 'random-item',
+          itemId: drop.itemId,
+          roomId: '',
+          ownerId: '',
+          skinId: '',
+          tile: drop.tile,
+          level: 1,
+          cooldown: 0,
+          hp: 100,
+        });
+        model.root.scale.setScalar(0.78);
+        model.root.renderOrder = 5_250;
+        this.scene.add(model.root);
+        view = { root: model.root, itemId: drop.itemId };
+        this.lootViews.set(drop.id, view);
+      }
+    }
+    for (const [id, view] of this.lootViews) {
+      if (active.has(id)) continue;
+      this.scene.remove(view.root);
+      this.lootViews.delete(id);
+    }
+    this.animateLoot();
+  }
+
+  private animateLoot(): void {
+    const clock = this.snapshotData.status === 'COUNTDOWN'
+      ? Math.max(0, BALANCE.countdownSeconds - this.snapshotData.countdown)
+      : BALANCE.countdownSeconds + this.snapshotData.elapsed;
+    for (const drop of this.snapshotData.lootDrops) {
+      const view = this.lootViews.get(drop.id);
+      if (!view) continue;
+      const carrier = drop.carriedBy ? this.playerViews.get(drop.carriedBy) : undefined;
+      if (carrier) {
+        view.root.position.set(carrier.root.position.x, PLAYER_HEIGHT + 0.68, carrier.root.position.z);
+        view.root.rotation.y += 0.02;
+        continue;
+      }
+      const progress = clamp((clock - drop.spawnedAt) / Math.max(0.1, drop.landsAt - drop.spawnedAt), 0, 1);
+      // Three full seconds make the preparation rewards visibly fall from
+      // above instead of appearing as a nearly instantaneous pop-in.
+      const eased = 1 - (1 - progress) * (1 - progress);
+      view.root.position.set(drop.tile.x, 0.1 + (1 - eased) * 5.8, drop.tile.y);
+      view.root.rotation.y += 0.012 + (1 - progress) * 0.045;
+    }
   }
 
   private createLighting(): void {
@@ -2293,7 +2414,7 @@ export class ThreeGameView {
       let view = this.buildingViews.get(building.id);
       if (
         view &&
-        (view.modelLevel !== building.level || view.skinId !== building.skinId)
+        (view.modelLevel !== building.level || view.skinId !== building.skinId || view.kind !== building.kind || view.itemId !== building.itemId)
       ) {
         this.scene.remove(view.root);
         this.buildingViews.delete(building.id);
@@ -2319,6 +2440,8 @@ export class ThreeGameView {
           upgrade,
           modelLevel: building.level,
           skinId: building.skinId,
+          kind: building.kind,
+          itemId: building.itemId,
         };
         this.buildingViews.set(building.id, view);
       }
@@ -2509,10 +2632,22 @@ export class ThreeGameView {
           y: this.localInput.y * localSpeed * dt,
         }, BALANCE.player.collisionRadius, 0.12, blockedRoomFloorTiles);
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
-        const serverError = Math.hypot(view.target.x - predicted.x, view.target.z - predicted.y);
-        if (serverError > LOCAL_HARD_RECONCILE_DISTANCE) {
+        const targetOffsetX = view.target.x - predicted.x;
+        const targetOffsetZ = view.target.z - predicted.y;
+        const serverError = Math.hypot(targetOffsetX, targetOffsetZ);
+        // A 10Hz snapshot naturally describes where the survivor was a short
+        // time ago. Pulling the predicted actor backwards toward that old
+        // position on every packet caused a visible stop/turn/stop rhythm on
+        // mobile networks. Ignore ordinary trailing snapshots while an input
+        // is held; an actual collision or desync still exceeds the hard cap.
+        const targetTrailsInput =
+          targetOffsetX * this.localInput.x + targetOffsetZ * this.localInput.y < -0.025;
+        if (
+          serverError > LOCAL_MAX_PREDICTION_LEAD ||
+          (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput)
+        ) {
           this.reconcilePlayerPosition(view, 16, dt, blockedRoomFloorTiles);
-        } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE) {
+        } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
           this.reconcilePlayerPosition(view, 1.4, dt, blockedRoomFloorTiles);
         }
       } else {
@@ -2529,7 +2664,13 @@ export class ThreeGameView {
       const bedIndex = player.bedIndex ?? 0;
       const lyingOnReversedBed = bedIndex % 2 === 1;
       if (lying) view.actor.setSleep(lyingOnReversedBed);
-      else view.actor.setMovement(dx, dz, moving && !defeated, time, view.seed);
+      else {
+        const movementIntent = isLocal && hasLocalInput
+          ? this.localInput
+          : player.velocity;
+        const facing = facingDeltaForMotion(dx, dz, movementIntent);
+        view.actor.setMovement(facing.x, facing.z, moving && !defeated, time, view.seed);
+      }
       const lieRotation = lying
         ? (lyingOnReversedBed ? Math.PI : 0)
         : (defeated ? Math.PI / 2 : 0);
@@ -2632,8 +2773,14 @@ export class ThreeGameView {
       const rangeBonus = this.snapshotData.buildings.find((candidate) =>
         candidate.ownerId === building.ownerId && candidate.kind === 'range-amplifier'
       )?.level ?? 0;
+      const placedRewards = this.snapshotData.buildings
+        .filter((candidate) => candidate.ownerId === building.ownerId && candidate.kind === 'random-item' && candidate.itemId)
+        .map((candidate) => ({ itemId: candidate.itemId as string, count: 1 }));
+      const rewardEffects = owner
+        ? combinedItemEffects([...owner.items, ...placedRewards])
+        : null;
       const range = buildingStats('basic-turret', building.level).range
-        + (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus + combinedItemEffects(owner.items).turretRangeBonus : 0)
+        + (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus + (rewardEffects?.turretRangeBonus ?? 0) : 0)
         + rangeBonus;
       const nearest = this.snapshotData.ghosts.filter((ghost) =>
         ghost.hp > 0 && !ghost.healing
@@ -2867,8 +3014,7 @@ export class ThreeGameView {
     if (
       this.portraitLayout &&
       local?.alive &&
-      !local.roomId &&
-      this.pointerNearLocalPlayer(event.clientX, event.clientY)
+      !local.roomId
     ) {
       event.preventDefault();
       this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -3106,17 +3252,6 @@ export class ThreeGameView {
     const dx = second.x - first.x;
     const dy = second.y - first.y;
     return { distance: Math.hypot(dx, dy) };
-  }
-
-  private pointerNearLocalPlayer(clientX: number, clientY: number): boolean {
-    const view = this.playerViews.get(this.playerId);
-    if (!view) return false;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const screen = view.root.position.clone().add(new THREE.Vector3(0, 0.76, 0)).project(this.camera);
-    const x = rect.left + (screen.x * 0.5 + 0.5) * rect.width;
-    const y = rect.top + (-screen.y * 0.5 + 0.5) * rect.height;
-    const hitRadius = clamp(rect.width * 0.13, 46, 72);
-    return Math.hypot(clientX - x, clientY - y) <= hitRadius;
   }
 
   private dispatchPortraitMovement(screenX: number, screenY: number): void {

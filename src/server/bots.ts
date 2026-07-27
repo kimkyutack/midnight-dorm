@@ -34,7 +34,11 @@ function movementToward(player: PlayerState, target: { x: number; y: number }): 
 
 function movementAlongPath(player: PlayerState, target: { x: number; y: number }, map: MapDefinition): BotIntent {
   const path = findPath(map, player.position, target);
-  const waypoint = path[1] ?? target;
+  // A survivor can move more than half a tile between two decisions.  Do not
+  // steer back to the just-passed A* node in that case: doing so creates the
+  // visible forward/backward shuffle at a door.  Select the first upcoming
+  // tile that is still meaningfully ahead of the bot instead.
+  const waypoint = path.slice(1).find((tile) => distance(player.position, tile) > 0.42) ?? target;
   return movementToward(player, waypoint);
 }
 

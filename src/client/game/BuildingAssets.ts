@@ -1,8 +1,9 @@
 import type { BuildingKind } from '../../shared/types';
+import { getRandomItem } from '../../shared/randomItems';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
-const BUILDING_ART_VERSION = 'cute-tile-v8-ranked';
+const BUILDING_ART_VERSION = 'cute-tile-v9-loot';
 
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',
@@ -23,7 +24,20 @@ const STATIC_ART: Partial<Record<BuildingKind, string>> = {
 };
 
 /** Image-led top-down construction art for every installable building. */
-export function buildingAssetUrl(kind: BuildingKind, level = 1): string | null {
+export function randomItemAssetUrl(itemId?: string): string {
+  if (itemId === 'golden-ticket')
+    return `/assets/items/golden-ticket.png?v=${BUILDING_ART_VERSION}`;
+  const effect = itemId ? getRandomItem(itemId)?.effect : undefined;
+  const file = effect?.goldPerSecond
+    ? 'random-loot-gold'
+    : effect?.powerPerSecond
+      ? 'random-loot-power'
+      : 'random-loot-turret';
+  return `/assets/items/${file}.png?v=${BUILDING_ART_VERSION}`;
+}
+
+export function buildingAssetUrl(kind: BuildingKind, level = 1, itemId?: string): string | null {
+  if (kind === 'random-item') return randomItemAssetUrl(itemId);
   if (kind === 'shield-device')
     return `/assets/buildings/cute-shield-device-${Math.max(1, Math.floor(level))}-v2.png?v=${BUILDING_ART_VERSION}`;
   if (LEVELLED_BUILDINGS.has(kind))

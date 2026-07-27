@@ -122,6 +122,7 @@ let inputSequence = 0;
 let inputVector: Vec2 = { x: 0, y: 0 };
 let lastMovementSentAt = 0;
 let pendingMovementTimer = 0;
+let movementKeepaliveTimer = 0;
 let tileSelectionBlockedUntil = 0;
 let buildPanelInputBlockedUntil = 0;
 const pendingActions = new Map<string, number>();
@@ -172,6 +173,7 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "ghost-net": "#",
   "range-amplifier": "◎",
   "starter-grave": "†",
+  "random-item": "✦",
 };
 
 interface RoomStatusResponse {
@@ -322,17 +324,13 @@ function playerProfileDisplayInfo(player: PlayerState): ProfileDisplayInfo {
 
 const profileBadgeHtml = (display: ProfileDisplayInfo, badgeClass = ''): string =>
   `<span class="rank-identity ${display.className}"><img class="rank-badge ${badgeClass}" src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}" /><b>${escapeHtml(display.rankText)}</b></span>`;
-const playerFaceHtml = (appearance: AvatarAppearance): string => {
-  const animal = appearance.character.replace("character-", "");
-  return `<span class="player-face face-${escapeHtml(animal)}" aria-hidden="true"><i class="face-ear left"></i><i class="face-ear right"></i><b class="face-eye left"></b><b class="face-eye right"></b><em></em></span>`;
-};
 const DEFAULT_PROFILE_AVATAR = '/assets/ui/default-profile.svg';
 const profileAvatarHtml = (avatarUrl: string | null | undefined, className = 'player-face profile-avatar'): string =>
   `<img class="${className}" src="${escapeHtml(avatarUrl || DEFAULT_PROFILE_AVATAR)}" alt="" />`;
 const playerPortraitHtml = (player: PlayerState): string =>
-  player.profileAvatarUrl
-    ? profileAvatarHtml(player.profileAvatarUrl)
-    : playerFaceHtml(player.appearance);
+  // The same default profile artwork is used everywhere.  Falling back to a
+  // character face in-game made the lobby/home identity appear to change.
+  profileAvatarHtml(player.profileAvatarUrl);
 
 function backgroundTrackForView(view: string): BackgroundTrack | null {
   if (view === "game") return "ingame";
@@ -1596,6 +1594,9 @@ function gameScreen(state: GameSnapshot): void {
     .querySelectorAll('[data-camera="rotate-left"], [data-camera="rotate-right"]')
     .forEach((button) => button.remove());
   setupJoystick();
+  const portraitDragCopy = app.querySelector<HTMLElement>(".portrait-drag-hint span");
+  if (portraitDragCopy)
+    portraitDragCopy.innerHTML = "화면을 누른 채<br>움직일 방향으로 드래그";
   app
     .querySelector("[data-inventory]")
     ?.addEventListener("click", showInventory);
@@ -1640,6 +1641,10 @@ function gameScreen(state: GameSnapshot): void {
     snapshot: state,
     onSleep: () => {
       network?.interact();
+      audio.play("button");
+    },
+    onPickupLoot: (lootId) => {
+      network?.pickupLoot(lootId);
       audio.play("button");
     },
   });
@@ -1690,7 +1695,7 @@ function updateHud(): void {
     .querySelector("[data-inventory]")
     ?.classList.toggle(
       "hidden",
-      !me?.alive || (!me?.items.length && !me?.consumableLoadout.length),
+      !me?.alive || (!me?.items.length && !me?.consumableLoadout.length && !snapshot.buildings.some((building) => building.ownerId === me.id && building.kind === 'random-item')),
     );
   app
     .querySelector("[data-interact]")
@@ -1831,13 +1836,27 @@ function resultScreen(state: GameSnapshot): void {
     network = null;
     if (code) forgetRoom(code);
     loading();
-    void getAccount()
-      .then((next) => {
-        account = next;
-        homePlayMode = next.selectedPlayMode;
-        homeScreen();
-      })
-      .catch(() => authScreen());
+    if (victory) {
+      const nextStage = stagesThrough(state.stageIndex + 1).at(-1);
+      if (nextStage) homeStageSelection[state.playMode] = nextStage.id;
+    }
+    void (async () => {
+      // Match rewards are written by the room just after the result snapshot.
+      // Retry briefly so returning home always receives the newly unlocked
+      // stage instead of rendering the pre-clear dropdown selection.
+      let next = await getAccount();
+      for (let attempt = 1; attempt < 4; attempt += 1) {
+        const unlockedIndex = state.playMode === 'solo'
+          ? next.soloStageIndex
+          : next.multiplayerStageIndex;
+        if (!victory || unlockedIndex > state.stageIndex) break;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 360));
+        next = await getAccount();
+      }
+      account = next;
+      homePlayMode = next.selectedPlayMode;
+      homeScreen();
+    })().catch(() => authScreen());
   });
 }
 
@@ -2153,6 +2172,14 @@ function renderTargetPanel(selection: SceneSelection): void {
     wireBuildingRemoval(panel, building.id);
     return;
   }
+  if (kind === 'random-item' && building) {
+    const item = getRandomItem(building.itemId ?? '');
+    panel.innerHTML = `${panelHeadingMarkup('REWARD', `${buildingIconMarkup(kind)} ${escapeHtml(item?.label ?? '랜덤 보상')}`)}<p class="panel-description reward-description">${escapeHtml(item?.description ?? definition.description)}</p><p class="reward-source-note">철거할 때까지 이 위치에서 효과가 계속 적용됩니다.</p>${removalMarkup}`;
+    panel.classList.remove('hidden');
+    wireBuildPanelClose(panel);
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
   const benefits = rankBenefits(modeRank);
   const maxLevel = maxBuildingLevel(kind, modeRank);
   const nextLevel = currentLevel + 1;
@@ -2401,8 +2428,31 @@ function flushMovement(): void {
   network?.move(inputVector.x, inputVector.y, ++inputSequence);
 }
 
+function syncMovementKeepalive(): void {
+  const moving = Math.hypot(inputVector.x, inputVector.y) > 0.001;
+  if (!moving) {
+    if (movementKeepaliveTimer) window.clearInterval(movementKeepaliveTimer);
+    movementKeepaliveTimer = 0;
+    return;
+  }
+  if (movementKeepaliveTimer) return;
+  // Touch devices do not keep emitting pointermove while a finger is held
+  // still. Re-send the current intent so one dropped websocket frame cannot
+  // leave the server at an old direction while local prediction keeps moving.
+  movementKeepaliveTimer = window.setInterval(() => {
+    if (Math.hypot(inputVector.x, inputVector.y) <= 0.001) {
+      syncMovementKeepalive();
+      return;
+    }
+    if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+    pendingMovementTimer = 0;
+    flushMovement();
+  }, MOVEMENT_SEND_INTERVAL_MS);
+}
+
 function sendMovement(force = false): void {
   game?.setLocalInput(inputVector);
+  syncMovementKeepalive();
   if (force) {
     if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
     flushMovement();
@@ -2436,6 +2486,8 @@ function playEvents(events: GameEvent[]): void {
       "ghost-return",
       "ghost-skill",
       "item-draw",
+      "item-drop",
+      "item-pickup",
       "consumable-use",
       "elite-join",
       "victory",
@@ -2447,10 +2499,6 @@ function playEvents(events: GameEvent[]): void {
   if (elite?.label) showEliteEntrance(elite.label);
   const death = events.find((event) => event.kind === "death" && event.playerId);
   if (death?.playerId) showDeathNotice(death.playerId);
-  const draw = events.find(
-    (event) => event.kind === "item-draw" && event.playerId === playerId,
-  );
-  if (draw?.itemId) showItemReveal(draw.itemId);
   const consumable = events.find(
     (event) => event.kind === "consumable-use" && event.playerId === playerId,
   );
@@ -2489,17 +2537,26 @@ function showInventory(): void {
   const me = snapshot.players.find((player) => player.id === playerId);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
-  const randomCards = me?.items.length
-    ? me.items
-        .map((owned) => {
-          const item = getRandomItem(owned.itemId);
-          const art = owned.itemId === 'golden-ticket'
-            ? '<img class="inventory-item-art" src="/assets/items/golden-ticket.png" alt="황금 티켓"/>'
+  const placedRewards = me
+    ? snapshot.buildings.filter((building) =>
+        building.ownerId === me.id && building.kind === 'random-item' && building.itemId,
+      )
+    : [];
+  const legacyRewards = me?.items ?? [];
+  const randomCards = placedRewards.length || legacyRewards.length
+    ? [
+        ...placedRewards.map((building) => {
+          const item = getRandomItem(building.itemId ?? '');
+          return item
+            ? `<article class="item-card rarity-${item.rarity}"><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>방에 설치됨 · ${item.rarity.toUpperCase()}</small></article>`
             : '';
-          return `<article class="item-card rarity-${owned.rarity}">${art}<strong>${escapeHtml(owned.label)}${owned.count > 1 ? ` ×${owned.count}` : ""}</strong><span>${escapeHtml(item?.description ?? "")}</span><small>${owned.rarity.toUpperCase()}</small></article>`;
-        })
-        .join("")
-    : '<p class="subtitle">랜덤 상자를 설치하고 아이템을 뽑아보세요.</p>';
+        }),
+        ...legacyRewards.map((owned) => {
+          const item = getRandomItem(owned.itemId);
+          return `<article class="item-card rarity-${owned.rarity}"><strong>${escapeHtml(owned.label)}${owned.count > 1 ? ` ×${owned.count}` : ""}</strong><span>${escapeHtml(item?.description ?? "")}</span><small>이전 보상 · ${owned.rarity.toUpperCase()}</small></article>`;
+        }),
+      ].join('')
+    : '<p class="subtitle">랜덤 상자를 열면 결과물이 방 안에 설치됩니다.</p>';
   const supplies = me?.consumableLoadout
     .map((itemId) => {
       const item = shopConsumableById(itemId);
@@ -2519,7 +2576,7 @@ function showInventory(): void {
       return `<article class="item-card supply-item ${used ? "spent" : ""}"><i>${item.icon}</i><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>${targetHint} · ${used ? "이번 판 사용 완료" : `남은 재고 ${quantity}개`}</small><button ${used || quantity <= 0 ? "disabled" : ""} data-use-consumable="${item.id}">${used ? "사용 완료" : "사용"}</button></article>`;
     })
     .join("");
-  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH BAG · ${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}</span><h2>이번 판 가방</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">랜덤 획득품</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
+  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH ITEMS · ${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}</span><h2>이번 판 보상</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">설치한 랜덤 보상</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
   app.appendChild(modal);
   modal
     .querySelector("[data-close]")
@@ -2555,18 +2612,6 @@ function showInventory(): void {
       modal.remove();
     }),
   );
-}
-
-function showItemReveal(itemId: string): void {
-  const item = getRandomItem(itemId);
-  if (!item) return;
-  const modal = document.createElement("div");
-  modal.className = "modal-backdrop item-reveal";
-  modal.innerHTML = `<section class="panel compact rarity-${item.rarity}" style="text-align:center"><div class="reveal-orb">🎁</div><span class="eyebrow">${item.rarity.toUpperCase()} DROP</span><h2>${escapeHtml(item.label)}</h2><p class="subtitle">${escapeHtml(item.description)}</p><button class="btn gold" style="width:100%" data-close>가방에 넣기</button></section>`;
-  app.appendChild(modal);
-  modal
-    .querySelector("[data-close]")
-    ?.addEventListener("click", () => modal.remove());
 }
 
 function updateConnection(
@@ -2798,6 +2843,10 @@ function destroyGame(): void {
     "dorm:portrait-move",
     onPortraitMove as EventListener,
   );
+  if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+  pendingMovementTimer = 0;
+  inputVector = { x: 0, y: 0 };
+  syncMovementKeepalive();
   game?.destroy();
   game = null;
 }

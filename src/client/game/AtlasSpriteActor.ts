@@ -22,6 +22,8 @@ export interface AtlasSpriteDefinition extends AtlasLayerDefinition {
   renderOrder: number;
   name: string;
   sideFacesLeft?: boolean;
+  /** Some early concept sheets exported front/back rows in reverse order. */
+  frontBackSwapped?: boolean;
 }
 
 interface TextureCacheEntry {
@@ -212,6 +214,7 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
     size: 1.2,
     renderOrder: 5_200,
     name: appearance.skin,
+    frontBackSwapped: appearance.character === 'character-puppy',
   };
 }
 
@@ -239,11 +242,13 @@ export class AtlasSpriteActor {
   private readonly layers: AtlasLayer[] = [];
   private facing: SpriteFacing = { direction: 'front', mirrored: false };
   private readonly sideFacesLeft: boolean;
+  private readonly frontBackSwapped: boolean;
   private disposed = false;
 
   constructor(definition: AtlasSpriteDefinition) {
     this.size = definition.size;
     this.sideFacesLeft = Boolean(definition.sideFacesLeft);
+    this.frontBackSwapped = Boolean(definition.frontBackSwapped);
     this.object.name = `${definition.name}-sprite-actor`;
     this.object.userData.renderMode = 'atlas-2d';
     this.object.position.y = 0.24;
@@ -374,7 +379,14 @@ export class AtlasSpriteActor {
   }
 
   private setFrame(mode: SpriteAtlasMode, frame: number): void {
-    const row = this.facing.direction === 'front' ? 0 : this.facing.direction === 'back' ? 1 : 2;
+    const direction = mode !== 'sleep' && this.frontBackSwapped
+      ? this.facing.direction === 'front'
+        ? 'back'
+        : this.facing.direction === 'back'
+          ? 'front'
+          : this.facing.direction
+      : this.facing.direction;
+    const row = direction === 'front' ? 0 : direction === 'back' ? 1 : 2;
     const columns = mode === 'sleep' ? 1 : mode === 'attack' ? 3 : 4;
     const safeFrame = Math.min(columns - 1, Math.max(0, frame));
     for (const layer of this.layers) {
