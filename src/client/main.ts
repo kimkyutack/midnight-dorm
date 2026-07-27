@@ -516,14 +516,6 @@ const TUTORIALS: Record<TutorialTopic, TutorialDefinition> = {
 };
 
 const TUTORIAL_TOPIC_FOR_VIEW: Partial<Record<string, TutorialTopic>> = {
-  home: "overview",
-  shop: "points",
-  customize: "points",
-  "room-menu": "modes",
-  lobby: "battle",
-  "ranked-queue": "ranked",
-  game: "battle",
-  result: "points",
 };
 
 function guideIconMarkup(): string {
