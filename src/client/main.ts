@@ -31,6 +31,7 @@ import {
   stagesThrough,
 } from "../shared/progression";
 import { stageThemeFor } from "../shared/stageThemes";
+import { APP_RELEASE_VERSION, isUpdateAvailable, type AppUpdate } from "../shared/appUpdates";
 import type {
   AccountProfile,
   AvatarAppearance,
@@ -137,6 +138,7 @@ const automationMode =
 const testShellMode = e2eMode || automationMode;
 const devMode = new URLSearchParams(location.search).get("dev") === "1";
 const freshMode = new URLSearchParams(location.search).get("fresh") === "1";
+let updatePromptOpen = false;
 // Prediction runs locally; a 12.5Hz intent stream is enough for the server
 // and avoids flooding an unstable mobile network with pointer-move packets.
 const MOVEMENT_SEND_INTERVAL_MS = 80;
@@ -2655,7 +2657,7 @@ function showSettings(): void {
   const logoutAction = account && !isInGameSettings
     ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
     : "";
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions"><button class="btn ghost" data-app-updates>업데이트 내역</button>${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
   modal
     .querySelector<HTMLInputElement>("[data-music-volume]")
@@ -2698,6 +2700,12 @@ function showSettings(): void {
       button.classList.toggle("off", !profile.vibration);
       button.setAttribute("aria-pressed", String(profile.vibration));
       button.textContent = profile.vibration ? "켜짐" : "꺼짐";
+    });
+  modal
+    .querySelector<HTMLButtonElement>("[data-app-updates]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      void showAppUpdateHistory();
     });
   modal
     .querySelector<HTMLButtonElement>("[data-leave-game]")
@@ -2755,6 +2763,80 @@ function showSettings(): void {
     audio.play("button");
     modal.remove();
   });
+}
+
+function formatUpdateDate(timestamp: number): string {
+  if (!timestamp) return '';
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(timestamp));
+}
+
+async function fetchAppUpdates(): Promise<AppUpdate[]> {
+  const response = await fetch('/api/app-updates?limit=20', { cache: 'no-store' });
+  if (!response.ok) throw new Error('업데이트 내역을 불러오지 못했습니다.');
+  const data = await response.json() as { updates?: AppUpdate[] };
+  return data.updates ?? [];
+}
+
+async function showAppUpdateHistory(): Promise<void> {
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `<section class="panel compact app-update-history" role="dialog" aria-label="업데이트 내역"><span class="eyebrow">PATCH NOTES</span><h2>업데이트 내역</h2><p class="subtitle">현재 앱 버전 ${APP_RELEASE_VERSION}</p><div class="app-update-list"><p class="subtitle">불러오는 중…</p></div><button class="btn primary" data-close>닫기</button></section>`;
+  app.appendChild(modal);
+  modal.querySelector('[data-close]')?.addEventListener('click', () => modal.remove());
+  const list = modal.querySelector<HTMLElement>('.app-update-list');
+  try {
+    const updates = await fetchAppUpdates();
+    if (!list || !modal.isConnected) return;
+    list.innerHTML = updates.length
+      ? updates.map((update) => `<article><header><strong>${escapeHtml(update.title)}</strong><small>${escapeHtml(update.version)} · ${escapeHtml(formatUpdateDate(update.publishedAt))}</small></header><p>${escapeHtml(update.summary)}</p></article>`).join('')
+      : '<p class="subtitle">아직 등록된 업데이트 내역이 없습니다.</p>';
+  } catch (error) {
+    if (list && modal.isConnected) list.innerHTML = `<p class="subtitle">${escapeHtml(error instanceof Error ? error.message : '업데이트 내역을 불러오지 못했습니다.')}</p>`;
+  }
+}
+
+async function forceRefreshForUpdate(version: string): Promise<void> {
+  const tasks: Promise<unknown>[] = [];
+  if ('serviceWorker' in navigator) {
+    tasks.push(navigator.serviceWorker.getRegistrations().then((registrations) =>
+      Promise.all(registrations.map((registration) => registration.update().catch(() => undefined))),
+    ));
+  }
+  if ('caches' in window) {
+    tasks.push(caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))));
+  }
+  await Promise.allSettled(tasks);
+  const next = new URL(location.href);
+  next.searchParams.set('app-update', version);
+  location.replace(next.toString());
+}
+
+async function checkForAppUpdate(): Promise<void> {
+  if (testShellMode || updatePromptOpen) return;
+  try {
+    const response = await fetch('/api/app-updates/latest', { cache: 'no-store' });
+    if (!response.ok) return;
+    const data = await response.json() as { latest?: AppUpdate | null };
+    const latest = data.latest;
+    if (!latest || !isUpdateAvailable(APP_RELEASE_VERSION, latest.version)) return;
+    updatePromptOpen = true;
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop app-update-available';
+    modal.innerHTML = `<section class="panel compact" role="dialog" aria-modal="true" aria-label="새 업데이트"><span class="eyebrow">NEW UPDATE</span><h2>최신 업데이트가 있습니다</h2><p class="subtitle">${escapeHtml(latest.title)}</p><p class="app-update-summary">${escapeHtml(latest.summary)}</p><small>현재 ${APP_RELEASE_VERSION} · 최신 ${escapeHtml(latest.version)}</small><button class="btn primary" data-refresh-update>확인하고 새로고침</button></section>`;
+    app.appendChild(modal);
+    modal.querySelector<HTMLButtonElement>('[data-refresh-update]')?.addEventListener('click', (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = '업데이트 적용 중…';
+      void forceRefreshForUpdate(latest.version);
+    });
+  } catch {
+    // Update checks are advisory. A temporary offline response must never
+    // interrupt opening, login, or an in-progress game.
+  }
 }
 
 function leaveCurrentGame(): void {
@@ -2903,6 +2985,7 @@ if ("serviceWorker" in navigator && !devMode)
   );
 
 loading();
+void checkForAppUpdate();
 window.setTimeout(() => {
   const mobile =
     matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;

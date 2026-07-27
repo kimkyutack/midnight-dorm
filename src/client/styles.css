@@ -5803,6 +5803,52 @@ select {
 .settings-actions .btn:only-child {
   grid-column: 1 / -1;
 }
+.app-update-history {
+  max-height: min(74dvh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+.app-update-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  min-height: 112px;
+  margin: 4px 0 14px;
+  padding-right: 2px;
+}
+.app-update-list article {
+  padding: 11px;
+  border: 1px solid rgba(117, 222, 239, 0.18);
+  border-radius: 12px;
+  background: rgba(8, 18, 31, 0.72);
+}
+.app-update-list header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.app-update-list strong { color: #effcff; font-size: 12px; }
+.app-update-list small { color: #8bdde9; font-size: 8px; white-space: nowrap; }
+.app-update-list p {
+  margin: 7px 0 0;
+  color: rgba(230, 244, 248, 0.76);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.app-update-available .panel { text-align: center; }
+.app-update-summary {
+  margin: 12px 0;
+  color: rgba(232, 246, 250, 0.8);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.app-update-available small {
+  display: block;
+  margin-bottom: 13px;
+  color: rgba(145, 224, 235, 0.66);
+  font-size: 9px;
+}
 #orientation-lock {
   display: none;
   position: fixed;

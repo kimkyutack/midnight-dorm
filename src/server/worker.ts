@@ -1,5 +1,6 @@
 import type { GameRoom } from './GameRoom';
 import { getStage, unlockedStageIndex } from '../shared/progression';
+import { CURRENT_APP_UPDATE, type AppUpdate } from '../shared/appUpdates';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
 import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
@@ -11,6 +12,54 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   DATA_ENV: 'remote-d1' | 'local-e2e';
+}
+
+interface AppUpdateRow {
+  version: string;
+  title: string;
+  summary: string;
+  published_at: number;
+}
+
+const noStoreHeaders = {
+  'cache-control': 'no-store, max-age=0, must-revalidate',
+  pragma: 'no-cache',
+};
+
+function appUpdateFromRow(row: AppUpdateRow): AppUpdate {
+  return {
+    version: row.version,
+    title: row.title,
+    summary: row.summary,
+    publishedAt: row.published_at,
+  };
+}
+
+async function routeAppUpdates(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const latestOnly = url.pathname.endsWith('/latest');
+  const limit = Math.min(30, Math.max(1, Number(url.searchParams.get('limit') ?? 12) || 12));
+  try {
+    if (latestOnly) {
+      const row = await env.DB.prepare(
+        'SELECT version, title, summary, published_at FROM app_updates ORDER BY published_at DESC, version DESC LIMIT 1',
+      ).first<AppUpdateRow>();
+      return Response.json({ latest: row ? appUpdateFromRow(row) : null }, { headers: noStoreHeaders });
+    }
+    const result = await env.DB.prepare(
+      'SELECT version, title, summary, published_at FROM app_updates ORDER BY published_at DESC, version DESC LIMIT ?',
+    ).bind(limit).all<AppUpdateRow>();
+    return Response.json({ updates: (result.results ?? []).map(appUpdateFromRow) }, { headers: noStoreHeaders });
+  } catch (error) {
+    // A stale worker can briefly run before the D1 migration is applied. It
+    // must not block login or cause an infinite refresh loop in that window.
+    const missingUpdateTable = error instanceof Error && /no such table: app_updates/i.test(error.message);
+    if (!missingUpdateTable) console.error('Failed to read app update history', error);
+    return Response.json(
+      { latest: latestOnly ? CURRENT_APP_UPDATE : null, updates: latestOnly ? [] : [CURRENT_APP_UPDATE] },
+      { headers: noStoreHeaders },
+    );
+  }
 }
 
 async function createRoom(request: Request, env: Env, profile: AccountProfile): Promise<Response> {
@@ -117,6 +166,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, service: 'midnight-dorm', dataEnvironment: env.DATA_ENV, timestamp: Date.now() });
+    }
+    if ((url.pathname === '/api/app-updates' || url.pathname === '/api/app-updates/latest') && request.method === 'GET') {
+      return routeAppUpdates(request, env);
     }
     const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (authResponse) return authResponse;

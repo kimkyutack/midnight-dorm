@@ -22,6 +22,7 @@ import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl } from '../src/client/game/BuildingAssets';
 import { GameNetwork } from '../src/client/network';
+import { APP_RELEASE_VERSION, isUpdateAvailable } from '../src/shared/appUpdates';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -105,6 +106,14 @@ describe('mobile viewport compatibility', () => {
       coarsePointer: true,
       maxTouchPoints: 5,
     })).toBeNull();
+  });
+});
+
+describe('app update versioning', () => {
+  it('only prompts when D1 reports a different deployed release', () => {
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.1')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
   });
 });
 

@@ -76,7 +76,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 
 ## PWA와 저장
 
-Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. 탭 파비콘과 192/512 PNG 홈 화면 아이콘은 `public/icons/icon-scene-source.png`에서 만든 검증된 래스터 자산을 사용하며, `scripts/generate-icons.mjs`는 빌드 전에 해당 자산이 존재하는지만 확인합니다.
+Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. 탭 파비콘과 192/512 PNG 홈 화면 아이콘은 `public/icons/icon-scene-source.png`에서 만든 검증된 래스터 자산을 사용하며, `scripts/generate-icons.mjs`는 빌드 전에 해당 자산이 존재하는지만 확인합니다. 배포 내역은 D1의 `app_updates`에 저장하고, 앱은 캐시하지 않는 `/api/app-updates/latest` 응답과 번들 버전을 비교합니다. 새 버전이 있으면 확인 후 Service Worker 갱신·Cache Storage 삭제·버전 쿼리 재진입으로 최신 앱 셸을 강제 로드합니다. 설정의 `업데이트 내역`에서도 최근 공지를 확인할 수 있습니다.
 
 localStorage에는 임의 UUID, 음량·진동, 로컬 기록, 최근 코드, 재접속 토큰만 저장합니다. 계정, 비밀번호 해시, 세션, 등급, XP, 스테이지와 매치 결과는 D1에 저장합니다. 실제 기기 식별자는 수집하지 않습니다.
 
@@ -91,6 +91,8 @@ npm run deploy
 ```
 
 Cloudflare 인증이 이미 유효하면 두 번째 명령만 실행하면 됩니다. 프론트엔드와 `/api/rooms/*` WebSocket은 동일 Worker 도메인에서 제공됩니다.
+
+새 배포를 등록할 때는 `src/shared/appUpdates.ts`의 `APP_RELEASE_VERSION`을 올리고, 같은 버전·제목·요약을 넣은 D1 마이그레이션을 추가한 뒤 `npm run db:migrate:remote`를 배포 전에 실행합니다.
 
 Cloudflare 대시보드에서 Git 리포지토리 빌드를 사용할 때는 각 명령을 `&&`로 연결하거나 별도 필드에 정확히 나눠 입력해야 합니다. `npm install npm run build npm run db:migrate:remote`처럼 공백만으로 이어 쓰면 `npm install`의 패키지 인자로 해석되어 `npm run build`와 D1 마이그레이션이 실행되지 않습니다.
 

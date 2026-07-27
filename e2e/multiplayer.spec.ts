@@ -159,7 +159,17 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByRole('button', { name: '닫기' }).click();
     await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
+    await page.getByRole('button', { name: '업데이트 내역' }).click();
+    await expect(page.getByRole('dialog', { name: '업데이트 내역' })).toBeVisible();
+    await expect(page.getByText('모바일 조작과 보상 흐름 개선')).toBeVisible();
+    await page.getByRole('button', { name: '닫기' }).click();
     await page.getByRole("button", { name: "완료" }).click();
+    const latestUpdate = await page.request.get('/api/app-updates/latest', {
+      headers: { 'cache-control': 'no-cache' },
+    });
+    expect(latestUpdate).toBeOK();
+    expect(latestUpdate.headers()['cache-control']).toContain('no-store');
+    expect((await latestUpdate.json()).latest.version).toBe('2026.07.27.2');
     const profileResponse = await page.request.get("/api/auth/me");
     expect(profileResponse).toBeOK();
     const profile = (await profileResponse.json()) as {
