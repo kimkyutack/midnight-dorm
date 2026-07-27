@@ -1125,8 +1125,17 @@
   position: static;
   min-width: 0;
   max-width: 330px;
-  padding: 8px 11px;
+  height: 64px;
+  min-height: 60px;
+  padding: 0 11px;
   border-radius: 16px;
+}
+.home-topbar .home-account > div:last-child {
+  display: flex;
+  height: 44px;
+  min-height: 44px;
+  flex-direction: column;
+  justify-content: center;
 }
 .home-profile-stack {
   display: flex;
@@ -2147,8 +2156,6 @@
   }
   .home-topbar .home-account {
     max-width: calc(100cqw - 132px);
-    gap: 6px;
-    padding: 7px 9px;
   }
   .home-topbar .home-account .rank-emblem {
     min-width: 34px;
@@ -2731,21 +2738,42 @@
   margin-left: 4px;
   object-fit: contain;
 }
-.leader-score {
-  color: #b8f0ff;
-}
 .leader-first {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 15px;
+  gap: 8px;
+}
+.leader-avatar {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(151, 224, 244, 0.38);
+  border-radius: 50%;
+  object-fit: cover;
+  background: #162840;
 }
 .leader-place {
-  justify-self: end;
+  text-align: center;
   color: #f9d87e;
   font-size: 16px;
   font-weight: 1000;
   line-height: 1;
+}
+.leader-tier {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: #b8f0ff;
+  white-space: nowrap;
+}
+.leader-tier img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+.leader-tier strong {
+  font-size: 10px;
 }
 
 .time-attack-clock {
@@ -3902,9 +3930,9 @@ button {
 }
 .home-profile-photo {
   display: grid;
-  flex: 0 0 50px;
-  width: 50px;
-  height: 50px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
   overflow: hidden;
   place-items: center;
   border: 1px solid rgba(135, 226, 236, 0.62);
@@ -4722,6 +4750,12 @@ select {
 }
 .rank-border-master {
   border-color: rgba(189, 140, 255, 0.56);
+}
+.rank-border-expert {
+  border-color: rgba(86, 181, 255, 0.78);
+  box-shadow:
+    0 0 0 1px rgba(78, 164, 255, 0.1),
+    inset 0 0 14px rgba(66, 159, 255, 0.1);
 }
 .rank-border-veteran {
   border-color: rgba(255, 188, 98, 0.64);
@@ -7286,9 +7320,12 @@ select {
   .home-topbar .home-account {
     min-width: 0;
     flex: 1 1 auto;
+    height: 64px;
+    min-height: 60px;
+    padding-block: 0;
   }
   .home-topbar .home-account > div:last-child > span,
-  .home-topbar .home-account small {
+  .home-topbar .home-account em {
     display: none;
   }
   .home-topbar .home-account strong {

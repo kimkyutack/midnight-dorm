@@ -1,7 +1,7 @@
 import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { shopConsumableById } from '../shared/shopConsumables';
-import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, ProfileDisplayMode, TurretKind, TurretSkinLoadout } from '../shared/types';
+import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -772,7 +772,18 @@ export async function recordRankedMatchResult(
   }
 }
 
-export async function rankedLeaderboard(db: D1Database, seasonId = rankedSeasonId()): Promise<Array<{ nickname: string; score: number; rank: number }>> {
+export interface RankedLeaderboardEntry {
+  avatarUrl: string | null;
+  nickname: string;
+  rank: number;
+  rating: number;
+  tier: RankedTier;
+}
+
+export async function rankedLeaderboard(
+  db: D1Database,
+  seasonId = rankedSeasonId(),
+): Promise<RankedLeaderboardEntry[]> {
   const rows = await db.prepare(`WITH contract_attempts AS (
       SELECT r.account_id, r.contract_id, r.score, r.created_at,
         ROW_NUMBER() OVER (PARTITION BY r.account_id, r.contract_id ORDER BY r.score DESC, r.created_at ASC) AS contract_rank
@@ -789,9 +800,29 @@ export async function rankedLeaderboard(db: D1Database, seasonId = rankedSeasonI
       WHERE score_rank <= 5
       GROUP BY account_id
     )
-    SELECT a.nickname AS nickname, totals.score AS score
+    SELECT a.id AS account_id, a.nickname AS nickname, a.profile_avatar AS profile_avatar,
+      a.profile_avatar_updated_at AS profile_avatar_updated_at, a.ranked_rating AS ranked_rating
     FROM totals JOIN accounts a ON a.id = totals.account_id
     ORDER BY totals.score DESC, totals.attained_at ASC
-    LIMIT 50`).bind(seasonId).all<{ nickname: string; score: number }>();
-  return (rows.results ?? []).map((row, index) => ({ nickname: row.nickname, score: row.score, rank: index + 1 }));
+    LIMIT 50`).bind(seasonId).all<{
+      account_id: string;
+      nickname: string;
+      profile_avatar: string;
+      profile_avatar_updated_at: number;
+      ranked_rating: number;
+    }>();
+  return (rows.results ?? []).map((row, index) => {
+    const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
+    const hasAvatar = Boolean(row.profile_avatar) && avatarUpdatedAt > 0;
+    const rating = Math.max(0, row.ranked_rating ?? 800);
+    return {
+      avatarUrl: hasAvatar
+        ? `/api/profile-avatar/${encodeURIComponent(row.account_id)}?v=${avatarUpdatedAt}`
+        : null,
+      nickname: row.nickname,
+      rank: index + 1,
+      rating,
+      tier: rankedTierForRating(rating),
+    };
+  });
 }

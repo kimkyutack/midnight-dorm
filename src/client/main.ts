@@ -911,9 +911,11 @@ function showRankingPreview(): void {
       response.ok
         ? (response.json() as Promise<{
             leaderboard?: Array<{
+              avatarUrl: string | null;
               rank: number;
               nickname: string;
-              score: number;
+              rating: number;
+              tier: keyof typeof RANKED_TIER_LABEL;
             }>;
           }>)
         : Promise.reject(new Error("랭킹 조회 실패")),
@@ -927,7 +929,8 @@ function showRankingPreview(): void {
               const crownImage = placementCrown
                 ? `<img class="leader-crown" src="/assets/ranks/crown-${placementCrown}.png" alt="${entry.rank}위 왕관"/>`
                 : "";
-              return `<li><div class="leader-first"><b class="leader-place">${entry.rank}</b><span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><strong class="leader-score">${entry.score.toLocaleString()}</strong></li>`;
+              const tierName = RANKED_TIER_LABEL[entry.tier];
+              return `<li><div class="leader-first"><b class="leader-place">${entry.rank}</b>${profileAvatarHtml(entry.avatarUrl, "leader-avatar profile-avatar")}<span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><span class="leader-tier"><img src="${rankedBadgeImage(entry.tier)}" alt="${escapeHtml(tierName)}" style="margin-top: 5px;"/><strong>${entry.rating.toLocaleString()} RP</strong></span></li>`;
             })
             .join("")
         : "<li>아직 기록된 시즌 계약이 없습니다.</li>";
