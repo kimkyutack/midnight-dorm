@@ -1125,15 +1125,15 @@
   position: static;
   min-width: 0;
   max-width: 330px;
-  height: 64px;
-  min-height: 60px;
-  padding: 0 11px;
+  height: 74px;
+  min-height: 70px;
+  padding: 6px 12px;
   border-radius: 16px;
 }
 .home-topbar .home-account > div:last-child {
   display: flex;
-  height: 44px;
-  min-height: 44px;
+  height: 54px;
+  min-height: 54px;
   flex-direction: column;
   justify-content: center;
 }
@@ -7551,9 +7551,9 @@ select {
   .home-topbar .home-account {
     min-width: 0;
     flex: 1 1 auto;
-    height: 64px;
-    min-height: 60px;
-    padding-block: 0;
+    height: 74px;
+    min-height: 70px;
+    padding-block: 6px;
   }
   .home-topbar .home-account > div:last-child > span,
   .home-topbar .home-account em {
@@ -7561,7 +7561,7 @@ select {
   }
   .home-topbar .home-account strong {
     max-width: 88px;
-    overflow: hidden;
+    overflow: visible;
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
