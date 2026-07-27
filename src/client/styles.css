@@ -1151,7 +1151,8 @@
 }
 .home-update-notice,
 .home-ad-free,
-.home-ranking-shortcut {
+.home-ranking-shortcut,
+.home-guide {
   display: grid;
   width: 36px;
   min-width: 36px;
@@ -1177,7 +1178,9 @@
 .home-ad-free:hover,
 .home-ad-free:focus-visible,
 .home-ranking-shortcut:hover,
-.home-ranking-shortcut:focus-visible {
+.home-ranking-shortcut:focus-visible,
+.home-guide:hover,
+.home-guide:focus-visible {
   border-color: rgba(136, 237, 248, 0.76);
   outline: 0;
   transform: translateY(-1px);
@@ -1210,6 +1213,17 @@
 .home-ranking-shortcut img {
   width: 32px;
   height: 32px;
+}
+.home-guide {
+  color: #9cecf1;
+}
+.home-guide svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 .app-update-list article p {
   white-space: pre-line;
@@ -5836,6 +5850,223 @@ select {
   padding: 20px;
   background: rgba(4, 5, 16, 0.72);
   backdrop-filter: blur(8px);
+}
+.page-guide-button {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: calc(max(14px, env(safe-area-inset-right)) + 58px);
+  z-index: 13;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(129, 223, 235, 0.48);
+  border-radius: 14px;
+  color: #9eeff5;
+  background: rgba(5, 19, 31, 0.82);
+  box-shadow: inset 0 1px rgba(219, 253, 255, 0.11), 0 7px 16px rgba(0, 0, 0, 0.28);
+}
+.page-guide-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.page-guide-button:hover,
+.page-guide-button:focus-visible {
+  border-color: #aaf8fa;
+  background: rgba(17, 65, 76, 0.9);
+  outline: 0;
+}
+#app[data-view="shop"] > .page-guide-button,
+#app[data-view="customize"] > .page-guide-button {
+  top: 72px;
+  right: max(14px, env(safe-area-inset-right));
+}
+#app[data-view="room-menu"] > .page-guide-button {
+  right: max(14px, env(safe-area-inset-right));
+}
+#app[data-view="lobby"] > .page-guide-button,
+#app[data-view="result"] > .page-guide-button {
+  top: max(20px, env(safe-area-inset-top));
+  right: max(20px, env(safe-area-inset-right));
+}
+#app[data-view="game"] > .page-guide-button {
+  top: auto;
+  right: auto;
+  bottom: max(62px, calc(env(safe-area-inset-bottom) + 58px));
+  left: calc(max(9px, env(safe-area-inset-left)) + 46px);
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+.tutorial-modal {
+  z-index: 90;
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+.tutorial-sheet {
+  display: flex;
+  width: min(92cqw, 570px);
+  max-height: min(90cqh, 760px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(119, 224, 238, 0.42);
+  border-radius: 22px;
+  background: linear-gradient(160deg, rgba(19, 38, 70, 0.98), rgba(6, 14, 27, 0.98));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.56), inset 0 1px rgba(235, 253, 255, 0.1);
+}
+.tutorial-sheet > header {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 15px 8px;
+}
+.tutorial-sheet > header small,
+.tutorial-scene figcaption span {
+  color: #8ceaf2;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.18em;
+}
+.tutorial-sheet > header h2 {
+  margin: 3px 0 0;
+  font-size: 22px;
+}
+.tutorial-sheet > header button {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(208, 230, 239, 0.18);
+  border-radius: 12px;
+  color: #eef6f9;
+  background: rgba(4, 11, 20, 0.62);
+  font-size: 24px;
+}
+.tutorial-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 0 14px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tutorial-tabs::-webkit-scrollbar {
+  display: none;
+}
+.tutorial-tabs button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(152, 206, 226, 0.18);
+  border-radius: 10px;
+  color: rgba(226, 239, 244, 0.68);
+  background: rgba(7, 19, 33, 0.64);
+  font-size: 9px;
+  font-weight: 850;
+}
+.tutorial-tabs button.active {
+  border-color: rgba(135, 235, 243, 0.72);
+  color: #102331;
+  background: linear-gradient(135deg, #a9f4f5, #76cbe9);
+}
+.tutorial-content {
+  min-height: 0;
+  padding: 0 14px 15px;
+  overflow: auto;
+}
+.tutorial-scene {
+  position: relative;
+  min-height: 210px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(125, 224, 235, 0.23);
+  border-radius: 16px;
+  background: #071321;
+}
+.tutorial-scene::after {
+  content: "";
+  position: absolute;
+  inset: 34% 0 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(3, 9, 17, 0.92));
+}
+.tutorial-scene img {
+  display: block;
+  width: 100%;
+  height: 230px;
+  object-fit: cover;
+  object-position: center;
+}
+.tutorial-scene figcaption {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  left: 14px;
+  z-index: 1;
+  text-shadow: 0 3px 8px rgba(0, 0, 0, 0.8);
+}
+.tutorial-scene h3 {
+  margin: 4px 0 3px;
+  font-size: 19px;
+}
+.tutorial-scene p {
+  margin: 0;
+  color: rgba(228, 241, 245, 0.8);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.tutorial-steps {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tutorial-steps li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid rgba(156, 213, 230, 0.16);
+  border-radius: 13px;
+  background: rgba(7, 20, 35, 0.68);
+}
+.tutorial-steps b {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  color: #10212e;
+  background: linear-gradient(135deg, #b5fbf5, #7fcee8);
+  font-size: 10px;
+}
+.tutorial-steps strong,
+.tutorial-steps p {
+  display: block;
+}
+.tutorial-steps strong {
+  font-size: 12px;
+}
+.tutorial-steps p {
+  margin: 3px 0 0;
+  color: rgba(221, 235, 241, 0.7);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.tutorial-privacy-note {
+  margin: 11px 2px 0;
+  color: rgba(166, 203, 215, 0.64);
+  font-size: 8px;
+  line-height: 1.4;
+  text-align: center;
 }
 .purchase-confirm-modal {
   z-index: 80;

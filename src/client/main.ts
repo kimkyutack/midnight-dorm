@@ -407,6 +407,167 @@ function backgroundTrackForView(view: string): BackgroundTrack | null {
   return null;
 }
 
+type TutorialTopic =
+  | "overview"
+  | "battle"
+  | "modes"
+  | "points"
+  | "ranked"
+  | "time-attack";
+
+interface TutorialDefinition {
+  eyebrow: string;
+  image: string;
+  imageAlt: string;
+  intro: string;
+  label: string;
+  steps: Array<{ title: string; description: string }>;
+  title: string;
+}
+
+const TUTORIAL_ORDER: TutorialTopic[] = [
+  "overview",
+  "battle",
+  "modes",
+  "points",
+  "ranked",
+  "time-attack",
+];
+
+const TUTORIALS: Record<TutorialTopic, TutorialDefinition> = {
+  overview: {
+    label: "전체",
+    eyebrow: "SURVIVOR GUIDE",
+    title: "새벽까지 버티는 법",
+    intro: "빈 방을 찾아 침대를 점유한 뒤, 골드와 전기로 내 방을 지키세요.",
+    image: "/assets/tutorial/room-defense-guide.webp",
+    imageAlt: "익명 생존자가 침대와 포탑이 있는 방을 지키는 모습",
+    steps: [
+      { title: "1. 빈 방 찾기", description: "복도를 따라 이동해 비어 있는 방으로 들어가세요. 침대 가까이에서 잠자기를 누르면 방을 점유합니다." },
+      { title: "2. 자원 모으기", description: "침대는 골드를, 발전기는 전기를 만듭니다. 침대를 점유하기 전에는 골드가 늘지 않습니다." },
+      { title: "3. 방어선 만들기", description: "빈 타일의 ＋를 눌러 건물을 설치하고, 문과 포탑을 강화해 귀신을 막으세요." },
+    ],
+  },
+  battle: {
+    label: "인게임",
+    eyebrow: "IN-GAME BASICS",
+    title: "내 방을 끝까지 지키세요",
+    intro: "문이 무너지면 귀신이 방으로 들어옵니다. 건물의 역할을 나눠 쓰고, 필요한 타일에 알맞게 배치하세요.",
+    image: "/assets/tutorial/room-defense-guide.webp",
+    imageAlt: "문과 포탑으로 구성된 익명 방어실",
+    steps: [
+      { title: "이동", description: "캐릭터가 아닌 화면의 원하는 위치를 누른 채 드래그하면 그 방향으로 이동합니다." },
+      { title: "설치와 강화", description: "내 방의 빈 ＋ 타일에서 설치합니다. 업그레이드 가능한 건물에는 작은 화살표가 나타납니다." },
+      { title: "전략 건물", description: "서리 스프레이, 그물, 발전기와 특수 건물은 같은 해법만 반복하지 않도록 서로 다른 위기 대응을 만듭니다." },
+    ],
+  },
+  modes: {
+    label: "방식",
+    eyebrow: "PLAY MODES",
+    title: "상황에 맞는 방식 선택",
+    intro: "홈의 플레이 방식 버튼에서 혼자하기, 친구랑하기, 랭크전을 바꿀 수 있습니다.",
+    image: "/assets/tutorial/ranked-coop-guide.webp",
+    imageAlt: "서로 다른 방에서 협력하는 익명 생존자들",
+    steps: [
+      { title: "혼자하기", description: "생존 봇 3명과 함께 일반 스테이지를 진행합니다. 혼자하기 전용 등급과 스테이지가 기록됩니다." },
+      { title: "친구랑하기", description: "초대 코드로 친구와 실시간 협동합니다. 친구랑하기 전용 진행도와 등급이 따로 쌓입니다." },
+      { title: "랭크전", description: "4인 자동 대기열에서 같은 시즌 계약을 진행합니다. 일반 성장과 별도의 시즌 RP와 순위를 사용합니다." },
+    ],
+  },
+  points: {
+    label: "포인트",
+    eyebrow: "POINTS & REWARDS",
+    title: "승리 보상과 포인트",
+    intro: "커스텀 포인트는 게임을 클리어하면 얻는 영구 재화입니다. 골드와 전기는 한 판 안에서만 사용됩니다.",
+    image: "/assets/tutorial/rewards-points-guide.webp",
+    imageAlt: "침대, 코인, 전기 구슬과 보상 상자가 있는 익명 방",
+    steps: [
+      { title: "클리어 보상", description: "승리하면 스테이지에 따라 80P부터 최대 500P까지 받습니다. 타임어택 클리어는 보너스가 적용됩니다." },
+      { title: "사용처", description: "포인트로 캐릭터·완성형 스킨을 영구 구매하고, 전술 보급품은 수량 단위로 구매합니다." },
+      { title: "판 안 자원", description: "골드와 전기는 해당 게임에서만 쓰입니다. 침대, 발전기, 보석, 랜덤 보상으로 확보하세요." },
+    ],
+  },
+  ranked: {
+    label: "랭크전",
+    eyebrow: "RANKED CONTRACT",
+    title: "14일 시즌 랭크전",
+    intro: "랭크전은 같은 계약 조건에서 협동 실력을 겨루는 4인 시즌 모드입니다.",
+    image: "/assets/tutorial/ranked-coop-guide.webp",
+    imageAlt: "네 방에서 귀신을 함께 막는 익명 랭크전 장면",
+    steps: [
+      { title: "참가 조건", description: "혼자하기 노말 5 클리어와 일반 게임 완료 10회가 필요합니다. 첫 완료 전에는 Unranked로 표시됩니다." },
+      { title: "대기열", description: "비슷한 RP의 4명이 모이면 자동 시작합니다. 40초 안에 비면 빈 자리만 봇이 보충됩니다." },
+      { title: "시즌 순위", description: "계약별 최고 기록 중 상위 5개가 시즌 순위를 만듭니다. 시즌은 2주마다 집계와 보상 후 초기화됩니다." },
+    ],
+  },
+  "time-attack": {
+    label: "타임어택",
+    eyebrow: "LIMITED EVENT",
+    title: "시간 안에 귀신을 처치하세요",
+    intro: "악몽 이상 일반 스테이지에서는 일정 확률로 타임어택이 시작될 수 있습니다.",
+    image: "/assets/tutorial/time-attack-guide.webp",
+    imageAlt: "붉은 시간 경보 아래 커진 귀신과 방어실",
+    steps: [
+      { title: "시작 연출", description: "이벤트 안내가 2초간 표시되는 동안 모두 멈춥니다. 이어서 30초 준비 시간이 시작됩니다." },
+      { title: "5분 제한", description: "준비 시간이 끝나면 5분 안에 귀신을 처치하고 탈출해야 합니다. 좌측 하단 타이머를 확인하세요." },
+      { title: "오버타임", description: "시간이 끝나면 귀신이 커지고, 이후 1분마다 HP·공격력·공격속도가 강해집니다. 클리어하면 포인트와 XP 보너스를 받습니다." },
+    ],
+  },
+};
+
+const TUTORIAL_TOPIC_FOR_VIEW: Partial<Record<string, TutorialTopic>> = {
+  home: "overview",
+  shop: "points",
+  customize: "points",
+  "room-menu": "modes",
+  lobby: "battle",
+  "ranked-queue": "ranked",
+  game: "battle",
+  result: "points",
+};
+
+function guideIconMarkup(): string {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10.5v5M12 7.5h.01"/></svg>';
+}
+
+function guideButtonMarkup(topic: TutorialTopic, className = "page-guide-button"): string {
+  return `<button class="${className}" data-page-guide data-guide-topic="${topic}" aria-label="${TUTORIALS[topic].title} 도움말">${guideIconMarkup()}</button>`;
+}
+
+function bindPageGuides(scope: Element = app): void {
+  scope.querySelectorAll<HTMLButtonElement>("[data-page-guide]").forEach((button) =>
+    button.addEventListener("click", () => {
+      audio.play("button");
+      showTutorial((button.dataset.guideTopic as TutorialTopic | undefined) ?? "overview");
+    }),
+  );
+}
+
+function showTutorial(initialTopic: TutorialTopic = "overview"): void {
+  let activeTopic = initialTopic;
+  const modal = dismissibleModal(
+    '<section class="tutorial-sheet" role="dialog" aria-modal="true" aria-labelledby="tutorial-title"><header><div><small>FIELD GUIDE</small><h2 id="tutorial-title">생존 가이드</h2></div><button data-modal-close aria-label="닫기">×</button></header><nav class="tutorial-tabs" aria-label="가이드 주제"></nav><div class="tutorial-content"></div></section>',
+    "tutorial-modal",
+  );
+  const render = (): void => {
+    const tutorial = TUTORIALS[activeTopic];
+    const tabs = modal.querySelector<HTMLElement>(".tutorial-tabs");
+    const content = modal.querySelector<HTMLElement>(".tutorial-content");
+    if (!tabs || !content) return;
+    tabs.innerHTML = TUTORIAL_ORDER.map(
+      (topic) => `<button class="${topic === activeTopic ? "active" : ""}" data-tutorial-topic="${topic}" aria-pressed="${topic === activeTopic}">${TUTORIALS[topic].label}</button>`,
+    ).join("");
+    content.innerHTML = `<figure class="tutorial-scene"><img src="${tutorial.image}" alt="${tutorial.imageAlt}"/><figcaption><span>${tutorial.eyebrow}</span><h3>${tutorial.title}</h3><p>${tutorial.intro}</p></figcaption></figure><ol class="tutorial-steps">${tutorial.steps.map((step, index) => `<li><b>${String(index + 1).padStart(2, "0")}</b><div><strong>${step.title}</strong><p>${step.description}</p></div></li>`).join("")}</ol><p class="tutorial-privacy-note">가이드 장면은 실제 플레이어 닉네임과 HUD를 표시하지 않는 익명 예시입니다.</p>`;
+    tabs.querySelectorAll<HTMLButtonElement>("[data-tutorial-topic]").forEach((button) =>
+      button.addEventListener("click", () => {
+        activeTopic = button.dataset.tutorialTopic as TutorialTopic;
+        render();
+      }),
+    );
+  };
+  render();
+}
+
 function setContent(view: string, html: string): void {
   if (view !== "ranked-queue" && rankedQueuePollTimer) {
     window.clearTimeout(rankedQueuePollTimer);
@@ -417,8 +578,13 @@ function setContent(view: string, html: string): void {
   currentView = view;
   audio.setBackgroundTrack(backgroundTrackForView(view));
   app.dataset.view = view;
-  app.innerHTML = `${html}<button class="btn icon-btn" data-settings aria-label="설정">⚙</button><div class="toast" id="toast"></div>`;
+  const guideTopic = TUTORIAL_TOPIC_FOR_VIEW[view];
+  const floatingGuide = guideTopic && view !== "home"
+    ? guideButtonMarkup(guideTopic)
+    : "";
+  app.innerHTML = `${html}${floatingGuide}<button class="btn icon-btn" data-settings aria-label="설정">⚙</button><div class="toast" id="toast"></div>`;
   app.querySelector("[data-settings]")?.addEventListener("click", showSettings);
+  bindPageGuides();
 }
 
 function loading(): void {
@@ -511,7 +677,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button></div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("overview", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {

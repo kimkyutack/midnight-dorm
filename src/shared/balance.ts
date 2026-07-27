@@ -77,7 +77,7 @@ export const BALANCE = {
     hpPerPlayer: 0.1,
     baseDamage: 5.8,
     damagePerPlayer: 0.13,
-    damageGrowthPerLevel: 0.58,
+    damageGrowthPerLevel: 0.48,
     shieldPenetrationPerLevel: 0.15,
     speed: 3.55,
     // 방을 아직 점유하지 못한 생존자를 추격할 때도 일반 이동의 흐름을
@@ -92,7 +92,8 @@ export const BALANCE = {
     // 회복 구역으로 복귀 중에도 포탑이 마무리 공격을 할 수 있도록 속도를 제한한다.
     retreatSpeedMultiplier: 1.3,
     // 쉬움 1 기준 첫 성장 21회. 스테이지가 오를수록 1회씩 줄어
-    // 악몽 1부터는 10회 아래로 내려가지 않는다.
+    // 어려움 1부터는 15회 아래로 내려가지 않는다. 고난도에서도
+    // 귀신 레벨이 너무 빨리 오르는 것을 막기 위한 최소 간격이다.
     firstLevelAttacks: 21,
     firstLevelFollowupAttacks: 3,
     attacksAddedPerLevel: 5,

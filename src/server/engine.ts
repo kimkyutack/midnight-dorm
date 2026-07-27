@@ -417,7 +417,7 @@ export class GameEngine {
 
   /** The first growth accelerates by stage, then each later ghost level needs more door pressure. */
   private firstGhostLevelAttacks(): number {
-    return Math.max(10, BALANCE.ghost.firstLevelAttacks - this.stage.index);
+    return Math.max(15, BALANCE.ghost.firstLevelAttacks - this.stage.index);
   }
 
   private attacksForNextGhostLevel(currentLevel: number): number {

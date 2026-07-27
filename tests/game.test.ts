@@ -1991,13 +1991,14 @@ describe('requested progression and event rules', () => {
     expect(grownGhost.attacksToNextLevel).toBe(24);
   });
 
-  it('caps the first ghost growth threshold at ten hits from nightmare one onward', () => {
+  it('caps the first ghost growth threshold at fifteen hits from hard one onward', () => {
     const stages = [
       ['easy-1', 21],
       ['normal-1', 20],
       ['normal-2', 19],
-      ['nightmare-1', 10],
-      ['legendary-99', 10],
+      ['hard-1', 15],
+      ['nightmare-1', 15],
+      ['legendary-99', 15],
     ] as const;
     for (const [stageId, expected] of stages) {
       const engine = new GameEngine(`GROWTH-${stageId}`, generateMap(93_000 + expected), true, { stageId });
@@ -2552,6 +2553,10 @@ describe('persistent account progression', () => {
     expect(getStage('hell-1').skills).toContain('gold-lock');
     expect(getStage('inferno-1').skills).toContain('repair-lock');
     expect(getStage('epic-1').skills).toContain('door-crush');
+    expect(getStage('easy-1').levelHpGrowth).toBe(0.21);
+    expect(getStage('easy-1').levelDamageGrowth).toBe(0.17);
+    expect(getStage('legendary-99').levelHpGrowth).toBe(0.48);
+    expect(getStage('legendary-99').levelDamageGrowth).toBe(0.4);
   });
 
   it('calculates separate ranks and always displays the higher rank', () => {

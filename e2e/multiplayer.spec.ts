@@ -74,6 +74,29 @@ async function joinMultiplayerRoom(page: Page, code: string): Promise<void> {
   await page.getByRole("button", { name: "참가", exact: true }).click();
 }
 
+test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
+  const context = await portraitContext(browser);
+  const page = await context.newPage();
+  try {
+    await enter(page, "가이드검증", "guide");
+    await page
+      .getByRole("button", { name: "새벽까지 버티는 법 도움말" })
+      .click();
+    const guide = page.getByRole("dialog", { name: "생존 가이드" });
+    await expect(guide).toContainText("새벽까지 버티는 법");
+    await expect(guide.locator(".tutorial-scene img")).toHaveAttribute(
+      "src",
+      "/assets/tutorial/room-defense-guide.webp",
+    );
+    await guide.getByRole("button", { name: "랭크전" }).click();
+    await expect(guide).toContainText("14일 시즌 랭크전");
+    await guide.getByRole("button", { name: "타임어택" }).click();
+    await expect(guide).toContainText("시간 안에 귀신을 처치하세요");
+  } finally {
+    await context.close();
+  }
+});
+
 test("portrait home separates shop, owned customization and stage start", async ({
   browser,
 }) => {
