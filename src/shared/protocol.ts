@@ -3,11 +3,12 @@ import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
   'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'move-building', 'upgrade',
-  'remove-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
+  'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
-  'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'starter-grave', 'random-item',
+  'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'overload-capacitor', 'turret-enhancer',
+  'door-anchor', 'reflect-mirror', 'power-panel', 'cursed-contract', 'soul-vial', 'starter-grave', 'random-item',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +68,13 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'remove-building':
       if (typeof value.buildingId !== 'string') return { ok: false, error: 'invalid building id' };
+      break;
+    case 'activate-building':
+      if (typeof value.buildingId !== 'string'
+        || !['use', 'attack', 'defense', 'production', 'berserk', 'soul-arm', 'soul-cancel', 'soul-fire'].includes(String(value.action))
+        || (value.targetId !== undefined && typeof value.targetId !== 'string')) {
+        return { ok: false, error: 'invalid building activation' };
+      }
       break;
     case 'draw-item':
       if (typeof value.machineId !== 'string') return { ok: false, error: 'invalid lucky machine' };

@@ -16,7 +16,8 @@
 ## 랜덤 보상 실물 아이콘
 
 - `public/assets/items/random-loot-gold.png`, `random-loot-power.png`, `random-loot-turret.png`는 랜덤 상자 또는 준비 시간 낙하 보상이 전장 타일에서 사용하는 256×256 투명 PNG다.
-- 골드 생산 효과는 반짝이는 금화 상자, 전력 생산 효과는 청록 배터리, 포탑·문·기타 전투 효과는 강화 키트 형태를 사용한다. `황금 티켓`은 기존 `golden-ticket.png`를 그대로 사용한다.
+- 골드 생산 보상은 액수마다 `reward-grave-1.png`, `reward-chicken-2.png`, `reward-piggy-gray-5.png`, `reward-piggy-red-10.png`, `reward-piggy-moon-20.png`, `reward-golden-frog-50.png`, `reward-golden-bull-100.png`, `reward-black-card-500.png`의 개별 256×256 투명 PNG를 쓴다. 전력 생산 효과는 청록 배터리, 포탑·문·기타 전투 효과는 강화 키트 형태를 사용한다. `황금 티켓`은 기존 `golden-ticket.png`를 그대로 사용한다.
+- 랜덤 월광 보석은 별도 보상 아이콘이 아니라 실제 `gem-core` 설비로 변환한다. 생성 시 레벨 1~7 중 하나가 결정되며, 이후 일반 보석과 같은 레벨별 PNG와 강화 규칙을 사용한다.
 - 이 아이콘은 수집 후에도 별도 가방 아이콘으로 사라지지 않고, 방에 배치된 `랜덤 보상` 건물로 남아 이름·효과와 함께 선택·철거할 수 있어야 한다.
 
 ## opening-chase.webp

@@ -1345,6 +1345,13 @@ function buildingColor(kind: BuildingKind): number {
     'gem-core': 0x69e7ff,
     'ghost-net': 0xf4d36d,
     'range-amplifier': 0x8bafff,
+    'overload-capacitor': 0x74d8ff,
+    'turret-enhancer': 0x89f0c8,
+    'door-anchor': 0xf1a46b,
+    'reflect-mirror': 0xa7e9ff,
+    'power-panel': 0xffd66f,
+    'cursed-contract': 0xe688bd,
+    'soul-vial': 0x9beaff,
     'starter-grave': 0x8b97a5,
     'random-item': 0xffca62,
   };
@@ -1379,7 +1386,8 @@ function randomRewardTint(itemId?: string): number {
 
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
-  const imageAsset = buildingAssetUrl(building.kind, building.level, building.itemId);
+  const visualLevel = building.effectiveLevel ?? building.level;
+  const imageAsset = buildingAssetUrl(building.kind, visualLevel, building.itemId);
   if (imageAsset) {
     // A room can contain many copies of the same building. Reusing the GPU
     // texture avoids a new decode/upload for every installation and removes
@@ -2412,9 +2420,10 @@ export class ThreeGameView {
     const active = new Set(buildings.map((building) => building.id));
     for (const building of buildings) {
       let view = this.buildingViews.get(building.id);
+      const visualLevel = building.effectiveLevel ?? building.level;
       if (
         view &&
-        (view.modelLevel !== building.level || view.skinId !== building.skinId || view.kind !== building.kind || view.itemId !== building.itemId)
+        (view.modelLevel !== visualLevel || view.skinId !== building.skinId || view.kind !== building.kind || view.itemId !== building.itemId)
       ) {
         this.scene.remove(view.root);
         this.buildingViews.delete(building.id);
@@ -2438,7 +2447,7 @@ export class ThreeGameView {
           barrel: model.barrel,
           level,
           upgrade,
-          modelLevel: building.level,
+          modelLevel: visualLevel,
           skinId: building.skinId,
           kind: building.kind,
           itemId: building.itemId,
@@ -2451,7 +2460,24 @@ export class ThreeGameView {
       if (this.buildingDrag?.buildingId !== building.id) {
         view.root.position.copy(worldPoint(building.tile));
       }
-      updateTextBillboard(view.level, `${building.level}`, `Lv.${building.level}`, '#ffffff', 'rgba(8,12,24,.9)');
+      const overloadUntil = snapshot.buildings.find((candidate) =>
+        candidate.ownerId === building.ownerId && candidate.kind === 'overload-capacitor'
+          && (candidate.overloadUntil ?? 0) > snapshot.elapsed,
+      )?.overloadUntil ?? 0;
+      const overloadActive = building.kind === 'basic-turret' && overloadUntil > snapshot.elapsed;
+      const chargeRemaining = Math.max(0, (building.soulChargeReadyAt ?? 0) - snapshot.elapsed);
+      const soulCharging = chargeRemaining > 0;
+      const levelLabel = soulCharging
+        ? `충전 ${chargeRemaining.toFixed(1)}s`
+        : overloadActive
+        ? `폭주 ${Math.max(0, overloadUntil - snapshot.elapsed).toFixed(1)}s`
+        : building.effectiveLevel && building.effectiveLevel > building.level
+          ? `Lv.${building.level} +${building.effectiveLevel - building.level}`
+          : `Lv.${building.level}`;
+      updateTextBillboard(view.level, `${building.level}:${building.effectiveLevel ?? building.level}:${Math.ceil(overloadUntil - snapshot.elapsed)}:${Math.ceil(chargeRemaining)}`, levelLabel, soulCharging ? '#b9f4ff' : overloadActive ? '#ffe57a' : '#ffffff', soulCharging ? 'rgba(15,81,125,.94)' : overloadActive ? 'rgba(99,30,10,.92)' : 'rgba(8,12,24,.9)');
+      view.root.scale.setScalar(soulCharging
+        ? 1 + Math.sin(snapshot.elapsed * 20) * 0.08
+        : overloadActive ? 1 + Math.sin(snapshot.elapsed * 18) * 0.055 : 1);
       const nextCost =
         building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
           ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
@@ -2779,7 +2805,7 @@ export class ThreeGameView {
       const rewardEffects = owner
         ? combinedItemEffects([...owner.items, ...placedRewards])
         : null;
-      const range = buildingStats('basic-turret', building.level).range
+      const range = buildingStats('basic-turret', building.effectiveLevel ?? building.level).range
         + (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus + (rewardEffects?.turretRangeBonus ?? 0) : 0)
         + rangeBonus;
       const nearest = this.snapshotData.ghosts.filter((ghost) =>

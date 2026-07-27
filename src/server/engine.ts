@@ -101,6 +101,13 @@ const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'gem-core',
   'ghost-net',
   'range-amplifier',
+  'overload-capacitor',
+  'turret-enhancer',
+  'door-anchor',
+  'reflect-mirror',
+  'power-panel',
+  'cursed-contract',
+  'soul-vial',
 ]);
 
 const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
@@ -251,6 +258,8 @@ export class GameEngine {
       lastLatchUntil: 0,
       lastDoorHitAt: -1_000_000,
       doorRegenAccumulator: -1,
+      doorAnchorUntil: 0,
+      doorMaxHpMultiplier: 1,
     }));
     const timeAttack = this.ranked
       ? this.ranked.modifier === 'time-attack'
@@ -344,6 +353,7 @@ export class GameEngine {
       stageIndex: this.stage.index,
       playMode: this.playMode,
       difficulty,
+      contractUsed: false,
       ranked: this.ranked,
       goldSuppressedUntil: 0,
       repairSuppressedUntil: 0,
@@ -385,7 +395,7 @@ export class GameEngine {
       displayName: labels[variant],
       variant,
       attackCount: 0,
-      attacksToNextLevel: BALANCE.ghost.firstLevelAttacks,
+      attacksToNextLevel: this.attacksForNextGhostLevel(1),
       retreating: false,
       healing: false,
       healingElapsed: 0,
@@ -405,6 +415,20 @@ export class GameEngine {
     };
   }
 
+  /** The first growth accelerates by stage, then each later ghost level needs more door pressure. */
+  private firstGhostLevelAttacks(): number {
+    return Math.max(10, BALANCE.ghost.firstLevelAttacks - this.stage.index);
+  }
+
+  private attacksForNextGhostLevel(currentLevel: number): number {
+    const first = this.firstGhostLevelAttacks();
+    if (currentLevel <= 1) return first;
+    if (currentLevel === 2) return first + BALANCE.ghost.firstLevelFollowupAttacks;
+    return first
+      + BALANCE.ghost.firstLevelFollowupAttacks
+      + (currentLevel - 2) * BALANCE.ghost.attacksAddedPerLevel;
+  }
+
   restore(data: PersistedEngine): void {
     this.state = structuredClone(data.snapshot);
     this.retreatGuardUntil.clear();
@@ -420,6 +444,7 @@ export class GameEngine {
     this.state.goldSuppressedUntil ??= 0;
     this.state.repairSuppressedUntil ??= 0;
     this.state.lootDrops ??= [];
+    this.state.contractUsed ??= false;
     for (const ghost of this.state.ghosts) {
       ghost.displayName ??= "복도 순찰자";
       ghost.variant ??= "wanderer";
@@ -427,7 +452,7 @@ export class GameEngine {
       ghost.slowMultiplier ??= 1;
       ghost.stunnedUntil ??= 0;
       ghost.attackCount ??= 0;
-      ghost.attacksToNextLevel ??= BALANCE.ghost.firstLevelAttacks;
+      ghost.attacksToNextLevel ??= this.attacksForNextGhostLevel(ghost.level ?? 1);
       ghost.retreating ??= false;
       ghost.healing ??= false;
       ghost.healingElapsed ??= 0;
@@ -478,6 +503,8 @@ export class GameEngine {
       player.bedrollUntil ??= 0;
       player.upgradeDiscountTargetId ??= null;
       player.upgradeDiscountRate ??= 0;
+      player.contractProductionMultiplier ??= 1;
+      player.armedSoulVialId ??= null;
     }
     for (const room of this.state.rooms) {
       room.ownerIds ??= room.ownerId ? [room.ownerId] : [];
@@ -496,6 +523,8 @@ export class GameEngine {
       room.lastLatchUntil ??= 0;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
       room.doorRegenAccumulator = finite(room.doorRegenAccumulator, -1);
+      room.doorAnchorUntil ??= 0;
+      room.doorMaxHpMultiplier ??= 1;
     }
     for (const building of this.state.buildings) {
       building.skinId ??=
@@ -520,6 +549,14 @@ export class GameEngine {
           power: building.investedPower,
         },
       };
+      building.effectiveLevel ??= building.level;
+      building.overloadReadyAt ??= 0;
+      building.overloadUntil ??= 0;
+      building.storedSoulDamage ??= 0;
+      building.berserk ??= false;
+      building.soulChargeReadyAt ??= 0;
+      building.soulChargeDamage ??= 0;
+      building.powerPanelMode ??= 'attack';
     }
     this.serverSeq = this.state.serverSeq;
     this.reconnect.clear();
@@ -842,6 +879,8 @@ export class GameEngine {
         return this.upgrade(playerId, message.targetId);
       case "remove-building":
         return this.removeBuilding(playerId, message.buildingId);
+      case "activate-building":
+        return this.activateBuilding(playerId, message);
       case "draw-item":
         return this.drawItem(playerId, message.machineId);
       case "pickup-loot":
@@ -1107,7 +1146,7 @@ export class GameEngine {
     );
     if (grantedDoorLevel > candidate.room.doorLevel) {
       candidate.room.doorLevel = grantedDoorLevel;
-      candidate.room.doorMaxHp = BALANCE.door.upgradeHp[grantedDoorLevel - 1] as number;
+      this.applyDoorMaxHp(candidate.room);
       candidate.room.doorHp = candidate.room.doorMaxHp;
       const occupiedMapRoom = this.map.rooms.find(
         (room) => room.id === candidate.room.id,
@@ -1191,6 +1230,25 @@ export class GameEngine {
         ok: false,
         error: "봉쇄 그물 발사기는 방마다 하나만 설치할 수 있습니다.",
       };
+    if (
+      ["overload-capacitor", "reflect-mirror", "power-panel", "soul-vial"].includes(kind) &&
+      this.state.buildings.some(
+        (building) => building.ownerId === playerId && building.kind === kind,
+      )
+    )
+      return { ok: false, error: `${BALANCE.buildings[kind].label}는 한 개만 설치할 수 있습니다.` };
+    if (
+      kind === "door-anchor" &&
+      this.state.buildings.some(
+        (building) => building.roomId === roomId && building.kind === kind,
+      )
+    )
+      return { ok: false, error: "도어 앵커는 방마다 한 개만 설치할 수 있습니다." };
+    if (
+      kind === "cursed-contract" &&
+      (this.state.contractUsed || this.state.buildings.some((building) => building.kind === kind))
+    )
+      return { ok: false, error: "저주 계약서는 이번 게임에서 이미 사용했습니다." };
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (kind === "golden-turret") {
@@ -1247,11 +1305,141 @@ export class GameEngine {
       investmentByPlayer: {
         [playerId]: { gold: buildCost.gold, power: buildCost.power },
       },
+      effectiveLevel: initialLevel,
+      overloadReadyAt: kind === "overload-capacitor" ? this.state.elapsed + 60 : 0,
+      overloadUntil: 0,
+      storedSoulDamage: 0,
+      berserk: false,
+      soulChargeReadyAt: 0,
+      soulChargeDamage: 0,
+      powerPanelMode: "attack",
     };
     this.state.buildings.push(building);
     if (isFirstGuardian) player.firstGuardianBuilt = true;
     this.pendingEvents.push({ kind: "build", position: tile, playerId });
     return { ok: true };
+  }
+
+  private activateBuilding(
+    playerId: string,
+    message: Extract<ClientMessage, { type: "activate-building" }>,
+  ): ActionResult {
+    const player = this.state.players.find((candidate) => candidate.id === playerId);
+    const building = this.state.buildings.find((candidate) => candidate.id === message.buildingId);
+    const room = building
+      ? this.state.rooms.find((candidate) => candidate.id === building.roomId)
+      : undefined;
+    if (!player || !player.alive || !building || !room || player.roomId !== room.id || building.ownerId !== playerId)
+      return { ok: false, error: "같은 방의 내 설비만 사용할 수 있습니다." };
+
+    if (building.kind === "overload-capacitor" && message.action === "use") {
+      if (this.state.elapsed < (building.overloadReadyAt ?? 0))
+        return { ok: false, error: "과부하 축전기가 아직 충전 중입니다." };
+      building.overloadUntil = this.state.elapsed + buildingStats(building.kind, building.level).rate;
+      building.overloadReadyAt = this.state.elapsed + buildingStats(building.kind, building.level).value;
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        roomId: room.id,
+        playerId,
+        position: { ...building.tile },
+        label: "포탑 폭주 · 8초",
+      });
+      return { ok: true };
+    }
+
+    if (
+      building.kind === "power-panel" &&
+      (message.action === "attack" || message.action === "defense" || message.action === "production")
+    ) {
+      building.powerPanelMode = message.action;
+      const label = message.action === "attack" ? "공격" : message.action === "defense" ? "방어" : "생산";
+      this.pendingEvents.push({
+        kind: "upgrade",
+        roomId: room.id,
+        playerId,
+        position: { ...building.tile },
+        label: `배전 제어판 · ${label} 모드`,
+      });
+      return { ok: true };
+    }
+
+    if (building.kind === "cursed-contract" && (message.action === "berserk" || message.action === "production")) {
+      if (this.state.contractUsed) return { ok: false, error: "이번 게임에서 저주 계약은 이미 끝났습니다." };
+      if (message.action === "berserk") {
+        const target = this.state.buildings
+          .filter(
+            (candidate) =>
+              candidate.ownerId === playerId &&
+              (candidate.kind === "basic-turret" || candidate.kind === "golden-turret"),
+          )
+          .sort((left, right) => (right.effectiveLevel ?? right.level) - (left.effectiveLevel ?? left.level))[0];
+        if (!target) return { ok: false, error: "폭주시킬 수호 포탑이 없습니다." };
+        target.berserk = true;
+        room.doorMaxHpMultiplier *= 0.65;
+      } else {
+        player.contractProductionMultiplier *= 1.5;
+        room.doorMaxHpMultiplier *= 0.5;
+      }
+      this.applyDoorMaxHp(room);
+      this.state.contractUsed = true;
+      this.consumeBuilding(building.id);
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        roomId: room.id,
+        playerId,
+        position: { ...(this.map.rooms.find((candidate) => candidate.id === room.id)?.door ?? building.tile) },
+        label: message.action === "berserk" ? "저주 계약 · 폭주 포탑" : "저주 계약 · 생산 증폭",
+      });
+      return { ok: true };
+    }
+
+    if (building.kind === "soul-vial" && message.action === "soul-arm") {
+      if ((building.storedSoulDamage ?? 0) <= 0)
+        return { ok: false, error: "영혼 저장병에 아직 저장된 피해가 없습니다." };
+      player.armedSoulVialId = building.id;
+      return { ok: true };
+    }
+    if (building.kind === "soul-vial" && message.action === "soul-cancel") {
+      if (player.armedSoulVialId === building.id) player.armedSoulVialId = null;
+      return { ok: true };
+    }
+    if (building.kind === "soul-vial" && message.action === "soul-fire") {
+      if (player.armedSoulVialId !== building.id)
+        return { ok: false, error: "먼저 영혼 저장병을 사용하세요." };
+      const target = this.state.buildings.find(
+        (candidate) =>
+          candidate.id === message.targetId &&
+          candidate.ownerId === playerId &&
+          candidate.roomId === room.id &&
+          (candidate.kind === "basic-turret" || candidate.kind === "golden-turret"),
+      );
+      if (!target) return { ok: false, error: "충전할 내 포탑을 선택하세요." };
+      const storedDamage = Math.max(1, building.storedSoulDamage ?? 0);
+      target.soulChargeReadyAt = this.state.elapsed + 2;
+      target.soulChargeDamage = Math.max(1, Math.round(storedDamage * buildingStats(building.kind, building.level).value));
+      target.cooldown = Math.max(target.cooldown, 2);
+      player.armedSoulVialId = null;
+      this.consumeBuilding(building.id);
+      this.pendingEvents.push({
+        kind: "upgrade",
+        roomId: room.id,
+        playerId,
+        position: { ...target.tile },
+        label: "영혼 레이저 충전 · 2초",
+      });
+      return { ok: true };
+    }
+    return { ok: false, error: "이 설비는 지금 사용할 수 없습니다." };
+  }
+
+  private consumeBuilding(buildingId: string): void {
+    this.state.buildings = this.state.buildings.filter((candidate) => candidate.id !== buildingId);
+  }
+
+  private applyDoorMaxHp(room: RoomState): void {
+    const baseHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
+    room.doorMaxHp = Math.max(1, Math.floor(baseHp * room.doorMaxHpMultiplier));
+    room.doorHp = Math.min(room.doorHp, room.doorMaxHp);
   }
 
   upgrade(playerId: string, targetId: string): ActionResult {
@@ -1305,7 +1493,7 @@ export class GameEngine {
         room.bedLevel = room.bedLevels[0] ?? 1;
       } else {
         room.doorLevel += 1;
-        room.doorMaxHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
+        this.applyDoorMaxHp(room);
         room.doorHp = room.doorMaxHp;
       }
       const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
@@ -1404,6 +1592,7 @@ export class GameEngine {
     this.state.buildings = this.state.buildings.filter(
       (candidate) => candidate.id !== buildingId,
     );
+    if (player.armedSoulVialId === buildingId) player.armedSoulVialId = null;
     this.pendingEvents.push({
       kind: "building-remove",
       position: building.tile,
@@ -1568,16 +1757,17 @@ export class GameEngine {
     // A draw is no longer an invisible bag bonus.  The machine itself turns
     // into a removable reward object, so every buff has an obvious physical
     // source in the claimed room.
-    machine.kind = 'random-item';
+    const rewardKind = this.rewardBuildingKind(item.id);
+    machine.kind = rewardKind;
     machine.itemId = item.id;
     machine.skinId = '';
-    machine.level = 1;
+    machine.level = rewardKind === 'gem-core' ? this.rollMoonGemLevel() : 1;
     machine.cooldown = 0;
     machine.hp = 100;
     machine.investedGold = 0;
     machine.investedPower = 0;
     machine.investmentByPlayer = {};
-    this.activateRandomItem(player, item.id, machine.roomId);
+    if (rewardKind === 'random-item') this.activateRandomItem(player, item.id, machine.roomId);
     this.pendingEvents.push({
       kind: "item-draw",
       playerId,
@@ -1587,6 +1777,22 @@ export class GameEngine {
       position: machine.tile,
     });
     return { ok: true };
+  }
+
+  private rewardBuildingKind(itemId: string): BuildingKind {
+    return getRandomItem(itemId)?.effect.moonGem ? 'gem-core' : 'random-item';
+  }
+
+  /** Economic moon gems mostly start low, but a lucky draw can skip ahead. */
+  private rollMoonGemLevel(): number {
+    const roll = this.rng.next();
+    if (roll < 0.52) return 1;
+    if (roll < 0.77) return 2;
+    if (roll < 0.90) return 3;
+    if (roll < 0.97) return 4;
+    if (roll < 0.992) return 5;
+    if (roll < 0.999) return 6;
+    return 7;
   }
 
   /** Returns the effects from old saved inventory plus visible placed rewards. */
@@ -1630,7 +1836,7 @@ export class GameEngine {
       // power producers account for most drops, while combat utility remains
       // possible but uncommon.
       const countdownPool = RANDOM_ITEMS.filter((item) =>
-        item.effect.goldPerSecond || item.effect.powerPerSecond
+        item.effect.goldPerSecond || item.effect.powerPerSecond || item.effect.moonGem
           ? true
           : this.rng.next() < 0.18,
       );
@@ -1677,15 +1883,16 @@ export class GameEngine {
       .filter((candidate) => !this.state.buildings.some((building) => building.tile.x === candidate.x && building.tile.y === candidate.y))
       .sort(() => this.rng.next() - 0.5)[0];
     if (!drop || !tile) return;
+    const rewardKind = this.rewardBuildingKind(drop.itemId);
     const building: BuildingState = {
       id: `loot-item:${++this.buildCounter}`,
-      kind: 'random-item',
+      kind: rewardKind,
       itemId: drop.itemId,
       roomId: room.id,
       ownerId: player.id,
       skinId: '',
       tile: { ...tile, roomId: room.id },
-      level: 1,
+      level: rewardKind === 'gem-core' ? this.rollMoonGemLevel() : 1,
       cooldown: 0,
       hp: 100,
       investedGold: 0,
@@ -1695,9 +1902,9 @@ export class GameEngine {
     this.state.buildings.push(building);
     this.state.lootDrops = this.state.lootDrops.filter((candidate) => candidate.id !== drop.id);
     player.carriedLootId = null;
-    this.activateRandomItem(player, drop.itemId, room.id);
+    if (rewardKind === 'random-item') this.activateRandomItem(player, drop.itemId, room.id);
     const item = getRandomItem(drop.itemId);
-    this.pendingEvents.push({ kind: 'build', playerId: player.id, roomId: room.id, buildingKind: 'random-item', itemId: drop.itemId, label: item?.label ?? '랜덤 보상', position: { ...tile } });
+    this.pendingEvents.push({ kind: 'build', playerId: player.id, roomId: room.id, buildingKind: rewardKind, itemId: drop.itemId, label: item?.label ?? '랜덤 보상', position: { ...tile } });
   }
 
   private matchClock(): number {
@@ -1731,6 +1938,7 @@ export class GameEngine {
         if (this.state.difficulty.timeAttackRemaining <= 0) this.beginOvertime();
       }
       if (this.state.status === 'OVERTIME') this.updateOvertime(dt);
+      this.syncDynamicTurretLevels();
       this.updateEconomy(dt);
       this.updateBuildings(dt);
       this.updateGhosts(dt);
@@ -1738,6 +1946,24 @@ export class GameEngine {
       this.evaluateOutcome();
     }
     this.sanitizeResources();
+  }
+
+  private syncDynamicTurretLevels(): void {
+    for (const turret of this.state.buildings) {
+      if (turret.kind !== "basic-turret") continue;
+      const adjacentEnhancers = this.state.buildings.filter(
+        (candidate) =>
+          candidate.kind === "turret-enhancer" &&
+          candidate.ownerId === turret.ownerId &&
+          candidate.roomId === turret.roomId &&
+          candidate.tile.y === turret.tile.y &&
+          Math.abs(candidate.tile.x - turret.tile.x) === 1,
+      ).length;
+      turret.effectiveLevel = Math.min(
+        maxBuildingLevel(turret.kind),
+        turret.level + adjacentEnhancers,
+      );
+    }
   }
 
   private beginPlaying(): void {
@@ -2023,6 +2249,11 @@ export class GameEngine {
       const trait = characterTraitForAppearance(player.appearance);
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+      const panelMode = this.state.buildings.find(
+        (building) => building.ownerId === player.id && building.kind === "power-panel",
+      )?.powerPanelMode;
+      const panelProductionMultiplier = panelMode === "production" ? 1.25 : panelMode === "defense" ? 0.85 : 1;
+      const productionMultiplier = player.contractProductionMultiplier * panelProductionMultiplier;
       const bedLevel = room.bedLevels[player.bedIndex ?? 0] ?? 1;
       const goldBuildings = this.state.buildings.filter(
         (building) =>
@@ -2034,16 +2265,16 @@ export class GameEngine {
       // appears to generate gold produced by another source.
       const bedGoldPerSecond =
         buildingStats("bed", bedLevel).value *
-        rankBenefits(activeRank).bedGoldMultiplier;
+        rankBenefits(activeRank).bedGoldMultiplier * productionMultiplier;
       const placedItemGoldPerSecond = placedItemBuildings.reduce(
-        (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0),
+        (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0) * productionMultiplier,
         0,
       );
-      const inventoryGoldPerSecond = inventoryEffects.goldPerSecond;
-      const traitGoldPerSecond = trait.goldPerSecond;
+      const inventoryGoldPerSecond = inventoryEffects.goldPerSecond * productionMultiplier;
+      const traitGoldPerSecond = trait.goldPerSecond * productionMultiplier;
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
-          total + buildingStats(building.kind, building.level).value,
+          total + buildingStats(building.kind, building.level).value * productionMultiplier,
         0,
       );
       const playerBed = mapRoom?.beds[player.bedIndex ?? 0] ?? mapRoom?.bed;
@@ -2084,7 +2315,7 @@ export class GameEngine {
           });
         for (const building of placedItemBuildings) {
           const item = getRandomItem(building.itemId ?? '');
-          const amount = item?.effect.goldPerSecond ?? 0;
+          const amount = (item?.effect.goldPerSecond ?? 0) * productionMultiplier;
           if (amount <= 0) continue;
           this.pendingEvents.push({
             kind: 'gold',
@@ -2095,7 +2326,7 @@ export class GameEngine {
           });
         }
         for (const building of goldBuildings) {
-          const buildingIncome = buildingStats(building.kind, building.level).value;
+          const buildingIncome = buildingStats(building.kind, building.level).value * productionMultiplier;
           if (buildingIncome <= 0) continue;
           this.pendingEvents.push({
             kind: "gold",
@@ -2115,30 +2346,30 @@ export class GameEngine {
       while (player.powerIncomeElapsed + 1e-9 >= 1) {
         player.powerIncomeElapsed -= 1;
         const placedItemPowerPerSecond = placedItemBuildings.reduce(
-          (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.powerPerSecond ?? 0),
+          (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.powerPerSecond ?? 0) * productionMultiplier,
           0,
         );
         const powerPerSecond = generators.reduce(
-          (total, generator) => total + buildingStats("generator", generator.level).value,
-          inventoryEffects.powerPerSecond + placedItemPowerPerSecond,
+          (total, generator) => total + buildingStats("generator", generator.level).value * productionMultiplier,
+          inventoryEffects.powerPerSecond * productionMultiplier + placedItemPowerPerSecond,
         );
         player.power += powerPerSecond;
         if (inventoryEffects.powerPerSecond > 0)
           this.pendingEvents.push({
             kind: "power",
             playerId: player.id,
-            amount: inventoryEffects.powerPerSecond,
+            amount: inventoryEffects.powerPerSecond * productionMultiplier,
             position: { ...player.position },
             label: '보관 아이템',
           });
         for (const generator of generators) {
-          const amount = buildingStats('generator', generator.level).value;
+          const amount = buildingStats('generator', generator.level).value * productionMultiplier;
           if (amount <= 0) continue;
           this.pendingEvents.push({ kind: 'power', playerId: player.id, amount, position: { ...generator.tile }, label: '달빛 발전기' });
         }
         for (const building of placedItemBuildings) {
           const item = getRandomItem(building.itemId ?? '');
-          const amount = item?.effect.powerPerSecond ?? 0;
+          const amount = (item?.effect.powerPerSecond ?? 0) * productionMultiplier;
           if (amount <= 0) continue;
           this.pendingEvents.push({ kind: 'power', playerId: player.id, amount, position: { ...building.tile }, label: item?.label ?? '랜덤 보상' });
         }
@@ -2157,7 +2388,8 @@ export class GameEngine {
   private updateBuildings(dt: number): void {
     for (const building of this.state.buildings) {
       building.cooldown -= dt;
-      const stats = buildingStats(building.kind, building.level);
+      const visualLevel = building.effectiveLevel ?? building.level;
+      const stats = buildingStats(building.kind, visualLevel);
       const room = this.state.rooms.find(
         (candidate) => candidate.id === building.roomId,
       );
@@ -2233,6 +2465,19 @@ export class GameEngine {
           ? building.kind
           : undefined,
       );
+      const panelMode = this.state.buildings.find(
+        (candidate) => candidate.ownerId === building.ownerId && candidate.kind === "power-panel",
+      )?.powerPanelMode;
+      const panelAttack = panelMode === "attack";
+      const panelTurretDamageMultiplier = panelMode === "defense" || panelMode === "production" ? 0.85 : 1;
+      const overloadActive =
+        (building.kind === "basic-turret" || building.kind === "golden-turret") &&
+        this.state.buildings.some(
+        (candidate) =>
+          candidate.ownerId === building.ownerId &&
+          candidate.kind === "overload-capacitor" &&
+          this.state.elapsed < (candidate.overloadUntil ?? 0),
+        );
       // 일반 포탑은 4칸 기본 사거리이며, 황금 심판 포탑과 사거리 아이템만
       // 이 서버 권한 타깃 사거리에 예외 보정을 더한다.
       const roomRangeBonus = building.kind === "electric-coil"
@@ -2257,12 +2502,33 @@ export class GameEngine {
         stats.rate * suppression * effects.turretRateMultiplier;
       building.cooldown *= trait.turretRateMultiplier;
       building.cooldown *= skinTrait.rateMultiplier;
-      const damage =
+      if (panelAttack) building.cooldown *= 0.82;
+      if (overloadActive) building.cooldown *= 0.42;
+      if (building.berserk) building.cooldown *= 0.72;
+      let damage =
         stats.value *
         effects.turretDamageMultiplier *
         trait.turretDamageMultiplier *
         skinTrait.damageMultiplier;
+      if (panelAttack) damage *= 1.25;
+      damage *= panelTurretDamageMultiplier;
+      if (overloadActive) damage *= 1.5;
+      if (building.berserk) damage *= 1.65;
+      const soulReady =
+        (building.soulChargeReadyAt ?? 0) > 0 &&
+        this.state.elapsed >= (building.soulChargeReadyAt ?? 0);
+      if (soulReady) {
+        damage += building.soulChargeDamage ?? 0;
+        building.soulChargeReadyAt = 0;
+        building.soulChargeDamage = 0;
+      }
       const appliedDamage = this.applyGhostDamage(nearest, damage, building.roomId, building.kind);
+      if (appliedDamage > 0) {
+        for (const vial of this.state.buildings) {
+          if (vial.ownerId !== building.ownerId || vial.kind !== "soul-vial") continue;
+          vial.storedSoulDamage = Math.min(1_000_000, (vial.storedSoulDamage ?? 0) + appliedDamage);
+        }
+      }
       this.pendingEvents.push({
         kind: "turret-fire",
         position: building.tile,
@@ -2270,6 +2536,7 @@ export class GameEngine {
         targetId: nearest.id,
         buildingKind: building.kind,
         amount: appliedDamage,
+        label: soulReady ? "영혼 충전 레이저" : undefined,
       });
       if (appliedDamage > 0)
         this.pendingEvents.push({
@@ -2768,16 +3035,30 @@ export class GameEngine {
         });
         return;
       }
+      const panelMode = this.state.buildings.find(
+        (building) =>
+          building.roomId === room.id &&
+          room.ownerIds.includes(building.ownerId ?? "") &&
+          building.kind === "power-panel",
+      )?.powerPanelMode;
+      const panelDoorDamageMultiplier = panelMode === "defense" ? 0.75 : panelMode === "attack" ? 1.25 : panelMode === "production" ? 1.15 : 1;
       const damage =
         BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction) *
-        (this.state.elapsed < room.doorBraceUntil ? 0.75 : 1);
+        (this.state.elapsed < room.doorBraceUntil ? 0.75 : 1) *
+        panelDoorDamageMultiplier;
       const nextDoorHp = Math.max(0, room.doorHp - damage);
       const triggersLastLatch = Boolean(
         room.lastLatchArmedBy &&
         room.doorHp / room.doorMaxHp > 0.15 &&
         nextDoorHp / room.doorMaxHp <= 0.15,
       );
-      if (triggersLastLatch) {
+      const activeAnchor = this.state.elapsed < room.doorAnchorUntil;
+      const anchor = this.state.buildings.find(
+        (building) => building.roomId === room.id && building.kind === "door-anchor",
+      );
+      if (activeAnchor) {
+        room.doorHp = Math.max(1, nextDoorHp);
+      } else if (triggersLastLatch) {
         room.lastLatchUntil = this.state.elapsed + 4;
         room.lastLatchArmedBy = null;
         room.doorHp = Math.max(1, nextDoorHp);
@@ -2787,7 +3068,37 @@ export class GameEngine {
           roomId: room.id,
           label: '최후의 걸쇠 발동 · 4초 보호',
         });
+      } else if (nextDoorHp <= 0 && anchor) {
+        room.doorAnchorUntil = this.state.elapsed + buildingStats(anchor.kind, anchor.level).value;
+        room.doorHp = 1;
+        this.consumeBuilding(anchor.id);
+        this.pendingEvents.push({
+          kind: "consumable-use",
+          position: mapRoom.door,
+          roomId: room.id,
+          label: "도어 앵커 발동 · 4초 보호",
+        });
       } else room.doorHp = nextDoorHp;
+      const mirror = this.state.buildings.find(
+        (building) => building.roomId === room.id && building.kind === "reflect-mirror",
+      );
+      if (mirror) {
+        const reflected = this.applyGhostDamage(
+          ghost,
+          damage * buildingStats(mirror.kind, mirror.level).value,
+          room.id,
+          mirror.kind,
+        );
+        if (reflected > 0)
+          this.pendingEvents.push({
+            kind: "ghost-hit",
+            position: { ...ghost.position },
+            targetId: ghost.id,
+            buildingKind: mirror.kind,
+            amount: reflected,
+            label: "반사 피해",
+          });
+      }
       room.lastDoorHitAt = this.state.elapsed;
       room.doorRegenAccumulator = -1;
       if (ghost.variant !== "minion") ghost.attackCount += 1;
@@ -2946,8 +3257,7 @@ export class GameEngine {
     ghost.level += 1;
     ghost.phase = ghost.level;
     ghost.attackCount = 0;
-    ghost.attacksToNextLevel +=
-      BALANCE.ghost.attacksAddedPerLevel + ghost.level - 1;
+    ghost.attacksToNextLevel = this.attacksForNextGhostLevel(ghost.level);
     ghost.maxHp = Math.round(ghost.maxHp * (1 + this.stage.levelHpGrowth));
     ghost.hp += ghost.maxHp - previousMax;
     this.pendingEvents.push({
@@ -3364,6 +3674,8 @@ export class GameEngine {
       bedrollUntil: 0,
       upgradeDiscountTargetId: null,
       upgradeDiscountRate: 0,
+      contractProductionMultiplier: 1,
+      armedSoulVialId: null,
     };
   }
 }

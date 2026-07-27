@@ -131,6 +131,11 @@ export class GameNetwork {
   moveBuilding(buildingId: string, tile: Tile): void { this.send({ type: 'move-building', buildingId, tile }); }
   upgrade(targetId: string): void { this.send({ type: 'upgrade', targetId }); }
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
+  activateBuilding(
+    buildingId: string,
+    action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire',
+    targetId?: string,
+  ): void { this.send({ type: 'activate-building', buildingId, action, targetId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }
   pickupLoot(lootId: string): void { this.send({ type: 'pickup-loot', lootId }); }
   setConsumableLoadout(itemIds: ConsumableId[]): void { this.send({ type: 'set-consumable-loadout', itemIds }); }

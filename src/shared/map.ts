@@ -271,15 +271,18 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
   const width = MAP_WIDTH;
   const height = MAP_HEIGHT;
   const rng = new SeededRandom(seed);
+  // 귀신 회복 패드는 일반 복도 한가운데가 아니라 외벽을 한 칸 뚫은
+  // 출입구에 둔다. 네 모서리 쪽과 각 변의 중앙, 총 여덟 구멍을 통로로
+  // 연결해 귀신이 밖으로 빠져나가 회복한 뒤 다시 들어오는 형태가 된다.
   const respawnCenters: Tile[] = [
-    { x: 2, y: 2 },
-    { x: Math.floor(width / 2), y: 2 },
-    { x: width - 3, y: 2 },
-    { x: 2, y: Math.floor(height / 2) },
-    { x: width - 3, y: Math.floor(height / 2) },
-    { x: 2, y: height - 3 },
-    { x: Math.floor(width / 2), y: height - 3 },
-    { x: width - 3, y: height - 3 },
+    { x: 1, y: 0 },
+    { x: Math.floor(width / 2), y: 0 },
+    { x: width - 2, y: 0 },
+    { x: width - 1, y: Math.floor(height / 2) },
+    { x: width - 2, y: height - 1 },
+    { x: Math.floor(width / 2), y: height - 1 },
+    { x: 1, y: height - 1 },
+    { x: 0, y: Math.floor(height / 2) },
   ];
   const reserved = new Set<string>();
   for (const center of respawnCenters) {
@@ -346,6 +349,10 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
     }
     addCorridorPath(corridor, route, width, height, blocked, rng);
   }
+  // `addCorridorPath` intentionally refuses the outer border so ordinary
+  // corridors never erase map walls. Recovery pads are the exception: each
+  // one is a one-tile doorway cut into that border and must remain walkable.
+  for (const center of respawnCenters) corridor.add(tileKey(center.x, center.y));
   for (const draft of drafts) {
     corridor.add(tileKey(draft.door.x, draft.door.y));
     corridor.add(tileKey(draft.approach.x, draft.approach.y));

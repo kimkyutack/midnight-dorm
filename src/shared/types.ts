@@ -90,6 +90,13 @@ export type BuildingKind =
   | 'gem-core'
   | 'ghost-net'
   | 'range-amplifier'
+  | 'overload-capacitor'
+  | 'turret-enhancer'
+  | 'door-anchor'
+  | 'reflect-mirror'
+  | 'power-panel'
+  | 'cursed-contract'
+  | 'soul-vial'
   | 'starter-grave'
   /** A drawn or countdown loot reward. It is placed like a small building. */
   | 'random-item';
@@ -195,6 +202,10 @@ export interface PlayerState {
   bedrollUntil: number;
   upgradeDiscountTargetId: string | null;
   upgradeDiscountRate: number;
+  /** A cursed contract can permanently improve this survivor's room production. */
+  contractProductionMultiplier: number;
+  /** The soul vial has been armed and is waiting for this survivor to select a turret. */
+  armedSoulVialId: string | null;
 }
 
 export interface RoomState {
@@ -214,6 +225,10 @@ export interface RoomState {
   lastLatchUntil: number;
   lastDoorHitAt: number;
   doorRegenAccumulator: number;
+  /** Door anchor keeps the door at one HP until this server time. */
+  doorAnchorUntil: number;
+  /** Applied by a one-time cursed contract and retained through door upgrades. */
+  doorMaxHpMultiplier: number;
 }
 
 export interface BuildingState {
@@ -231,6 +246,22 @@ export interface BuildingState {
   investedGold?: number;
   investedPower?: number;
   investmentByPlayer?: Record<string, { gold: number; power: number }>;
+  /** Temporary level from adjacent turret enhancers; never changes invested level. */
+  effectiveLevel?: number;
+  /** Overload capacitor finishes charging at this match time. */
+  overloadReadyAt?: number;
+  /** Overload window end time. */
+  overloadUntil?: number;
+  /** Soul damage accumulated from this owner's turret hits. */
+  storedSoulDamage?: number;
+  /** Permanent state granted by the berserk cursed contract. */
+  berserk?: boolean;
+  /** Two-second charge ends at this match time before one charged shot is fired. */
+  soulChargeReadyAt?: number;
+  /** Bonus damage dealt by the next charged turret shot. */
+  soulChargeDamage?: number;
+  /** Current selectable mode for the unique power panel. */
+  powerPanelMode?: 'attack' | 'defense' | 'production';
 }
 
 /** A reward falling into a corridor during the preparation countdown. */
@@ -362,6 +393,8 @@ export interface GameSnapshot {
   stageIndex: number;
   playMode: PlayMode;
   difficulty: DifficultyRuleState;
+  /** A cursed contract is a match-wide, non-refundable one-time decision. */
+  contractUsed: boolean;
   ranked: RankedMatchState | null;
   goldSuppressedUntil: number;
   repairSuppressedUntil: number;
@@ -427,6 +460,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
+  | (BaseMessage & { type: 'activate-building'; buildingId: string; action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire'; targetId?: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
   | (BaseMessage & { type: 'pickup-loot'; lootId: string })
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })

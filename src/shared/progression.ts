@@ -26,6 +26,7 @@ export const RANK_VISUALS: Readonly<Record<RankId, RankVisual>> = {
 const STAGE_TIERS = [
   { id: 'easy', label: '쉬움', count: 1 },
   { id: 'normal', label: '노말', count: 5 },
+  { id: 'hard', label: '어려움', count: 5 },
   { id: 'nightmare', label: '악몽', count: 10 },
   { id: 'hell', label: '지옥', count: 10 },
   { id: 'inferno', label: '불지옥', count: 15 },
@@ -34,7 +35,7 @@ const STAGE_TIERS = [
   { id: 'legendary', label: '레전더리', count: 99 },
 ] as const;
 
-const TOTAL_STAGE_COUNT = 185;
+const TOTAL_STAGE_COUNT = STAGE_TIERS.reduce((total, tier) => total + tier.count, 0);
 
 export type GhostStageSkill = 'turret-jam' | 'gold-lock' | 'repair-lock' | 'door-crush';
 
@@ -64,6 +65,7 @@ export interface DifficultyModifierPreset {
 const DIFFICULTY_MODIFIERS: Readonly<Record<string, DifficultyModifierPreset>> = {
   easy: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
   normal: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
+  hard: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
   nightmare: { timeAttackChance: 0.07, controlAdaptation: true, barrierLayers: 0, directionalShield: false },
   hell: { timeAttackChance: 0.12, controlAdaptation: true, barrierLayers: 1, directionalShield: false },
   inferno: { timeAttackChance: 0.18, controlAdaptation: true, barrierLayers: 2, directionalShield: true },
@@ -113,10 +115,10 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
 ).map(({ tier, level }, index) => {
   const pressure = index / (TOTAL_STAGE_COUNT - 1);
   const skills: GhostStageSkill[] = [];
-  if (index >= 6) skills.push('turret-jam');
-  if (index >= 16) skills.push('gold-lock');
-  if (index >= 26) skills.push('repair-lock');
-  if (index >= 41) skills.push('door-crush');
+  if (index >= 11) skills.push('turret-jam');
+  if (index >= 21) skills.push('gold-lock');
+  if (index >= 31) skills.push('repair-lock');
+  if (index >= 46) skills.push('door-crush');
   return {
     id: `${tier.id}-${level}` as StageId,
     index,

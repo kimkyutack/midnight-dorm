@@ -113,6 +113,7 @@ let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
+let soulVialTargetingId: string | null = null;
 interface BuildingMoveRequest {
   buildingId: string;
   roomId: string;
@@ -156,6 +157,13 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "gem-core",
   "ghost-net",
   "range-amplifier",
+  "overload-capacitor",
+  "turret-enhancer",
+  "door-anchor",
+  "reflect-mirror",
+  "power-panel",
+  "cursed-contract",
+  "soul-vial",
 ];
 
 const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
@@ -174,6 +182,13 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "gem-core": "◈",
   "ghost-net": "#",
   "range-amplifier": "◎",
+  "overload-capacitor": "ϟ",
+  "turret-enhancer": "✦",
+  "door-anchor": "⚓",
+  "reflect-mirror": "◈",
+  "power-panel": "▦",
+  "cursed-contract": "✧",
+  "soul-vial": "◉",
   "starter-grave": "†",
   "random-item": "✦",
 };
@@ -443,7 +458,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/><span><small>PATCH NOTES</small><strong>업데이트 내역</strong></span><i>›</i></button></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button data-ranking aria-label="랭킹">${homeUtilityIcon("ranking")}</button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === 'ranked' ? 'disabled' : ''}><span>${homePlayMode === 'ranked' ? '시즌 계약' : '현재 스테이지'}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === 'ranked' ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? '참가 가능' : '참가 조건 확인'}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === 'multiplayer' ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === 'ranked' ? '계약 시작' : '스테이지 시작'}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -496,6 +511,10 @@ function homeScreen(): void {
   app
     .querySelector("[data-home-settings]")
     ?.addEventListener("click", showSettings);
+  app.querySelector("[data-app-updates]")?.addEventListener("click", () => {
+    audio.play("button");
+    void showAppUpdateHistory();
+  });
 }
 
 function homeUtilityIcon(kind: "ranking" | "settings"): string {
@@ -1423,6 +1442,8 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
+    if (!next.players.find((player) => player.id === playerId)?.armedSoulVialId)
+      soulVialTargetingId = null;
     updateTestApi();
     renderForSnapshot(next, false);
     game?.updateSnapshot(next, events);
@@ -1901,6 +1922,16 @@ function onTargetSelected(event: CustomEvent<SceneSelection>): void {
   // 건물을 선택한 캔버스 터치와 같은 입력이 업그레이드/철거 버튼으로
   // 이어지지 않게, 선택 뒤에는 별도 터치를 한 번 더 요구한다.
   buildPanelInputBlockedUntil = performance.now() + BUILD_PANEL_OPEN_GUARD_MS;
+  if (soulVialTargetingId && snapshot) {
+    const target = snapshot.buildings.find((building) => building.id === event.detail.targetId);
+    const me = snapshot.players.find((player) => player.id === playerId);
+    if (!target || !me || target.ownerId !== me.id || target.roomId !== me.roomId || !["basic-turret", "golden-turret"].includes(target.kind)) {
+      toast("영혼 레이저를 충전할 내 포탑을 선택하세요.");
+      return;
+    }
+    showSoulVialConfirm(soulVialTargetingId, target);
+    return;
+  }
   selectedTile = null;
   selectedTarget = event.detail;
   renderTargetPanel(event.detail);
@@ -2002,14 +2033,18 @@ function refreshOpenPanelAffordability(): void {
     const gold = Number(button.dataset.costGold ?? 0);
     const power = Number(button.dataset.costPower ?? 0);
     const affordable = Number.isFinite(gold) && Number.isFinite(power) && canAffordResources(me, gold, power);
-    button.disabled = !affordable;
-    button.classList.toggle('resource-insufficient', !affordable);
-    button.setAttribute('aria-disabled', String(!affordable));
+    const installLimited = button.dataset.buildLimit === 'true';
+    const enabled = affordable && !installLimited;
+    button.disabled = !enabled;
+    button.classList.toggle('resource-insufficient', !enabled);
+    button.setAttribute('aria-disabled', String(!enabled));
     const actionLabel = button.querySelector<HTMLElement>('[data-cost-action-label]');
     if (actionLabel?.dataset.readyLabel) {
-      actionLabel.textContent = affordable
+      actionLabel.textContent = enabled
         ? actionLabel.dataset.readyLabel
-        : `${actionLabel.dataset.readyLabel} · 재화 부족`;
+        : installLimited
+          ? '이미 설치됨'
+          : `${actionLabel.dataset.readyLabel} · 재화 부족`;
     }
   });
 }
@@ -2037,15 +2072,28 @@ function renderBuildPanel(tile: Tile): void {
     renderTargetPanel(selectedTarget);
     return;
   }
+  const gameState = snapshot;
   const modeRank =
-    snapshot.playMode === "solo" ? me.soloRank : me.multiplayerRank;
+    gameState.playMode === "solo" ? me.soloRank : me.multiplayerRank;
   const availableKinds: BuildingKind[] = [...BUILD_KINDS];
+  const buildLimitReason = (kind: BuildingKind): string | null => {
+    const ownedBuildings = gameState.buildings.filter((building) => building.ownerId === me.id);
+    if (["lucky-machine", "range-amplifier", "overload-capacitor", "reflect-mirror", "power-panel", "soul-vial"].includes(kind) && ownedBuildings.some((building) => building.kind === kind))
+      return "이미 설치됨";
+    if (["ghost-net", "door-anchor"].includes(kind) && gameState.buildings.some((building) => building.roomId === me.roomId && building.kind === kind))
+      return "이 방에 이미 설치됨";
+    if (kind === "cursed-contract" && (gameState.contractUsed || gameState.buildings.some((building) => building.kind === kind)))
+      return gameState.contractUsed ? "이번 게임에서 사용 완료" : "이미 설치됨";
+    return null;
+  };
   const buildCard = (kind: BuildingKind): string => {
     const definition = BALANCE.buildings[kind];
     const cost = upgradeCost(kind, 1, modeRank);
     const powerOnly = cost.gold === 0 && cost.power > 0;
     const affordable = canAffordResources(me, cost.gold, cost.power);
-    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${affordable ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}" ${affordable ? '' : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small></span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+    const limitReason = buildLimitReason(kind);
+    const enabled = affordable && !limitReason;
+    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${limitReason ? ' data-build-limit="true"' : ''} ${enabled ? '' : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
   };
   const goldCards = availableKinds
     // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
@@ -2114,6 +2162,41 @@ function renderBuildPanel(tile: Tile): void {
   });
 }
 
+function showContractChoice(buildingId: string): void {
+  const modal = dismissibleModal(
+    `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true"><span class="eyebrow">CURSED CONTRACT</span><h2>저주 계약을 선택하세요</h2><p class="subtitle">선택은 되돌릴 수 없고, 이번 게임에서 한 번만 사용할 수 있습니다.</p><div class="purchase-confirm-actions"><button class="btn ghost" data-contract-choice="berserk">폭주 포탑<br/><small>최고 레벨 포탑 폭주 · 문 최대 HP -35%</small></button><button class="btn danger" data-contract-choice="production">생산 증폭<br/><small>생산량 +50% · 문 최대 HP -50%</small></button></div><button class="btn ghost" data-modal-close>취소</button></section>`,
+    "purchase-confirm-modal",
+  );
+  modal.querySelectorAll<HTMLButtonElement>("[data-contract-choice]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const action = button.dataset.contractChoice === "production" ? "production" : "berserk";
+      modal.remove();
+      network?.activateBuilding(buildingId, action);
+    }),
+  );
+}
+
+function showSoulVialConfirm(vialId: string, turret: GameSnapshot["buildings"][number]): void {
+  const modal = dismissibleModal(
+    `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true"><span class="eyebrow">SOUL VIAL</span><h2>영혼 저장병을 사용하시겠습니까?</h2><p class="subtitle"><strong>${escapeHtml(BALANCE.buildings[turret.kind].label)}</strong>이(가) 2초 동안 충전한 뒤 다음 공격에 영혼 레이저를 발사합니다.</p><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn gold" data-confirm-soul>충전 시작</button></div></section>`,
+    "purchase-confirm-modal",
+  );
+  const cancelTargeting = () => {
+    soulVialTargetingId = null;
+    selectedTarget = null;
+    network?.activateBuilding(vialId, "soul-cancel");
+  };
+  modal.addEventListener("pointerdown", (event) => {
+    if (event.target === modal) cancelTargeting();
+  });
+  modal.querySelector<HTMLButtonElement>("[data-modal-close]")?.addEventListener("click", cancelTargeting);
+  modal.querySelector<HTMLButtonElement>("[data-confirm-soul]")?.addEventListener("click", () => {
+    modal.remove();
+    soulVialTargetingId = null;
+    network?.activateBuilding(vialId, "soul-fire", turret.id);
+  });
+}
+
 function renderTargetPanel(selection: SceneSelection): void {
   if (!snapshot) return;
   const me = snapshot.players.find((player) => player.id === playerId);
@@ -2153,6 +2236,59 @@ function renderTargetPanel(selection: SceneSelection): void {
   const removalMarkup = building
     ? buildingRemovalMarkup(building, modeRank)
     : "";
+  if (building && kind === "overload-capacitor") {
+    const remaining = Math.max(0, (building.overloadReadyAt ?? 0) - snapshot.elapsed);
+    const active = Math.max(0, (building.overloadUntil ?? 0) - snapshot.elapsed);
+    const ready = remaining <= 0 && active <= 0;
+    panel.innerHTML = `${panelHeadingMarkup("ACTIVE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>${active > 0 ? "포탑 폭주 중" : ready ? "충전 완료" : "충전 중"}</span><strong>${active > 0 ? `${active.toFixed(1)}초` : ready ? "사용 가능" : `${Math.ceil(remaining)}초`}</strong></div><small>발동하면 내 모든 수호 포탑의 공격력과 공격 속도가 8초 동안 크게 올라갑니다.</small></div><button class="upgrade-cta${ready ? '' : ' resource-insufficient'}" type="button" data-activate-overload ${ready ? '' : 'disabled'}>${ready ? "폭주 시작" : active > 0 ? "폭주 진행 중" : "충전 중"}</button>${removalMarkup}`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    const button = panel.querySelector<HTMLButtonElement>("[data-activate-overload]");
+    if (button) wirePanelAction(button, () => network?.activateBuilding(building.id, "use"));
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
+  if (building && kind === "power-panel") {
+    const mode = building.powerPanelMode ?? "attack";
+    const modes: Array<{ id: "attack" | "defense" | "production"; label: string; copy: string }> = [
+      { id: "attack", label: "공격", copy: "포탑 피해 +25%, 공속 +18% · 문 피해 +25%" },
+      { id: "defense", label: "방어", copy: "문 피해 -25% · 포탑 피해·생산 -15%" },
+      { id: "production", label: "생산", copy: "골드·전력 +25% · 포탑 피해 -15%, 문 피해 +15%" },
+    ];
+    panel.innerHTML = `${panelHeadingMarkup("MODE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">한 가지를 강화하면 다른 능력에는 반드시 손해가 생깁니다.</p><div class="build-grid">${modes.map((entry) => `<button class="build-card ${entry.id === mode ? 'active' : ''}" type="button" data-panel-mode="${entry.id}"><span class="build-card-copy"><strong>${entry.label}</strong><small>${entry.copy}</small></span></button>`).join("")}</div>${removalMarkup}`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    panel.querySelectorAll<HTMLButtonElement>("[data-panel-mode]").forEach((button) =>
+      wirePanelAction(button, () => network?.activateBuilding(building.id, button.dataset.panelMode as "attack" | "defense" | "production")),
+    );
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
+  if (building && kind === "cursed-contract") {
+    panel.innerHTML = `${panelHeadingMarkup("ACTIVE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">최고 레벨 포탑을 폭주시키거나, 생산량을 올리는 대신 문 최대 HP를 크게 희생합니다.</p><button class="upgrade-cta" type="button" data-use-contract>계약 사용</button>${removalMarkup}`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    const button = panel.querySelector<HTMLButtonElement>("[data-use-contract]");
+    if (button) wirePanelAction(button, () => showContractChoice(building.id));
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
+  if (building && kind === "soul-vial") {
+    const stored = Math.floor(building.storedSoulDamage ?? 0);
+    const ready = stored > 0;
+    panel.innerHTML = `${panelHeadingMarkup("ACTIVE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">내 포탑이 입힌 피해를 저장합니다. 사용하면 포탑 한 대가 다음 공격에 저장 피해의 35%만큼 영혼 레이저를 추가로 발사합니다.</p><div class="target-card"><div class="target-card-title"><span>저장 피해</span><strong>${stored.toLocaleString()}</strong></div><small>사용하면 저장병은 사라집니다.</small></div><button class="upgrade-cta${ready ? '' : ' resource-insufficient'}" type="button" data-arm-soul ${ready ? '' : 'disabled'}>${ready ? "포탑 지정" : "피해를 저장 중"}</button>${removalMarkup}`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    const button = panel.querySelector<HTMLButtonElement>("[data-arm-soul]");
+    if (button) wirePanelAction(button, () => {
+      soulVialTargetingId = building.id;
+      network?.activateBuilding(building.id, "soul-arm");
+      closeBuildPanel();
+      toast("충전할 내 포탑을 선택하세요.");
+    });
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
   if (kind === "lucky-machine" && building) {
     const drawLimit = drawLimitForAppearance(me.appearance);
     const cost = me.drawCount < drawLimit ? DRAW_COSTS[me.drawCount] : undefined;
@@ -2168,9 +2304,17 @@ function renderTargetPanel(selection: SceneSelection): void {
     panel.classList.remove("hidden");
     refreshOpenPanelAffordability();
     wireBuildPanelClose(panel);
-    panel
-      .querySelector("[data-draw]")
-      ?.addEventListener("click", () => network?.drawItem(building.id));
+    const drawButton = panel.querySelector<HTMLButtonElement>("[data-draw]");
+    if (drawButton) wirePanelAction(drawButton, () => {
+      // A map tap can arrive with a delayed second pointer event on mobile.
+      // Lock immediately so opening the chest always requires one deliberate
+      // press and can never consume two draws from a double tap.
+      if (drawButton.disabled) return;
+      drawButton.disabled = true;
+      drawButton.setAttribute('aria-disabled', 'true');
+      buildPanelInputBlockedUntil = performance.now() + ACTION_DEBOUNCE_MS;
+      network?.drawItem(building.id);
+    });
     wireBuildingRemoval(panel, building.id);
     return;
   }
@@ -2657,7 +2801,7 @@ function showSettings(): void {
   const logoutAction = account && !isInGameSettings
     ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
     : "";
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions"><button class="btn ghost" data-app-updates>업데이트 내역</button>${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
   modal
     .querySelector<HTMLInputElement>("[data-music-volume]")
@@ -2700,12 +2844,6 @@ function showSettings(): void {
       button.classList.toggle("off", !profile.vibration);
       button.setAttribute("aria-pressed", String(profile.vibration));
       button.textContent = profile.vibration ? "켜짐" : "꺼짐";
-    });
-  modal
-    .querySelector<HTMLButtonElement>("[data-app-updates]")
-    ?.addEventListener("click", () => {
-      audio.play("button");
-      void showAppUpdateHistory();
     });
   modal
     .querySelector<HTMLButtonElement>("[data-leave-game]")

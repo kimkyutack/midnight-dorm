@@ -105,6 +105,12 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
+    const updateButton = page.getByRole("button", { name: "업데이트 내역" });
+    await expect(updateButton).toBeVisible();
+    await updateButton.click();
+    const updateDialog = page.getByRole("dialog", { name: "업데이트 내역" });
+    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.27.4");
+    await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
     await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
       3,

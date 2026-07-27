@@ -3,7 +3,7 @@ import { getRandomItem } from '../../shared/randomItems';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
-const BUILDING_ART_VERSION = 'cute-tile-v9-loot';
+const BUILDING_ART_VERSION = 'cute-tile-v11-rewards';
 
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',
@@ -21,6 +21,13 @@ const STATIC_ART: Partial<Record<BuildingKind, string>> = {
   'lucky-machine': 'cute-lucky-machine',
   'ghost-net': 'cute-ghost-net',
   'starter-grave': 'cute-starter-grave',
+  'overload-capacitor': 'cute-overload-capacitor',
+  'turret-enhancer': 'cute-turret-enhancer',
+  'door-anchor': 'cute-door-anchor',
+  'reflect-mirror': 'cute-reflect-mirror',
+  'power-panel': 'cute-power-panel',
+  'cursed-contract': 'cute-cursed-contract',
+  'soul-vial': 'cute-soul-vial',
 };
 
 /** Image-led top-down construction art for every installable building. */
@@ -28,11 +35,20 @@ export function randomItemAssetUrl(itemId?: string): string {
   if (itemId === 'golden-ticket')
     return `/assets/items/golden-ticket.png?v=${BUILDING_ART_VERSION}`;
   const effect = itemId ? getRandomItem(itemId)?.effect : undefined;
-  const file = effect?.goldPerSecond
-    ? 'random-loot-gold'
-    : effect?.powerPerSecond
+  const goldRewardArt: Record<number, string> = {
+    1: 'reward-grave-1',
+    2: 'reward-chicken-2',
+    5: 'reward-piggy-gray-5',
+    10: 'reward-piggy-red-10',
+    20: 'reward-piggy-moon-20',
+    50: 'reward-golden-frog-50',
+    100: 'reward-golden-bull-100',
+    500: 'reward-black-card-500',
+  };
+  const file = goldRewardArt[effect?.goldPerSecond ?? 0]
+    ?? (effect?.powerPerSecond
       ? 'random-loot-power'
-      : 'random-loot-turret';
+      : 'random-loot-turret');
   return `/assets/items/${file}.png?v=${BUILDING_ART_VERSION}`;
 }
 

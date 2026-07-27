@@ -29,7 +29,7 @@ const DOOR_LEVELS = DOOR_HP.map((hp, index) => {
   const gold = doorLevel === 1 ? 0 : 20 * 2 ** (doorLevel - 2);
   return level(gold, doorLevel >= 6 ? Math.ceil(gold * 0.1) : 0, hp, 0, 0);
 });
-const BED_LEVELS = Array.from({ length: 15 }, (_, index) => {
+const BED_LEVELS = Array.from({ length: 10 }, (_, index) => {
   const bedLevel = index + 1;
   const gold = bedLevel === 1 ? 0 : 25 * 2 ** (bedLevel - 2);
   return level(gold, bedLevel >= 6 ? Math.ceil(gold * 0.1) : 0, 2 ** index, 1, 0);
@@ -57,7 +57,7 @@ export const BALANCE = {
     // increase keeps the longer gesture travel responsive without making
     // ghosts look as though they teleport between snapshots.
     speed: 6.24,
-    startingGold: 100,
+    startingGold: 20,
     startingPower: 18,
     interactionRange: 1.7,
     collisionRadius: 0.36,
@@ -70,11 +70,12 @@ export const BALANCE = {
     passiveRegenIntervalSeconds: 1,
   },
   ghost: {
-    baseHp: 760,
+    // Baseline pressure is deliberately higher now that late-game strategic
+    // buildings create burst and recovery windows.
+    baseHp: 920,
     collisionRadius: 0.28,
     hpPerPlayer: 0.1,
-    // 노말 초반에도 문을 실제로 압박하도록 기존 4에서 15%만 올린다.
-    baseDamage: 4.6,
+    baseDamage: 5.8,
     damagePerPlayer: 0.13,
     damageGrowthPerLevel: 0.58,
     shieldPenetrationPerLevel: 0.15,
@@ -90,14 +91,17 @@ export const BALANCE = {
     retreatDamageMultiplier: 1.45,
     // 회복 구역으로 복귀 중에도 포탑이 마무리 공격을 할 수 있도록 속도를 제한한다.
     retreatSpeedMultiplier: 1.3,
-    firstLevelAttacks: 30,
-    attacksAddedPerLevel: 15,
+    // 쉬움 1 기준 첫 성장 21회. 스테이지가 오를수록 1회씩 줄어
+    // 악몽 1부터는 10회 아래로 내려가지 않는다.
+    firstLevelAttacks: 21,
+    firstLevelFollowupAttacks: 3,
+    attacksAddedPerLevel: 5,
   },
   buildings: {
     bed: {
       label: '꿈결 침대',
       description: '매초 골드를 얻습니다. 레벨이 오르면 획득 골드가 2배가 됩니다.',
-      maxLevel: 15,
+      maxLevel: 10,
       levels: BED_LEVELS,
     },
     'reinforced-door': {
@@ -169,13 +173,15 @@ export const BALANCE = {
     'gem-core': {
       label: '월광 보석',
       description: '매초 골드를 얻습니다.',
-      maxLevel: 5,
+      maxLevel: 7,
       levels: [
-        level(0, 125, 8, 1, 0),
-        level(0, 250, 16, 1, 0),
-        level(0, 500, 32, 1, 0),
-        level(0, 1_000, 64, 1, 0),
-        level(0, 2_000, 128, 1, 0),
+        level(0, 32, 8, 1, 0),
+        level(0, 64, 16, 1, 0),
+        level(0, 128, 32, 1, 0),
+        level(0, 256, 64, 1, 0),
+        level(0, 512, 128, 1, 0),
+        level(0, 1_024, 256, 1, 0),
+        level(0, 2_048, 512, 1, 0),
       ],
     },
     'ghost-net': {
@@ -194,6 +200,48 @@ export const BALANCE = {
         level(0, 720, 3, 0, 0),
         level(0, 1_440, 4, 0, 0),
       ],
+    },
+    'overload-capacitor': {
+      label: '과부하 축전기',
+      description: '60초 충전 후 사용하면 포탑이 잠시 폭주합니다.',
+      maxLevel: 1,
+      levels: [level(0, 300, 60, 8, 0)],
+    },
+    'turret-enhancer': {
+      label: '포탑 강화소',
+      description: '좌우 수호 포탑을 1레벨 높입니다.',
+      maxLevel: 1,
+      levels: [level(0, 350, 1, 0, 0)],
+    },
+    'door-anchor': {
+      label: '도어 앵커',
+      description: '문이 부서질 때 한 번 4초 동안 버팁니다.',
+      maxLevel: 1,
+      levels: [level(0, 2_000, 4, 0, 0)],
+    },
+    'reflect-mirror': {
+      label: '반사 거울',
+      description: '문이 받은 피해의 5%를 귀신에게 돌려줍니다.',
+      maxLevel: 1,
+      levels: [level(0, 1_200, 0.05, 0, 0)],
+    },
+    'power-panel': {
+      label: '배전 제어판',
+      description: '한 모드를 강화하는 대신 다른 능력에 손해가 생깁니다.',
+      maxLevel: 1,
+      levels: [level(1_000, 0, 0, 0, 0)],
+    },
+    'cursed-contract': {
+      label: '저주 계약서',
+      description: '한 번만 사용할 수 있는 강력한 선택을 제안합니다.',
+      maxLevel: 1,
+      levels: [level(10_000, 0, 0, 0, 0)],
+    },
+    'soul-vial': {
+      label: '영혼 저장병',
+      description: '포탑 피해를 저장해 한 발의 충전 레이저로 바꿉니다.',
+      maxLevel: 1,
+      levels: [level(5_000, 0, 0.35, 0, 0)],
     },
     'starter-grave': {
       label: '잠든 무덤',
@@ -263,14 +311,15 @@ export function upgradeRequirement(
   if (kind === 'basic-turret') {
     const requiredBedLevel = targetLevel === 6 ? 6
       : targetLevel === 10 ? 10
-        : targetLevel === 13 ? 13
-          : targetLevel === 14 ? 14
-            : targetLevel === 15 ? 15
-              : 0;
-    if (context.bedLevel < requiredBedLevel)
+        : 0;
+    if (requiredBedLevel > 0 && context.bedLevel < requiredBedLevel)
       return `침대 Lv.${requiredBedLevel} 필요`;
-    if (targetLevel === 15 && context.doorLevel < 15)
-      return '문 Lv.15 필요';
+    const requiredDoorLevel = targetLevel === 13 ? 13
+      : targetLevel === 14 ? 14
+        : targetLevel === 15 ? 15
+          : 0;
+    if (requiredDoorLevel > 0 && context.doorLevel < requiredDoorLevel)
+      return `문 Lv.${requiredDoorLevel} 필요`;
   }
   return null;
 }

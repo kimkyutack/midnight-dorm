@@ -1128,6 +1128,65 @@
   padding: 8px 11px;
   border-radius: 16px;
 }
+.home-profile-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.home-update-notice {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px 4px 5px;
+  border: 1px solid rgba(110, 222, 240, 0.34);
+  border-radius: 13px;
+  color: #edf7f8;
+  background: linear-gradient(110deg, rgba(6, 20, 34, 0.88), rgba(18, 36, 56, 0.75));
+  box-shadow: inset 0 1px rgba(194, 253, 255, 0.08), 0 7px 16px rgba(0, 0, 0, 0.23);
+  text-align: left;
+  cursor: pointer;
+}
+.home-update-notice:hover,
+.home-update-notice:focus-visible {
+  border-color: rgba(136, 237, 248, 0.76);
+  outline: 0;
+  transform: translateY(-1px);
+}
+.home-update-notice img {
+  display: block;
+  width: 29px;
+  height: 29px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.52));
+}
+.home-update-notice span {
+  display: grid;
+  min-width: 0;
+}
+.home-update-notice small {
+  color: #8ce8f2;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+.home-update-notice strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-update-notice i {
+  color: #f0d78f;
+  font-size: 17px;
+  font-style: normal;
+  line-height: 1;
+}
+.app-update-list article p {
+  white-space: pre-line;
+}
 .home-topbar button.home-account {
   color: #edf3f4;
   font: inherit;
@@ -5246,6 +5305,16 @@ select {
   line-height: 1.15;
   white-space: nowrap;
 }
+.build-limit-note {
+  display: inline-flex;
+  width: fit-content;
+  margin: 2px auto 0;
+  color: #f0bd86;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.15;
+}
 .sleep-nearby {
   position: absolute;
   z-index: 12;
@@ -6957,11 +7026,13 @@ select {
       );
   }
   .home-topbar {
-    align-items: center;
+    align-items: flex-start;
   }
-  .home-topbar .home-account {
+  .home-profile-stack {
     flex: 1 1 145px;
     max-width: 155px;
+  }
+  .home-topbar .home-account {
     min-width: 0;
   }
   .home-topbar .home-account > div:last-child > span,
@@ -6991,6 +7062,13 @@ select {
   }
   .home-utility > button:last-child::after {
     content: none;
+  }
+  .home-update-notice {
+    min-height: 31px;
+  }
+  .home-update-notice img {
+    width: 27px;
+    height: 27px;
   }
   .home-avatar-showcase {
     left: 0;
