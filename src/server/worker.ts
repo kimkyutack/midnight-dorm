@@ -5,6 +5,7 @@ import type { AccountProfile, PlayMode, StageId } from '../shared/types';
 import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
 import { createRoomCode, rankedMatchForContract, rankedMatchmakingTier, rankedStageForTier } from './rankedMatch';
+import { routeMailbox } from './mailbox';
 
 export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
@@ -170,6 +171,8 @@ export default {
     if ((url.pathname === '/api/app-updates' || url.pathname === '/api/app-updates/latest') && request.method === 'GET') {
       return routeAppUpdates(request, env);
     }
+    const mailboxResponse = await routeMailbox(request, env.DB, env.DATA_ENV === 'local-e2e');
+    if (mailboxResponse) return mailboxResponse;
     const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (authResponse) return authResponse;
     const avatarMatch = url.pathname.match(/^\/api\/profile-avatar\/([a-zA-Z0-9-]{8,80})$/);

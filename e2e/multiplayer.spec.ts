@@ -105,11 +105,19 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".game-home")).toBeVisible();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
+    const mailboxButton = page.getByRole("button", { name: "우편함" });
+    await expect(page.locator(".home-mail-unread")).toHaveClass(/visible/);
+    await mailboxButton.click();
+    const mailboxDialog = page.getByRole("dialog", { name: "우편함" });
+    await expect(mailboxDialog).toContainText("병동 우편함이 열렸습니다");
+    await mailboxDialog.locator(".mailbox-message").click();
+    await expect(page.locator(".home-mail-unread")).not.toHaveClass(/visible/);
+    await mailboxDialog.getByRole("button", { name: "닫기" }).click();
     const updateButton = page.getByRole("button", { name: "업데이트 내역" });
     await expect(updateButton).toBeVisible();
     await updateButton.click();
     const updateDialog = page.getByRole("dialog", { name: "업데이트 내역" });
-    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.27.4");
+    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.27.5");
     await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
     await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
@@ -121,8 +129,13 @@ test("portrait home separates shop, owned customization and stage start", async 
       .boundingBox();
     expect(avatarBounds).toBeTruthy();
     expect(avatarBounds?.width ?? 999).toBeLessThanOrEqual(330);
-    const homeAvatar = page.locator(".home-avatar-model .avatar-sprite-preview");
-    await expect(homeAvatar).toHaveAttribute("data-character", "character-bunny");
+    const homeAvatar = page.locator(
+      ".home-avatar-model .avatar-sprite-preview",
+    );
+    await expect(homeAvatar).toHaveAttribute(
+      "data-character",
+      "character-bunny",
+    );
     await expect(homeAvatar).toHaveAttribute("data-skin", "skin-basic-bunny");
     await expect(page.locator(".home-avatar-model canvas")).toBeVisible();
     await expect(page.locator(".home-chase-ghost")).toHaveCount(0);
@@ -139,9 +152,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       }));
     expect(summaryLayout.overflow).toBe("visible");
     expect(summaryLayout.whitespace).toBe("normal");
-    await expect(
-      page.locator("[data-ranking] .home-utility-icon"),
-    ).toBeVisible();
+    await expect(page.locator("[data-ranking] img")).toBeVisible();
     await page.getByRole("button", { name: "스테이지 난이도 선택" }).click();
     await expect(
       page.getByRole("dialog", { name: "도전할 스테이지" }),
@@ -155,27 +166,33 @@ test("portrait home separates shop, owned customization and stage start", async 
       "accept",
       "image/jpeg,image/png,image/webp",
     );
-    await expect(page.locator('[data-profile-display-mode="ranked"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-profile-display-mode="ranked"]'),
+    ).toHaveCount(0);
     await page.locator('[data-profile-display-mode="multiplayer"]').click();
     // The profile label deliberately shows the chosen rank only; play mode is
     // selected separately and no longer takes space in the in-game label.
     await expect(page.locator(".home-account")).toContainText("하수");
-    await page.locator('[data-ranking]').click();
-    await expect(page.getByRole('dialog', { name: 'S1 새벽 랭크전' })).toContainText('Unranked · 배치 0/5');
-    await page.getByRole('button', { name: '닫기' }).click();
+    await page.locator("[data-ranking]").click();
+    await expect(page.getByRole("dialog", { name: "S1 랭킹" })).toContainText(
+      "Unranked · 배치 0/5",
+    );
+    await page.getByRole("button", { name: "닫기" }).click();
     await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
-    await page.getByRole('button', { name: '업데이트 내역' }).click();
-    await expect(page.getByRole('dialog', { name: '업데이트 내역' })).toBeVisible();
-    await expect(page.getByText('모바일 조작과 보상 흐름 개선')).toBeVisible();
-    await page.getByRole('button', { name: '닫기' }).click();
+    await page.getByRole("button", { name: "업데이트 내역" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "업데이트 내역" }),
+    ).toBeVisible();
+    await expect(page.getByText("모바일 조작과 보상 흐름 개선")).toBeVisible();
+    await page.getByRole("button", { name: "닫기" }).click();
     await page.getByRole("button", { name: "완료" }).click();
-    const latestUpdate = await page.request.get('/api/app-updates/latest', {
-      headers: { 'cache-control': 'no-cache' },
+    const latestUpdate = await page.request.get("/api/app-updates/latest", {
+      headers: { "cache-control": "no-cache" },
     });
     expect(latestUpdate).toBeOK();
-    expect(latestUpdate.headers()['cache-control']).toContain('no-store');
-    expect((await latestUpdate.json()).latest.version).toBe('2026.07.27.2');
+    expect(latestUpdate.headers()["cache-control"]).toContain("no-store");
+    expect((await latestUpdate.json()).latest.version).toBe("2026.07.27.2");
     const profileResponse = await page.request.get("/api/auth/me");
     expect(profileResponse).toBeOK();
     const profile = (await profileResponse.json()) as {
@@ -201,8 +218,12 @@ test("portrait home separates shop, owned customization and stage start", async 
     const avatarProfile = (await avatarUpdate.json()) as {
       profile: { profileAvatarUrl: string | null };
     };
-    expect(avatarProfile.profile.profileAvatarUrl).toMatch(/^\/api\/profile-avatar\//);
-    const avatarAsset = await page.request.get(avatarProfile.profile.profileAvatarUrl as string);
+    expect(avatarProfile.profile.profileAvatarUrl).toMatch(
+      /^\/api\/profile-avatar\//,
+    );
+    const avatarAsset = await page.request.get(
+      avatarProfile.profile.profileAvatarUrl as string,
+    );
     expect(avatarAsset).toBeOK();
     expect(avatarAsset.headers()["content-type"]).toBe("image/png");
     expect(
@@ -228,7 +249,9 @@ test("portrait home separates shop, owned customization and stage start", async 
       page.getByRole("button", { name: "앞", exact: true }),
     ).toHaveClass(/active/);
     await expect(page.locator(".cosmetic-card")).toHaveCount(12);
-    const catCard = page.locator(".cosmetic-card", { hasText: "달고양이 루루" });
+    const catCard = page.locator(".cosmetic-card", {
+      hasText: "달고양이 루루",
+    });
     await expect(catCard.locator("img")).toHaveAttribute(
       "src",
       /\/assets\/paperdoll\/bases\/character-cat\/concept\.png$/,
@@ -239,12 +262,16 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
     await expect(page.locator(".cosmetic-card")).toHaveCount(12);
-    const bunnySkinCard = page.locator(".cosmetic-card", { hasText: "탐험가 모모" });
+    const bunnySkinCard = page.locator(".cosmetic-card", {
+      hasText: "탐험가 모모",
+    });
     await expect(bunnySkinCard.locator("img")).toHaveAttribute(
       "src",
       /\/assets\/sprites\/survivors\/character-bunny\/concept\.png$/,
     );
-    await expect(bunnySkinCard.getByRole("button", { name: "100 P" })).toBeEnabled();
+    await expect(
+      bunnySkinCard.getByRole("button", { name: "100 P" }),
+    ).toBeEnabled();
     const lockedCatSkin = page.locator(".cosmetic-card", {
       hasText: "새벽 탐정 루루",
     });
@@ -261,7 +288,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toHaveCount(0);
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
-    await expect(page.getByRole("heading", { name: "내 보관함" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "내 보관함" }),
+    ).toBeVisible();
     const avatarCanvas = page.locator(".skin-preview-canvas");
     await expect(avatarCanvas).toBeVisible();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "front");
@@ -274,7 +303,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toHaveClass(/active/);
     await page.getByRole("button", { name: "스킨", exact: true }).click();
     await expect(page.locator(".cosmetic-card")).toHaveCount(0);
-    await expect(page.locator(".empty-collection")).toContainText("완성형 스킨");
+    await expect(page.locator(".empty-collection")).toContainText(
+      "완성형 스킨",
+    );
     await page.getByRole("button", { name: "뒤", exact: true }).click();
     await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
     await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
@@ -362,16 +393,26 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
   const roomId = await page.evaluate(() => {
     const game = window.__DORM_TEST__;
     const map = game?.map;
-    const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
+    const player = game?.snapshot?.players.find(
+      (candidate) => candidate.id === game.playerId,
+    );
     if (!map || !player) return null;
     const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
-    const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
+    const start = {
+      x: Math.round(player.position.x),
+      y: Math.round(player.position.y),
+    };
     const distances = new Map<string, number>([[`${start.x},${start.y}`, 0]]);
     const queue = [start];
     for (let index = 0; index < queue.length; index += 1) {
       const current = queue[index] as { x: number; y: number };
       const distance = distances.get(`${current.x},${current.y}`) ?? 0;
-      for (const [dx = 0, dy = 0] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx = 0, dy = 0] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
         const next = { x: current.x + dx, y: current.y + dy };
         const key = `${next.x},${next.y}`;
         if (!walkable.has(key) || distances.has(key)) continue;
@@ -379,67 +420,101 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
         queue.push(next);
       }
     }
-    return map.rooms
-      .map((room) => ({
-        id: room.id,
-        distance: Math.min(...room.beds.map((bed) => distances.get(`${bed.x},${bed.y}`) ?? Infinity)),
-      }))
-      .filter((room) => Number.isFinite(room.distance))
-      .sort((left, right) => left.distance - right.distance)[0]?.id ?? null;
+    return (
+      map.rooms
+        .map((room) => ({
+          id: room.id,
+          distance: Math.min(
+            ...room.beds.map(
+              (bed) => distances.get(`${bed.x},${bed.y}`) ?? Infinity,
+            ),
+          ),
+        }))
+        .filter((room) => Number.isFinite(room.distance))
+        .sort((left, right) => left.distance - right.distance)[0]?.id ?? null
+    );
   });
-  if (!roomId) throw new Error('reachable shared room was not found');
+  if (!roomId) throw new Error("reachable shared room was not found");
   return { roomId };
 }
 
-async function sleepInBed(page: Page, roomId: string, bedIndex: number): Promise<void> {
+async function sleepInBed(
+  page: Page,
+  roomId: string,
+  bedIndex: number,
+): Promise<void> {
   await expect
     .poll(
       async () =>
-        page.evaluate(({ targetRoomId, targetBedIndex }) => {
-          const game = window.__DORM_TEST__;
-          const map = game?.map;
-          const player = game?.snapshot?.players.find((candidate) => candidate.id === game.playerId);
-          const bed = map?.rooms.find(
-            (candidate) => candidate.id === targetRoomId,
-          )?.beds[targetBedIndex];
-          if (!game || !map || !player || !bed) return Infinity;
-          const distance = Math.hypot(player.position.x - bed.x, player.position.y - bed.y);
-          // Keep the browser driver inside the server's 1.7-tile interaction
-          // range, without requiring a fragile exact tile centre.
-          if (distance <= 1.65) {
-            game.move(0, 0);
-            return distance;
-          }
-          const start = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
-          const targetKey = `${bed.x},${bed.y}`;
-          const walkable = new Set(map.walkable.map((tile) => `${tile.x},${tile.y}`));
-          const previous = new Map<string, string | null>([[`${start.x},${start.y}`, null]]);
-          const queue = [start];
-          for (let index = 0; index < queue.length; index += 1) {
-            const current = queue[index] as { x: number; y: number };
-            const currentKey = `${current.x},${current.y}`;
-            if (currentKey === targetKey) break;
-            for (const [dx = 0, dy = 0] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-              const next = { x: current.x + dx, y: current.y + dy };
-              const key = `${next.x},${next.y}`;
-              if (!walkable.has(key) || previous.has(key)) continue;
-              previous.set(key, currentKey);
-              queue.push(next);
+        page.evaluate(
+          ({ targetRoomId, targetBedIndex }) => {
+            const game = window.__DORM_TEST__;
+            const map = game?.map;
+            const player = game?.snapshot?.players.find(
+              (candidate) => candidate.id === game.playerId,
+            );
+            const bed = map?.rooms.find(
+              (candidate) => candidate.id === targetRoomId,
+            )?.beds[targetBedIndex];
+            if (!game || !map || !player || !bed) return Infinity;
+            const distance = Math.hypot(
+              player.position.x - bed.x,
+              player.position.y - bed.y,
+            );
+            // Keep the browser driver inside the server's 1.7-tile interaction
+            // range, without requiring a fragile exact tile centre.
+            if (distance <= 1.65) {
+              game.move(0, 0);
+              return distance;
             }
-          }
-          if (!previous.has(targetKey)) return Infinity;
-          const route: Array<{ x: number; y: number }> = [];
-          for (let key: string | null = targetKey; key; key = previous.get(key) ?? null) {
-            const [x, y] = key.split(',').map(Number);
-            route.push({ x: x as number, y: y as number });
-          }
-          const waypoint = route.reverse()[1] ?? bed;
-          const dx = waypoint.x - player.position.x;
-          const dy = waypoint.y - player.position.y;
-          const magnitude = Math.hypot(dx, dy) || 1;
-          game.move(dx / magnitude, dy / magnitude);
-          return distance;
-        }, { targetRoomId: roomId, targetBedIndex: bedIndex }),
+            const start = {
+              x: Math.round(player.position.x),
+              y: Math.round(player.position.y),
+            };
+            const targetKey = `${bed.x},${bed.y}`;
+            const walkable = new Set(
+              map.walkable.map((tile) => `${tile.x},${tile.y}`),
+            );
+            const previous = new Map<string, string | null>([
+              [`${start.x},${start.y}`, null],
+            ]);
+            const queue = [start];
+            for (let index = 0; index < queue.length; index += 1) {
+              const current = queue[index] as { x: number; y: number };
+              const currentKey = `${current.x},${current.y}`;
+              if (currentKey === targetKey) break;
+              for (const [dx = 0, dy = 0] of [
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+              ]) {
+                const next = { x: current.x + dx, y: current.y + dy };
+                const key = `${next.x},${next.y}`;
+                if (!walkable.has(key) || previous.has(key)) continue;
+                previous.set(key, currentKey);
+                queue.push(next);
+              }
+            }
+            if (!previous.has(targetKey)) return Infinity;
+            const route: Array<{ x: number; y: number }> = [];
+            for (
+              let key: string | null = targetKey;
+              key;
+              key = previous.get(key) ?? null
+            ) {
+              const [x, y] = key.split(",").map(Number);
+              route.push({ x: x as number, y: y as number });
+            }
+            const waypoint = route.reverse()[1] ?? bed;
+            const dx = waypoint.x - player.position.x;
+            const dy = waypoint.y - player.position.y;
+            const magnitude = Math.hypot(dx, dy) || 1;
+            game.move(dx / magnitude, dy / magnitude);
+            return distance;
+          },
+          { targetRoomId: roomId, targetBedIndex: bedIndex },
+        ),
       { timeout: 12_000, intervals: [100] },
     )
     .toBeLessThanOrEqual(1.65);
@@ -704,10 +779,16 @@ test("two real browser contexts share a room, building, combat and reconnection"
       sleepInBed(second, roomId, 1),
     ]);
     await expect
-      .poll(async () => (await state(first)).snapshot?.players.every((player) => player.roomId === roomId), {
-        timeout: 12_000,
-        intervals: [100],
-      })
+      .poll(
+        async () =>
+          (await state(first)).snapshot?.players.every(
+            (player) => player.roomId === roomId,
+          ),
+        {
+          timeout: 12_000,
+          intervals: [100],
+        },
+      )
       .toBe(true);
     const roommates = (await state(first)).snapshot?.players ?? [];
     expect(roommates[0]?.bedIndex).not.toBeNull();
@@ -716,8 +797,9 @@ test("two real browser contexts share a room, building, combat and reconnection"
 
     const movingId = firstState.playerId;
     const goldBefore =
-      (await state(first)).snapshot?.players.find((player) => player.id === movingId)
-        ?.gold ?? 0;
+      (await state(first)).snapshot?.players.find(
+        (player) => player.id === movingId,
+      )?.gold ?? 0;
     expect(
       await first.evaluate(() =>
         window.__DORM_TEST__?.buildFirst("basic-turret"),
@@ -757,7 +839,9 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(afterRapidBuilds.snapshot?.buildings).toHaveLength(
       beforeRapidBuilds + 1,
     );
-    expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe("basic-turret");
+    expect(afterRapidBuilds.snapshot?.buildings.at(-1)?.kind).toBe(
+      "basic-turret",
+    );
 
     const secondId = (await state(second)).playerId;
     await second.reload();
