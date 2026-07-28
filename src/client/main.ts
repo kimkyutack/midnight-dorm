@@ -54,10 +54,12 @@ import type {
   ProfileDisplayMode,
   RankedTier,
   RankId,
+  QuickChatPhrase,
   StageId,
   Tile,
   Vec2,
 } from "../shared/types";
+import type { DirectMessage, SocialInvite, SocialPerson, SocialSnapshot } from "../shared/social";
 import { SynthAudio, type BackgroundTrack } from "./audio";
 import {
   equipCosmetic,
@@ -126,6 +128,9 @@ interface MailboxMessage {
   claimedAt: number | null;
 }
 let mailboxUnreadCount = 0;
+let socialUnreadCount = 0;
+let socialSocket: WebSocket | null = null;
+let socialReconnectTimer = 0;
 let customizeReturnView: "home" | "room-menu" = "home";
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
@@ -286,6 +291,7 @@ function invalidateRealtimeSession(
   selectedTarget = null;
   inputVector = { x: 0, y: 0 };
   resultRecorded = false;
+  stopSocialRealtime();
   account = null;
   authScreen();
   toast("실시간 연결을 복구하지 못했습니다. 다시 로그인해주세요.");
@@ -763,7 +769,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -817,6 +823,10 @@ function homeScreen(): void {
     audio.play("button");
     void showMailbox();
   });
+  app.querySelector("[data-social]")?.addEventListener("click", () => {
+    audio.play("button");
+    void showSocialHub();
+  });
   app.querySelector("[data-ad-free]")?.addEventListener("click", () => {
     audio.play("button");
     toast("광고 제거 기능은 추후 제공됩니다.");
@@ -829,11 +839,16 @@ function homeScreen(): void {
     void showAppUpdateHistory();
   });
   void refreshMailboxUnreadCount();
+  void refreshSocialUnreadCount();
+  startSocialRealtime();
 }
 
-function homeUtilityIcon(kind: "mail" | "settings"): string {
+function homeUtilityIcon(kind: "mail" | "social" | "settings"): string {
   if (kind === "mail") {
     return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="12" width="34" height="25" rx="5"/><path d="m9 16 15 12L39 16M9 34l10-10m20 10-10-10"/><path d="M15 8h18"/></svg>';
+  }
+  if (kind === "social") {
+    return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><circle cx="18" cy="18" r="7"/><path d="M5 39c1-8 6-12 13-12s12 4 13 12"/><circle cx="34" cy="20" r="5"/><path d="M30 30c7 0 11 3 13 9"/></svg>';
   }
   return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 9v4M24 35v4M39 24h-4M13 24H9M34.6 13.4l-2.8 2.8M16.2 31.8l-2.8 2.8M34.6 34.6l-2.8-2.8M16.2 16.2l-2.8-2.8"/><circle cx="24" cy="24" r="8"/><path d="M24 5.5c2.3 0 4.2 1.9 4.2 4.2l2.5 1c1.7-1.5 4.3-1.3 5.8.4 1.5 1.7 1.3 4.3-.4 5.8l1 2.5c2.3 0 4.2 1.9 4.2 4.2s-1.9 4.2-4.2 4.2l-1 2.5c1.5 1.7 1.3 4.3-.4 5.8-1.7 1.5-4.3 1.3-5.8-.4l-2.5 1c0 2.3-1.9 4.2-4.2 4.2s-4.2-1.9-4.2-4.2l-2.5-1c-1.7 1.5-4.3 1.3-5.8-.4-1.5-1.7-1.3-4.3.4-5.8l-1-2.5c-2.3 0-4.2-1.9-4.2-4.2s1.9-4.2 4.2-4.2l1-2.5c-1.5-1.7-1.3-4.3.4-5.8 1.7-1.5 4.3-1.3 5.8.4l2.5-1c0-2.3 1.9-4.2 4.2-4.2Z"/></svg>';
 }
@@ -1688,6 +1703,7 @@ function roomMenu(): void {
       void logoutAccount().then(() => {
         profile.mustReauthenticate = true;
         saveProfile(profile);
+        stopSocialRealtime();
         account = null;
         network?.close();
         network = null;
@@ -1963,6 +1979,11 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     ping = milliseconds;
     updateHud();
   });
+  roomNetwork.on("quickChat", ({ playerId: speakerId, phrase }) => {
+    if (network !== roomNetwork || !snapshot) return;
+    const speaker = snapshot.players.find((player) => player.id === speakerId);
+    if (speaker) showQuickChatBubble(speaker.nickname, phrase);
+  });
   roomNetwork.connect();
 }
 
@@ -1980,7 +2001,7 @@ function lobbyScreen(state: GameSnapshot): void {
       : "";
   setContent(
     "lobby",
-    `<main class="lobby-screen ${state.playMode === "solo" ? "solo-lobby" : "multiplayer-lobby"} ${rankedLobby ? "ranked-lobby" : ""}"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${rankedLobby ? `${state.ranked?.seasonId} 랭크 매치` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${stageThemeFor(state.stageId).label}</span><p>${rankedLobby ? "대기열 배정 인원이 모두 연결되면 준비 없이 자동으로 시작됩니다." : state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><strong>${state.stageLabel}</strong></div></header>${roomCode}<section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>${rankedLobby ? "RANKED CONTRACT" : "NIGHT BRIEF"}</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><section class="lobby-loadout" data-lobby-loadout></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button>${rankedLobby ? '<div class="ranked-lobby-autostart">랭크 대기열 완료 · 자동 시작 대기</div>' : '<button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">게임 시작</button>'}</footer></section></main>`,
+    `<main class="lobby-screen ${state.playMode === "solo" ? "solo-lobby" : "multiplayer-lobby"} ${rankedLobby ? "ranked-lobby" : ""}"><div class="lobby-backdrop"></div><section class="lobby-shell"><header class="lobby-header"><div><span class="eyebrow">${rankedLobby ? `${state.ranked?.seasonId} 랭크 매치` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${stageThemeFor(state.stageId).label}</span><p>${rankedLobby ? "대기열 배정 인원이 모두 연결되면 준비 없이 자동으로 시작됩니다." : state.playMode === "solo" ? "생존자 봇과 장비를 점검하세요." : "친구와 같은 방을 쓰거나 각자 다른 루트를 지킬 수 있습니다."}</p></div><div class="lobby-stage"><strong>${state.stageLabel}</strong></div></header>${roomCode}<section class="lobby-content"><div><div class="lobby-section-title"><strong>생존자 명단</strong><span>${state.players.length}/4 READY CHECK</span></div><div class="players" id="players" data-testid="players"></div></div><aside class="lobby-brief"><span>${rankedLobby ? "RANKED CONTRACT" : "NIGHT BRIEF"}</span><strong>${roomRule}</strong><p>등급 침대 보너스만큼 귀신도 강해집니다. 쌍둥이는 서로 다른 방과 문을 노릴 수 있습니다.</p><div><i style="width:${Math.min(100, 28 + state.stageIndex * 0.55)}%"></i></div><small>귀신 성장 HP +${Math.round(stage.levelHpGrowth * 100)}% · 공격 +${Math.round(stage.levelDamageGrowth * 100)}%</small></aside></section><section class="lobby-loadout" data-lobby-loadout></section><footer class="lobby-actions"><button class="btn danger" data-leave-room>방 나가기</button>${rankedLobby ? '<div class="ranked-lobby-autostart">랭크 대기열 완료 · 자동 시작 대기</div>' : `${state.playMode === "multiplayer" ? '<button class="btn ghost" data-lobby-invite>친구 초대</button>' : ""}<button class="btn ghost" data-ready>준비</button><button class="btn ghost" data-bot>봇 추가</button><button class="btn primary" data-start data-testid="start-game">게임 시작</button>`}</footer></section></main>`,
   );
   app.querySelector("[data-copy]")?.addEventListener("click", () => {
     void navigator.clipboard?.writeText(state.roomCode);
@@ -1998,6 +2019,10 @@ function lobbyScreen(state: GameSnapshot): void {
   app.querySelector("[data-start]")?.addEventListener("click", () => {
     network?.start();
     audio.play("button");
+  });
+  app.querySelector("[data-lobby-invite]")?.addEventListener("click", () => {
+    audio.play("button");
+    void showSocialHub("friends", state.roomCode);
   });
   app
     .querySelector<HTMLButtonElement>("[data-leave-room]")
@@ -2104,7 +2129,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="빠른 문구">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -2124,6 +2149,7 @@ function gameScreen(state: GameSnapshot): void {
   app
     .querySelector("[data-inventory]")
     ?.addEventListener("click", showInventory);
+  app.querySelector("[data-quick-chat]")?.addEventListener("click", showQuickChatPicker);
   window.addEventListener(
     "dorm:tile-selected",
     onTileSelected as EventListener,
@@ -3334,6 +3360,42 @@ function playEvents(events: GameEvent[]): void {
     navigator.vibrate?.(35);
 }
 
+const QUICK_CHAT_PHRASES: readonly QuickChatPhrase[] = [
+  "문 위험!",
+  "포탑 강화해!",
+  "내가 끝낼게!",
+  "좋은 아이템 발견!",
+];
+
+function showQuickChatPicker(): void {
+  app.querySelector(".quick-chat-picker")?.remove();
+  const picker = document.createElement("section");
+  picker.className = "quick-chat-picker";
+  picker.setAttribute("aria-label", "빠른 문구 선택");
+  picker.innerHTML = `<strong>빠른 문구</strong>${QUICK_CHAT_PHRASES.map((phrase) => `<button data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}`;
+  app.appendChild(picker);
+  picker.querySelectorAll<HTMLButtonElement>("[data-quick-phrase]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const phrase = button.dataset.quickPhrase as QuickChatPhrase;
+      if (!QUICK_CHAT_PHRASES.includes(phrase)) return;
+      network?.quickChat(phrase);
+      audio.play("button");
+      picker.remove();
+    }),
+  );
+  window.setTimeout(() => picker.remove(), 5_000);
+}
+
+function showQuickChatBubble(nickname: string, phrase: QuickChatPhrase): void {
+  const existing = app.querySelector(".quick-chat-bubble");
+  existing?.remove();
+  const bubble = document.createElement("div");
+  bubble.className = "quick-chat-bubble";
+  bubble.innerHTML = `<strong>${escapeHtml(nickname)}</strong><span>${escapeHtml(phrase)}</span>`;
+  app.appendChild(bubble);
+  window.setTimeout(() => bubble.remove(), 2_600);
+}
+
 function showEliteEntrance(label: string): void {
   const existing = app.querySelector(".elite-entrance");
   existing?.remove();
@@ -3562,6 +3624,7 @@ function showSettings(): void {
           resultRecorded = false;
           profile.mustReauthenticate = true;
           saveProfile(profile);
+          stopSocialRealtime();
           account = null;
           modal.remove();
           authScreen();
@@ -3771,6 +3834,214 @@ async function showMailbox(): Promise<void> {
   };
   await loadMailbox();
   await refreshMailboxUnreadCount();
+}
+
+async function fetchSocialSnapshot(): Promise<SocialSnapshot> {
+  const response = await fetch("/api/social", { cache: "no-store" });
+  const data = (await response.json()) as SocialSnapshot & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? "친구 목록을 불러오지 못했습니다.");
+  return data;
+}
+
+async function refreshSocialUnreadCount(): Promise<void> {
+  if (!account) return;
+  try {
+    const response = await fetch("/api/social/summary", { cache: "no-store" });
+    const data = (await response.json()) as { unreadCount?: number };
+    if (!response.ok) return;
+    socialUnreadCount = Math.max(0, data.unreadCount ?? 0);
+    const badge = app.querySelector<HTMLElement>(".home-social-unread");
+    badge?.classList.toggle("visible", socialUnreadCount > 0);
+  } catch {
+    // Social alerts are supplemental and must never block the game home.
+  }
+}
+
+function stopSocialRealtime(): void {
+  if (socialReconnectTimer) window.clearTimeout(socialReconnectTimer);
+  socialReconnectTimer = 0;
+  socialSocket?.close(1000, "social paused");
+  socialSocket = null;
+}
+
+function startSocialRealtime(): void {
+  if (!account || socialSocket || socialReconnectTimer || testShellMode) return;
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${protocol}//${location.host}/api/social/ws`);
+  socialSocket = socket;
+  socket.addEventListener("message", () => {
+    void refreshSocialUnreadCount();
+  });
+  socket.addEventListener("close", () => {
+    if (socialSocket !== socket) return;
+    socialSocket = null;
+    if (!account) return;
+    socialReconnectTimer = window.setTimeout(() => {
+      socialReconnectTimer = 0;
+      startSocialRealtime();
+    }, 2_000);
+  });
+}
+
+function socialAvatarMarkup(person: SocialPerson, compact = false): string {
+  const avatar = person.avatarUrl ?? DEFAULT_PROFILE_AVATAR;
+  return `<img class="social-avatar ${compact ? "compact" : ""}" src="${escapeHtml(avatar)}" alt="${escapeHtml(person.nickname)} 프로필 사진"/>`;
+}
+
+function socialPersonCard(person: SocialPerson, actions: string, detail = "친구"): string {
+  return `<article class="social-person-card"><div>${socialAvatarMarkup(person)}<span><strong>${escapeHtml(person.nickname)}</strong><small>${escapeHtml(rankLabel(person.rank))} · ${escapeHtml(detail)}</small></span></div><footer>${actions}</footer></article>`;
+}
+
+async function socialPost(path: string, body?: unknown): Promise<Record<string, unknown>> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "요청을 처리하지 못했습니다.");
+  return data;
+}
+
+async function joinRoomFromInvite(roomCode: string): Promise<void> {
+  const room = await getRoomStatus(roomCode);
+  if (!isJoinableRoom(room.status)) throw new Error("이미 시작되었거나 종료된 방입니다.");
+  profile.recentRoomCode = roomCode;
+  saveProfile(profile);
+  connectionOverlay("친구 방에 연결하는 중…");
+  connectToRoom(roomCode, false);
+}
+
+async function showSocialConversation(
+  modal: HTMLElement,
+  person: SocialPerson,
+  returnToHub: () => Promise<void>,
+): Promise<void> {
+  const messagePanel = modal.querySelector<HTMLElement>("[data-social-content]");
+  if (!messagePanel) return;
+  messagePanel.innerHTML = `<div class="social-chat-heading"><button class="btn ghost" data-social-back>‹</button>${socialAvatarMarkup(person, true)}<div><strong>${escapeHtml(person.nickname)}</strong><small>친구와의 대화</small></div></div><div class="social-message-list"><p class="subtitle">대화를 불러오는 중…</p></div><form class="social-message-form"><input maxlength="200" autocomplete="off" placeholder="메시지 입력"/><button type="submit">전송</button></form>`;
+  const list = messagePanel.querySelector<HTMLElement>(".social-message-list");
+  const load = async (): Promise<void> => {
+    const response = await fetch(`/api/social/messages/${encodeURIComponent(person.accountId)}`, { cache: "no-store" });
+    const data = (await response.json()) as { messages?: DirectMessage[]; error?: string };
+    if (!response.ok) throw new Error(data.error ?? "대화를 불러오지 못했습니다.");
+    const messages = data.messages ?? [];
+    if (list) {
+      list.innerHTML = messages.length
+        ? messages.map((message) => `<p class="social-message ${message.senderAccountId === account?.id ? "mine" : ""}">${escapeHtml(message.body)}</p>`).join("")
+        : '<p class="social-empty">아직 대화가 없습니다.<br/>친구에게 먼저 인사해보세요.</p>';
+      list.scrollTop = list.scrollHeight;
+    }
+    await refreshSocialUnreadCount();
+  };
+  modal.querySelector("[data-social-back]")?.addEventListener("click", () => void returnToHub());
+  messagePanel.querySelector<HTMLFormElement>(".social-message-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const input = form.querySelector<HTMLInputElement>("input");
+    const text = input?.value.trim() ?? "";
+    if (!text) return;
+    const submit = form.querySelector<HTMLButtonElement>("button");
+    if (submit) submit.disabled = true;
+    void socialPost(`/api/social/messages/${encodeURIComponent(person.accountId)}`, { body: text })
+      .then(() => {
+        if (input) input.value = "";
+        return load();
+      })
+      .catch((error: unknown) => toast(error instanceof Error ? error.message : "메시지를 보내지 못했습니다."))
+      .finally(() => { if (submit) submit.disabled = false; });
+  });
+  try { await load(); }
+  catch (error) { if (list) list.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "대화를 불러오지 못했습니다.")}</p>`; }
+}
+
+async function showSocialHub(initialTab: "friends" | "chat" | "invites" = "friends", inviteRoomCode?: string): Promise<void> {
+  app.querySelector(".social-modal")?.remove();
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet social-sheet" role="dialog" aria-modal="true" aria-labelledby="social-title"><header><div><small>SOCIAL</small><h2 id="social-title">친구와 채팅</h2></div><button data-modal-close aria-label="닫기">×</button></header><nav class="social-tabs"><button data-social-tab="friends">친구</button><button data-social-tab="chat">채팅</button><button data-social-tab="invites">초대</button></nav><div data-social-content><p class="social-empty">불러오는 중…</p></div></section>`,
+    "home-picker-modal social-modal",
+  );
+  let activeTab = initialTab;
+  let social: SocialSnapshot;
+  const content = modal.querySelector<HTMLElement>("[data-social-content]");
+  const reload = async (): Promise<void> => {
+    social = await fetchSocialSnapshot();
+    await refreshSocialUnreadCount();
+  };
+  const render = async (): Promise<void> => {
+    if (!content) return;
+    modal.querySelectorAll<HTMLButtonElement>("[data-social-tab]").forEach((button) =>
+      button.classList.toggle("active", button.dataset.socialTab === activeTab),
+    );
+    if (activeTab === "friends") {
+      const requests = social.requests.filter((request) => request.direction === "incoming");
+      const sentRequests = social.requests.filter((request) => request.direction === "outgoing");
+      const requestHtml = requests.length
+        ? `<section class="social-section"><h3>받은 친구 요청</h3>${requests.map((request) => socialPersonCard(request, `<button data-social-friend="accept" data-social-id="${request.accountId}">수락</button><button class="ghost" data-social-friend="decline" data-social-id="${request.accountId}">거절</button>`, "친구 요청")).join("")}</section>`
+        : "";
+      const sentHtml = sentRequests.length
+        ? `<section class="social-section"><h3>보낸 친구 요청</h3>${sentRequests.map((request) => socialPersonCard(request, `<button class="ghost" data-social-friend="decline" data-social-id="${request.accountId}">요청 취소</button>`, "수락 대기 중")).join("")}</section>`
+        : "";
+      content.innerHTML = `<section class="social-code"><span>내 친구 코드</span><strong>${escapeHtml(social.friendCode)}</strong><button data-social-copy>복사</button></section><form class="social-add-form"><input maxlength="11" autocomplete="off" placeholder="FD-1234ABCD"/><button type="submit">친구 추가</button></form>${requestHtml}${sentHtml}<section class="social-section"><h3>친구 ${social.friends.length}/100</h3>${social.friends.length ? social.friends.map((friend) => socialPersonCard(friend, `<button data-social-chat="${friend.accountId}">채팅</button>${inviteRoomCode ? `<button data-social-invite="${friend.accountId}">초대</button>` : ""}<button class="ghost" data-social-friend="remove" data-social-id="${friend.accountId}">삭제</button>`)).join("") : '<p class="social-empty">아직 친구가 없습니다.<br/>친구 코드로 함께할 사람을 추가하세요.</p>'}</section>`;
+      content.querySelector("[data-social-copy]")?.addEventListener("click", () => {
+        void navigator.clipboard?.writeText(social.friendCode);
+        toast("친구 코드를 복사했습니다.");
+      });
+      content.querySelector<HTMLFormElement>(".social-add-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const input = form.querySelector<HTMLInputElement>("input");
+        const friendCode = input?.value ?? "";
+        void socialPost("/api/social/friends/request", { friendCode }).then(async () => {
+          toast("친구 요청을 보냈습니다.");
+          await reload(); await render();
+        }).catch((error: unknown) => toast(error instanceof Error ? error.message : "친구 요청을 보내지 못했습니다."));
+      });
+    } else if (activeTab === "chat") {
+      const byId = new Map(social.conversations.map((conversation) => [conversation.accountId, conversation]));
+      content.innerHTML = `<section class="social-section social-conversations"><h3>친구와의 대화</h3>${social.friends.length ? social.friends.map((friend) => {
+        const conversation = byId.get(friend.accountId);
+        return `<button class="social-conversation" data-social-chat="${friend.accountId}">${socialAvatarMarkup(friend, true)}<span><strong>${escapeHtml(friend.nickname)}</strong><small>${escapeHtml(conversation?.lastMessage?.body ?? "새 대화를 시작하세요.")}</small></span>${conversation?.unreadCount ? `<b>${conversation.unreadCount}</b>` : ""}</button>`;
+      }).join("") : '<p class="social-empty">친구를 추가하면 대화를 시작할 수 있습니다.</p>'}</section>`;
+    } else {
+      content.innerHTML = `<section class="social-section"><h3>받은 방 초대</h3>${social.invites.length ? social.invites.map((invite: SocialInvite) => socialPersonCard(invite, `<button data-social-invite-action="accept" data-social-invite-id="${invite.id}">수락</button><button class="ghost" data-social-invite-action="decline" data-social-invite-id="${invite.id}">거절</button>`, `방 초대 · ${invite.roomCode}`)).join("") : '<p class="social-empty">받은 방 초대가 없습니다.</p>'}</section>`;
+    }
+    content.querySelectorAll<HTMLButtonElement>("[data-social-chat]").forEach((button) => button.addEventListener("click", () => {
+      const person = social.friends.find((friend) => friend.accountId === button.dataset.socialChat);
+      if (person) void showSocialConversation(modal, person, async () => { await reload(); await render(); });
+    }));
+    content.querySelectorAll<HTMLButtonElement>("[data-social-friend]").forEach((button) => button.addEventListener("click", () => {
+      const action = button.dataset.socialFriend;
+      const id = button.dataset.socialId;
+      if (!action || !id) return;
+      void socialPost(`/api/social/friends/${encodeURIComponent(id)}/${action}`).then(async () => { await reload(); await render(); }).catch((error: unknown) => toast(error instanceof Error ? error.message : "친구 요청을 처리하지 못했습니다."));
+    }));
+    content.querySelectorAll<HTMLButtonElement>("[data-social-invite]").forEach((button) => button.addEventListener("click", () => {
+      if (!inviteRoomCode) return;
+      const recipientId = button.dataset.socialInvite;
+      if (!recipientId) return;
+      void socialPost("/api/social/invites", { recipientId, roomCode: inviteRoomCode }).then(() => toast("친구에게 방 초대를 보냈습니다.")).catch((error: unknown) => toast(error instanceof Error ? error.message : "방 초대를 보내지 못했습니다."));
+    }));
+    content.querySelectorAll<HTMLButtonElement>("[data-social-invite-action]").forEach((button) => button.addEventListener("click", () => {
+      const id = button.dataset.socialInviteId;
+      const action = button.dataset.socialInviteAction;
+      if (!id || !action) return;
+      void socialPost(`/api/social/invites/${encodeURIComponent(id)}/${action}`).then(async (data) => {
+        if (action === "accept" && typeof data.roomCode === "string") {
+          modal.remove();
+          await joinRoomFromInvite(data.roomCode);
+          return;
+        }
+        await reload(); await render();
+      }).catch((error: unknown) => toast(error instanceof Error ? error.message : "방 초대를 처리하지 못했습니다."));
+    }));
+  };
+  modal.querySelectorAll<HTMLButtonElement>("[data-social-tab]").forEach((button) => button.addEventListener("click", () => {
+    activeTab = button.dataset.socialTab as typeof activeTab;
+    void render();
+  }));
+  try { await reload(); await render(); }
+  catch (error) { if (content) content.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "친구 목록을 불러오지 못했습니다.")}</p>`; }
 }
 
 async function forceRefreshForUpdate(version: string): Promise<void> {

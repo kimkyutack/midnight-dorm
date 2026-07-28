@@ -6,10 +6,13 @@ import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, r
 import type { RankedQueue } from './RankedQueue';
 import { createRoomCode, rankedMatchForContract, rankedMatchmakingTier, rankedStageForTier } from './rankedMatch';
 import { routeMailbox } from './mailbox';
+import type { SocialPresence } from './SocialPresence';
+import { routeSocial } from './social';
 
 export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
   RANKED_QUEUE: DurableObjectNamespace<RankedQueue>;
+  SOCIAL_PRESENCE: DurableObjectNamespace<SocialPresence>;
   DB: D1Database;
   ASSETS: Fetcher;
   DATA_ENV: 'remote-d1' | 'local-e2e';
@@ -173,6 +176,8 @@ export default {
     }
     const mailboxResponse = await routeMailbox(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (mailboxResponse) return mailboxResponse;
+    const socialResponse = await routeSocial(request, env.DB, env);
+    if (socialResponse) return socialResponse;
     const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
     if (authResponse) return authResponse;
     const avatarMatch = url.pathname.match(/^\/api\/profile-avatar\/([a-zA-Z0-9-]{8,80})$/);
@@ -199,3 +204,4 @@ export default {
 
 export { GameRoom } from './GameRoom';
 export { RankedQueue } from './RankedQueue';
+export { SocialPresence } from './SocialPresence';

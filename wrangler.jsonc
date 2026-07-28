@@ -18,6 +18,10 @@
         "name": "RANKED_QUEUE",
         "class_name": "RankedQueue",
       },
+      {
+        "name": "SOCIAL_PRESENCE",
+        "class_name": "SocialPresence",
+      },
     ],
   },
   "d1_databases": [
@@ -45,6 +49,10 @@
             "name": "RANKED_QUEUE",
             "class_name": "RankedQueue",
           },
+          {
+            "name": "SOCIAL_PRESENCE",
+            "class_name": "SocialPresence",
+          },
         ],
       },
       "d1_databases": [
@@ -69,6 +77,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["RankedQueue"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["SocialPresence"],
     },
   ],
   "observability": {

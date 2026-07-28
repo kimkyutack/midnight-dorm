@@ -1,5 +1,5 @@
 import { BALANCE } from '../shared/balance';
-import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, MapDefinition, ServerMessage, Tile } from '../shared/types';
+import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, MapDefinition, QuickChatPhrase, ServerMessage, Tile } from '../shared/types';
 
 export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
@@ -8,6 +8,7 @@ export interface NetworkEvents {
   error: { message: string; fatal?: boolean };
   ping: { milliseconds: number };
   roomExit: { reason: 'left' | 'kicked' | 'room-closed' };
+  quickChat: { playerId: string; phrase: QuickChatPhrase };
 }
 
 type Listener<K extends keyof NetworkEvents> = (value: NetworkEvents[K]) => void;
@@ -142,6 +143,7 @@ export class GameNetwork {
   useConsumable(itemId: ConsumableId, target: { roomId?: string; targetId?: string; tile?: Tile } = {}): void {
     this.send({ type: 'use-consumable', itemId, ...target });
   }
+  quickChat(phrase: QuickChatPhrase): void { this.send({ type: 'quick-chat', phrase }); }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 
@@ -158,6 +160,7 @@ export class GameNetwork {
     } else if (message.type === 'snapshot') this.emit('snapshot', { snapshot: message.snapshot, events: message.events });
     else if (message.type === 'error') this.emit('error', { message: message.message });
     else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
+    else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });
     else if (message.type === 'room-exit') {
       this.stopped = true;
       this.stopHeartbeat();

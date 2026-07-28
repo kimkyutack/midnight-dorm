@@ -20,7 +20,7 @@ import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFrom
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
-import { buildingAssetUrl } from '../src/client/game/BuildingAssets';
+import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
 import { GameNetwork } from '../src/client/network';
 import { APP_RELEASE_VERSION, isUpdateAvailable } from '../src/shared/appUpdates';
 
@@ -122,7 +122,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a different deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.1')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
   });
 });
@@ -348,6 +348,15 @@ describe('generated mobile game art', () => {
     );
     expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
     expect(new Set(assets).size).toBe(10);
+  });
+
+  it('gives every random box result its own in-world image', () => {
+    const assets = RANDOM_ITEMS.map((item) => randomItemAssetUrl(item.id));
+    expect(assets.every((asset) => asset.includes('/assets/items/rewards/'))).toBe(true);
+    expect(new Set(assets).size).toBe(RANDOM_ITEMS.length);
+    expect(buildingAssetUrl('gem-core', 1, 'moon-gem-reward')).toBe(
+      randomItemAssetUrl('moon-gem-reward'),
+    );
   });
 
   it('uses the cute, tile-filling art set for every installable building family', () => {
@@ -1205,6 +1214,8 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage(JSON.stringify({ type: 'move-building', sequence: 3, timestamp: 2, buildingId: 'building-1', tile: { x: 2, y: 3 } })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'remove-building', sequence: 3, timestamp: 2, buildingId: 'building-1' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'leave-room', sequence: 4, timestamp: 2 })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'quick-chat', sequence: 5, timestamp: 2, phrase: '문 위험!' })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'quick-chat', sequence: 6, timestamp: 2, phrase: '아무 말' })).ok).toBe(false);
   });
 
   it('restores the same player with a valid 30-second reconnect token', () => {

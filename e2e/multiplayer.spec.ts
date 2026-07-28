@@ -95,6 +95,46 @@ test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
   }
 });
 
+test("friends can exchange a request and a direct message", async ({ browser }) => {
+  const firstContext = await portraitContext(browser);
+  const secondContext = await portraitContext(browser);
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    await enter(first, "친구하나", "frienda");
+    await enter(second, "친구둘", "friendb");
+    await second.getByRole("button", { name: "친구와 채팅" }).click();
+    const secondSocial = second.getByRole("dialog", { name: "친구와 채팅" });
+    const friendCode = await secondSocial.locator(".social-code strong").textContent();
+    expect(friendCode).toMatch(/^FD-[A-F0-9]{8}$/);
+    await first.getByRole("button", { name: "친구와 채팅" }).click();
+    const firstSocial = first.getByRole("dialog", { name: "친구와 채팅" });
+    await firstSocial.locator(".social-add-form input").fill(friendCode ?? "");
+    await firstSocial.getByRole("button", { name: "친구 추가" }).click();
+    await expect(firstSocial).toContainText("수락 대기 중");
+    await secondSocial.getByRole("button", { name: "닫기" }).click();
+    await second.getByRole("button", { name: "친구와 채팅" }).click();
+    const refreshedSecondSocial = second.getByRole("dialog", { name: "친구와 채팅" });
+    await refreshedSecondSocial.getByRole("button", { name: "수락" }).click();
+    await expect(refreshedSecondSocial).toContainText("친구 1/100");
+    await refreshedSecondSocial.getByRole("button", { name: "닫기" }).click();
+    await firstSocial.getByRole("button", { name: "닫기" }).click();
+    await first.getByRole("button", { name: "친구와 채팅" }).click();
+    const reloadedFirstSocial = first.getByRole("dialog", { name: "친구와 채팅" });
+    await expect(reloadedFirstSocial).toContainText("친구 1/100");
+    await reloadedFirstSocial.locator("[data-social-chat]").click();
+    await reloadedFirstSocial.getByPlaceholder("메시지 입력").fill("문 위험!");
+    await reloadedFirstSocial.getByRole("button", { name: "전송" }).click();
+    await second.getByRole("button", { name: "친구와 채팅" }).click();
+    const messageSocial = second.getByRole("dialog", { name: "친구와 채팅" });
+    await messageSocial.locator("[data-social-chat]").click();
+    await expect(messageSocial).toContainText("문 위험!");
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
 test("portrait home separates shop, owned customization and stage start", async ({
   browser,
 }) => {
@@ -138,7 +178,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(updateButton).toBeVisible();
     await updateButton.click();
     const updateDialog = page.getByRole("dialog", { name: "업데이트 내역" });
-    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.27.5");
+    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.28.1");
     await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
     await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(

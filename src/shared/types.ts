@@ -441,6 +441,9 @@ export interface GameEvent {
   rarity?: ItemRarity;
 }
 
+/** Deliberately limited in-game callouts keep mobile co-op readable. */
+export type QuickChatPhrase = '문 위험!' | '포탑 강화해!' | '내가 끝낼게!' | '좋은 아이템 발견!';
+
 export interface BaseMessage {
   type: string;
   sequence: number;
@@ -465,6 +468,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'pickup-loot'; lootId: string })
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })
   | (BaseMessage & { type: 'use-consumable'; itemId: ConsumableId; roomId?: string; targetId?: string; tile?: Tile })
+  | (BaseMessage & { type: 'quick-chat'; phrase: QuickChatPhrase })
   | (BaseMessage & { type: 'rematch' })
   | (BaseMessage & { type: 'ping'; clientTime: number })
   | (BaseMessage & { type: 'resync' });
@@ -481,6 +485,7 @@ export type ServerMessage =
   | (BaseMessage & { type: 'snapshot'; snapshot: GameSnapshot; events: GameEvent[] })
   | (BaseMessage & { type: 'error'; code: string; message: string })
   | (BaseMessage & { type: 'pong'; clientTime: number; serverTime: number })
+  | (BaseMessage & { type: 'quick-chat'; playerId: string; phrase: QuickChatPhrase })
   | (BaseMessage & { type: 'room-exit'; reason: 'left' | 'kicked' | 'room-closed' })
   | (BaseMessage & { type: 'room-closed'; reason: string });
 

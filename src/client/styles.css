@@ -1278,10 +1278,12 @@
   margin-right: 4px;
   color: #9be0e6;
 }
-.home-mailbox {
+.home-mailbox,
+.home-social {
   position: relative;
 }
-.home-mail-unread {
+.home-mail-unread,
+.home-social-unread {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -1293,7 +1295,8 @@
   background: #ff4f64;
   box-shadow: 0 0 9px rgba(255, 66, 93, 0.82);
 }
-.home-mail-unread.visible {
+.home-mail-unread.visible,
+.home-social-unread.visible {
   display: block;
 }
 .home-brand {
@@ -5312,6 +5315,71 @@ select {
     inset 0 1px rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
 }
+.quick-chat-picker {
+  position: absolute;
+  right: max(20px, calc(env(safe-area-inset-right) + 14px));
+  bottom: max(94px, calc(env(safe-area-inset-bottom) + 82px));
+  z-index: 22;
+  width: min(190px, 52cqw);
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(144, 231, 242, 0.45);
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(14, 37, 62, 0.97), rgba(5, 13, 28, 0.95));
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.36);
+}
+.quick-chat-picker > strong {
+  color: #a5ecf2;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.quick-chat-picker button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(139, 214, 226, 0.22);
+  border-radius: 10px;
+  color: #ecfbfc;
+  background: rgba(21, 58, 80, 0.7);
+  font-size: 11px;
+  font-weight: 900;
+  text-align: left;
+}
+.quick-chat-picker button:active {
+  transform: scale(0.98);
+}
+.quick-chat-bubble {
+  position: absolute;
+  top: max(116px, calc(env(safe-area-inset-top) + 104px));
+  left: 50%;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(80cqw, 360px);
+  padding: 9px 12px;
+  border: 1px solid rgba(169, 237, 243, 0.5);
+  border-radius: 999px;
+  color: #f1fcfd;
+  background: rgba(5, 18, 31, 0.9);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  transform: translateX(-50%);
+  animation: quick-chat-enter 0.18s ease-out;
+}
+.quick-chat-bubble strong {
+  color: #8feaf2;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.quick-chat-bubble span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes quick-chat-enter {
+  from { opacity: 0; transform: translate(-50%, 7px); }
+}
 .build-panel {
   position: absolute;
   top: 50%;
@@ -6398,6 +6466,270 @@ select {
 }
 .mailbox-sheet {
   width: min(88cqw, 460px);
+}
+.social-sheet {
+  width: min(90cqw, 480px);
+  max-height: min(78dvh, 680px);
+  display: flex;
+  flex-direction: column;
+}
+.social-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 4px 0 11px;
+  padding: 4px;
+  border: 1px solid rgba(115, 203, 222, 0.18);
+  border-radius: 13px;
+  background: rgba(4, 13, 24, 0.62);
+}
+.social-tabs button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 9px;
+  color: rgba(222, 242, 246, 0.62);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 900;
+}
+.social-tabs button.active {
+  color: #06212b;
+  background: linear-gradient(135deg, #b8f0f4, #72d5e5);
+  box-shadow: 0 3px 10px rgba(79, 211, 228, 0.24);
+}
+.social-sheet [data-social-content] {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+.social-code {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 9px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid rgba(117, 222, 239, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(10, 36, 53, 0.86), rgba(8, 18, 34, 0.9));
+}
+.social-code span {
+  color: #8ddfeb;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+.social-code strong {
+  color: #f1ffff;
+  font-size: 16px;
+  letter-spacing: 0.09em;
+}
+.social-code button {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(130, 230, 240, 0.45);
+  border-radius: 10px;
+  color: #d9fbff;
+  background: rgba(23, 70, 90, 0.54);
+  font-size: 10px;
+  font-weight: 900;
+}
+.social-add-form,
+.social-message-form {
+  display: flex;
+  gap: 7px;
+  margin: 9px 0 12px;
+}
+.social-add-form input,
+.social-message-form input {
+  min-width: 0;
+  flex: 1;
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid rgba(122, 178, 196, 0.26);
+  border-radius: 11px;
+  color: #eafeff;
+  background: rgba(3, 12, 23, 0.7);
+  outline: 0;
+}
+.social-add-form button,
+.social-message-form button {
+  min-width: 72px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  color: #10202a;
+  background: linear-gradient(135deg, #9ce9ef, #69c8df);
+  font-size: 10px;
+  font-weight: 950;
+}
+.social-section {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+.social-section h3 {
+  margin: 0 2px;
+  color: #e9f8fa;
+  font-size: 12px;
+}
+.social-person-card,
+.social-conversation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid rgba(123, 194, 211, 0.22);
+  border-radius: 13px;
+  color: inherit;
+  background: linear-gradient(135deg, rgba(11, 29, 44, 0.84), rgba(6, 17, 29, 0.82));
+}
+.social-person-card > div,
+.social-conversation {
+  min-width: 0;
+}
+.social-person-card > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.social-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(135, 232, 241, 0.35);
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0c1d2b;
+}
+.social-avatar.compact {
+  width: 32px;
+  height: 32px;
+}
+.social-person-card span,
+.social-conversation span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.social-person-card strong,
+.social-conversation strong {
+  overflow: hidden;
+  color: #f0fcfd;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.social-person-card small,
+.social-conversation small {
+  overflow: hidden;
+  color: rgba(184, 218, 227, 0.6);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.social-person-card footer {
+  display: flex;
+  gap: 4px;
+}
+.social-person-card footer button {
+  min-height: 29px;
+  padding: 0 8px;
+  border: 1px solid rgba(114, 222, 235, 0.34);
+  border-radius: 9px;
+  color: #c6faff;
+  background: rgba(25, 80, 99, 0.56);
+  font-size: 9px;
+  font-weight: 900;
+}
+.social-person-card footer button.ghost {
+  border-color: rgba(200, 218, 225, 0.2);
+  color: rgba(218, 234, 238, 0.63);
+  background: rgba(11, 21, 33, 0.7);
+}
+.social-empty {
+  min-height: 114px;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(212, 235, 241, 0.58);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+.social-conversation {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.social-conversation > .social-avatar {
+  margin-right: 1px;
+}
+.social-conversation > span {
+  flex: 1;
+}
+.social-conversation > b {
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #3a1520;
+  background: #ff6b7e;
+  font-size: 9px;
+}
+.social-chat-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(123, 194, 211, 0.18);
+}
+.social-chat-heading .btn {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 20px;
+}
+.social-chat-heading > div {
+  display: grid;
+  gap: 2px;
+}
+.social-chat-heading strong {
+  font-size: 12px;
+}
+.social-chat-heading small {
+  color: rgba(192, 221, 228, 0.56);
+  font-size: 9px;
+}
+.social-message-list {
+  min-height: 220px;
+  max-height: min(46dvh, 380px);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow: auto;
+  padding: 11px 1px;
+}
+.social-message {
+  max-width: 80%;
+  margin: 0;
+  align-self: flex-start;
+  padding: 8px 10px;
+  border-radius: 12px 12px 12px 3px;
+  color: #eaf8fa;
+  background: rgba(26, 53, 70, 0.82);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.social-message.mine {
+  align-self: flex-end;
+  border-radius: 12px 12px 3px 12px;
+  color: #10262f;
+  background: linear-gradient(135deg, #92e7ed, #6cc8dc);
 }
 .mailbox-intro {
   margin: -3px 0 12px;

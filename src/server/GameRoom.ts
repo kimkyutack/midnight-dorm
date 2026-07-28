@@ -14,6 +14,7 @@ interface ConnectionAttachment {
   reconnectToken: string;
   lastSequence: number;
   lastBuildAt: number;
+  lastQuickChatAt?: number;
 }
 
 interface InitPayload {
@@ -263,6 +264,27 @@ export class GameRoom extends DurableObject<Env> {
     }
     if (parsed.message.type === 'resync') {
       this.sendWelcome(socket, attachment);
+      return;
+    }
+    if (parsed.message.type === 'quick-chat') {
+      const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
+      const now = Date.now();
+      if (!player || player.isBot || now - (attachment.lastQuickChatAt ?? 0) < 1_000) {
+        this.sendError(socket, 'ACTION_THROTTLED', '빠른 문구는 잠시 후 다시 보낼 수 있습니다.');
+        return;
+      }
+      attachment.lastQuickChatAt = now;
+      socket.serializeAttachment(attachment);
+      const message = encodeMessage({
+        type: 'quick-chat',
+        sequence: engine.snapshot().serverSeq,
+        timestamp: now,
+        playerId: player.id,
+        phrase: parsed.message.phrase,
+      });
+      for (const targetSocket of this.ctx.getWebSockets()) {
+        if (targetSocket.readyState === WebSocket.OPEN) targetSocket.send(message);
+      }
       return;
     }
     if (

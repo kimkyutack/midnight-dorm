@@ -883,6 +883,11 @@ export class GameEngine {
         return this.leaveLobby(playerId);
       case "kick-player":
         return this.kickPlayer(playerId, message.playerId);
+      case "quick-chat":
+        // GameRoom validates and broadcasts these short callouts before this
+        // method is reached. Keep the engine switch exhaustive for tests and
+        // reconnect replay safety.
+        return { ok: true };
       case "move":
         return this.setMovement(
           playerId,
