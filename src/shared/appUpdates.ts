@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = '2026.07.28.2';
+export const APP_RELEASE_VERSION = '2026.07.28.3';
 
 export interface AppUpdate {
   version: string;
@@ -16,9 +16,9 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: '구름강아지 몽 신규 스킨: 서퍼 몽',
-  summary: '• 하늘빛 고글과 서핑보드를 갖춘 서퍼 몽 스킨을 추가했습니다.\n• 서퍼 몽은 구름강아지 몽의 골드 특성을 200% 효율로 적용하며 3,000P에 구매할 수 있습니다.\n• 이동할 때 걷지 않고 보드 아래 물결이 찰랑이는 전용 활주 모션을 사용합니다.\n• 상점과 내 보관함에 파도 배경, NEW 뱃지, 하늘빛 프리미엄 카드 연출을 적용했습니다.',
-  publishedAt: 1785218400000,
+  title: '서퍼 몽 여름 출시 이벤트',
+  summary: '• 홈에 처음 들어오면 서퍼 몽 출시 이벤트 팝업을 표시합니다.\n• 구매하러 가기를 누르면 외형 상점의 스킨 탭과 서퍼 몽 미리보기가 바로 열립니다.\n• 다시 보지 않기를 선택하면 같은 기기에서 이벤트 팝업을 더 이상 표시하지 않습니다.',
+  publishedAt: 1785222000000,
 };
 
 export const isUpdateAvailable = (currentVersion: string, latestVersion?: string | null): boolean =>

@@ -9137,3 +9137,203 @@ select {
     animation: none;
   }
 }
+
+.surfer-mong-promo-modal {
+  z-index: 95;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 50% 18%, rgba(27, 192, 237, 0.2), transparent 45%),
+    rgba(0, 8, 19, 0.86);
+  backdrop-filter: blur(13px);
+}
+.surfer-mong-promo {
+  position: relative;
+  display: grid;
+  width: min(92cqw, 420px);
+  height: min(86cqh, 700px);
+  max-height: calc(100cqh - 24px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid rgba(142, 240, 255, 0.86);
+  border-radius: 28px;
+  background: #03192b;
+  box-shadow:
+    0 0 0 3px rgba(63, 194, 238, 0.12),
+    0 26px 72px rgba(0, 0, 0, 0.62),
+    0 0 38px rgba(55, 211, 255, 0.22);
+  animation: surfer-promo-arrive 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.surfer-mong-promo::before {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  border: 1px solid rgba(226, 253, 255, 0.22);
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+.surfer-mong-promo-art {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: #075184;
+}
+.surfer-mong-promo-art::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 15, 36, 0.62) 0%, transparent 34%),
+    linear-gradient(0deg, rgba(0, 19, 39, 0.72) 0%, transparent 27%);
+  content: "";
+  pointer-events: none;
+}
+.surfer-mong-promo-art::after {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  background:
+    radial-gradient(circle at 14% 22%, #fff 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 16%, #d9fbff 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 78% 48%, #fff 0 1px, transparent 2px),
+    linear-gradient(112deg, transparent 35%, rgba(255, 255, 255, 0.17), transparent 58%);
+  content: "";
+  opacity: 0.55;
+  pointer-events: none;
+  animation: surfer-promo-sparkle 1.8s ease-in-out infinite alternate;
+}
+.surfer-mong-promo-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 48%;
+  transform: scale(1.015);
+}
+.surfer-mong-promo-copy {
+  position: absolute;
+  z-index: 5;
+  top: clamp(20px, 4.5cqh, 38px);
+  right: 18px;
+  left: 18px;
+  text-align: center;
+}
+.surfer-mong-promo-copy > span,
+.surfer-mong-promo-copy > small {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 11px;
+  border: 1px solid rgba(170, 246, 255, 0.5);
+  border-radius: 999px;
+  color: #d8fbff;
+  background: rgba(2, 35, 61, 0.64);
+  box-shadow: 0 5px 16px rgba(0, 21, 45, 0.32);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.18em;
+}
+.surfer-mong-promo-copy h2 {
+  margin: 9px 0 10px;
+  color: #fff;
+  font-size: clamp(28px, 8.3cqw, 42px);
+  font-weight: 1000;
+  line-height: 1.08;
+  letter-spacing: -0.065em;
+  text-shadow:
+    0 3px 0 rgba(0, 44, 78, 0.72),
+    0 6px 24px rgba(0, 22, 48, 0.9),
+    0 0 14px rgba(142, 238, 255, 0.5);
+}
+.surfer-mong-promo-copy > small {
+  min-height: 22px;
+  color: #ffe590;
+  border-color: rgba(255, 225, 132, 0.44);
+  background: rgba(17, 53, 72, 0.7);
+  letter-spacing: 0.08em;
+}
+.surfer-mong-promo footer {
+  position: relative;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.18fr);
+  gap: 9px;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, rgba(4, 27, 48, 0.96), rgba(2, 17, 34, 0.99));
+  box-shadow: 0 -10px 25px rgba(0, 22, 42, 0.34);
+}
+.surfer-mong-promo footer button {
+  min-height: 52px;
+  padding: 0 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 950;
+}
+.surfer-promo-dismiss {
+  border: 1px solid rgba(150, 208, 222, 0.3);
+  color: rgba(224, 240, 245, 0.78);
+  background: rgba(7, 25, 43, 0.88);
+}
+.surfer-promo-shop {
+  border: 1px solid rgba(227, 255, 255, 0.6);
+  color: #03253c;
+  background: linear-gradient(135deg, #b8f5ff, #65daf5 50%, #ffd37f);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.8),
+    0 7px 18px rgba(39, 197, 237, 0.26);
+}
+.surfer-mong-promo footer button:focus-visible {
+  outline: 3px solid #fff1a7;
+  outline-offset: 2px;
+}
+
+@keyframes surfer-promo-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+    filter: blur(6px);
+  }
+}
+@keyframes surfer-promo-sparkle {
+  from {
+    opacity: 0.25;
+    transform: translateX(-1.5%);
+  }
+  to {
+    opacity: 0.75;
+    transform: translateX(1.5%);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .surfer-mong-promo {
+    width: min(62cqw, 355px);
+    height: calc(100cqh - 18px);
+    border-radius: 22px;
+  }
+  .surfer-mong-promo-copy {
+    top: 14px;
+  }
+  .surfer-mong-promo-copy h2 {
+    margin: 5px 0 6px;
+    font-size: clamp(24px, 6.5cqh, 31px);
+  }
+  .surfer-mong-promo footer {
+    padding: 8px;
+  }
+  .surfer-mong-promo footer button {
+    min-height: 42px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surfer-mong-promo,
+  .surfer-mong-promo-art::after {
+    animation: none;
+  }
+}

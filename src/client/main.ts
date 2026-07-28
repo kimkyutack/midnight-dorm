@@ -132,6 +132,10 @@ let socialUnreadCount = 0;
 let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
 let customizeReturnView: "home" | "room-menu" = "home";
+const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
+const SURFER_MONG_PROMO_DISMISSED_KEY =
+  "midnight-dorm:promo:surfer-mong:v1";
+let surferMongPromoShownThisSession = false;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -841,6 +845,54 @@ function homeScreen(): void {
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
   startSocialRealtime();
+  showSurferMongLaunchPromo();
+}
+
+function surferMongPromoDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(SURFER_MONG_PROMO_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function permanentlyDismissSurferMongPromo(): void {
+  try {
+    window.localStorage.setItem(SURFER_MONG_PROMO_DISMISSED_KEY, "1");
+  } catch {
+    // Private browsing can reject storage writes. The session guard still
+    // prevents the promotion from reopening while this app instance is alive.
+  }
+}
+
+function showSurferMongLaunchPromo(): void {
+  if (
+    !account ||
+    surferMongPromoShownThisSession ||
+    surferMongPromoDismissed() ||
+    account.ownedCosmetics.includes(SURFER_MONG_SKIN_ID)
+  ) {
+    return;
+  }
+  surferMongPromoShownThisSession = true;
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop surfer-mong-promo-modal";
+  modal.innerHTML = `<section class="surfer-mong-promo" role="dialog" aria-modal="true" aria-labelledby="surfer-mong-promo-title"><div class="surfer-mong-promo-art"><img src="/assets/sprites/skins/skin-surfer-mong/surfer-mong-summer-event.webp?v=${APP_RELEASE_VERSION}" alt="파도 위에서 균형을 잡는 서퍼 몽"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL</span><h2 id="surfer-mong-promo-title">서퍼 몽과 함께<br/>더위를 물리치자!</h2><small>NEW SKIN · 3,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-surfer-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-surfer-promo-shop>구매하러 가기</button></footer></section>`;
+  app.appendChild(modal);
+  modal
+    .querySelector("[data-surfer-promo-dismiss]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      permanentlyDismissSurferMongPromo();
+      modal.remove();
+    });
+  modal
+    .querySelector("[data-surfer-promo-shop]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      modal.remove();
+      shopScreen("skin");
+    });
 }
 
 function homeUtilityIcon(kind: "mail" | "social" | "settings"): string {
@@ -1213,8 +1265,6 @@ const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
   turret: "포탑",
 };
 
-const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
-
 function modelPreviewHtml(turretMode = false): string {
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
@@ -1334,6 +1384,8 @@ function cosmeticCollectionScreen(
     .map((item) => {
       const selected = appearance[selectedSlot] === item.id;
       const premiumSurfer = item.id === SURFER_MONG_SKIN_ID;
+      const initiallyPreviewed =
+        shopping && selectedSlot === "skin" && premiumSurfer;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
       const requiresCharacter =
@@ -1404,7 +1456,7 @@ function cosmeticCollectionScreen(
       const art = premiumSurfer
         ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${premiumSurfer ? "premium-skin-card surfer-mong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSurfer ? '<span class="cosmetic-new-badge" aria-label="신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSurfer ? "premium-skin-card surfer-mong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSurfer ? '<span class="cosmetic-new-badge" aria-label="신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);

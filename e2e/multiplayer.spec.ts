@@ -48,6 +48,7 @@ async function enter(
   nickname: string,
   suffix: string,
   accelerated = true,
+  dismissLaunchPromo = true,
 ): Promise<string> {
   await page.goto(`/?dev=1&automation=1${accelerated ? "&e2e=1" : ""}`);
   await page.getByRole("button", { name: "새 계정" }).click();
@@ -59,6 +60,14 @@ async function enter(
     .fill("midnight-test-2026");
   await page.getByRole("button", { name: "계정 만들고 시작" }).click();
   await expect(page.locator(".game-home")).toBeVisible();
+  if (dismissLaunchPromo) {
+    await page
+      .getByRole("dialog", {
+        name: "서퍼 몽과 함께 더위를 물리치자!",
+      })
+      .getByRole("button", { name: "다시 보지 않기" })
+      .click();
+  }
   return username;
 }
 
@@ -164,6 +173,12 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(passwordInput).toHaveValue(password);
     await page.getByRole("button", { name: "계정 만들고 시작" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
+    await page
+      .getByRole("dialog", {
+        name: "서퍼 몽과 함께 더위를 물리치자!",
+      })
+      .getByRole("button", { name: "다시 보지 않기" })
+      .click();
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
     const mailboxButton = page.getByRole("button", { name: "우편함" });
@@ -178,7 +193,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(updateButton).toBeVisible();
     await updateButton.click();
     const updateDialog = page.getByRole("dialog", { name: "업데이트 내역" });
-    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.28.1");
+    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.28.3");
     await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
     await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
@@ -318,7 +333,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       "달고양이 루루",
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(12);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(13);
     const bunnySkinCard = page.locator(".cosmetic-card", {
       hasText: "탐험가 모모",
     });
@@ -446,6 +461,59 @@ test("portrait home separates shop, owned customization and stage start", async 
       .toBeGreaterThan(0.08);
   } finally {
     await context.close().catch(() => undefined);
+  }
+});
+
+test("서퍼 몽 출시 팝업이 상점 미리보기로 연결되고 다시 보지 않기를 기억한다", async ({
+  browser,
+}) => {
+  const shopContext = await mobileContext(browser);
+  const shopPage = await shopContext.newPage();
+  const dismissContext = await mobileContext(browser);
+  const dismissPage = await dismissContext.newPage();
+  try {
+    await enter(shopPage, "여름몽", "surfshop", true, false);
+    const promo = shopPage.getByRole("dialog", {
+      name: "서퍼 몽과 함께 더위를 물리치자!",
+    });
+    await expect(promo).toBeVisible();
+    await expect(promo.locator("img")).toHaveAttribute(
+      "src",
+      /surfer-mong-summer-event\.webp/,
+    );
+    await promo.getByRole("button", { name: "구매하러 가기" }).click();
+    await expect(
+      shopPage.getByRole("heading", { name: "외형 상점" }),
+    ).toBeVisible();
+    await expect(
+      shopPage.getByRole("button", { name: "스킨", exact: true }),
+    ).toHaveClass(/active/);
+    await expect(
+      shopPage.locator(
+        `[data-cosmetic-preview="skin-look-puppy-surfer"]`,
+      ),
+    ).toHaveClass(/previewing/);
+    await expect(shopPage.locator("[data-custom-preview-title]")).toHaveText(
+      "서퍼 몽",
+    );
+
+    await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
+    const dismissPromo = dismissPage.getByRole("dialog", {
+      name: "서퍼 몽과 함께 더위를 물리치자!",
+    });
+    await dismissPromo
+      .getByRole("button", { name: "다시 보지 않기" })
+      .click();
+    await dismissPage.reload();
+    await expect(dismissPage.locator(".game-home")).toBeVisible();
+    await expect(
+      dismissPage.getByRole("dialog", {
+        name: "서퍼 몽과 함께 더위를 물리치자!",
+      }),
+    ).toHaveCount(0);
+  } finally {
+    await shopContext.close().catch(() => undefined);
+    await dismissContext.close().catch(() => undefined);
   }
 });
 

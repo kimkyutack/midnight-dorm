@@ -91,3 +91,5 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 첫 완성 스킨은 `public/assets/sprites/survivors/<character>`를 사용하고, 두 번째 이후 스킨은 `public/assets/sprites/skins/<skin>`의 전용 콘셉트·이동·수면 아틀라스를 사용한다. 런타임에서 모자·옷·신발·장신구를 분리 합성하지 않는다.
 - `서퍼 몽`은 `public/assets/sprites/skins/skin-surfer-mong`에 있으며, 4개 이동 열은 걷는 발 교대가 아니라 보드 기울기와 보드 아래 물결 이펙트의 변화를 표현한다.
 - `shop-wave-backdrop.webp`는 서퍼 몽 상점 카드와 미리보기에서 공유하는 전용 파도 배경이다. 캐릭터를 배경에 합성하지 않고 이동 아틀라스를 별도 레이어로 올려 애니메이션과 인게임 정렬을 함께 유지한다.
+- `surfer-mong-summer-event.webp`는 홈 진입 시 사용하는 세로형 출시 이벤트 이미지다. 서퍼 몽이 무릎을 굽히고 양팔로 균형을 잡으며 좌측 위를 바라보는 파도타기 장면으로 구성하고, 정확한 한글 제목과 버튼은 이미지에 굽지 않고 HTML 레이어로 표시한다.
+- 이벤트 이미지 원본은 `source/surfer-mong-summer-event-master.png`에 보존한다.
