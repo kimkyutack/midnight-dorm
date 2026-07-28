@@ -8801,6 +8801,66 @@ select {
   }
 }
 
+/* Keep skin names below the artwork with a dedicated, readable copy area.
+ * Premium cards use taller artwork, so the title/description must never
+ * compete with the image row or the purchase footer. */
+.custom-catalog .cosmetic-card {
+  min-height: 184px;
+  grid-template-rows: 108px minmax(42px, 1fr) 30px;
+}
+.custom-catalog .cosmetic-card .cosmetic-art {
+  height: 108px;
+}
+.custom-catalog .cosmetic-card .cosmetic-copy {
+  display: flex;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 3px;
+  overflow: hidden;
+}
+.custom-catalog .cosmetic-card .cosmetic-copy strong {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+}
+.custom-catalog .cosmetic-card .cosmetic-copy small {
+  display: -webkit-box;
+  flex: 0 0 auto;
+  margin-top: 0;
+  font-size: 7px;
+  line-height: 10px;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (orientation: portrait) {
+  .custom-catalog .cosmetic-card {
+    min-height: 188px;
+    grid-template-rows: 100px minmax(40px, 1fr) 28px;
+  }
+  .custom-catalog .cosmetic-card .cosmetic-art {
+    height: 100px;
+  }
+  .custom-catalog .cosmetic-card .cosmetic-copy {
+    min-height: 40px;
+  }
+  .custom-catalog .cosmetic-card .cosmetic-copy strong {
+    font-size: 9px;
+    line-height: 12px;
+  }
+  .custom-catalog .cosmetic-card .cosmetic-copy small {
+    font-size: 7px;
+    line-height: 9px;
+  }
+  .custom-catalog .cosmetic-card-action,
+  .custom-catalog .cosmetic-card-action > button {
+    min-height: 28px;
+  }
+}
+
 /* 2.5D home: a single survivor walks into the corridor without chase motion. */
 .home-avatar-showcase {
   left: 50%;
