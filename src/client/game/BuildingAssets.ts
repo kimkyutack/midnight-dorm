@@ -1,4 +1,5 @@
 import type { BuildingKind } from '../../shared/types';
+import { turretSkinAssetUrl } from '../../shared/customization';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
@@ -77,7 +78,12 @@ export function randomItemAssetUrl(itemId?: string): string {
     : `/assets/items/random-loot-turret.png?v=${BUILDING_ART_VERSION}`;
 }
 
-export function buildingAssetUrl(kind: BuildingKind, level = 1, itemId?: string): string | null {
+export function buildingAssetUrl(
+  kind: BuildingKind,
+  level = 1,
+  itemId?: string,
+  skinId?: string,
+): string | null {
   if (kind === 'random-item') return randomItemAssetUrl(itemId);
   // Moon gems become normal gem cores after placement, but retain their unique
   // drop art at level one so they are distinguishable from purchased gems.
@@ -85,6 +91,10 @@ export function buildingAssetUrl(kind: BuildingKind, level = 1, itemId?: string)
     return randomItemAssetUrl(itemId);
   if (kind === 'shield-device')
     return `/assets/buildings/cute-shield-device-${Math.max(1, Math.floor(level))}-v2.png?v=${BUILDING_ART_VERSION}`;
+  const turretSkinAsset = kind === 'basic-turret'
+    ? turretSkinAssetUrl(skinId, level)
+    : undefined;
+  if (turretSkinAsset) return `${turretSkinAsset}?v=${BUILDING_ART_VERSION}`;
   if (LEVELLED_BUILDINGS.has(kind))
     return kind === 'golden-turret'
       ? `/assets/buildings/golden-turret-${Math.max(1, Math.min(10, Math.floor(level)))}.png?v=${BUILDING_ART_VERSION}`

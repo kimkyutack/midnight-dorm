@@ -77,6 +77,7 @@ const SKINS = [
 
 export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';
 export const WAVE_TILE_SKIN_ID = 'tile-wave-surfer';
+export const SURFER_WATER_TURRET_SKIN_ID = 'turret-basic-surfer-water';
 
 const TILE_SKINS = [
   {
@@ -102,6 +103,17 @@ const TILE_SKINS = [
 
 const TURRET_SKINS = [
   { id: 'turret-basic-ward', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 병동형', description: '기본 수호 포탑의 표준 병동 외장', symbol: '수', swatch: '#62d7ff', unlock: { kind: 'starter' } },
+  {
+    id: SURFER_WATER_TURRET_SKIN_ID,
+    slot: 'turret',
+    turretKind: 'basic-turret',
+    label: '서퍼 물총포',
+    description: '작은 돌고래 물총부터 대왕 물총까지 15단계로 성장하며 물보라를 발사합니다.',
+    symbol: '물',
+    swatch: '#ffc84f',
+    unlock: { kind: 'points', price: 1_500 },
+    assetDirectory: 'skin-surfer-water-blaster',
+  },
   { id: 'turret-basic-toy', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 장난감', description: '둥근 별 장식과 크림색 포신', symbol: '별', swatch: '#f1b86b', unlock: { kind: 'points', price: 300 } },
   { id: 'turret-basic-pumpkin', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 호박등', description: '주황빛 눈이 반짝이는 호박 포대', symbol: '호', swatch: '#e87942', unlock: { kind: 'points', price: 520 } },
   { id: 'turret-rapid-firefly', slot: 'turret', turretKind: 'rapid-turret', label: '연사포 · 반딧불', description: '기본 청록 발광 연사 외장', symbol: '속', swatch: '#71e4d1', unlock: { kind: 'starter' } },
@@ -233,6 +245,16 @@ export function tileSkinTextureUrl(tileSkinId: string | undefined): string | und
   const item = cosmeticById(tileSkinId ?? '');
   if (item?.slot !== 'tile' || !item.assetDirectory) return undefined;
   return `/assets/tiles/${item.assetDirectory}`;
+}
+
+export function turretSkinAssetUrl(
+  turretSkinId: string | undefined,
+  level = 1,
+): string | undefined {
+  const item = cosmeticById(turretSkinId ?? '');
+  if (item?.slot !== 'turret' || !item.assetDirectory) return undefined;
+  const safeLevel = Math.max(1, Math.min(15, Math.floor(level)));
+  return `/assets/turret-skins/${item.assetDirectory}/level-${String(safeLevel).padStart(2, '0')}.png`;
 }
 
 export function normalizeTurretSkins(value: unknown): TurretSkinLoadout {

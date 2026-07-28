@@ -26,6 +26,11 @@ const neutral = (turretKind: TurretKind): TurretSkinTrait => ({
 
 export const TURRET_SKIN_TRAITS: Readonly<Record<string, TurretSkinTrait>> = {
   'turret-basic-ward': neutral('basic-turret'),
+  'turret-basic-surfer-water': {
+    ...neutral('basic-turret'),
+    label: '물보라 탄환',
+    description: '물총 외형과 물보라 발사 효과를 적용합니다. 전투 능력치는 기본 수호 포탑과 같습니다.',
+  },
   'turret-basic-toy': {
     ...neutral('basic-turret'),
     label: '별빛 탄환',

@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.28.5";
+export const APP_RELEASE_VERSION = "2026.07.28.6";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "서퍼 몽 테마: 파도 타일",
+  title: "서퍼 몽 테마: 서퍼 물총포",
   summary:
-    "• 상점과 내 보관함에 타일 스킨 탭을 추가했습니다.\n• 침대를 점유하면 파도가 방을 훑고 타일이 뒤집히며 파도 타일로 변경됩니다.\n• 방별 타일 스킨 상태를 서버가 저장해 멀티플레이와 재접속에서도 동일하게 유지합니다.",
-  publishedAt: 1785230400000,
+    "• 상점과 내 보관함에 포탑 스킨 탭을 추가했습니다.\n• 서퍼 물총포는 Lv.1 돌고래 물총부터 Lv.15 대왕 물총까지 단계마다 다른 외형을 사용합니다.\n• 서퍼 물총포의 탄환을 물줄기와 물보라 효과로 변경했습니다. 가격은 1,500P입니다.",
+  publishedAt: 1785234000000,
 };
 
 /**

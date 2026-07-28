@@ -24,7 +24,9 @@ import {
   customizationReward,
   DEFAULT_TILE_SKIN_ID,
   defaultSkinForCharacter,
+  SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
+  turretSkinAssetUrl,
   WAVE_TILE_SKIN_ID,
 } from "../shared/customization";
 import {
@@ -141,6 +143,13 @@ let mailboxUnreadCount = 0;
 let socialUnreadCount = 0;
 let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
+interface SocialRealtimeEvent {
+  type?: "ready" | "friend-request" | "friend-accepted" | "message" | "invite";
+  fromAccountId?: string;
+}
+let socialModalRealtimeRefresh:
+  | ((event: SocialRealtimeEvent) => void)
+  | null = null;
 let customizeReturnView: "home" | "room-menu" = "home";
 const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
 const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
@@ -905,7 +914,7 @@ function showSummerSkinLaunchPromo(): void {
     ?.addEventListener("click", () => {
       audio.play("button");
       modal.remove();
-      shopScreen("skin", SURFER_MONG_SKIN_ID);
+      shopScreen("skin", LIFEGUARD_RAON_SKIN_ID);
     });
 }
 
@@ -1310,9 +1319,16 @@ function tilePreviewUrl(tileSkinId: string | undefined): string {
 function modelPreviewHtml(
   turretMode = false,
   tileSkinId?: string,
+  turretSkinId?: string,
 ): string {
   if (tileSkinId) {
     return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div><span>침대 점유 시 방 전체에 적용</span></div>`;
+  }
+  if (turretMode) {
+    const previewUrl =
+      turretSkinAssetUrl(turretSkinId, 15) ??
+      "/assets/buildings/cute-basic-turret-15.png";
+    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.15 미리보기"/><span>Lv.1부터 Lv.15까지 단계별 외형 적용</span></div>`;
   }
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
@@ -1410,16 +1426,14 @@ function cosmeticCollectionScreen(
     authScreen();
     return;
   }
-  const selectedSlot: Exclude<CosmeticSlot, "turret"> =
-    activeSlot === "skin" || activeSlot === "tile"
+  const selectedSlot: CosmeticSlot =
+    activeSlot === "skin" || activeSlot === "tile" || activeSlot === "turret"
       ? activeSlot
       : "character";
   const currentAccount = account;
   const appearance = currentAccount.appearance;
   const shopping = screen === "shop";
-  const visibleSlots = (
-    Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[]
-  ).filter((slot) => slot !== "turret");
+  const visibleSlots = Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[];
   const tabs = visibleSlots
     .map(
       (slot) =>
@@ -1430,7 +1444,13 @@ function cosmeticCollectionScreen(
     (item) => shopping || cosmeticEntitled(item, currentAccount),
   );
   const displayCatalog =
-    shopping && selectedSlot === "skin"
+    selectedSlot === "turret"
+      ? [...catalog].sort((left, right) => {
+          if (left.id === SURFER_WATER_TURRET_SKIN_ID) return -1;
+          if (right.id === SURFER_WATER_TURRET_SKIN_ID) return 1;
+          return 0;
+        })
+      : shopping && selectedSlot === "skin"
       ? [...catalog].sort((left, right) => {
           const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
           const leftOrder = premiumOrder.indexOf(left.id);
@@ -1446,7 +1466,11 @@ function cosmeticCollectionScreen(
       const selected =
         selectedSlot === "tile"
           ? (appearance.tileSkin ?? DEFAULT_TILE_SKIN_ID) === item.id
-          : appearance[selectedSlot] === item.id;
+          : selectedSlot === "turret" && item.turretKind
+            ? currentAccount.turretSkins[item.turretKind] === item.id
+            : selectedSlot === "character" || selectedSlot === "skin"
+              ? appearance[selectedSlot] === item.id
+              : false;
       const premiumSurfer = item.id === SURFER_MONG_SKIN_ID;
       const premiumLifeguard = item.id === LIFEGUARD_RAON_SKIN_ID;
       const premiumSummer = premiumSurfer || premiumLifeguard;
@@ -1455,6 +1479,8 @@ function cosmeticCollectionScreen(
           ? previewItemId ?? SURFER_MONG_SKIN_ID
           : selectedSlot === "tile"
             ? previewItemId ?? WAVE_TILE_SKIN_ID
+            : selectedSlot === "turret"
+              ? previewItemId ?? SURFER_WATER_TURRET_SKIN_ID
             : previewItemId;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
@@ -1528,8 +1554,14 @@ function cosmeticCollectionScreen(
         skinTraitInfo?.description ??
         turretTraitInfo?.description ??
         item.description;
+      const authoredTurretArt =
+        item.slot === "turret"
+          ? turretSkinAssetUrl(item.id, 15)
+          : undefined;
       const art = item.slot === "tile"
         ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
+        : authoredTurretArt
+          ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.15 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : premiumSurfer
         ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : premiumLifeguard
@@ -1551,6 +1583,12 @@ function cosmeticCollectionScreen(
               ? previewItemId ?? WAVE_TILE_SKIN_ID
               : appearance.tileSkin ?? DEFAULT_TILE_SKIN_ID,
           )
+        : selectedSlot === "turret"
+          ? cosmeticById(
+              shopping
+                ? previewItemId ?? SURFER_WATER_TURRET_SKIN_ID
+                : currentAccount.turretSkins["basic-turret"],
+            )
         : undefined;
   const initialPreviewAppearance: AvatarAppearance =
     initialPreviewItem?.slot === "skin"
@@ -1560,10 +1598,10 @@ function cosmeticCollectionScreen(
           tileSkin: appearance.tileSkin,
         }
       : appearance;
-  const turretMode = false;
+  const turretMode = selectedSlot === "turret";
   const tileMode = selectedSlot === "tile";
   const initialTurret = turretMode
-    ? cosmeticById(currentAccount.turretSkins["basic-turret"])
+    ? initialPreviewItem
     : undefined;
   const initialTrait = characterTraitForAppearance(initialPreviewAppearance);
   const initialTurretTrait = initialTurret?.turretKind
@@ -1571,7 +1609,7 @@ function cosmeticCollectionScreen(
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id ?? DEFAULT_TILE_SKIN_ID : undefined)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || '<p class="empty-collection">보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다.</p>'}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id ?? DEFAULT_TILE_SKIN_ID : undefined, turretMode ? initialTurret?.id : undefined)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1581,24 +1619,12 @@ function cosmeticCollectionScreen(
     .querySelector("[data-open-supplies]")
     ?.addEventListener("click", supplyShopScreen);
   const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
-  if (previewHost && !tileMode) {
-    customAvatarPreview = turretMode
-      ? new AvatarPreview3D(previewHost, appearance, currentAccount.displayRank)
-      : new AvatarPreview2D(
-          previewHost,
-          initialPreviewAppearance,
-          currentAccount.displayRank,
-        );
-    if (
-      customAvatarPreview instanceof AvatarPreview3D &&
-      turretMode &&
-      initialTurret?.turretKind
-    ) {
-      customAvatarPreview.updateTurret(
-        initialTurret.turretKind,
-        initialTurret.id,
-      );
-    }
+  if (previewHost && !tileMode && !turretMode) {
+    customAvatarPreview = new AvatarPreview2D(
+      previewHost,
+      initialPreviewAppearance,
+      currentAccount.displayRank,
+    );
   }
   app
     .querySelectorAll<HTMLButtonElement>("[data-avatar-view]")
@@ -1625,8 +1651,14 @@ function cosmeticCollectionScreen(
       }
     } else if (item.slot === "turret") {
       if (!item.turretKind) return;
-      if (customAvatarPreview instanceof AvatarPreview3D) {
-        customAvatarPreview.updateTurret(item.turretKind, item.id);
+      const turretPreview =
+        app.querySelector<HTMLImageElement>("[data-turret-preview]");
+      if (turretPreview) {
+        turretPreview.src = `${
+          turretSkinAssetUrl(item.id, 15) ??
+          "/assets/buildings/cute-basic-turret-15.png"
+        }?v=${APP_RELEASE_VERSION}`;
+        turretPreview.alt = `${item.label} Lv.15 미리보기`;
       }
     } else {
       const previewAppearance: AvatarAppearance =
@@ -4064,15 +4096,22 @@ function stopSocialRealtime(): void {
   socialReconnectTimer = 0;
   socialSocket?.close(1000, "social paused");
   socialSocket = null;
+  socialModalRealtimeRefresh = null;
 }
 
 function startSocialRealtime(): void {
-  if (!account || socialSocket || socialReconnectTimer || testShellMode) return;
+  if (!account || socialSocket || socialReconnectTimer) return;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/api/social/ws`);
   socialSocket = socket;
-  socket.addEventListener("message", () => {
+  socket.addEventListener("message", (message) => {
     void refreshSocialUnreadCount();
+    try {
+      const event = JSON.parse(String(message.data)) as SocialRealtimeEvent;
+      if (event.type !== "ready") socialModalRealtimeRefresh?.(event);
+    } catch {
+      // Keep the unread badge working with an older or malformed push payload.
+    }
   });
   socket.addEventListener("close", () => {
     if (socialSocket !== socket) return;
@@ -4134,6 +4173,9 @@ async function showSocialConversation(
   modal: HTMLElement,
   person: SocialPerson,
   returnToHub: () => Promise<void>,
+  setLiveLoader: (
+    conversation: { accountId: string; load: () => Promise<void> } | null,
+  ) => void,
 ): Promise<void> {
   const messagePanel = modal.querySelector<HTMLElement>(
     "[data-social-content]",
@@ -4166,9 +4208,13 @@ async function showSocialConversation(
     }
     await refreshSocialUnreadCount();
   };
+  setLiveLoader({ accountId: person.accountId, load });
   modal
     .querySelector("[data-social-back]")
-    ?.addEventListener("click", () => void returnToHub());
+    ?.addEventListener("click", () => {
+      setLiveLoader(null);
+      void returnToHub();
+    });
   messagePanel
     .querySelector<HTMLFormElement>(".social-message-form")
     ?.addEventListener("submit", (event) => {
@@ -4217,6 +4263,11 @@ async function showSocialHub(
   );
   let activeTab = initialTab;
   let social: SocialSnapshot;
+  let liveConversation:
+    | { accountId: string; load: () => Promise<void> }
+    | null = null;
+  let liveRefreshRunning = false;
+  let queuedLiveEvent: SocialRealtimeEvent | null = null;
   const content = modal.querySelector<HTMLElement>("[data-social-content]");
   const reload = async (): Promise<void> => {
     social = await fetchSocialSnapshot();
@@ -4224,6 +4275,7 @@ async function showSocialHub(
   };
   const render = async (): Promise<void> => {
     if (!content) return;
+    liveConversation = null;
     modal
       .querySelectorAll<HTMLButtonElement>("[data-social-tab]")
       .forEach((button) =>
@@ -4304,6 +4356,8 @@ async function showSocialHub(
             void showSocialConversation(modal, person, async () => {
               await reload();
               await render();
+            }, (conversation) => {
+              liveConversation = conversation;
             });
         }),
       );
@@ -4380,10 +4434,50 @@ async function showSocialHub(
         }),
       );
   };
+  const refreshVisibleSocial = async (
+    event: SocialRealtimeEvent,
+  ): Promise<void> => {
+    if (!modal.isConnected) {
+      if (socialModalRealtimeRefresh === scheduleLiveRefresh)
+        socialModalRealtimeRefresh = null;
+      return;
+    }
+    if (
+      liveConversation &&
+      event.type === "message" &&
+      event.fromAccountId === liveConversation.accountId
+    ) {
+      await liveConversation.load();
+      return;
+    }
+    await reload();
+    if (!liveConversation) await render();
+  };
+  const scheduleLiveRefresh = (event: SocialRealtimeEvent): void => {
+    if (liveRefreshRunning) {
+      queuedLiveEvent = event;
+      return;
+    }
+    liveRefreshRunning = true;
+    void (async () => {
+      let nextEvent = event;
+      do {
+        queuedLiveEvent = null;
+        await refreshVisibleSocial(nextEvent);
+        nextEvent = queuedLiveEvent ?? {};
+      } while (queuedLiveEvent && modal.isConnected);
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        liveRefreshRunning = false;
+      });
+  };
+  socialModalRealtimeRefresh = scheduleLiveRefresh;
   modal
     .querySelectorAll<HTMLButtonElement>("[data-social-tab]")
     .forEach((button) =>
       button.addEventListener("click", () => {
+        liveConversation = null;
         activeTab = button.dataset.socialTab as typeof activeTab;
         void render();
       }),

@@ -14,6 +14,7 @@ interface TestState {
       id: string;
       bed: { x: number; y: number };
       beds: Array<{ x: number; y: number }>;
+      floorTiles: Array<{ x: number; y: number }>;
     }>;
   } | null;
   snapshot: {
@@ -128,27 +129,21 @@ test("friends can exchange a request and a direct message", async ({
     await firstSocial.locator(".social-add-form input").fill(friendCode ?? "");
     await firstSocial.getByRole("button", { name: "친구 추가" }).click();
     await expect(firstSocial).toContainText("수락 대기 중");
-    await secondSocial.getByRole("button", { name: "닫기" }).click();
-    await second.getByRole("button", { name: "친구와 채팅" }).click();
-    const refreshedSecondSocial = second.getByRole("dialog", {
-      name: "친구와 채팅",
-    });
-    await refreshedSecondSocial.getByRole("button", { name: "수락" }).click();
-    await expect(refreshedSecondSocial).toContainText("친구 1/100");
-    await refreshedSecondSocial.getByRole("button", { name: "닫기" }).click();
-    await firstSocial.getByRole("button", { name: "닫기" }).click();
-    await first.getByRole("button", { name: "친구와 채팅" }).click();
-    const reloadedFirstSocial = first.getByRole("dialog", {
-      name: "친구와 채팅",
-    });
-    await expect(reloadedFirstSocial).toContainText("친구 1/100");
-    await reloadedFirstSocial.locator("[data-social-chat]").click();
-    await reloadedFirstSocial.getByPlaceholder("메시지 입력").fill("문 위험!");
-    await reloadedFirstSocial.getByRole("button", { name: "전송" }).click();
-    await second.getByRole("button", { name: "친구와 채팅" }).click();
-    const messageSocial = second.getByRole("dialog", { name: "친구와 채팅" });
-    await messageSocial.locator("[data-social-chat]").click();
-    await expect(messageSocial).toContainText("문 위험!");
+    // The already-open recipient modal must update from SocialPresence without
+    // closing and reopening it.
+    await expect(secondSocial.getByRole("button", { name: "수락" })).toBeVisible();
+    await secondSocial.getByRole("button", { name: "수락" }).click();
+    await expect(secondSocial).toContainText("친구 1/100");
+    await expect(firstSocial).toContainText("친구 1/100");
+
+    await firstSocial.locator("[data-social-chat]").click();
+    await secondSocial.locator("[data-social-chat]").click();
+    await firstSocial.getByPlaceholder("메시지 입력").fill("문 위험!");
+    await firstSocial.getByRole("button", { name: "전송" }).click();
+    await expect(secondSocial).toContainText("문 위험!");
+    await secondSocial.getByPlaceholder("메시지 입력").fill("포탑 강화해!");
+    await secondSocial.getByRole("button", { name: "전송" }).click();
+    await expect(firstSocial).toContainText("포탑 강화해!");
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -389,9 +384,26 @@ test("portrait home separates shop, owned customization and stage start", async 
       "src",
       /\/assets\/tiles\/skin-wave\/wave-tile\.webp\?v=/,
     );
+    await page.getByRole("button", { name: "포탑", exact: true }).click();
+    const surferTurretCard = page.locator(
+      `[data-cosmetic-preview="turret-basic-surfer-water"]`,
+    );
+    await expect(surferTurretCard).toBeVisible();
+    await expect(surferTurretCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-15\.png\?v=/,
+    );
     await expect(
-      page.getByRole("button", { name: "포탑", exact: true }),
-    ).toHaveCount(0);
+      surferTurretCard.getByRole("button", { name: "1,500 P" }),
+    ).toBeEnabled();
+    await surferTurretCard.click();
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText(
+      "서퍼 물총포",
+    );
+    await expect(page.locator("[data-turret-preview]")).toHaveAttribute(
+      "src",
+      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-15\.png\?v=/,
+    );
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
     await expect(
@@ -617,7 +629,7 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
   return { roomId };
 }
 
-async function sleepInBed(
+async function moveNearBed(
   page: Page,
   roomId: string,
   bedIndex: number,
@@ -708,8 +720,16 @@ async function sleepInBed(
       { timeout: 12_000, intervals: [100] },
     )
     .toBeLessThanOrEqual(1.65);
+  await page.evaluate(() => window.__DORM_TEST__?.move(0, 0));
+}
+
+async function sleepInBed(
+  page: Page,
+  roomId: string,
+  bedIndex: number,
+): Promise<void> {
+  await moveNearBed(page, roomId, bedIndex);
   await page.evaluate(() => {
-    window.__DORM_TEST__?.move(0, 0);
     window.__DORM_TEST__?.interact();
   });
 }

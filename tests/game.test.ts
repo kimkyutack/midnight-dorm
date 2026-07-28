@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, tileSkinTextureUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -17,6 +17,7 @@ import { GameEngine } from '../src/server/engine';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
+import { limitLocalPredictionLead } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
@@ -122,7 +123,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.6')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.7')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -177,6 +178,24 @@ describe('cold realtime connection failures', () => {
 });
 
 describe('deterministic shared world', () => {
+  it('never reverses a held drag when a bot action repeats an older local position', () => {
+    const authoritative = { x: 5, y: 5 };
+    const input = { x: 1, y: 0 };
+    let rendered = { x: 7.55, y: 5 };
+    for (let frame = 0; frame < 12; frame += 1) {
+      const next = limitLocalPredictionLead(
+        rendered,
+        { x: rendered.x + 0.1, y: rendered.y },
+        authoritative,
+        input,
+      );
+      expect(next.x).toBeGreaterThanOrEqual(rendered.x);
+      expect(Math.hypot(next.x - authoritative.x, next.y - authoritative.y))
+        .toBeLessThanOrEqual(2.61);
+      rendered = next;
+    }
+  });
+
   it('replays a seeded random sequence exactly', () => {
     const first = new SeededRandom(42);
     const second = new SeededRandom(42);
@@ -333,6 +352,25 @@ describe('generated mobile game art', () => {
     expect(new Set(assets).size).toBe(15);
   });
 
+  it('maps every surfer water turret level to its own authored image', () => {
+    const assets = Array.from({ length: 15 }, (_, index) =>
+      buildingAssetUrl(
+        'basic-turret',
+        index + 1,
+        undefined,
+        SURFER_WATER_TURRET_SKIN_ID,
+      ),
+    );
+    expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
+    expect(new Set(assets).size).toBe(15);
+    expect(turretSkinAssetUrl(SURFER_WATER_TURRET_SKIN_ID, 1)).toBe(
+      '/assets/turret-skins/skin-surfer-water-blaster/level-01.png',
+    );
+    expect(turretSkinAssetUrl(SURFER_WATER_TURRET_SKIN_ID, 99)).toBe(
+      '/assets/turret-skins/skin-surfer-water-blaster/level-15.png',
+    );
+  });
+
   it('maps every moonlight generator level to its own crisp tile-safe image', () => {
     const assets = Array.from({ length: 10 }, (_, index) =>
       buildingAssetUrl('generator', index + 1),
@@ -471,7 +509,7 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(40);
+    expect(COSMETIC_CATALOG).toHaveLength(41);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'tile', 'turret']),
     );
@@ -491,6 +529,21 @@ describe('survivor customization rules', () => {
     });
     expect(tileSkinTextureUrl(WAVE_TILE_SKIN_ID)).toBe('/assets/tiles/skin-wave/wave-tile.webp');
     expect(tileSkinTextureUrl(DEFAULT_TILE_SKIN_ID)).toBeUndefined();
+  });
+
+  it('sells the surfer water turret as a neutral 1,500 point cosmetic', () => {
+    expect(cosmeticById(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
+      slot: 'turret',
+      turretKind: 'basic-turret',
+      label: '서퍼 물총포',
+      unlock: { kind: 'points', price: 1_500 },
+    });
+    expect(turretSkinTrait(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
+      turretKind: 'basic-turret',
+      damageMultiplier: 1,
+      rateMultiplier: 1,
+      frostSlowStrengthMultiplier: 1,
+    });
   });
 
   it('uses base concept art for characters and complete art only for skin cards', () => {
@@ -1263,6 +1316,13 @@ describe('authoritative game rules', () => {
     begin(engine, ids[0] as string);
     const playerId = ids[0] as string;
     const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing turret skin fixture');
+    player.turretSkins['basic-turret'] = SURFER_WATER_TURRET_SKIN_ID;
+    engine.restore(persisted);
     expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
     const initialHp = engine.snapshot().ghost.hp;
     for (let index = 0; index < 500 && engine.snapshot().ghost.hp === initialHp; index += 1) engine.tick(0.1);
@@ -1270,6 +1330,7 @@ describe('authoritative game rules', () => {
     const fire = engine.drainEvents().find((event) => event.kind === 'turret-fire');
     expect(fire?.targetPosition).toBeDefined();
     expect(fire?.buildingKind).toBe('basic-turret');
+    expect(fire?.itemId).toBe(SURFER_WATER_TURRET_SKIN_ID);
   });
 
   it('ghost attacks can destroy a door and produce a defeat', () => {

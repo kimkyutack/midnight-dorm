@@ -2569,6 +2569,7 @@ export class GameEngine {
         targetPosition: { ...nearest.position },
         targetId: nearest.id,
         buildingKind: building.kind,
+        itemId: building.skinId || undefined,
         amount: appliedDamage,
         label: soulReady ? "영혼 충전 레이저" : undefined,
       });

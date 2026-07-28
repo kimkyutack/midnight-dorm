@@ -5,7 +5,7 @@ import { moveInWalkableArea } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
-import { tileSkinTextureUrl } from '../../shared/customization';
+import { SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl } from '../../shared/customization';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
@@ -34,6 +34,46 @@ const ROOM_FLOOR_OFFSET_Y = 0.003;
 const ROOM_FLOOR_CENTER_Y = ROOM_FLOOR_OFFSET_Y + FLOOR_TILE_HEIGHT / 2;
 const buildingTextureLoader = new THREE.TextureLoader();
 const buildingTextureCache = new Map<string, THREE.Texture>();
+
+export function limitLocalPredictionLead(
+  current: Vec2,
+  predicted: Vec2,
+  authoritative: Vec2,
+  input: Vec2,
+  maximumLead = LOCAL_MAX_PREDICTION_LEAD,
+): Vec2 {
+  const offsetX = authoritative.x - predicted.x;
+  const offsetY = authoritative.y - predicted.y;
+  const predictedError = Math.hypot(offsetX, offsetY);
+  const targetTrailsInput = offsetX * input.x + offsetY * input.y < -0.025;
+  if (!targetTrailsInput || predictedError <= maximumLead) return predicted;
+
+  const currentError = Math.hypot(
+    authoritative.x - current.x,
+    authoritative.y - current.y,
+  );
+  // A bot claim is broadcast immediately and can repeat an older local
+  // position between movement ticks. Never pull the rendered survivor
+  // backwards against a held drag; pause at the lead cap until the next
+  // authoritative movement snapshot catches up.
+  if (currentError >= maximumLead) return current;
+
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    const middle = (low + high) / 2;
+    const x = current.x + (predicted.x - current.x) * middle;
+    const y = current.y + (predicted.y - current.y) * middle;
+    if (Math.hypot(authoritative.x - x, authoritative.y - y) <= maximumLead)
+      low = middle;
+    else high = middle;
+  }
+  return {
+    x: current.x + (predicted.x - current.x) * low,
+    y: current.y + (predicted.y - current.y) * low,
+  };
+}
+
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   wanderer: 0xff315f,
   swift: 0xff7438,
@@ -1408,7 +1448,12 @@ function randomRewardTint(itemId?: string): number {
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
   const visualLevel = building.effectiveLevel ?? building.level;
-  const imageAsset = buildingAssetUrl(building.kind, visualLevel, building.itemId);
+  const imageAsset = buildingAssetUrl(
+    building.kind,
+    visualLevel,
+    building.itemId,
+    building.skinId,
+  );
   if (imageAsset) {
     // A room can contain many copies of the same building. Reusing the GPU
     // texture avoids a new decode/upload for every installation and removes
@@ -2862,13 +2907,20 @@ export class ThreeGameView {
       const isLocal = id === this.playerId;
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
       if (hasLocalInput) {
-        const predicted = moveInWalkableArea(this.mapData, {
+        const currentPosition = {
           x: view.root.position.x,
           y: view.root.position.z,
-        }, {
+        };
+        const rawPredicted = moveInWalkableArea(this.mapData, currentPosition, {
           x: this.localInput.x * localSpeed * dt,
           y: this.localInput.y * localSpeed * dt,
         }, BALANCE.player.collisionRadius, 0.12);
+        const predicted = limitLocalPredictionLead(
+          currentPosition,
+          rawPredicted,
+          { x: view.target.x, y: view.target.z },
+          this.localInput,
+        );
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const targetOffsetX = view.target.x - predicted.x;
         const targetOffsetZ = view.target.z - predicted.y;
@@ -2880,10 +2932,7 @@ export class ThreeGameView {
         // is held; an actual collision or desync still exceeds the hard cap.
         const targetTrailsInput =
           targetOffsetX * this.localInput.x + targetOffsetZ * this.localInput.y < -0.025;
-        if (
-          serverError > LOCAL_MAX_PREDICTION_LEAD ||
-          (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput)
-        ) {
+        if (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput) {
           this.reconcilePlayerPosition(view, 16, dt);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
           this.reconcilePlayerPosition(view, 1.4, dt);
@@ -3159,7 +3208,81 @@ export class ThreeGameView {
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
-      if (event.buildingKind === 'frost-turret' || event.buildingKind === 'arc-turret' || event.buildingKind === 'electric-coil') {
+      if (event.itemId === SURFER_WATER_TURRET_SKIN_ID) {
+        const born = performance.now();
+        const direction = to.clone().sub(from).normalize();
+        const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
+        const droplets = new THREE.Group();
+        const waterMaterial = new THREE.MeshBasicMaterial({
+          color: 0x62ddff,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        });
+        for (let index = 0; index < 5; index += 1) {
+          const droplet = mesh(
+            new THREE.SphereGeometry(index === 0 ? 0.13 : 0.065, 10, 7),
+            waterMaterial.clone(),
+            [
+              sideways.x * ((index % 2 === 0 ? 1 : -1) * index * 0.035),
+              (index % 3) * 0.025,
+              sideways.z * ((index % 2 === 0 ? 1 : -1) * index * 0.035)
+                + index * 0.1,
+            ],
+          );
+          droplet.scale.set(1, 0.8, 1.35);
+          droplets.add(droplet);
+        }
+        droplets.position.copy(from);
+        droplets.renderOrder = 8_200;
+        this.scene.add(droplets);
+        this.effects.push({
+          object: droplets,
+          born,
+          duration: 235,
+          from,
+          to,
+          baseScale: droplets.scale.clone(),
+          scaleGrowth: 0.08,
+        });
+
+        const splash = new THREE.Group();
+        const ring = mesh(
+          new THREE.RingGeometry(0.12, 0.27, 20),
+          new THREE.MeshBasicMaterial({
+            color: 0xd8fbff,
+            transparent: true,
+            opacity: 0.88,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        splash.add(ring);
+        for (let index = 0; index < 6; index += 1) {
+          const angle = (index / 6) * Math.PI * 2;
+          splash.add(mesh(
+            new THREE.SphereGeometry(0.045, 8, 6),
+            new THREE.MeshBasicMaterial({
+              color: index % 2 === 0 ? 0x82e9ff : 0xffffff,
+              transparent: true,
+              opacity: 0.9,
+              depthWrite: false,
+            }),
+            [Math.cos(angle) * 0.3, 0.04 + (index % 2) * 0.04, Math.sin(angle) * 0.3],
+          ));
+        }
+        splash.position.copy(to);
+        splash.renderOrder = 8_210;
+        this.scene.add(splash);
+        this.effects.push({
+          object: splash,
+          born,
+          duration: 310,
+          baseScale: splash.scale.clone(),
+          scaleGrowth: 0.9,
+        });
+      } else if (event.buildingKind === 'frost-turret' || event.buildingKind === 'arc-turret' || event.buildingKind === 'electric-coil') {
         const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
         const color = event.buildingKind === 'frost-turret' ? 0x91efff : 0xcf79ff;
         const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
