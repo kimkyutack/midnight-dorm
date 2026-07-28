@@ -886,7 +886,7 @@ function showSummerSkinLaunchPromo(): void {
   summerSkinPromoShownThisSession = true;
   const modal = document.createElement("div");
   modal.className = "modal-backdrop surfer-mong-promo-modal";
-  modal.innerHTML = `<section class="surfer-mong-promo summer-special-promo" role="dialog" aria-modal="true" aria-label="썸머 특별 스킨 동시 출시"><div class="surfer-mong-promo-art"><img src="/assets/cinematic/summer-special-skins-event.webp?v=${APP_RELEASE_VERSION}" alt="뒤집힐 듯 날아오른 서퍼 몽을 구하러 달려가는 해변 구조대 라온"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL SKINS</span><h2>썸머 특별 스킨<br/>동시 출시!</h2><p>파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.</p><small>여름 한정 2종 · 각 3,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
+  modal.innerHTML = `<section class="surfer-mong-promo summer-special-promo" role="dialog" aria-modal="true" aria-label="썸머 특별 스킨 동시 출시"><div class="surfer-mong-promo-art"><img src="/assets/cinematic/summer-special-skins-event.webp?v=${APP_RELEASE_VERSION}" alt="뒤집힐 듯 날아오른 서퍼 몽을 구하러 달려가는 해변 구조대 라온"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL SKINS</span><h2>썸머 특별 스킨<br/>동시 출시!</h2><p>파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.</p><small>여름 한정 2종 · 각 5,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
   app.appendChild(modal);
   modal
     .querySelector("[data-launch-promo-dismiss]")
@@ -1387,17 +1387,15 @@ function cosmeticCollectionScreen(
   );
   const displayCatalog =
     shopping && selectedSlot === "skin"
-      ? [...catalog].sort(
-          (left, right) => {
-            const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
-            const leftOrder = premiumOrder.indexOf(left.id);
-            const rightOrder = premiumOrder.indexOf(right.id);
-            if (leftOrder < 0 && rightOrder < 0) return 0;
-            if (leftOrder < 0) return 1;
-            if (rightOrder < 0) return -1;
-            return leftOrder - rightOrder;
-          },
-        )
+      ? [...catalog].sort((left, right) => {
+          const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
+          const leftOrder = premiumOrder.indexOf(left.id);
+          const rightOrder = premiumOrder.indexOf(right.id);
+          if (leftOrder < 0 && rightOrder < 0) return 0;
+          if (leftOrder < 0) return 1;
+          if (rightOrder < 0) return -1;
+          return leftOrder - rightOrder;
+        })
       : catalog;
   const cards = displayCatalog
     .map((item) => {
