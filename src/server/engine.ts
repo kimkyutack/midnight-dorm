@@ -8,11 +8,13 @@ import {
 import {
   botAppearance,
   DEFAULT_APPEARANCE,
+  DEFAULT_TILE_SKIN_ID,
   DEFAULT_TURRET_SKINS,
   normalizeAppearance,
   normalizeTurretSkins,
 } from "../shared/customization";
 import {
+  bedGoldProductionForAppearance,
   characterTraitForAppearance,
   drawLimitForAppearance,
 } from "../shared/characterTraits";
@@ -249,6 +251,8 @@ export class GameEngine {
       id: room.id,
       ownerId: null,
       ownerIds: [],
+      tileSkinId: '',
+      tileSkinActivatedAt: -1,
       doorHp: BALANCE.door.baseHp,
       doorMaxHp: BALANCE.door.baseHp,
       doorLevel: 1,
@@ -520,6 +524,8 @@ export class GameEngine {
         .map((_, index) => (index === 0 ? room.bedLevel : 1));
       room.bedLevel = room.bedLevels[0] ?? room.bedLevel ?? 1;
       room.ownerId = room.ownerIds[0] ?? room.ownerId ?? null;
+      room.tileSkinId ??= '';
+      room.tileSkinActivatedAt = finite(room.tileSkinActivatedAt, -1);
       room.beaconUntil ??= 0;
       room.doorBraceUntil ??= 0;
       room.doorWardUntil ??= 0;
@@ -1189,6 +1195,12 @@ export class GameEngine {
       });
     }
     if (firstOccupant) {
+      candidate.room.tileSkinId =
+        player.appearance.tileSkin &&
+        player.appearance.tileSkin !== DEFAULT_TILE_SKIN_ID
+          ? player.appearance.tileSkin
+          : '';
+      candidate.room.tileSkinActivatedAt = this.state.elapsed;
       for (const building of this.state.buildings) {
         if (building.roomId === candidate.room.id && !building.ownerId) {
           building.ownerId = player.id;
@@ -2304,7 +2316,6 @@ export class GameEngine {
       const placedItemBuildings = this.state.buildings.filter(
         (building) => building.ownerId === player.id && building.kind === 'random-item' && building.itemId,
       );
-      const trait = characterTraitForAppearance(player.appearance);
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
       const panelMode = this.state.buildings.find(
@@ -2329,11 +2340,15 @@ export class GameEngine {
         0,
       );
       const inventoryGoldPerSecond = inventoryEffects.goldPerSecond * productionMultiplier;
-      // Dog and duck economy traits explicitly improve the occupied bed.
-      // Keep that bonus at the bed both mechanically and visually, so a
-      // Lv.1 bed on the dog displays +2 rather than a misleading +1 plus a
-      // detached popup over the survivor.
-      const bedTraitGoldPerSecond = trait.goldPerSecond * productionMultiplier;
+      // The selected skin trait replaces the base character trait, then that
+      // single trait is added to bed production. Surfer Mong therefore pays
+      // 1 bed + 2 skin gold without adding Mong's original +1 again.
+      const effectiveBedGoldPerSecond =
+        bedGoldProductionForAppearance(
+          player.appearance,
+          bedGoldPerSecond,
+          productionMultiplier,
+        );
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
           total + buildingStats(building.kind, building.level).value * productionMultiplier,
@@ -2346,16 +2361,16 @@ export class GameEngine {
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
         if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
-        player.gold += bedGoldPerSecond + bedTraitGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + buildingGoldPerSecond;
+        player.gold += effectiveBedGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + buildingGoldPerSecond;
         // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
         // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
         // 실제 생산 위치마다 별도 이벤트를 보내서 침대와 무덤(보석)의
         // 수입을 각각 읽을 수 있게 한다.
-        if (bedGoldPerSecond + bedTraitGoldPerSecond > 0 && playerBed)
+        if (effectiveBedGoldPerSecond > 0 && playerBed)
           this.pendingEvents.push({
             kind: "gold",
             playerId: player.id,
-            amount: bedGoldPerSecond + bedTraitGoldPerSecond,
+            amount: effectiveBedGoldPerSecond,
             position: { ...playerBed },
             label: '침대',
           });

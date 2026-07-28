@@ -9641,3 +9641,105 @@ select {
     animation: none;
   }
 }
+
+/* Room tile skins use the same catalog, but preview the floor surface rather
+ * than creating an avatar renderer. */
+.tile-skin-preview-stage {
+  display: grid;
+  place-items: center;
+  padding: 20px 16px 34px;
+  background:
+    radial-gradient(circle at 50% 55%, rgba(86, 231, 255, 0.2), transparent 48%),
+    linear-gradient(180deg, #061d2b, #020b13);
+}
+.tile-skin-preview-stage::before {
+  display: none;
+}
+.tile-skin-preview-stage > span {
+  position: absolute;
+  right: 0;
+  bottom: 10px;
+  left: 0;
+  color: rgba(218, 247, 252, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+.tile-skin-preview-room {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(74%, 260px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 5px solid #102d3c;
+  border-radius: 18px;
+  background: #0a1b26;
+  box-shadow:
+    0 18px 35px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(75, 222, 255, 0.2),
+    inset 0 0 0 1px rgba(213, 249, 255, 0.18);
+  transform: perspective(600px) rotateX(9deg) rotateZ(-2deg);
+}
+.tile-skin-preview-room img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tile-skin-preview-room::after {
+  position: absolute;
+  top: -8%;
+  bottom: -8%;
+  left: -32%;
+  width: 30%;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(224, 253, 255, 0.72),
+    rgba(74, 219, 255, 0.38),
+    transparent
+  );
+  filter: blur(3px);
+  content: "";
+  pointer-events: none;
+  animation: tile-preview-wave 2.8s ease-in-out infinite;
+}
+.tile-skin-card-art {
+  overflow: hidden;
+  border: 1px solid rgba(139, 232, 247, 0.28);
+  background: #082333;
+  box-shadow:
+    inset 0 0 14px rgba(56, 213, 243, 0.18),
+    0 5px 12px rgba(0, 0, 0, 0.28);
+}
+.cosmetic-card .tile-skin-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  transform: scale(1.02);
+}
+
+@keyframes tile-preview-wave {
+  0%,
+  14% {
+    left: -34%;
+    opacity: 0;
+  }
+  32% {
+    opacity: 0.9;
+  }
+  72%,
+  100% {
+    left: 106%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-skin-preview-room::after {
+    animation: none;
+  }
+}

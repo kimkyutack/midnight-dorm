@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { APP_RELEASE_VERSION } from "../src/shared/appUpdates";
 
 interface TestState {
   map: {
@@ -63,7 +64,7 @@ async function enter(
   if (dismissLaunchPromo) {
     await page
       .getByRole("dialog", {
-        name: "서퍼 몽과 함께 더위를 날려보자!",
+        name: "썸머 특별 스킨 동시 출시",
       })
       .getByRole("button", { name: "다시 보지 않기" })
       .click();
@@ -183,7 +184,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".game-home")).toBeVisible();
     await page
       .getByRole("dialog", {
-        name: "서퍼 몽과 함께 더위를 날려보자!",
+        name: "썸머 특별 스킨 동시 출시",
       })
       .getByRole("button", { name: "다시 보지 않기" })
       .click();
@@ -201,7 +202,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(updateButton).toBeVisible();
     await updateButton.click();
     const updateDialog = page.getByRole("dialog", { name: "업데이트 내역" });
-    await expect(updateDialog).toContainText("현재 앱 버전 2026.07.28.3");
+    await expect(updateDialog).toContainText(
+      `현재 앱 버전 ${APP_RELEASE_VERSION}`,
+    );
     await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
     await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
@@ -341,7 +344,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       "달고양이 루루",
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(13);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(14);
     const bunnySkinCard = page.locator(".cosmetic-card", {
       hasText: "탐험가 모모",
     });
@@ -362,6 +365,27 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".skin-preview-canvas")).toHaveAttribute(
       "data-skin-id",
       "skin-look-cat-ward",
+    );
+    await page.getByRole("button", { name: "타일", exact: true }).click();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(2);
+    const waveTileCard = page.locator(".cosmetic-card", {
+      hasText: "파도 타일",
+    });
+    await expect(waveTileCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/tiles\/skin-wave\/wave-tile\.webp\?v=/,
+    );
+    await expect(waveTileCard.locator("img")).toBeVisible();
+    await expect(
+      waveTileCard.getByRole("button", { name: "1,000 P" }),
+    ).toBeEnabled();
+    await waveTileCard.click();
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText(
+      "파도 타일",
+    );
+    await expect(page.locator("[data-tile-preview]")).toHaveAttribute(
+      "src",
+      /\/assets\/tiles\/skin-wave\/wave-tile\.webp\?v=/,
     );
     await expect(
       page.getByRole("button", { name: "포탑", exact: true }),
@@ -386,9 +410,17 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".empty-collection")).toContainText(
       "완성형 스킨",
     );
+    await page.getByRole("button", { name: "캐릭터", exact: true }).click();
     await page.getByRole("button", { name: "뒤", exact: true }).click();
-    await expect(avatarCanvas).toHaveAttribute("data-avatar-view", "back");
-    await expect(avatarCanvas).toHaveAttribute("data-preview-kind", "avatar");
+    await expect(page.locator(".skin-preview-canvas")).toHaveAttribute("data-avatar-view", "back");
+    await expect(page.locator(".skin-preview-canvas")).toHaveAttribute("data-preview-kind", "avatar");
+    await page.getByRole("button", { name: "타일", exact: true }).click();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(1);
+    await expect(
+      page.locator(".cosmetic-card", { hasText: "기본 병동 타일" })
+        .getByRole("button", { name: "착용 중" }),
+    ).toBeDisabled();
+    await expect(page.locator("[data-tile-preview]")).toBeVisible();
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();

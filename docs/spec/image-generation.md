@@ -99,3 +99,6 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 라온의 원본 생성 이미지는 `source/`에 보존하고, 게임에는 투명 `concept.png`, `movement-sheet.png`, `sleep.png`와 압축 WebP 배경만 로드한다.
 - 홈 통합 이벤트는 `public/assets/cinematic/summer-special-skins-event.webp`를 사용한다. 파도에서 보드와 함께 뒤집히려는 서퍼 몽을 구조대 라온이 가리키며 달려가는 장면이고, 제목·설명·가격·버튼은 이미지에 굽지 않고 HTML로 표시한다.
 - 통합 이벤트 생성 원본은 `public/assets/cinematic/summer-special-skins-event-master.png`에 보존한다.
+- `파도 타일` 생성 원본은 `public/assets/tiles/skin-wave/wave-tile-master.png`, 런타임용 512px WebP는 `public/assets/tiles/skin-wave/wave-tile.webp`다.
+- 파도 타일은 정사각 탑다운 시점, 청록·하늘색 수면, 흰 거품 하이라이트와 진한 파란 테두리를 사용한다. 64px 이하에서도 물결과 타일 경계가 선명해야 하며 캐릭터·서핑보드·텍스트는 포함하지 않는다.
+- 방 점유 전환의 파도 띠와 타일 플립은 런타임 Three.js 연출로 처리하고, 최종 바닥 표면만 파도 타일 이미지를 반복 사용한다.

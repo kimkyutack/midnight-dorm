@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS } from '../src/shared/customization';
-import { CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
+import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, tileSkinTextureUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
@@ -122,7 +122,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a different deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.5')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.4')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
   });
 });
@@ -479,15 +479,27 @@ describe('survivor customization rules', () => {
     }
   });
 
-  it('defines characters, complete skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(38);
+  it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
+    expect(COSMETIC_CATALOG).toHaveLength(40);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
-      new Set(['character', 'skin', 'turret']),
+      new Set(['character', 'skin', 'tile', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
+    expect(STARTER_COSMETICS).toContain(DEFAULT_TILE_SKIN_ID);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(14);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(2);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
+  });
+
+  it('resolves the wave floor tile as a standalone point cosmetic', () => {
+    expect(cosmeticById(WAVE_TILE_SKIN_ID)).toMatchObject({
+      slot: 'tile',
+      label: '파도 타일',
+      unlock: { kind: 'points', price: 1_000 },
+    });
+    expect(tileSkinTextureUrl(WAVE_TILE_SKIN_ID)).toBe('/assets/tiles/skin-wave/wave-tile.webp');
+    expect(tileSkinTextureUrl(DEFAULT_TILE_SKIN_ID)).toBeUndefined();
   });
 
   it('uses base concept art for characters and complete art only for skin cards', () => {
@@ -549,9 +561,9 @@ describe('survivor customization rules', () => {
     const explorerSkin = cosmeticById('skin-look-bunny-ward');
     expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 100 });
     const surferSkin = cosmeticById('skin-look-puppy-surfer');
-    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 3_000 });
+    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
-    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 3_000 });
+    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
@@ -566,12 +578,32 @@ describe('survivor customization rules', () => {
     expect(normalizeAppearance({ character: 'hat-beanie', shoes: 'invalid' })).toEqual(DEFAULT_APPEARANCE);
     expect(normalizeAppearance({ character: 'character-bunny', outfit: 'outfit-raincoat' })).toEqual(DEFAULT_APPEARANCE);
     expect(normalizeAppearance({ character: 'character-cat', skin: 'skin-look-bunny-ward' }))
-      .toEqual({ character: 'character-cat', skin: 'skin-basic-cat' });
+      .toEqual({ character: 'character-cat', skin: 'skin-basic-cat', tileSkin: DEFAULT_TILE_SKIN_ID });
+    expect(normalizeAppearance({
+      character: 'character-bunny',
+      skin: 'skin-basic-bunny',
+      tileSkin: WAVE_TILE_SKIN_ID,
+    }).tileSkin).toBe(WAVE_TILE_SKIN_ID);
+    expect(normalizeAppearance({
+      character: 'character-bunny',
+      skin: 'skin-basic-bunny',
+      tileSkin: 'tile-missing',
+    }).tileSkin).toBe(DEFAULT_TILE_SKIN_ID);
     expect(normalizeAppearance({ character: 'character-eagle' }).character).toBe('character-tiger');
     expect(customizationReward(0)).toBe(80);
     expect(customizationReward(5)).toBe(100);
     expect(customizationReward(105)).toBe(500);
     expect(customizationReward(999)).toBe(500);
+  });
+
+  it('equips a complete skin together with its required base character', () => {
+    const catSkin = cosmeticById('skin-look-cat-ward');
+    if (!catSkin) throw new Error('missing cat skin');
+    expect(appearanceAfterCosmeticEquip(DEFAULT_APPEARANCE, catSkin)).toEqual({
+      character: 'character-cat',
+      skin: 'skin-look-cat-ward',
+      tileSkin: DEFAULT_TILE_SKIN_ID,
+    });
   });
 });
 
@@ -655,6 +687,47 @@ describe('authoritative game rules', () => {
     const occupied = state.players.map((player) => player.roomId);
     expect(new Set(occupied).size).toBe(occupied.length);
     expect(state.rooms.filter((room) => room.ownerId).length).toBe(4);
+  });
+
+  it('applies the first occupant tile skin to the claimed room authoritatively', () => {
+    const map = generateMap(88_124, 'multiplayer');
+    const engine = new GameEngine('TILESKINROOM', map, true, { playMode: 'multiplayer' });
+    const first = engine.join({
+      nickname: 'WaveOwner',
+      deviceId: 'wave-owner',
+      appearance: {
+        character: 'character-bunny',
+        skin: 'skin-basic-bunny',
+        tileSkin: WAVE_TILE_SKIN_ID,
+      },
+    });
+    const second = engine.join({
+      nickname: 'BasicRoommate',
+      deviceId: 'basic-roommate',
+      appearance: DEFAULT_APPEARANCE,
+    });
+    engine.handle(second.player.id, envelope({ type: 'ready', ready: true }, 2));
+    expect(engine.start(first.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+
+    const room = map.rooms[0];
+    if (!room) throw new Error('missing tile-skin room');
+    const persisted = engine.serialize();
+    const firstPlayer = persisted.snapshot.players.find((player) => player.id === first.player.id);
+    const secondPlayer = persisted.snapshot.players.find((player) => player.id === second.player.id);
+    if (!firstPlayer || !secondPlayer) throw new Error('missing tile-skin players');
+    firstPlayer.position = { ...(room.beds[0] as Tile) };
+    secondPlayer.position = { ...(room.beds[1] as Tile) };
+    engine.restore(persisted);
+
+    expect(engine.interact(first.player.id).ok).toBe(true);
+    const claimed = engine.snapshot().rooms.find((candidate) => candidate.id === room.id);
+    expect(claimed?.tileSkinId).toBe(WAVE_TILE_SKIN_ID);
+    expect(claimed?.tileSkinActivatedAt).toBeGreaterThanOrEqual(0);
+
+    expect(engine.interact(second.player.id).ok).toBe(true);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.tileSkinId)
+      .toBe(WAVE_TILE_SKIN_ID);
   });
 
   it('does not allow a solo survivor to enter a room already claimed by a bot', () => {
@@ -1583,7 +1656,7 @@ describe('requested progression and event rules', () => {
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     if (!player) throw new Error('missing income player');
     player.power = 125;
-    player.appearance = { character: 'character-puppy', skin: 'skin-basic-puppy' };
+    player.appearance = { character: 'character-puppy', skin: 'skin-look-puppy-surfer' };
     player.items = [{ itemId: 'gold-frog', label: '황금 두꺼비', rarity: 'epic', count: 1 }];
     player.goldIncomeElapsed = 0;
     player.powerIncomeElapsed = 0;
@@ -1594,7 +1667,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'power')).toBe(false);
     engine.tick(0.05);
     const events = engine.drainEvents();
-    expect(events.some((event) => event.kind === 'gold' && event.amount === 2 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.amount === 3 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.label === '특성')).toBe(false);
     expect(events.some((event) => event.kind === 'gold' && event.label === '보관 아이템' && event.amount === 5)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
@@ -2521,6 +2594,14 @@ describe('requested progression and event rules', () => {
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-surfer' }).goldPerSecond)
       .toBe(2);
+    expect(bedGoldProductionForAppearance(
+      { character: 'character-puppy', skin: 'skin-basic-puppy' },
+      1,
+    )).toBe(2);
+    expect(bedGoldProductionForAppearance(
+      { character: 'character-puppy', skin: 'skin-look-puppy-surfer' },
+      1,
+    )).toBe(3);
     expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-lifeguard' }).turretRangeBonus)
       .toBe(2);
     expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)

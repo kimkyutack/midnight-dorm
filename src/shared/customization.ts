@@ -62,8 +62,8 @@ const SKINS = [
   { id: 'skin-look-bunny-ward', slot: 'skin', characterId: 'character-bunny', traitMultiplier: 1.5, traitOverride: { label: '탐험가의 발걸음', description: '침대를 점유하기 전 이동속도가 1.5배가 됩니다.', unclaimedMoveSpeedMultiplier: 1.5 }, label: '탐험가 모모', description: '노란 안전모와 파란 후드의 완성형 이벤트 스킨', symbol: '토', swatch: '#e9c7bc', unlock: { kind: 'points', price: 100 } },
   { id: 'skin-look-cat-ward', slot: 'skin', characterId: 'character-cat', traitMultiplier: 1.5, label: '새벽 탐정 루루', description: '빨간 재킷과 배낭을 갖춘 완성형 스킨', symbol: '냥', swatch: '#bdc5da', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'points', price: 2_500 } },
-  { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 3_000 } },
-  { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 3_000 } },
+  { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
@@ -73,6 +73,31 @@ const SKINS = [
   { id: 'skin-look-dinosaur-ward', slot: 'skin', characterId: 'character-dinosaur', traitMultiplier: 1.5, label: '과충전 라그', description: '기계 장비를 갖춘 완성형 스킨', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-monkey-ward', slot: 'skin', characterId: 'character-monkey', traitMultiplier: 1.5, label: '야간 정비 몽키', description: '정비복을 입은 완성형 스킨', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-gorilla-ward', slot: 'skin', characterId: 'character-gorilla', traitMultiplier: 1.5, label: '요새 수호 콩', description: '중장비 수호복의 완성형 스킨', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_500 } },
+] as const satisfies readonly CosmeticDefinition[];
+
+export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';
+export const WAVE_TILE_SKIN_ID = 'tile-wave-surfer';
+
+const TILE_SKINS = [
+  {
+    id: DEFAULT_TILE_SKIN_ID,
+    slot: 'tile',
+    label: '기본 병동 타일',
+    description: '스테이지 고유의 기본 방 타일을 사용합니다.',
+    symbol: '기',
+    swatch: '#185f63',
+    unlock: { kind: 'starter' },
+  },
+  {
+    id: WAVE_TILE_SKIN_ID,
+    slot: 'tile',
+    label: '파도 타일',
+    description: '침대를 점유하면 파도가 방을 훑으며 시원한 물결 타일로 바뀝니다.',
+    symbol: '파',
+    swatch: '#55dff3',
+    unlock: { kind: 'points', price: 1_000 },
+    assetDirectory: 'skin-wave/wave-tile.webp',
+  },
 ] as const satisfies readonly CosmeticDefinition[];
 
 const TURRET_SKINS = [
@@ -90,11 +115,12 @@ const TURRET_SKINS = [
   { id: 'turret-arc-crown', slot: 'turret', turretKind: 'arc-turret', label: '천둥포 · 왕실폭뢰', description: '왕관 코어가 빛나는 최상급 외장', symbol: '왕', swatch: '#f0bd63', unlock: { kind: 'points', price: 1_100 } },
 ] as const satisfies readonly CosmeticDefinition[];
 
-export const COSMETIC_CATALOG = [...CHARACTERS, ...SKINS, ...TURRET_SKINS] as const satisfies readonly CosmeticDefinition[];
+export const COSMETIC_CATALOG = [...CHARACTERS, ...SKINS, ...TILE_SKINS, ...TURRET_SKINS] as const satisfies readonly CosmeticDefinition[];
 
 export const DEFAULT_APPEARANCE: AvatarAppearance = {
   character: 'character-bunny',
   skin: 'skin-basic-bunny',
+  tileSkin: DEFAULT_TILE_SKIN_ID,
 };
 
 export const DEFAULT_TURRET_SKINS: TurretSkinLoadout = {
@@ -168,12 +194,45 @@ export function normalizeAppearance(value: unknown): AvatarAppearance {
     : DEFAULT_APPEARANCE.character;
   const rawSkin = typeof source.skin === 'string' ? source.skin : '';
   const skin = cosmeticById(rawSkin);
+  const rawTileSkin = typeof source.tileSkin === 'string' ? source.tileSkin : '';
+  const tileSkin = cosmeticById(rawTileSkin);
   return {
     character: characterId,
     skin: isDefaultSkinForCharacter(rawSkin, characterId) || (skin?.slot === 'skin' && skin.characterId === characterId)
       ? rawSkin
       : defaultSkinForCharacter(characterId),
+    tileSkin: tileSkin?.slot === 'tile' ? tileSkin.id : DEFAULT_TILE_SKIN_ID,
   };
+}
+
+export function appearanceAfterCosmeticEquip(
+  appearance: AvatarAppearance,
+  item: CosmeticDefinition,
+): AvatarAppearance {
+  if (item.slot === 'character') {
+    return normalizeAppearance({
+      ...appearance,
+      character: item.id,
+      skin: defaultSkinForCharacter(item.id),
+    });
+  }
+  if (item.slot === 'skin' && item.characterId) {
+    return normalizeAppearance({
+      ...appearance,
+      character: item.characterId,
+      skin: item.id,
+    });
+  }
+  if (item.slot === 'tile') {
+    return normalizeAppearance({ ...appearance, tileSkin: item.id });
+  }
+  return normalizeAppearance(appearance);
+}
+
+export function tileSkinTextureUrl(tileSkinId: string | undefined): string | undefined {
+  const item = cosmeticById(tileSkinId ?? '');
+  if (item?.slot !== 'tile' || !item.assetDirectory) return undefined;
+  return `/assets/tiles/${item.assetDirectory}`;
 }
 
 export function normalizeTurretSkins(value: unknown): TurretSkinLoadout {
@@ -196,5 +255,9 @@ const BOT_CHARACTERS = ['character-cat', 'character-puppy', 'character-bear', 'c
 export function botAppearance(index: number): AvatarAppearance {
   const safe = Math.abs(Math.floor(index));
   const character = BOT_CHARACTERS[safe % BOT_CHARACTERS.length] as string;
-  return { character, skin: defaultSkinForCharacter(character) };
+  return {
+    character,
+    skin: defaultSkinForCharacter(character),
+    tileSkin: DEFAULT_TILE_SKIN_ID,
+  };
 }

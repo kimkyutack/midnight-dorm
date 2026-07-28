@@ -173,6 +173,22 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
   };
 };
 
+/**
+ * Economy traits are added to the bed exactly once. A complete skin replaces
+ * its base character trait, so a 200% Mong skin yields 1 bed + 2 skin gold
+ * without also adding Mong's original +1.
+ */
+export const bedGoldProductionForAppearance = (
+  appearance: AvatarAppearance,
+  bedGoldPerSecond: number,
+  productionMultiplier = 1,
+): number => {
+  const traitGold =
+    characterTraitForAppearance(appearance).goldPerSecond *
+    productionMultiplier;
+  return bedGoldPerSecond + traitGold;
+};
+
 export const BASE_DRAW_LIMIT = 4;
 
 export const drawLimitForCharacter = (characterId: string): number =>

@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.28.4";
+export const APP_RELEASE_VERSION = "2026.07.28.5";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "여름 한정 스킨: 해변 구조대 라온",
+  title: "서퍼 몽 테마: 파도 타일",
   summary:
-    "• 빨간 구조대 모자와 구명 튜브를 갖춘 해변 구조대 라온을 추가했습니다.\n• 라온의 수호 포탑 사거리 특성을 200% 효율로 적용하며 5,000P에 구매할 수 있습니다.\n• 서퍼 몽과 구조대 라온이 함께 등장하는 여름 특별 스킨 통합 이벤트를 적용했습니다.",
-  publishedAt: 1785225600000,
+    "• 상점과 내 보관함에 타일 스킨 탭을 추가했습니다.\n• 침대를 점유하면 파도가 방을 훑고 타일이 뒤집히며 파도 타일로 변경됩니다.\n• 방별 타일 스킨 상태를 서버가 저장해 멀티플레이와 재접속에서도 동일하게 유지합니다.",
+  publishedAt: 1785230400000,
 };
 
 export const isUpdateAvailable = (

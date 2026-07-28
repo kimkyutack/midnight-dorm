@@ -22,7 +22,10 @@ import {
   cosmeticById,
   cosmeticsForSlot,
   customizationReward,
+  DEFAULT_TILE_SKIN_ID,
   defaultSkinForCharacter,
+  tileSkinTextureUrl,
+  WAVE_TILE_SKIN_ID,
 } from "../shared/customization";
 import {
   rankBadgeImage,
@@ -1271,10 +1274,24 @@ function showRankingPreview(): void {
 const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
   character: "캐릭터",
   skin: "스킨",
+  tile: "타일",
   turret: "포탑",
 };
 
-function modelPreviewHtml(turretMode = false): string {
+function tilePreviewUrl(tileSkinId: string | undefined): string {
+  return (
+    tileSkinTextureUrl(tileSkinId) ??
+    "/assets/environment/hospital-room-tile-v2.png"
+  );
+}
+
+function modelPreviewHtml(
+  turretMode = false,
+  tileSkinId?: string,
+): string {
+  if (tileSkinId) {
+    return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div><span>침대 점유 시 방 전체에 적용</span></div>`;
+  }
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
@@ -1369,7 +1386,9 @@ function cosmeticCollectionScreen(
     return;
   }
   const selectedSlot: Exclude<CosmeticSlot, "turret"> =
-    activeSlot === "skin" ? "skin" : "character";
+    activeSlot === "skin" || activeSlot === "tile"
+      ? activeSlot
+      : "character";
   const currentAccount = account;
   const appearance = currentAccount.appearance;
   const shopping = screen === "shop";
@@ -1399,14 +1418,21 @@ function cosmeticCollectionScreen(
       : catalog;
   const cards = displayCatalog
     .map((item) => {
-      const selected = appearance[selectedSlot] === item.id;
+      const selected =
+        selectedSlot === "tile"
+          ? (appearance.tileSkin ?? DEFAULT_TILE_SKIN_ID) === item.id
+          : appearance[selectedSlot] === item.id;
       const premiumSurfer = item.id === SURFER_MONG_SKIN_ID;
       const premiumLifeguard = item.id === LIFEGUARD_RAON_SKIN_ID;
       const premiumSummer = premiumSurfer || premiumLifeguard;
+      const initialCatalogPreviewId =
+        selectedSlot === "skin"
+          ? previewItemId ?? SURFER_MONG_SKIN_ID
+          : selectedSlot === "tile"
+            ? previewItemId ?? WAVE_TILE_SKIN_ID
+            : previewItemId;
       const initiallyPreviewed =
-        shopping &&
-        selectedSlot === "skin" &&
-        item.id === (previewItemId ?? SURFER_MONG_SKIN_ID);
+        shopping && item.id === initialCatalogPreviewId;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
       const requiresCharacter =
@@ -1437,7 +1463,10 @@ function cosmeticCollectionScreen(
       } else if (shopping && item.unlock.kind === "starter") {
         status = "기본 지급";
       } else if (!shopping && selected) {
-        if (item.slot === "skin") {
+        if (
+          item.slot === "skin" ||
+          (item.slot === "tile" && item.id !== DEFAULT_TILE_SKIN_ID)
+        ) {
           action = "unequip";
           status = "착용 해제";
         } else {
@@ -1474,7 +1503,9 @@ function cosmeticCollectionScreen(
         skinTraitInfo?.description ??
         turretTraitInfo?.description ??
         item.description;
-      const art = premiumSurfer
+      const art = item.slot === "tile"
+        ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
+        : premiumSurfer
         ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : premiumLifeguard
           ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
@@ -1485,17 +1516,27 @@ function cosmeticCollectionScreen(
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
   const initialPreviewItem =
-    shopping && selectedSlot === "skin"
-      ? cosmeticById(previewItemId ?? SURFER_MONG_SKIN_ID)
-      : undefined;
+    selectedSlot === "skin"
+      ? shopping
+        ? cosmeticById(previewItemId ?? SURFER_MONG_SKIN_ID)
+        : undefined
+      : selectedSlot === "tile"
+        ? cosmeticById(
+            shopping
+              ? previewItemId ?? WAVE_TILE_SKIN_ID
+              : appearance.tileSkin ?? DEFAULT_TILE_SKIN_ID,
+          )
+        : undefined;
   const initialPreviewAppearance: AvatarAppearance =
     initialPreviewItem?.slot === "skin"
       ? {
           character: initialPreviewItem.characterId ?? appearance.character,
           skin: initialPreviewItem.id,
+          tileSkin: appearance.tileSkin,
         }
       : appearance;
   const turretMode = false;
+  const tileMode = selectedSlot === "tile";
   const initialTurret = turretMode
     ? cosmeticById(currentAccount.turretSkins["basic-turret"])
     : undefined;
@@ -1505,7 +1546,7 @@ function cosmeticCollectionScreen(
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || '<p class="empty-collection">보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다.</p>'}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id ?? DEFAULT_TILE_SKIN_ID : undefined)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || '<p class="empty-collection">보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다.</p>'}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1515,7 +1556,7 @@ function cosmeticCollectionScreen(
     .querySelector("[data-open-supplies]")
     ?.addEventListener("click", supplyShopScreen);
   const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
-  if (previewHost) {
+  if (previewHost && !tileMode) {
     customAvatarPreview = turretMode
       ? new AvatarPreview3D(previewHost, appearance, currentAccount.displayRank)
       : new AvatarPreview2D(
@@ -1550,7 +1591,14 @@ function cosmeticCollectionScreen(
   const showPreview = (itemId: string): void => {
     const item = cosmeticById(itemId);
     if (!item) return;
-    if (item.slot === "turret") {
+    if (item.slot === "tile") {
+      const tilePreview =
+        app.querySelector<HTMLImageElement>("[data-tile-preview]");
+      if (tilePreview) {
+        tilePreview.src = `${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}`;
+        tilePreview.alt = `${item.label} 타일 미리보기`;
+      }
+    } else if (item.slot === "turret") {
       if (!item.turretKind) return;
       if (customAvatarPreview instanceof AvatarPreview3D) {
         customAvatarPreview.updateTurret(item.turretKind, item.id);
@@ -1558,11 +1606,16 @@ function cosmeticCollectionScreen(
     } else {
       const previewAppearance: AvatarAppearance =
         item.slot === "character"
-          ? { character: item.id, skin: defaultSkinForCharacter(item.id) }
+          ? {
+              character: item.id,
+              skin: defaultSkinForCharacter(item.id),
+              tileSkin: appearance.tileSkin,
+            }
           : item.slot === "skin"
             ? {
                 character: item.characterId ?? appearance.character,
                 skin: item.id,
+                tileSkin: appearance.tileSkin,
               }
             : appearance;
       customAvatarPreview?.updateAppearance(
@@ -1663,13 +1716,17 @@ function cosmeticCollectionScreen(
           try {
             account = await equipCosmetic(
               action === "unequip"
-                ? currentAccount.appearance.character
+                ? item.slot === "tile"
+                  ? DEFAULT_TILE_SKIN_ID
+                  : currentAccount.appearance.character
                 : itemId,
             );
             customizationScreen(selectedSlot);
             toast(
               action === "unequip"
-                ? "스킨 착용을 해제했습니다."
+                ? item.slot === "tile"
+                  ? "타일 스킨을 기본 타일로 변경했습니다."
+                  : "스킨 착용을 해제했습니다."
                 : "착용 상태를 저장했습니다.",
             );
           } catch (error) {

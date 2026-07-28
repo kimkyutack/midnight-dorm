@@ -212,6 +212,10 @@ export interface RoomState {
   id: string;
   ownerId: string | null;
   ownerIds: string[];
+  /** First occupant's equipped floor theme; empty means the stage room tile. */
+  tileSkinId: string;
+  /** Server elapsed time when the themed floor transition began. */
+  tileSkinActivatedAt: number;
   doorHp: number;
   doorMaxHp: number;
   doorLevel: number;
@@ -339,11 +343,13 @@ export type StageId = `${string}-${number}`;
  * Survivor visuals are deliberately whole skins.  Individual clothing parts
  * are no longer saved, purchased, or rendered independently.
  */
-export type CosmeticSlot = 'character' | 'skin' | 'turret';
+export type CosmeticSlot = 'character' | 'skin' | 'tile' | 'turret';
 
 export interface AvatarAppearance {
   character: string;
   skin: string;
+  /** Room-floor theme applied when this survivor is the first bed occupant. */
+  tileSkin?: string;
 }
 
 export interface AccountProfile {

@@ -5,6 +5,7 @@ import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
+import { tileSkinTextureUrl } from '../../shared/customization';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
@@ -147,6 +148,21 @@ interface BedView {
   upgrade: THREE.Sprite;
   roomId: string;
   bedIndex: number;
+}
+
+interface RoomTileSkinView {
+  skinId: string;
+  root: THREE.Group;
+  tiles: Array<{
+    mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
+    delay: number;
+  }>;
+  wave: THREE.Group;
+  startedAt: number;
+  duration: number;
+  minX: number;
+  maxX: number;
+  complete: boolean;
 }
 
 interface PointerDrag {
@@ -1666,7 +1682,9 @@ export class ThreeGameView {
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
+  private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
   private readonly environmentTextures: THREE.Texture[] = [];
+  private roomSkinSyncInitialized = false;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
@@ -1833,6 +1851,7 @@ export class ThreeGameView {
     this.syncBuildings(snapshot);
     this.syncLootDrops(snapshot);
     this.syncDoors(snapshot);
+    this.syncRoomTileSkins(snapshot);
     this.syncBuildableTiles(performance.now());
     for (const event of events) this.playEvent(event);
 
@@ -1894,6 +1913,7 @@ export class ThreeGameView {
     this.animateTurrets(dt);
     this.animateDoors(dt);
     this.animateEffects(time);
+    this.animateRoomTileSkins(time);
     this.syncBuildableTiles(time);
     this.updateCamera(dt);
     this.updateSleepPrompt();
@@ -2132,6 +2152,174 @@ export class ThreeGameView {
 
     for (const room of this.mapData.rooms) this.createRoomFurniture(room.id);
     this.createThemeDecorations();
+  }
+
+  private syncRoomTileSkins(snapshot: GameSnapshot): void {
+    const now = performance.now();
+    const activeRoomIds = new Set<string>();
+    for (const room of snapshot.rooms) {
+      const textureUrl = tileSkinTextureUrl(room.tileSkinId);
+      if (!textureUrl) {
+        const previous = this.roomTileSkinViews.get(room.id);
+        if (previous) {
+          this.scene.remove(previous.root);
+          this.roomTileSkinViews.delete(room.id);
+        }
+        continue;
+      }
+      activeRoomIds.add(room.id);
+      const previous = this.roomTileSkinViews.get(room.id);
+      if (previous?.skinId === room.tileSkinId) continue;
+      if (previous) {
+        this.scene.remove(previous.root);
+        this.roomTileSkinViews.delete(room.id);
+      }
+      const mapRoom = this.mapData.rooms.find((candidate) => candidate.id === room.id);
+      if (!mapRoom?.floorTiles.length) continue;
+      const texture = this.loadEnvironmentTexture(textureUrl);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        map: texture,
+        fog: true,
+      });
+      const geometry = new THREE.BoxGeometry(0.98, 0.085, 0.98);
+      const minX = Math.min(...mapRoom.floorTiles.map((tile) => tile.x));
+      const maxX = Math.max(...mapRoom.floorTiles.map((tile) => tile.x));
+      const minY = Math.min(...mapRoom.floorTiles.map((tile) => tile.y));
+      const maxY = Math.max(...mapRoom.floorTiles.map((tile) => tile.y));
+      const root = new THREE.Group();
+      root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
+      const tiles = mapRoom.floorTiles.map((tile) => {
+        const floor = new THREE.Mesh(geometry, material);
+        floor.position.set(tile.x, 0.09, tile.y);
+        floor.receiveShadow = true;
+        floor.renderOrder = 30;
+        root.add(floor);
+        return {
+          mesh: floor,
+          delay: Math.max(0, tile.x - minX) * 115,
+        };
+      });
+
+      const wave = new THREE.Group();
+      const roomDepth = Math.max(1, maxY - minY + 1);
+      const waveMaterial = new THREE.MeshBasicMaterial({
+        color: 0x72edff,
+        map: texture,
+        transparent: true,
+        opacity: 0.62,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const waveBody = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.45, roomDepth + 0.7),
+        waveMaterial,
+      );
+      waveBody.rotation.x = -Math.PI / 2;
+      waveBody.renderOrder = 2_500;
+      wave.add(waveBody);
+      for (const offset of [-0.32, 0.34]) {
+        const foam = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.13, roomDepth + 0.9),
+          new THREE.MeshBasicMaterial({
+            color: offset < 0 ? 0xdfffff : 0xffffff,
+            transparent: true,
+            opacity: offset < 0 ? 0.58 : 0.84,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        foam.rotation.x = -Math.PI / 2;
+        foam.position.x = offset;
+        foam.position.y = 0.035;
+        foam.renderOrder = 2_501;
+        wave.add(foam);
+      }
+      wave.position.set(minX - 1.1, 0.23, (minY + maxY) / 2);
+      root.add(wave);
+      this.scene.add(root);
+
+      const transitionDuration = 820 + Math.max(0, maxX - minX) * 115;
+      const serverProgressMs = Math.max(
+        0,
+        (snapshot.elapsed - Math.max(0, room.tileSkinActivatedAt)) * 1_000,
+      );
+      const shouldAnimate =
+        this.roomSkinSyncInitialized &&
+        room.tileSkinActivatedAt >= 0 &&
+        serverProgressMs < transitionDuration + 600;
+      const view: RoomTileSkinView = {
+        skinId: room.tileSkinId,
+        root,
+        tiles,
+        wave,
+        startedAt: shouldAnimate ? now - serverProgressMs : now - transitionDuration,
+        duration: transitionDuration,
+        minX,
+        maxX,
+        complete: !shouldAnimate,
+      };
+      if (!shouldAnimate) {
+        wave.visible = false;
+        for (const tile of tiles) {
+          tile.mesh.scale.x = 1;
+          tile.mesh.rotation.z = 0;
+        }
+      } else {
+        for (const tile of tiles) tile.mesh.scale.x = 0.001;
+      }
+      this.roomTileSkinViews.set(room.id, view);
+    }
+    for (const [roomId, view] of this.roomTileSkinViews) {
+      if (activeRoomIds.has(roomId)) continue;
+      this.scene.remove(view.root);
+      this.roomTileSkinViews.delete(roomId);
+    }
+    this.roomSkinSyncInitialized = true;
+  }
+
+  private animateRoomTileSkins(time: number): void {
+    for (const view of this.roomTileSkinViews.values()) {
+      if (view.complete) continue;
+      const elapsed = Math.max(0, time - view.startedAt);
+      const sweep = clamp(elapsed / view.duration, 0, 1);
+      const easedSweep = 1 - (1 - sweep) ** 3;
+      view.wave.position.x =
+        view.minX - 1.1 + (view.maxX - view.minX + 2.2) * easedSweep;
+      const waveOpacity = Math.sin(Math.PI * sweep);
+      view.wave.visible = sweep < 1;
+      view.wave.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const material of materials) {
+          if (material instanceof THREE.MeshBasicMaterial) {
+            const baseOpacity = Number(material.userData.baseOpacity ?? material.opacity);
+            material.userData.baseOpacity ??= baseOpacity;
+            material.opacity = baseOpacity * Math.max(0, waveOpacity);
+          }
+        }
+      });
+      for (const tile of view.tiles) {
+        const progress = clamp((elapsed - tile.delay) / 520, 0, 1);
+        const eased = 1 - (1 - progress) ** 3;
+        tile.mesh.scale.x = Math.max(0.001, eased);
+        tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
+        tile.mesh.position.y = 0.09 + Math.sin(progress * Math.PI) * 0.16;
+      }
+      if (sweep >= 1 && view.tiles.every((tile) => elapsed >= tile.delay + 520)) {
+        view.complete = true;
+        view.wave.visible = false;
+        for (const tile of view.tiles) {
+          tile.mesh.scale.x = 1;
+          tile.mesh.rotation.z = 0;
+          tile.mesh.position.y = 0.09;
+        }
+      }
+    }
   }
 
   private createThemeDecorations(): void {

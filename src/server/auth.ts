@@ -1,7 +1,7 @@
 import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
-import { characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
+import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { shopConsumableById } from '../shared/shopConsumables';
-import type { AccountProfile, AvatarAppearance, ConsumableId, CosmeticSlot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
+import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -588,9 +588,7 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
     await db.prepare('UPDATE account_turret_loadouts SET skins = ?, updated_at = ? WHERE account_id = ?')
       .bind(JSON.stringify(turretSkins), now, row.id).run();
   } else {
-    const appearance = item.slot === 'character'
-      ? { character: item.id, skin: defaultSkinForCharacter(item.id) }
-      : { ...profile.appearance, [item.slot as Exclude<CosmeticSlot, 'turret'>]: item.id };
+    const appearance = appearanceAfterCosmeticEquip(profile.appearance, item);
     await db.prepare('UPDATE account_customization SET appearance = ?, updated_at = ? WHERE account_id = ?')
       .bind(JSON.stringify(appearance), now, row.id).run();
   }
