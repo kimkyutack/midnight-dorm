@@ -231,6 +231,7 @@ describe('deterministic shared world', () => {
     ]));
     expect([first.width, first.height]).toEqual([39, 25]);
     expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 30)).toBe(true);
+    expect(new Set(first.rooms.map((room) => room.floorTiles.length))).toHaveLength(8);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
     expect(new Set(first.rooms.map((room) => room.shape)).size).toBe(8);
     const placedTiles = [

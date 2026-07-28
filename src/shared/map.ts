@@ -44,9 +44,16 @@ const withoutCells = (cells: readonly Cell[], removed: readonly Cell[]): Cell[] 
 };
 
 const ROOM_TEMPLATES: readonly RoomTemplate[] = [
+  // Every live ward contains these eight templates once. Their floor areas
+  // are deliberately all different (20 through 27 tiles), so the 4×2
+  // placement grid never makes the rooms feel like equally sized cells.
   { id: 'square', label: '정방형 병실', cells: rectangle(5, 5) },
   { id: 'wide', label: '가로형 병실', cells: rectangle(6, 4) },
-  { id: 'tall', label: '세로형 병실', cells: rectangle(4, 6) },
+  {
+    id: 'tall',
+    label: '세로형 병실',
+    cells: withoutCells(rectangle(4, 6), [[3, 0]]),
+  },
   {
     id: 'left-l',
     label: '왼쪽 ㄴ자 병실',
@@ -55,7 +62,7 @@ const ROOM_TEMPLATES: readonly RoomTemplate[] = [
   {
     id: 'right-l',
     label: '오른쪽 ㄱ자 병실',
-    cells: withoutCells(rectangle(5, 5), [[0, 3], [1, 3], [0, 4], [1, 4]]),
+    cells: withoutCells(rectangle(5, 5), [[0, 4], [1, 4], [0, 3]]),
   },
   {
     id: 'stepped',
@@ -65,12 +72,12 @@ const ROOM_TEMPLATES: readonly RoomTemplate[] = [
   {
     id: 'clipped',
     label: '모서리 절단 병실',
-    cells: withoutCells(rectangle(5, 5), [[0, 0], [4, 0], [0, 4], [4, 4]]),
+    cells: withoutCells(rectangle(5, 5), [[0, 0], [4, 0], [0, 4], [4, 4], [2, 0]]),
   },
   {
     id: 'u-suite',
     label: '알코브 병실',
-    cells: withoutCells(rectangle(6, 5), [[2, 0], [3, 0], [2, 1], [3, 1]]),
+    cells: withoutCells(rectangle(6, 5), [[2, 0], [3, 0], [2, 1]]),
   },
 ] as const;
 
