@@ -18,6 +18,9 @@
     { "id": "character-monkey", "label": "달원숭이 몽키", "root": "/assets/sprites/survivors/character-monkey" },
     { "id": "character-gorilla", "label": "요새고릴라 콩", "root": "/assets/sprites/survivors/character-gorilla" }
   ],
+  "skins": [
+    { "id": "skin-look-puppy-surfer", "label": "서퍼 몽", "root": "/assets/sprites/skins/skin-surfer-mong" }
+  ],
   "ghosts": [
     { "id": "wanderer", "root": "/assets/sprites/ghosts/wanderer" },
     { "id": "swift", "root": "/assets/sprites/ghosts/swift" },

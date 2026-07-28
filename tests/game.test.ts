@@ -122,7 +122,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a different deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.2')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.3')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
   });
 });
@@ -397,6 +397,12 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/survivors/character-bunny/movement-sheet.png');
     expect(skinConceptUrl(skinAppearance.skin))
       .toBe('/assets/sprites/survivors/character-bunny/concept.png');
+
+    const surferAppearance = { character: 'character-puppy', skin: 'skin-look-puppy-surfer' };
+    expect(skinMovementSheetUrl(surferAppearance))
+      .toBe('/assets/sprites/skins/skin-surfer-mong/movement-sheet.png');
+    expect(skinSleepUrl(surferAppearance))
+      .toBe('/assets/sprites/skins/skin-surfer-mong/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -469,19 +475,20 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(36);
+    expect(COSMETIC_CATALOG).toHaveLength(37);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(12);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(13);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
   it('uses base concept art for characters and complete art only for skin cards', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(cosmeticProductUrl('skin-look-puppy-surfer')).toBe('/assets/sprites/skins/skin-surfer-mong/concept.png');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -535,8 +542,14 @@ describe('survivor customization rules', () => {
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat', 'skin-look-cat-ward'])).toBe(true);
     const explorerSkin = cosmeticById('skin-look-bunny-ward');
     expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 100 });
+    const surferSkin = cosmeticById('skin-look-puppy-surfer');
+    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 3_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
-      (item) => item.unlock.kind === 'points' && (item.id === 'skin-look-bunny-ward' || item.unlock.price === 2_500),
+      (item) => item.unlock.kind === 'points' && (
+        item.id === 'skin-look-bunny-ward'
+        || item.id === 'skin-look-puppy-surfer'
+        || item.unlock.price === 2_500
+      ),
     )).toBe(true);
   });
 
@@ -2497,6 +2510,8 @@ describe('requested progression and event rules', () => {
       .toBeCloseTo(1 / 1.225, 6);
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-ward' }).goldPerSecond)
       .toBe(1.5);
+    expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-surfer' }).goldPerSecond)
+      .toBe(2);
     expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-basic-hamster' }).firstGuardianLevelBonus)

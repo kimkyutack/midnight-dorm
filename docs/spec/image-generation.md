@@ -88,4 +88,6 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 프레임 분리는 `scripts/split_sprite_sheet.py`, 전체 미리보기 생성은 `scripts/build_sprite_catalog.py`, 수량·투명도 검증은 `scripts/validate_sprite_assets.py`를 사용한다.
 - 인게임, 게임 홈, 캐릭터 상점은 이 스프라이트 프레임을 사용한다. Three.js 캐릭터·귀신 모델은 캐릭터 표시 경로에서 사용하지 않는다.
 - 캐릭터 카드는 `public/assets/paperdoll/bases`의 기본 콘셉트를 표시한다.
-- 스킨 카드는 `public/assets/sprites/survivors`의 완성형 콘셉트와 이동·수면 아틀라스를 표시한다. 런타임에서 모자·옷·신발·장신구를 분리 합성하지 않는다.
+- 첫 완성 스킨은 `public/assets/sprites/survivors/<character>`를 사용하고, 두 번째 이후 스킨은 `public/assets/sprites/skins/<skin>`의 전용 콘셉트·이동·수면 아틀라스를 사용한다. 런타임에서 모자·옷·신발·장신구를 분리 합성하지 않는다.
+- `서퍼 몽`은 `public/assets/sprites/skins/skin-surfer-mong`에 있으며, 4개 이동 열은 걷는 발 교대가 아니라 보드 기울기와 보드 아래 물결 이펙트의 변화를 표현한다.
+- `shop-wave-backdrop.webp`는 서퍼 몽 상점 카드와 미리보기에서 공유하는 전용 파도 배경이다. 캐릭터를 배경에 합성하지 않고 이동 아틀라스를 별도 레이어로 올려 애니메이션과 인게임 정렬을 함께 유지한다.

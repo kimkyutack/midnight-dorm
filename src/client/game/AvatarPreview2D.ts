@@ -10,6 +10,9 @@ import {
 export type AvatarSpriteView = SpriteDirection;
 type MovementFrame = 'idle' | 'walk-1' | 'walk-2' | 'walk-3';
 
+const SURFER_MONG_SKIN_ID = 'skin-look-puppy-surfer';
+const SURF_FRAMES: readonly MovementFrame[] = ['idle', 'walk-1', 'walk-2', 'walk-3'];
+
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -62,8 +65,9 @@ export class AvatarPreview2D {
     this.canvas.dataset.skinId = appearance.skin;
     this.root.appendChild(this.canvas);
     this.host.insertBefore(this.root, this.host.firstChild);
+    this.updatePresentationClasses();
     this.render('idle');
-    if (this.homePresentation) this.animationFrame = requestAnimationFrame(this.animateHome);
+    this.syncAnimation();
   }
 
   updateAppearance(appearance: AvatarAppearance, _rank: RankId, _color = 0x78e4ef): void {
@@ -71,7 +75,9 @@ export class AvatarPreview2D {
     this.root.dataset.character = appearance.character;
     this.root.dataset.skin = appearance.skin;
     this.canvas.dataset.skinId = appearance.skin;
-    this.render(this.homePresentation ? this.homeFrame() : 'idle');
+    this.updatePresentationClasses();
+    this.render(this.presentationFrame());
+    this.syncAnimation();
   }
 
   setView(view: AvatarSpriteView): void {
@@ -88,11 +94,45 @@ export class AvatarPreview2D {
     if (this.destroyed) return;
     this.destroyed = true;
     cancelAnimationFrame(this.animationFrame);
+    this.host.classList.remove('surfer-mong-preview');
     this.root.remove();
   }
 
   private homeFrame(): MovementFrame {
     return this.homeStep === 1 ? 'walk-1' : this.homeStep === 3 ? 'walk-3' : 'idle';
+  }
+
+  private isSurferMong(): boolean {
+    return this.appearance.skin === SURFER_MONG_SKIN_ID;
+  }
+
+  private shouldAnimate(): boolean {
+    return this.homePresentation || this.isSurferMong();
+  }
+
+  private presentationFrame(): MovementFrame {
+    if (this.isSurferMong()) {
+      return SURF_FRAMES[Math.max(0, this.homeStep) % SURF_FRAMES.length] ?? 'idle';
+    }
+    return this.homePresentation ? this.homeFrame() : 'idle';
+  }
+
+  private updatePresentationClasses(): void {
+    const surferMong = this.isSurferMong();
+    this.root.classList.toggle('surfer-mong-sprite-preview', surferMong);
+    this.host.classList.toggle('surfer-mong-preview', surferMong);
+  }
+
+  private syncAnimation(): void {
+    if (this.shouldAnimate()) {
+      if (!this.animationFrame) {
+        this.animationFrame = requestAnimationFrame(this.animatePreview);
+      }
+      return;
+    }
+    if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+    this.animationFrame = 0;
+    this.homeStep = -1;
   }
 
   private render(frame: MovementFrame): void {
@@ -126,13 +166,15 @@ export class AvatarPreview2D {
     );
   }
 
-  private readonly animateHome = (time: number): void => {
+  private readonly animatePreview = (time: number): void => {
     if (this.destroyed) return;
-    const step = Math.floor(time / 360) % 4;
+    const step = Math.floor(time / (this.isSurferMong() ? 230 : 360)) % 4;
     if (step !== this.homeStep) {
       this.homeStep = step;
-      this.render(this.homeFrame());
+      this.render(this.presentationFrame());
     }
-    this.animationFrame = requestAnimationFrame(this.animateHome);
+    this.animationFrame = this.shouldAnimate()
+      ? requestAnimationFrame(this.animatePreview)
+      : 0;
   };
 }

@@ -8863,3 +8863,277 @@ select {
     object-position: center 56%;
   }
 }
+
+/* Premium surfer skin presentation.
+ * The live atlas remains the authoritative character art; this layer only
+ * supplies a collectible-card backdrop and lightweight water motion. */
+.cosmetic-card .cosmetic-art {
+  height: 108px;
+  flex-basis: 108px;
+}
+.premium-skin-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(155deg, rgba(7, 31, 48, 0.96), rgba(3, 16, 31, 0.98))
+      padding-box,
+    linear-gradient(
+        125deg,
+        #e8fdff 0%,
+        #63e9ff 24%,
+        #3da8ff 48%,
+        #d9fbff 68%,
+        #46cdf4 100%
+      )
+      border-box;
+  box-shadow:
+    0 0 0 1px rgba(128, 235, 255, 0.2),
+    0 0 17px rgba(67, 201, 255, 0.34),
+    inset 0 0 18px rgba(109, 225, 255, 0.14);
+}
+.premium-skin-card::before {
+  position: absolute;
+  z-index: 0;
+  top: -70%;
+  bottom: -70%;
+  left: -45%;
+  width: 34%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(224, 253, 255, 0.46),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+  transform: rotate(18deg);
+  animation: premium-card-sheen 3.2s ease-in-out infinite;
+}
+.premium-skin-card > * {
+  position: relative;
+  z-index: 1;
+}
+.premium-skin-card:hover,
+.premium-skin-card:focus-visible,
+.premium-skin-card.previewing,
+.premium-skin-card.selected {
+  border-color: transparent;
+  background:
+    linear-gradient(155deg, rgba(8, 43, 66, 0.98), rgba(3, 19, 38, 0.98))
+      padding-box,
+    linear-gradient(125deg, #fff 0%, #70efff 28%, #58a8ff 56%, #dffcff 100%)
+      border-box;
+  box-shadow:
+    0 0 0 1px rgba(182, 247, 255, 0.35),
+    0 0 25px rgba(70, 211, 255, 0.55),
+    inset 0 0 22px rgba(123, 230, 255, 0.2);
+}
+.surfer-mong-card-art {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(5, 65, 112, 0.06), rgba(0, 34, 72, 0.32)),
+    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp")
+      center 60% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(226, 253, 255, 0.34),
+    inset 0 -18px 28px rgba(0, 49, 91, 0.24);
+  animation: surfer-wave-drift 5.4s ease-in-out infinite alternate;
+}
+.surfer-mong-card-art::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 24%, #fff 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 17%, #fff 0 1.2px, transparent 2.2px),
+    radial-gradient(circle at 74% 56%, #d9fbff 0 1px, transparent 2px),
+    radial-gradient(circle at 29% 68%, #d9fbff 0 1px, transparent 2px);
+  content: "";
+  opacity: 0.78;
+  pointer-events: none;
+  animation: surfer-sparkle 1.8s ease-in-out infinite alternate;
+}
+.surfer-mong-card-art::after {
+  right: 4%;
+  bottom: 2%;
+  left: 4%;
+  z-index: 1;
+  height: 22%;
+  background: rgba(198, 249, 255, 0.26);
+  filter: blur(8px);
+}
+.surfer-mong-card-sprite {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: min(98%, 112px);
+  height: min(98%, 112px);
+  background-image: url("/assets/sprites/skins/skin-surfer-mong/movement-sheet.png");
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 400% 300%;
+  filter:
+    drop-shadow(0 8px 5px rgba(0, 45, 82, 0.4))
+    drop-shadow(0 0 4px rgba(207, 251, 255, 0.6));
+  animation:
+    surfer-card-frames 0.92s steps(1, end) infinite,
+    surfer-card-float 1.45s ease-in-out infinite alternate;
+}
+.cosmetic-new-badge {
+  position: absolute !important;
+  z-index: 8 !important;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 50% 50% 50% 16%;
+  color: #fff;
+  background: linear-gradient(145deg, #ff6b84, #df2768 62%, #a70f54);
+  box-shadow:
+    0 3px 9px rgba(91, 0, 48, 0.48),
+    inset 0 1px rgba(255, 255, 255, 0.55);
+  font-size: 7px;
+  font-weight: 1000;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  pointer-events: none;
+  transform: rotate(8deg);
+}
+
+.custom-avatar-stage.surfer-mong-preview {
+  background:
+    linear-gradient(180deg, rgba(1, 44, 83, 0.02), rgba(0, 37, 75, 0.25)),
+    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp")
+      center 59% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(222, 253, 255, 0.38),
+    inset 0 -30px 48px rgba(0, 42, 78, 0.25),
+    0 0 18px rgba(67, 205, 255, 0.2);
+  animation: surfer-wave-drift 6.5s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.surfer-mong-preview::before {
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 14% 19%, #fff 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 31%, #fff 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 73% 71%, #e5fdff 0 1px, transparent 2px),
+    linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.13), transparent 62%);
+  box-shadow: none;
+  opacity: 0.82;
+  animation: surfer-sparkle 1.9s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.surfer-mong-preview::after {
+  position: absolute;
+  z-index: 0;
+  right: -8%;
+  bottom: -5%;
+  left: -8%;
+  height: 27%;
+  border-radius: 50%;
+  background: rgba(199, 249, 255, 0.28);
+  filter: blur(10px);
+  content: "";
+  pointer-events: none;
+}
+.custom-avatar-stage.surfer-mong-preview .surfer-mong-sprite-preview {
+  z-index: 2;
+}
+.custom-avatar-stage.surfer-mong-preview .skin-preview-canvas {
+  width: min(92%, 340px);
+  height: min(94%, 340px);
+  filter:
+    drop-shadow(0 16px 12px rgba(0, 45, 82, 0.42))
+    drop-shadow(0 0 7px rgba(215, 252, 255, 0.58));
+}
+
+@keyframes premium-card-sheen {
+  0%,
+  18% {
+    left: -45%;
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.85;
+  }
+  58%,
+  100% {
+    left: 125%;
+    opacity: 0;
+  }
+}
+@keyframes surfer-card-frames {
+  0%,
+  24.9% {
+    background-position: 0 0;
+  }
+  25%,
+  49.9% {
+    background-position: 33.333% 0;
+  }
+  50%,
+  74.9% {
+    background-position: 66.666% 0;
+  }
+  75%,
+  100% {
+    background-position: 100% 0;
+  }
+}
+@keyframes surfer-card-float {
+  from {
+    transform: translateY(2px) rotate(-1deg);
+  }
+  to {
+    transform: translateY(-2px) rotate(1deg);
+  }
+}
+@keyframes surfer-wave-drift {
+  from {
+    background-position: center 61%;
+  }
+  to {
+    background-position: center 55%;
+  }
+}
+@keyframes surfer-sparkle {
+  from {
+    opacity: 0.38;
+    filter: brightness(0.9);
+  }
+  to {
+    opacity: 0.95;
+    filter: brightness(1.35);
+  }
+}
+
+@media (orientation: portrait) {
+  .custom-layout {
+    grid-template-rows: minmax(238px, 44%) minmax(0, 1fr);
+  }
+  .cosmetic-card .cosmetic-art {
+    height: 94px;
+    flex-basis: 94px;
+  }
+  .surfer-mong-card-sprite {
+    width: min(100%, 102px);
+    height: min(100%, 102px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-skin-card::before,
+  .surfer-mong-card-art,
+  .surfer-mong-card-art::before,
+  .surfer-mong-card-sprite,
+  .custom-avatar-stage.surfer-mong-preview,
+  .custom-avatar-stage.surfer-mong-preview::before {
+    animation: none;
+  }
+}

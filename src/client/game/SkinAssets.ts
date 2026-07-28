@@ -15,8 +15,12 @@ const safeSurvivorId = (characterId: string): string =>
 
 function skinDirectory(skinId: string, characterId: string): string {
   const safeCharacter = safeSurvivorId(characterId);
-  return isDefaultSkinForCharacter(skinId, safeCharacter)
-    ? `/assets/paperdoll/bases/${safeCharacter}`
+  if (isDefaultSkinForCharacter(skinId, safeCharacter)) {
+    return `/assets/paperdoll/bases/${safeCharacter}`;
+  }
+  const skin = cosmeticById(skinId);
+  return skin?.slot === 'skin' && skin.characterId === safeCharacter && skin.assetDirectory
+    ? `/assets/sprites/skins/${skin.assetDirectory}`
     : `/assets/sprites/survivors/${safeCharacter}`;
 }
 

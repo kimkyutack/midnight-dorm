@@ -32,6 +32,8 @@ export interface CosmeticDefinition {
   characterId?: string;
   /** Complete skins can tune their own trait strength without layering gear. */
   traitMultiplier?: number;
+  /** Optional dedicated atlas folder for a second or later skin of one survivor. */
+  assetDirectory?: string;
   /** Optional authored gameplay effect for a skin whose ability differs from its base survivor. */
   traitOverride?: SkinTraitOverride;
   turretKind?: TurretKind;
@@ -60,6 +62,7 @@ const SKINS = [
   { id: 'skin-look-bunny-ward', slot: 'skin', characterId: 'character-bunny', traitMultiplier: 1.5, traitOverride: { label: '탐험가의 발걸음', description: '침대를 점유하기 전 이동속도가 1.5배가 됩니다.', unclaimedMoveSpeedMultiplier: 1.5 }, label: '탐험가 모모', description: '노란 안전모와 파란 후드의 완성형 이벤트 스킨', symbol: '토', swatch: '#e9c7bc', unlock: { kind: 'points', price: 100 } },
   { id: 'skin-look-cat-ward', slot: 'skin', characterId: 'character-cat', traitMultiplier: 1.5, label: '새벽 탐정 루루', description: '빨간 재킷과 배낭을 갖춘 완성형 스킨', symbol: '냥', swatch: '#bdc5da', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 3_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
