@@ -19,7 +19,7 @@ import {
   drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
-import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea } from "../shared/map";
+import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea, overlapsBlockedTiles, tileKey } from "../shared/map";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -2112,6 +2112,16 @@ export class GameEngine {
       this.state.rooms,
       roomCapacity,
     );
+    const fullRooms = this.map.rooms.flatMap((mapRoom) => {
+      const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
+      if (!room || room.ownerIds.length < roomCapacity) return [];
+      return [{
+        mapRoom,
+        floorKeys: new Set(
+          mapRoom.floorTiles.map((tile) => tileKey(tile.x, tile.y)),
+        ),
+      }];
+    });
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
@@ -2125,18 +2135,14 @@ export class GameEngine {
       // across its floor.  Put that intruder just outside the entrance instead
       // of trapping it against the new boundary; the next bot/human input can
       // then continue toward an actually available room.
-      const fullRoomContainingPlayer = this.map.rooms.find((mapRoom) => {
-        const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
-        return Boolean(
-          room &&
-          room.ownerIds.length >= roomCapacity &&
-          mapRoom.floorTiles.some(
-            (tile) =>
-              tile.x === Math.round(player.position.x) &&
-              tile.y === Math.round(player.position.y),
-          ),
-        );
-      });
+      const fullRoomContainingPlayer = fullRooms.find(({ floorKeys }) =>
+        overlapsBlockedTiles(
+          player.position.x,
+          player.position.y,
+          BALANCE.player.collisionRadius,
+          floorKeys,
+        )
+      )?.mapRoom;
       if (fullRoomContainingPlayer) {
         const entrance = fullRoomContainingPlayer.floorTiles.find(
           (tile) =>

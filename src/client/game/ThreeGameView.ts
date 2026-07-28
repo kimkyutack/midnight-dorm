@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
-import { fullRoomFloorKeys, moveInWalkableArea, tileKey } from '../../shared/map';
+import { fullRoomFloorKeys, moveInWalkableArea, overlapsBlockedTiles } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
@@ -71,6 +71,7 @@ interface ViewPayload {
   snapshot: GameSnapshot;
   onSleep?: () => void;
   onPickupLoot?: (lootId: string) => void;
+  onRoomBlocked?: () => void;
 }
 
 interface BillboardData {
@@ -1667,6 +1668,7 @@ export class ThreeGameView {
   private readonly sleepButton: HTMLButtonElement;
   private readonly onSleep: () => void;
   private readonly onPickupLoot: (lootId: string) => void;
+  private readonly onRoomBlocked: () => void;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly selectionSurface: THREE.Mesh;
@@ -1704,6 +1706,7 @@ export class ThreeGameView {
   private paused = false;
   private destroyed = false;
   private nearbyLootId: string | null = null;
+  private lastRoomBlockedNoticeAt = 0;
 
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
@@ -1712,6 +1715,7 @@ export class ThreeGameView {
     this.snapshotData = payload.snapshot;
     this.onSleep = payload.onSleep ?? (() => undefined);
     this.onPickupLoot = payload.onPickupLoot ?? (() => undefined);
+    this.onRoomBlocked = payload.onRoomBlocked ?? (() => undefined);
     this.portraitLayout = host.clientHeight > host.clientWidth;
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
@@ -2836,11 +2840,17 @@ export class ThreeGameView {
       const shouldSnapOutOfFullRoom =
         isLocal &&
         !lying &&
-        blockedRoomFloorTiles.has(
-          tileKey(Math.round(view.root.position.x), Math.round(view.root.position.z)),
+        overlapsBlockedTiles(
+          view.root.position.x,
+          view.root.position.z,
+          BALANCE.player.collisionRadius,
+          blockedRoomFloorTiles,
         ) &&
-        !blockedRoomFloorTiles.has(
-          tileKey(Math.round(view.target.x), Math.round(view.target.z)),
+        !overlapsBlockedTiles(
+          view.target.x,
+          view.target.z,
+          BALANCE.player.collisionRadius,
+          blockedRoomFloorTiles,
         );
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
       if (shouldSnapOutOfFullRoom) {
@@ -2849,6 +2859,10 @@ export class ThreeGameView {
         // newly blocked floor tile, so sync this one authoritative transition
         // directly instead of visibly stuttering against the doorway wall.
         view.root.position.copy(view.target);
+        if (time - this.lastRoomBlockedNoticeAt > 1_800) {
+          this.lastRoomBlockedNoticeAt = time;
+          this.onRoomBlocked();
+        }
       } else if (hasLocalInput) {
         const predicted = moveInWalkableArea(this.mapData, {
           x: view.root.position.x,

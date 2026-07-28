@@ -2356,6 +2356,11 @@ function gameScreen(state: GameSnapshot): void {
       network?.pickupLoot(lootId);
       audio.play("button");
     },
+    onRoomBlocked: () => {
+      inputVector = { x: 0, y: 0 };
+      sendMovement(true);
+      toast("다른 생존자가 먼저 점유한 방입니다. 다른 방을 찾아보세요.");
+    },
   });
   app.querySelector("[data-focus-player]")?.addEventListener("click", () => {
     game?.focusLocalPlayer();

@@ -3,7 +3,7 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/sh
 import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, tileSkinTextureUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
-import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, overlapsBlockedTiles, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
@@ -323,6 +323,38 @@ describe('deterministic shared world', () => {
     expect(floor).toBeDefined();
     expect(blocked.has(`${floor?.x},${floor?.y}`)).toBe(true);
     expect(blocked.has(`${room.door.x},${room.door.y}`)).toBe(false);
+  });
+
+  it('detects a player whose collision radius straddles a newly blocked room', () => {
+    const map = generateMap(4_204);
+    const room = map.rooms[0];
+    if (!room) throw new Error('missing room fixture');
+    const entrance = room.floorTiles.find((tile) =>
+      Math.abs(tile.x - room.door.x) + Math.abs(tile.y - room.door.y) === 1
+    );
+    expect(entrance).toBeDefined();
+    const blocked = fullRoomFloorKeys(map, [{ id: room.id, ownerIds: ['owner'] }], 1);
+    const towardEntrance = {
+      x: (entrance!.x - room.door.x) * 0.4,
+      y: (entrance!.y - room.door.y) * 0.4,
+    };
+    const doorwayEdge = {
+      x: room.door.x + towardEntrance.x,
+      y: room.door.y + towardEntrance.y,
+    };
+    expect(blocked.has(`${Math.round(doorwayEdge.x)},${Math.round(doorwayEdge.y)}`)).toBe(false);
+    expect(overlapsBlockedTiles(
+      doorwayEdge.x,
+      doorwayEdge.y,
+      BALANCE.player.collisionRadius,
+      blocked,
+    )).toBe(true);
+    expect(overlapsBlockedTiles(
+      room.door.x - towardEntrance.x,
+      room.door.y - towardEntrance.y,
+      BALANCE.player.collisionRadius,
+      blocked,
+    )).toBe(false);
   });
 
   it('creates eight varied multiplayer rooms with two beds each', () => {
@@ -762,6 +794,49 @@ describe('authoritative game rules', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('다른 생존자가 점유하지 않은 방');
     expect(engine.snapshot().players.find((player) => player.id === hostId)?.roomId).toBeNull();
+  });
+
+  it('ejects a survivor whose collision radius straddles a room claimed during entry', () => {
+    const { engine, ids } = setup(1, false);
+    const hostId = ids[0] as string;
+    expect(engine.addBot(hostId, 'normal').ok).toBe(true);
+    expect(engine.start(hostId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    const mapRoom = engine.map.rooms[0];
+    const bed = mapRoom?.beds[0];
+    const entrance = mapRoom?.floorTiles.find((tile) =>
+      Math.abs(tile.x - mapRoom.door.x) + Math.abs(tile.y - mapRoom.door.y) === 1
+    );
+    if (!bot || !mapRoom || !bed || !entrance)
+      throw new Error('missing room-race fixture');
+
+    const persisted = engine.serialize();
+    const host = persisted.snapshot.players.find((player) => player.id === hostId);
+    const savedBot = persisted.snapshot.players.find((player) => player.id === bot.id);
+    if (!host || !savedBot) throw new Error('missing room-race players');
+    savedBot.position = { ...bed };
+    host.position = {
+      x: mapRoom.door.x + (entrance.x - mapRoom.door.x) * 0.4,
+      y: mapRoom.door.y + (entrance.y - mapRoom.door.y) * 0.4,
+    };
+    engine.restore(persisted);
+
+    expect(engine.interact(bot.id).ok).toBe(true);
+    engine.tick(0.05);
+    const after = engine.snapshot().players.find((player) => player.id === hostId);
+    const blocked = fullRoomFloorKeys(
+      engine.map,
+      engine.snapshot().rooms,
+      1,
+    );
+    expect(after?.roomId).toBeNull();
+    expect(overlapsBlockedTiles(
+      after?.position.x ?? 0,
+      after?.position.y ?? 0,
+      BALANCE.player.collisionRadius,
+      blocked,
+    )).toBe(false);
   });
 
   it('never auto-occupies a bed and pursues an unoccupied survivor at 3x speed', () => {

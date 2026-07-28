@@ -625,6 +625,31 @@ export function isWalkableArea(
 }
 
 /**
+ * Reports whether any collision sample of a circular actor overlaps a blocked
+ * tile. This is intentionally based on the same samples as `isWalkableArea` so
+ * callers can detect a player straddling a newly closed room boundary even
+ * when the player's rounded centre is still on the doorway tile.
+ */
+export function overlapsBlockedTiles(
+  x: number,
+  y: number,
+  radius: number,
+  blockedTileKeys?: ReadonlySet<string>,
+): boolean {
+  if (!blockedTileKeys?.size) return false;
+  const samples = [
+    [x, y],
+    [x - radius, y - radius],
+    [x + radius, y - radius],
+    [x - radius, y + radius],
+    [x + radius, y + radius],
+  ] as const;
+  return samples.some(([sampleX, sampleY]) =>
+    blockedTileKeys.has(tileKey(Math.round(sampleX), Math.round(sampleY))),
+  );
+}
+
+/**
  * Moves a circular actor through the tile map without tunnelling through a wall.
  * Splitting large frame deltas into short axis-separated steps keeps the client
  * prediction and the authoritative server simulation on the exact same path.
