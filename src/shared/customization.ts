@@ -108,7 +108,7 @@ const TURRET_SKINS = [
     slot: 'turret',
     turretKind: 'basic-turret',
     label: '서퍼 물총포',
-    description: '작은 돌고래 물총부터 대왕 물총까지 15단계로 성장하며 물보라를 발사합니다.',
+    description: '물총 외형과 물보라 발사 효과를 적용합니다.',
     symbol: '물',
     swatch: '#ffc84f',
     unlock: { kind: 'points', price: 1_500 },

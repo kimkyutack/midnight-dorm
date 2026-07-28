@@ -9791,7 +9791,7 @@ select {
 .turret-skin-preview-stage > span {
   position: absolute;
   right: 0;
-  bottom: 10px;
+  bottom: 28px;
   left: 0;
   z-index: 2;
   color: rgba(231, 249, 252, 0.76);
