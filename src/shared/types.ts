@@ -1,4 +1,4 @@
-export type GameStatus = 'LOBBY' | 'EVENT_INTRO' | 'COUNTDOWN' | 'PLAYING' | 'OVERTIME' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
+export type GameStatus = 'LOBBY' | 'GHOST_INTRO' | 'EVENT_INTRO' | 'COUNTDOWN' | 'PLAYING' | 'OVERTIME' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
 
 /** Server-authoritative match modifier.  The client only renders this state. */
 export type MatchModifier = 'none' | 'time-attack';

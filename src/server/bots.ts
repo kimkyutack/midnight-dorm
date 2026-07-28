@@ -79,7 +79,13 @@ export function decideBotIntent(
         )
       : available[0];
     if (!availableTarget) return { type: 'idle' };
-    if (distance(bot.position, availableTarget.bed) <= BALANCE.player.interactionRange) return { type: 'interact' };
+    // Match the server-side bed interaction rule. Otherwise a bot can stop
+    // at an outside wall corner and repeatedly try to sleep through it.
+    const standingOnTargetFloor = availableTarget.room.floorTiles.some(
+      (tile) => distance(bot.position, tile) <= 0.68,
+    );
+    if (standingOnTargetFloor && distance(bot.position, availableTarget.bed) <= BALANCE.player.interactionRange)
+      return { type: 'interact' };
     return movementAlongPath(bot, availableTarget.bed, map);
   }
 

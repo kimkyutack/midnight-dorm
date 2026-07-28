@@ -1940,7 +1940,7 @@ export class ThreeGameView {
         const room = this.snapshotData.rooms.find((candidate) => candidate.id === mapRoom.id);
         if (!room || room.ownerIds.length >= roomCapacity) return [];
         return mapRoom.beds
-          .map((bed, bedIndex) => ({ bed, bedIndex, room }))
+          .map((bed, bedIndex) => ({ bed, bedIndex, room, mapRoom }))
           .filter(({ bedIndex, room }) =>
             !room.ownerIds.some((ownerId) =>
               this.snapshotData.players.some(
@@ -1956,7 +1956,12 @@ export class ThreeGameView {
           candidate.bed.y - local.position.y,
         ),
       }))
-      .filter((candidate) => candidate.distance <= BALANCE.player.interactionRange)
+      .filter((candidate) =>
+        candidate.distance <= BALANCE.player.interactionRange &&
+        candidate.mapRoom.floorTiles.some((tile) =>
+          Math.hypot(tile.x - local.position.x, tile.y - local.position.y) <= 0.68,
+        ),
+      )
       .sort((a, b) => a.distance - b.distance)[0];
     if (!nearest) {
       this.sleepButton.hidden = true;

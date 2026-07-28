@@ -214,7 +214,11 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
     size: 1.2,
     renderOrder: 5_200,
     name: appearance.skin,
-    frontBackSwapped: appearance.character === 'character-puppy',
+    // Every current paperdoll sheet follows front/back/side row order.
+    // The old puppy-only swap made 몽 visibly walk backwards.
+    frontBackSwapped: false,
+    // 몽's source side artwork faces left, unlike the other survivor sheets.
+    sideFacesLeft: appearance.character === 'character-puppy',
   };
 }
 

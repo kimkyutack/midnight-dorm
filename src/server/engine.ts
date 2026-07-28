@@ -930,15 +930,14 @@ export class GameEngine {
     );
     if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    this.state.status = this.state.difficulty.modifier === 'time-attack'
-      ? 'EVENT_INTRO'
-      : 'COUNTDOWN';
+    // Every match starts with a frozen warning poster for its selected ghost.
+    // The preparation timer and player movement start only after it ends.
+    this.state.status = 'GHOST_INTRO';
     this.state.countdown = this.countdownSecondsForMatch();
-    this.state.difficulty.introRemaining = this.state.status === 'EVENT_INTRO' ? 2 : 0;
+    this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
     // Countdown cargo is a short, optional opening event.  It is absent from
     // deterministic test matches so existing simulation fixtures stay stable.
     this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
-    if (this.state.status === 'COUNTDOWN') this.releaseCountdownLoot();
     return { ok: true };
   }
 
@@ -1133,7 +1132,11 @@ export class GameEngine {
           );
       })
       .filter(
-        ({ bed }) =>
+        ({ mapRoom, bed }) =>
+          // A bed is interactable only from its actual room floor.  Distance
+          // alone allowed a survivor standing in the outside corner beside a
+          // wall to claim the bed through that wall.
+          mapRoom.floorTiles.some((floor) => distance(player.position, floor) <= 0.68) &&
           distance(player.position, bed) <=
           (this.state.elapsed < player.bedrollUntil
             ? 1.5
@@ -1941,9 +1944,11 @@ export class GameEngine {
   }
 
   private matchClock(): number {
-    return this.state.status === 'COUNTDOWN'
-      ? Math.max(0, BALANCE.countdownSeconds - this.state.countdown)
-      : BALANCE.countdownSeconds + this.state.elapsed;
+    if (this.state.status === 'COUNTDOWN')
+      return Math.max(0, BALANCE.countdownSeconds - this.state.countdown);
+    if (this.state.status === 'PLAYING' || this.state.status === 'OVERTIME')
+      return BALANCE.countdownSeconds + this.state.elapsed;
+    return 0;
   }
 
   tick(realDt: number, now = Date.now()): void {
@@ -1952,7 +1957,22 @@ export class GameEngine {
     this.expireDisconnected(now);
     this.updatePlayers(dt);
     this.updateBots(dt);
-    if (this.state.status === 'EVENT_INTRO') {
+    if (this.state.status === 'GHOST_INTRO') {
+      // Ghost warning posters freeze survivor, bot and combat simulation.
+      // The client keeps the card opaque for two seconds, then fades it over
+      // the remaining two seconds before the countdown begins.
+      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
+      if (this.state.difficulty.introRemaining <= 0) {
+        if (this.state.difficulty.modifier === 'time-attack') {
+          this.state.status = 'EVENT_INTRO';
+          this.state.difficulty.introRemaining = 2;
+        } else {
+          this.state.status = 'COUNTDOWN';
+          this.state.countdown = this.countdownSecondsForMatch();
+          this.releaseCountdownLoot();
+        }
+      }
+    } else if (this.state.status === 'EVENT_INTRO') {
       // Time Attack announcement deliberately freezes every simulation system.
       this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
       if (this.state.difficulty.introRemaining <= 0) {
@@ -2294,8 +2314,8 @@ export class GameEngine {
           (building.kind === "gem-core" || building.kind === "starter-grave"),
       );
       // Keep the bed's floating income to the bed's own production. Random
-      // item and character-trait income are paid separately so a bed never
-      // appears to generate gold produced by another source.
+      // item income stays separate; economy traits are intentionally part of
+      // the occupied bed's output.
       const bedGoldPerSecond =
         buildingStats("bed", bedLevel).value *
         rankBenefits(activeRank).bedGoldMultiplier * productionMultiplier;
@@ -2304,7 +2324,11 @@ export class GameEngine {
         0,
       );
       const inventoryGoldPerSecond = inventoryEffects.goldPerSecond * productionMultiplier;
-      const traitGoldPerSecond = trait.goldPerSecond * productionMultiplier;
+      // Dog and duck economy traits explicitly improve the occupied bed.
+      // Keep that bonus at the bed both mechanically and visually, so a
+      // Lv.1 bed on the dog displays +2 rather than a misleading +1 plus a
+      // detached popup over the survivor.
+      const bedTraitGoldPerSecond = trait.goldPerSecond * productionMultiplier;
       const buildingGoldPerSecond = goldBuildings.reduce(
         (total, building) =>
           total + buildingStats(building.kind, building.level).value * productionMultiplier,
@@ -2317,26 +2341,18 @@ export class GameEngine {
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
         if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
-        player.gold += bedGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + traitGoldPerSecond + buildingGoldPerSecond;
+        player.gold += bedGoldPerSecond + bedTraitGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + buildingGoldPerSecond;
         // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
         // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
         // 실제 생산 위치마다 별도 이벤트를 보내서 침대와 무덤(보석)의
         // 수입을 각각 읽을 수 있게 한다.
-        if (bedGoldPerSecond > 0 && playerBed)
+        if (bedGoldPerSecond + bedTraitGoldPerSecond > 0 && playerBed)
           this.pendingEvents.push({
             kind: "gold",
             playerId: player.id,
-            amount: bedGoldPerSecond,
+            amount: bedGoldPerSecond + bedTraitGoldPerSecond,
             position: { ...playerBed },
             label: '침대',
-          });
-        if (traitGoldPerSecond > 0)
-          this.pendingEvents.push({
-            kind: "gold",
-            playerId: player.id,
-            amount: traitGoldPerSecond,
-            position: { ...player.position },
-            label: "특성",
           });
         if (inventoryGoldPerSecond > 0)
           this.pendingEvents.push({

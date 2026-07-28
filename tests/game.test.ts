@@ -46,9 +46,7 @@ function envelope(message: Intent, sequence = 1): ClientMessage {
 
 function begin(engine: GameEngine, hostId: string): GameSnapshot {
   expect(engine.start(hostId).ok).toBe(true);
-  // Time Attack deliberately freezes inputs for a two-second opening banner.
-  // Tests that prepare a bed first must advance this server-owned phase.
-  for (let index = 0; index < 40 && engine.snapshot().status === 'EVENT_INTRO'; index += 1) engine.tick(0.1);
+  advanceFrozenIntros(engine);
   const beds = engine.map.rooms.flatMap((room) =>
     room.beds.map((bed) => ({ roomId: room.id, bed })),
   );
@@ -69,13 +67,25 @@ function begin(engine: GameEngine, hostId: string): GameSnapshot {
   return engine.snapshot();
 }
 
+function advanceFrozenIntros(engine: GameEngine): void {
+  // Every match opens with the ghost poster. Time Attack adds another frozen
+  // announcement after it, so setup fixtures must wait through both phases.
+  for (
+    let index = 0;
+    index < 80 && ['GHOST_INTRO', 'EVENT_INTRO'].includes(engine.snapshot().status);
+    index += 1
+  ) engine.tick(0.1);
+}
+
 function assigned(engine: GameEngine, playerId: string): { roomId: string; tile: Tile } {
   const state = engine.snapshot();
   const player = state.players.find((candidate) => candidate.id === playerId);
   const roomId = player?.roomId;
   if (!roomId) throw new Error('player does not own a room');
   const room = engine.map.rooms.find((candidate) => candidate.id === roomId);
-  const tile = room?.buildTiles[0];
+  const tile = room?.buildTiles.find((candidate) => !state.buildings.some(
+    (building) => building.tile.x === candidate.x && building.tile.y === candidate.y,
+  ));
   if (!tile) throw new Error('room has no build tile');
   return { roomId, tile };
 }
@@ -219,7 +229,7 @@ describe('deterministic shared world', () => {
       `${first.width - 2},${first.height - 1}`, `${Math.floor(first.width / 2)},${first.height - 1}`,
       `1,${first.height - 1}`, `0,${Math.floor(first.height / 2)}`,
     ]));
-    expect([first.width, first.height]).toEqual([59, 37]);
+    expect([first.width, first.height]).toEqual([39, 25]);
     expect(first.rooms.every((room) => room.floorTiles.length >= 20 && room.floorTiles.length <= 30)).toBe(true);
     expect(first.rooms.every((room) => room.buildTiles.length === room.floorTiles.length - 1)).toBe(true);
     expect(new Set(first.rooms.map((room) => room.shape)).size).toBe(8);
@@ -552,6 +562,7 @@ describe('shop consumable rules', () => {
     });
     expect(engine.handle(joined.player.id, envelope({ type: 'set-consumable-loadout', itemIds: ['adrenal-shot'] })).ok).toBe(true);
     expect(engine.start(joined.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
     for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('PLAYING');
     expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'adrenal-shot' }, 2)).ok).toBe(true);
@@ -595,7 +606,10 @@ describe('authoritative game rules', () => {
     const { engine, ids } = setup(1, false);
     const ghostSpawn = { ...engine.map.ghostSpawn };
     expect(engine.start(ids[0] as string).ok).toBe(true);
+    expect(engine.snapshot().status).toBe('GHOST_INTRO');
     expect(engine.snapshot().countdown).toBe(30);
+    for (let index = 0; index < 40 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
     for (let index = 0; index < 299; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
     expect(engine.snapshot().ghost.position).toEqual(ghostSpawn);
@@ -616,6 +630,7 @@ describe('authoritative game rules', () => {
     const hostId = ids[0] as string;
     expect(engine.addBot(hostId, 'normal').ok).toBe(true);
     expect(engine.start(hostId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     const bot = engine.snapshot().players.find((player) => player.isBot);
     const mapRoom = engine.map.rooms[0];
     const firstBed = mapRoom?.beds[0];
@@ -646,6 +661,7 @@ describe('authoritative game rules', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     for (let index = 0; index < 12; index += 1) engine.tick(0.1);
     const before = engine.snapshot();
     const player = before.players.find((candidate) => candidate.id === playerId);
@@ -721,14 +737,33 @@ describe('authoritative game rules', () => {
     expect(fixed?.velocity).toEqual({ x: 0, y: 0 });
   });
 
+  it('does not allow sleeping from a position outside the room floor', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const player = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    const mapRoom = engine.map.rooms[0];
+    if (!player || !mapRoom) throw new Error('missing sleep boundary fixture');
+    const persisted = engine.serialize();
+    const candidate = persisted.snapshot.players.find((entry) => entry.id === playerId);
+    if (!candidate) throw new Error('missing sleep boundary player');
+    const bed = mapRoom.bed;
+    const outside = engine.map.walls.find((tile) => Math.hypot(tile.x - bed.x, tile.y - bed.y) <= BALANCE.player.interactionRange);
+    if (!outside) throw new Error('missing wall next to bed');
+    candidate.position = { ...outside };
+    engine.restore(persisted);
+    expect(engine.interact(playerId).ok).toBe(false);
+  });
+
   it('makes ten basic turret hits visibly damage a level-one easy ghost in solo and four-player games', () => {
     const tenHits = buildingStats('basic-turret', 1).value * 10;
     const soloRatio = tenHits / BALANCE.ghost.baseHp;
     const multiplayerRatio = tenHits / (BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * 3));
-    expect(soloRatio).toBeGreaterThanOrEqual(0.14);
-    expect(soloRatio).toBeLessThanOrEqual(0.15);
-    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.10);
-    expect(multiplayerRatio).toBeLessThanOrEqual(0.11);
+    expect(soloRatio).toBeGreaterThanOrEqual(0.17);
+    expect(soloRatio).toBeLessThanOrEqual(0.18);
+    expect(multiplayerRatio).toBeGreaterThanOrEqual(0.13);
+    expect(multiplayerRatio).toBeLessThanOrEqual(0.14);
   });
 
   it('accepts only declared build tiles and rejects duplicate occupancy', () => {
@@ -809,7 +844,11 @@ describe('authoritative game rules', () => {
     const playerId = ids[0] as string;
     begin(engine, playerId);
     const { roomId } = assigned(engine, playerId);
-    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
+    const tiles = (engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? []).filter(
+      (tile) => !engine.snapshot().buildings.some(
+        (building) => building.tile.x === tile.x && building.tile.y === tile.y,
+      ),
+    );
     if (tiles.length < 3) throw new Error('missing move-building tiles');
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
@@ -1011,6 +1050,7 @@ describe('authoritative game rules', () => {
     );
 
     expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     const room = engine.map.rooms[0];
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
@@ -1133,6 +1173,11 @@ describe('authoritative game rules', () => {
     const playerId = ids[0] as string;
     begin(engine, playerId);
     const { roomId } = assigned(engine, playerId);
+    const prepared = engine.serialize();
+    const defender = prepared.snapshot.players.find((player) => player.id === playerId);
+    if (!defender) throw new Error('missing defense fixture owner');
+    defender.gold = 1_000;
+    engine.restore(prepared);
     expect(engine.upgrade(playerId, `door:${roomId}`).ok).toBe(true);
     const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
     let nextTile = 0;
@@ -1307,6 +1352,7 @@ describe('requested progression and event rules', () => {
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
     expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
     for (let index = 0; index < 190 && engine.snapshot().players.filter((player) => player.isBot && player.roomId).length < 3; index += 1) engine.tick(0.1);
     const state = engine.snapshot();
     const bots = state.players.filter((player) => player.isBot);
@@ -1324,6 +1370,7 @@ describe('requested progression and event rules', () => {
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
     expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
     engine.tick(0.1);
     const initialTargets = new Map(
       engine.serialize().botRuntime
@@ -1354,6 +1401,7 @@ describe('requested progression and event rules', () => {
     const host = engine.join({ nickname: '속도 확인', deviceId: 'device-bot-speed' });
     expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
     expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
     const persisted = engine.serialize();
     const human = persisted.snapshot.players.find((player) => player.id === host.player.id);
     const bot = persisted.snapshot.players.find((player) => player.isBot);
@@ -1482,7 +1530,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'gold' && event.amount === 2)).toBe(true);
   });
 
-  it('emits bed, item, trait, building, and power income separately at their sources', () => {
+  it('emits combined bed-trait income at the bed while keeping item and building income separate', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -1512,8 +1560,8 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'power')).toBe(false);
     engine.tick(0.05);
     const events = engine.drainEvents();
-    expect(events.some((event) => event.kind === 'gold' && event.amount === 1 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
-    expect(events.some((event) => event.kind === 'gold' && event.label === '특성' && event.amount === 1)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.amount === 2 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.label === '특성')).toBe(false);
     expect(events.some((event) => event.kind === 'gold' && event.label === '보관 아이템' && event.amount === 5)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
     expect(events.some((event) => event.kind === 'power' && event.amount === 1 && event.position?.x === tile.x && event.position?.y === tile.y)).toBe(true);
@@ -1555,6 +1603,7 @@ describe('requested progression and event rules', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
     const room = engine.map.rooms[0];
@@ -1575,6 +1624,7 @@ describe('requested progression and event rules', () => {
     const playerId = ids[0] as string;
     expect(engine.snapshot().players.find((player) => player.id === playerId)?.gold).toBe(20);
     expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     engine.drainEvents();
     for (let index = 0; index < 10; index += 1) engine.tick(0.1);
     expect(engine.snapshot().players.find((player) => player.id === playerId)?.gold).toBe(20);
@@ -1605,7 +1655,11 @@ describe('requested progression and event rules', () => {
     engine.restore(state);
 
     expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
-    const nextTile = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles[1];
+    const nextTile = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles.find(
+      (candidate) => !engine.snapshot().buildings.some(
+        (building) => building.tile.x === candidate.x && building.tile.y === candidate.y,
+      ),
+    );
     if (!nextTile) throw new Error('missing legacy-build tile');
     expect(engine.build(playerId, roomId, nextTile, 'rapid-turret').error).toContain('수호 포탑');
     expect(engine.build(playerId, roomId, nextTile, 'arc-turret').error).toContain('수호 포탑');
@@ -1893,6 +1947,7 @@ describe('requested progression and event rules', () => {
     const hostId = ids[0] as string;
     const intruderId = ids[1] as string;
     expect(engine.start(hostId).ok).toBe(true);
+    advanceFrozenIntros(engine);
     const mapRoom = engine.map.rooms[0];
     if (!mapRoom) throw new Error('missing room fixture');
     const entrance = mapRoom.floorTiles.find(
@@ -2032,7 +2087,7 @@ describe('requested progression and event rules', () => {
     }
   });
 
-  it('lets a level-five ghost break a repaired and shielded level-five door in under one hundred hits', () => {
+  it('lets a max-level door repair stand sustain a repaired and shielded level-five door', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     begin(engine, playerId);
@@ -2064,9 +2119,9 @@ describe('requested progression and event rules', () => {
       engine.tick(0.05);
       hitCount += engine.drainEvents().filter((event) => event.kind === 'door-hit' && event.roomId === room.id).length;
     }
-    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(0);
-    expect(hitCount).toBeLessThan(100);
-    expect(buildingStats('repair-drone', 3).value).toBe(6);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(400);
+    expect(hitCount).toBeGreaterThan(0);
+    expect(buildingStats('repair-drone', 3).value).toBe(90);
   });
 
   it('retreats toward the respawn area below twenty percent HP', () => {
@@ -2278,6 +2333,8 @@ describe('requested progression and event rules', () => {
       const engine = new GameEngine('LOOTDROP', map, false);
       const joined = engine.join({ nickname: '보상 운반자', deviceId: 'device-loot-drop' });
       expect(engine.start(joined.player.id).ok).toBe(true);
+      expect(engine.snapshot().lootDrops).toHaveLength(0);
+      advanceFrozenIntros(engine);
       const firstDrop = engine.snapshot().lootDrops[0];
       expect(firstDrop).toBeDefined();
       expect(engine.map.corridorTiles).toContainEqual(expect.objectContaining(firstDrop?.tile ?? {}));
@@ -2471,6 +2528,7 @@ describe('requested progression and event rules', () => {
       const { engine, ids } = setup();
       const playerId = ids[0] as string;
       expect(engine.start(playerId).ok).toBe(true);
+      advanceFrozenIntros(engine);
       const mapRoom = engine.map.rooms[0];
       if (!mapRoom) throw new Error('missing room');
       const configured = engine.serialize();
@@ -2579,10 +2637,10 @@ describe('persistent account progression', () => {
     expect(getStage('hell-1').skills).toContain('gold-lock');
     expect(getStage('inferno-1').skills).toContain('repair-lock');
     expect(getStage('epic-1').skills).toContain('door-crush');
-    expect(getStage('easy-1').levelHpGrowth).toBe(0.21);
-    expect(getStage('easy-1').levelDamageGrowth).toBe(0.17);
-    expect(getStage('legendary-99').levelHpGrowth).toBe(0.48);
-    expect(getStage('legendary-99').levelDamageGrowth).toBe(0.4);
+    expect(getStage('easy-1').levelHpGrowth).toBe(0.16);
+    expect(getStage('easy-1').levelDamageGrowth).toBe(0.11);
+    expect(getStage('legendary-99').levelHpGrowth).toBe(0.34);
+    expect(getStage('legendary-99').levelDamageGrowth).toBe(0.28);
   });
 
   it('calculates separate ranks and always displays the higher rank', () => {

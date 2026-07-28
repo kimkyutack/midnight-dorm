@@ -50,6 +50,9 @@ export const BALANCE = {
   maxPlayersWithBots: 4,
   reconnectMs: 90_000,
   inactiveCleanupMs: 180_000,
+  // Two seconds of a fixed ghost poster followed by a two-second fade. The
+  // 30-second preparation countdown begins only after this sequence ends.
+  ghostIntroSeconds: 4,
   countdownSeconds: 30,
   player: {
     maxHp: 100,
@@ -72,12 +75,16 @@ export const BALANCE = {
   ghost: {
     // Baseline pressure is deliberately higher now that late-game strategic
     // buildings create burst and recovery windows.
-    baseHp: 920,
+    // The previous baseline combined with the level growth curve let an
+    // early ghost snowball to Lv.5 before a normal solo room was established.
+    // Keep higher stages threatening, while making the first retreat and the
+    // first two upgrades realistically reachable.
+    baseHp: 760,
     collisionRadius: 0.28,
     hpPerPlayer: 0.1,
-    baseDamage: 5.8,
+    baseDamage: 4.5,
     damagePerPlayer: 0.13,
-    damageGrowthPerLevel: 0.48,
+    damageGrowthPerLevel: 0.3,
     shieldPenetrationPerLevel: 0.15,
     speed: 3.55,
     // 방을 아직 점유하지 못한 생존자를 추격할 때도 일반 이동의 흐름을
@@ -151,7 +158,10 @@ export const BALANCE = {
       label: '문 수리대',
       description: '매초 문 HP를 회복합니다.',
       maxLevel: 3,
-      levels: [level(70, 0, 1.5, 1, 0), level(140, 0, 3, 1, 0), level(280, 0, 6, 1, 0)],
+      // A fully upgraded stand should restore a mid-game door during the
+      // ghost's seven-second recovery trip, rather than merely slowing its
+      // inevitable next break.
+      levels: [level(70, 0, 12, 1, 0), level(140, 0, 36, 1, 0), level(280, 0, 90, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',

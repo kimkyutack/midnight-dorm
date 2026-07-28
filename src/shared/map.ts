@@ -3,8 +3,11 @@ import type { MapDefinition, MapRoom, PlayMode, RoomState, Tile, Vec2 } from './
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
 
-const MAP_WIDTH = 59;
-const MAP_HEIGHT = 37;
+// Keep eight distinct rooms, but avoid the long empty-looking hallways of
+// the 49×31 ward. The compact 4×2 layout removes a further strip of unused
+// corridor while retaining enough room for eight distinct room shapes.
+const MAP_WIDTH = 39;
+const MAP_HEIGHT = 25;
 const DIRECTIONS = [
   { id: 'north', dx: 0, dy: -1 },
   { id: 'east', dx: 1, dy: 0 },
@@ -292,15 +295,43 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
           reserved.add(tileKey(center.x + dx, center.y + dy));
   }
 
+  // Give every room a stable 4×2 neighbourhood before adding its seeded
+  // offset. This keeps layouts varied without allowing all rooms to cluster
+  // along one edge and leave an empty half-map of corridor behind.
+  const slotEdgesX = Array.from({ length: 5 }, (_, index) =>
+    2 + Math.floor((index * (width - 4)) / 4),
+  );
+  const slotEdgesY = Array.from({ length: 3 }, (_, index) =>
+    2 + Math.floor((index * (height - 4)) / 2),
+  );
+  const slots = rng.shuffle(
+    Array.from({ length: 8 }, (_, index) => {
+      const column = index % 4;
+      const row = Math.floor(index / 4);
+      return {
+        left: slotEdgesX[column] as number,
+        right: slotEdgesX[column + 1] as number,
+        top: slotEdgesY[row] as number,
+        bottom: slotEdgesY[row + 1] as number,
+      };
+    }),
+  );
   const drafts: RoomDraft[] = [];
-  for (const baseTemplate of rng.shuffle(ROOM_TEMPLATES)) {
+  for (const [templateIndex, baseTemplate] of rng.shuffle(ROOM_TEMPLATES).entries()) {
     const template = rotateTemplate(baseTemplate, rng.int(0, 3));
     const dimensions = dimensionsFor(template);
+    const slot = slots[templateIndex];
+    if (!slot) return null;
+    const minX = slot.left + 1;
+    const maxX = slot.right - dimensions.width - 1;
+    const minY = slot.top + 1;
+    const maxY = slot.bottom - dimensions.height - 1;
+    if (maxX < minX || maxY < minY) return null;
     let placement: RoomDraft | null = null;
-    for (let attempt = 0; attempt < 320; attempt += 1) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       const origin = {
-        x: rng.int(2, width - dimensions.width - 3),
-        y: rng.int(2, height - dimensions.height - 3),
+        x: rng.int(minX, maxX),
+        y: rng.int(minY, maxY),
       };
       const candidate = roomDraft(template, origin, width, height, rng);
       if (!candidate || [...candidate.reservationKeys].some((key) => reserved.has(key))) continue;

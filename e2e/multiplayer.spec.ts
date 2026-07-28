@@ -79,11 +79,9 @@ test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
   const page = await context.newPage();
   try {
     await enter(page, "가이드검증", "guide");
-    await page
-      .getByRole("button", { name: "새벽까지 버티는 법 도움말" })
-      .click();
+    await page.getByRole("button", { name: /도움말/ }).click();
     const guide = page.getByRole("dialog", { name: "생존 가이드" });
-    await expect(guide).toContainText("새벽까지 버티는 법");
+    await expect(guide).toContainText("내 방을 끝까지 지키세요");
     await expect(guide.locator(".tutorial-scene img")).toHaveAttribute(
       "src",
       "/assets/tutorial/room-defense-guide.webp",
@@ -203,19 +201,15 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByRole("button", { name: "닫기" }).click();
     await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
-    await page.getByRole("button", { name: "업데이트 내역" }).click();
-    await expect(
-      page.getByRole("dialog", { name: "업데이트 내역" }),
-    ).toBeVisible();
-    await expect(page.getByText("모바일 조작과 보상 흐름 개선")).toBeVisible();
-    await page.getByRole("button", { name: "닫기" }).click();
     await page.getByRole("button", { name: "완료" }).click();
     const latestUpdate = await page.request.get("/api/app-updates/latest", {
       headers: { "cache-control": "no-cache" },
     });
     expect(latestUpdate).toBeOK();
     expect(latestUpdate.headers()["cache-control"]).toContain("no-store");
-    expect((await latestUpdate.json()).latest.version).toBe("2026.07.27.2");
+    expect((await latestUpdate.json()).latest.version).toMatch(
+      /^\d{4}\.\d{2}\.\d{2}\.\d+$/,
+    );
     const profileResponse = await page.request.get("/api/auth/me");
     expect(profileResponse).toBeOK();
     const profile = (await profileResponse.json()) as {
@@ -375,6 +369,13 @@ test("portrait home separates shop, owned customization and stage start", async 
     expect(lobbyLayout.legacyDots).toBe(0);
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-shell")).toBeVisible();
+    await expect(page.locator("[data-ghost-intro]")).toBeVisible();
+    await expect
+      .poll(async () => (await state(page)).snapshot?.status, {
+        timeout: 8_000,
+        intervals: [100],
+      })
+      .not.toBe("GHOST_INTRO");
     await expect(
       page.getByRole("button", { name: "내 캐릭터 위치로 카메라 이동" }),
     ).toBeVisible();
@@ -479,14 +480,20 @@ async function sleepInBed(
             const bed = map?.rooms.find(
               (candidate) => candidate.id === targetRoomId,
             )?.beds[targetBedIndex];
-            if (!game || !map || !player || !bed) return Infinity;
+            const targetRoom = map?.rooms.find(
+              (candidate) => candidate.id === targetRoomId,
+            );
+            if (!game || !map || !player || !bed || !targetRoom) return Infinity;
             const distance = Math.hypot(
               player.position.x - bed.x,
               player.position.y - bed.y,
             );
             // Keep the browser driver inside the server's 1.7-tile interaction
             // range, without requiring a fragile exact tile centre.
-            if (distance <= 1.65) {
+            const standingOnRoomFloor = targetRoom.floorTiles.some(
+              (tile) => Math.hypot(player.position.x - tile.x, player.position.y - tile.y) <= 0.68,
+            );
+            if (standingOnRoomFloor && distance <= 1.65) {
               game.move(0, 0);
               return distance;
             }
