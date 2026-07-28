@@ -3,7 +3,7 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/sh
 import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, tileSkinTextureUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
-import { connectedWalkableCount, fullRoomFloorKeys, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
@@ -15,7 +15,7 @@ import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
-import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, pointerDirectionFromActor, shortestAngleDelta } from '../src/client/game/avatarMath';
+import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
@@ -314,24 +314,6 @@ describe('deterministic shared world', () => {
     expect(Math.hypot(moved.x - start.x, moved.y - start.y)).toBeLessThan(0.5);
   });
 
-  it('blocks only the inside threshold of a full room while leaving its doorway reachable', () => {
-    const map = generateMap(4_204);
-    const room = map.rooms[0];
-    if (!room) throw new Error('missing room fixture');
-    const blocked = fullRoomFloorKeys(map, [{ id: room.id, ownerIds: ['owner'] }], 1);
-    const threshold = room.floorTiles.find(
-      (tile) =>
-        Math.abs(tile.x - room.door.x) + Math.abs(tile.y - room.door.y) === 1,
-    );
-    const deepFloor = room.floorTiles.find(
-      (tile) => threshold && (tile.x !== threshold.x || tile.y !== threshold.y),
-    );
-    expect(threshold).toBeDefined();
-    expect(blocked).toEqual(new Set([`${threshold?.x},${threshold?.y}`]));
-    expect(blocked.has(`${deepFloor?.x},${deepFloor?.y}`)).toBe(false);
-    expect(blocked.has(`${room.door.x},${room.door.y}`)).toBe(false);
-  });
-
   it('creates eight varied multiplayer rooms with two beds each', () => {
     const map = generateMap(7_707, 'multiplayer');
     expect(validateMap(map)).toBe(true);
@@ -460,16 +442,6 @@ describe('survivor customization rules', () => {
   it('keeps the visual facing on held input while an old snapshot corrects backwards', () => {
     expect(facingDeltaForMotion(-0.08, 0, { x: 1, y: 0 })).toEqual({ x: 1, z: 0 });
     expect(facingDeltaForMotion(0.12, -0.05)).toEqual({ x: 0.12, z: -0.05 });
-  });
-
-  it('starts portrait movement toward the touched side of the survivor immediately', () => {
-    expect(pointerDirectionFromActor(200, 100, 100, 100, 80)).toEqual({ x: 1, y: 0 });
-    expect(pointerDirectionFromActor(100, 20, 100, 100, 80)).toEqual({ x: 0, y: -1 });
-    expect(pointerDirectionFromActor(120, 100, 100, 100, 80)).toEqual({ x: 0.25, y: 0 });
-    const diagonal = pointerDirectionFromActor(160, 160, 100, 100, 80);
-    expect(diagonal.x).toBeCloseTo(Math.SQRT1_2);
-    expect(diagonal.y).toBeCloseTo(Math.SQRT1_2);
-    expect(pointerDirectionFromActor(106, 104, 100, 100, 80)).toEqual({ x: 0, y: 0 });
   });
 
   it('keeps rotating in the same short direction across the 180-degree seam', () => {
@@ -1581,6 +1553,164 @@ describe('requested progression and event rules', () => {
     expect(claimedTransitions).toBe(3);
   });
 
+  it('keeps movement continuous in room A when a bot claims separate room B', () => {
+    const engine = new GameEngine('BOTCLAIMSEPARATE', generateMap(64_281), false);
+    const host = engine.join({ nickname: '이동생존자', deviceId: 'device-separate-room' });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+
+    const playerRoom = engine.map.rooms[0];
+    const botRoom = engine.map.rooms[1];
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    const botBed = botRoom?.beds[0];
+    const pair = playerRoom?.floorTiles
+      .map((first) => ({
+        first,
+        second: playerRoom.floorTiles.find(
+          (candidate) =>
+            Math.abs(candidate.x - first.x) + Math.abs(candidate.y - first.y) === 1,
+        ),
+      }))
+      .find(({ second }) => Boolean(second));
+    if (!playerRoom || !botRoom || !bot || !botBed || !pair?.second) {
+      throw new Error('missing separate-room claim fixture');
+    }
+
+    const persisted = engine.serialize();
+    const humanState = persisted.snapshot.players.find(
+      (player) => player.id === host.player.id,
+    );
+    const botState = persisted.snapshot.players.find(
+      (player) => player.id === bot.id,
+    );
+    if (!humanState || !botState) throw new Error('missing crossing players');
+    humanState.position = { ...pair.first };
+    humanState.roomId = null;
+    humanState.bedIndex = null;
+    humanState.velocity = { x: 0, y: 0 };
+    botState.position = { ...botBed };
+    botState.roomId = null;
+    botState.bedIndex = null;
+    botState.velocity = { x: 0, y: 0 };
+    engine.restore(persisted);
+
+    const dx = pair.second.x - pair.first.x;
+    const dy = pair.second.y - pair.first.y;
+    expect(engine.setMovement(host.player.id, dx, dy, 1).ok).toBe(true);
+    expect(engine.interact(bot.id).ok).toBe(true);
+    engine.tick(0.1);
+
+    const after = engine.snapshot();
+    const moved = after.players.find((player) => player.id === host.player.id);
+    const claimedBot = after.players.find((player) => player.id === bot.id);
+    expect(claimedBot?.roomId).toBe(botRoom.id);
+    expect(claimedBot?.roomId).not.toBe(playerRoom.id);
+    expect(moved?.roomId).toBeNull();
+    expect(moved?.velocity).toEqual({ x: dx, y: dy });
+    expect(
+      playerRoom.floorTiles.some(
+        (tile) =>
+          tile.x === Math.round(moved?.position.x ?? Number.NaN) &&
+          tile.y === Math.round(moved?.position.y ?? Number.NaN),
+      ),
+    ).toBe(true);
+    expect(
+      Math.hypot(
+        (moved?.position.x ?? pair.first.x) - pair.first.x,
+        (moved?.position.y ?? pair.first.y) - pair.first.y,
+      ),
+    ).toBeGreaterThan(0.2);
+  });
+
+  it('retargets an undead and its minions when a minion defeats the last survivor in a room', () => {
+    const { engine, ids } = setup(2);
+    begin(engine, ids[0] as string);
+    const beforeSummon = engine.serialize();
+    const undead = beforeSummon.snapshot.ghosts[0];
+    if (!undead) throw new Error('missing undead fixture');
+    undead.variant = 'undead';
+    undead.abilityCooldown = 0;
+    beforeSummon.snapshot.ghost = undead;
+    engine.restore(beforeSummon);
+    engine.tick(0.1);
+
+    const persisted = engine.serialize();
+    const victim = persisted.snapshot.players.find(
+      (player) => player.id === ids[0],
+    );
+    const survivor = persisted.snapshot.players.find(
+      (player) => player.id === ids[1],
+    );
+    const parent = persisted.snapshot.ghosts.find(
+      (ghost) => ghost.variant === 'undead',
+    );
+    const minion = persisted.snapshot.ghosts.find(
+      (ghost) => ghost.variant === 'minion',
+    );
+    const victimRoom = engine.map.rooms.find(
+      (room) => room.id === victim?.roomId,
+    );
+    const victimRoomState = persisted.snapshot.rooms.find(
+      (room) => room.id === victim?.roomId,
+    );
+    if (
+      !victim ||
+      !survivor?.roomId ||
+      !parent ||
+      !minion ||
+      !victimRoom ||
+      !victimRoomState
+    ) {
+      throw new Error('incomplete undead retarget fixture');
+    }
+
+    victimRoomState.doorHp = 0;
+    parent.position = { ...victim.position };
+    parent.targetRoomId = victim.roomId;
+    parent.targetPlayerId = null;
+    parent.attackCooldown = 100;
+    parent.abilityCooldown = 100;
+    parent.path = [];
+    minion.position = { ...victim.position };
+    minion.targetRoomId = victim.roomId;
+    minion.targetPlayerId = null;
+    minion.attackCooldown = 0;
+    minion.path = [];
+    persisted.snapshot.ghost = parent;
+    engine.restore(persisted);
+
+    engine.tick(0.1);
+    const afterDefeat = engine.snapshot();
+    expect(
+      afterDefeat.players.find((player) => player.id === victim.id)?.alive,
+    ).toBe(false);
+    expect(
+      afterDefeat.ghosts
+        .filter((ghost) => ghost.variant === 'undead' || ghost.variant === 'minion')
+        .every(
+          (ghost) =>
+            ghost.targetRoomId !== victim.roomId &&
+            ghost.targetPlayerId !== victim.id,
+        ),
+    ).toBe(true);
+
+    const parentAtDefeat = afterDefeat.ghosts.find(
+      (ghost) => ghost.id === parent.id,
+    );
+    for (let index = 0; index < 8; index += 1) engine.tick(0.1);
+    const retargeted = engine.snapshot().ghosts.find(
+      (ghost) => ghost.id === parent.id,
+    );
+    expect(retargeted?.targetRoomId).toBe(survivor.roomId);
+    expect(
+      Math.hypot(
+        (retargeted?.position.x ?? 0) - (parentAtDefeat?.position.x ?? 0),
+        (retargeted?.position.y ?? 0) - (parentAtDefeat?.position.y ?? 0),
+      ),
+    ).toBeGreaterThan(0.05);
+  });
+
   it('keeps each unclaimed bot on its reserved bed instead of re-ranking targets every tick', () => {
     const engine = new GameEngine('BOTRESERVE', generateMap(79_113), false);
     const host = engine.join({ nickname: '예약 확인', deviceId: 'device-bot-reserve' });
@@ -2221,7 +2351,7 @@ describe('requested progression and event rules', () => {
     expect(destroyed?.doorHp).toBe(0);
   });
 
-  it('keeps an unclaimed survivor out of a full solo room', () => {
+  it('allows crossing a full solo room but keeps its bed unavailable', () => {
     const { engine, ids } = setup(2);
     const hostId = ids[0] as string;
     const intruderId = ids[1] as string;
@@ -2256,7 +2386,17 @@ describe('requested progression and event rules', () => {
       mapRoom.floorTiles.some(
         (tile) => tile.x === Math.round(after?.position.x ?? Number.NaN) && tile.y === Math.round(after?.position.y ?? Number.NaN),
       ),
-    ).toBe(false);
+    ).toBe(true);
+
+    const crossingState = engine.serialize();
+    const crossingIntruder = crossingState.snapshot.players.find(
+      (player) => player.id === intruderId,
+    );
+    if (!crossingIntruder) throw new Error('missing crossing intruder');
+    crossingIntruder.position = { ...(mapRoom.beds[0] as Tile) };
+    engine.restore(crossingState);
+    const denied = engine.interact(intruderId);
+    expect(denied.ok).toBe(false);
   });
 
   it('does not allow a breached ghost to strike through a room wall', () => {

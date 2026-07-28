@@ -482,10 +482,9 @@ test("portrait home separates shop, owned customization and stage start", async 
       (player) => player.id === beforeDrag.playerId,
     )?.position;
     expect(localBefore).toBeTruthy();
-    // The touched point itself is the direction. Movement must begin on
-    // pointerdown without requiring a follow-up drag from a hidden origin.
-    await page.mouse.move(250, 365);
+    await page.mouse.move(195, 422);
     await page.mouse.down();
+    await page.mouse.move(250, 365, { steps: 6 });
     await page.waitForTimeout(260);
     await page.mouse.up();
     await expect
@@ -833,6 +832,10 @@ test("three solo bots visibly pathfind through doors before the normal countdown
         server: { x: number; y: number };
         claimed: number;
       }> = [];
+      const teammateList = document.querySelector("[data-hud-players]");
+      const teammateCards = teammateList
+        ? Array.from(teammateList.children)
+        : [];
       const errors: number[] = [];
       const claimedCounts: number[] = [];
       const deadline = performance.now() + 24_000;
@@ -883,9 +886,15 @@ test("three solo bots visibly pathfind through doors before the normal countdown
         maxTransition,
         maxError: Math.max(0, ...errors),
         highestClaimed: Math.max(0, ...claimedCounts),
+        teammateCardsStable:
+          teammateList === document.querySelector("[data-hud-players]") &&
+          teammateCards.every(
+            (card, index) => teammateList?.children[index] === card,
+          ),
       };
     });
     expect(movementAcrossBotClaims.highestClaimed).toBe(3);
+    expect(movementAcrossBotClaims.teammateCardsStable).toBe(true);
     expect(
       movementAcrossBotClaims.maxStep,
       JSON.stringify(movementAcrossBotClaims.maxTransition),

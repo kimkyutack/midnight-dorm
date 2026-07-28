@@ -1,5 +1,5 @@
 import { SeededRandom } from './rng';
-import type { MapDefinition, MapRoom, PlayMode, RoomState, Tile, Vec2 } from './types';
+import type { MapDefinition, MapRoom, PlayMode, Tile, Vec2 } from './types';
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
 
@@ -579,37 +579,6 @@ function walkableKeysFor(map: MapDefinition): Set<string> {
 
 export function isWalkable(map: MapDefinition, x: number, y: number): boolean {
   return walkableKeysFor(map).has(tileKey(Math.round(x), Math.round(y)));
-}
-
-/**
- * Returns the inside threshold of every full room. Blocking every floor tile
- * made the collision topology change across a large area whenever a bot
- * claimed a bed. The single tile immediately inside the door is sufficient to
- * keep an unclaimed survivor out while the door tile remains reachable.
- */
-export function fullRoomFloorKeys(
-  map: MapDefinition,
-  rooms: ReadonlyArray<Pick<RoomState, 'id' | 'ownerIds'>>,
-  capacity: number,
-): Set<string> {
-  const fullRoomIds = new Set(
-    rooms
-      .filter((room) => room.ownerIds.length >= capacity)
-      .map((room) => room.id),
-  );
-  return new Set(
-    map.rooms
-      .filter((room) => fullRoomIds.has(room.id))
-      .flatMap((room) => {
-        const threshold = room.floorTiles.find(
-          (tile) =>
-            Math.abs(tile.x - room.door.x) +
-              Math.abs(tile.y - room.door.y) ===
-            1,
-        );
-        return threshold ? [tileKey(threshold.x, threshold.y)] : [];
-      }),
-  );
 }
 
 export function isWalkableArea(

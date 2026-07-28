@@ -19,7 +19,7 @@ import {
   drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
-import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea } from "../shared/map";
+import { isBuildTile, moveInWalkableArea } from "../shared/map";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -2115,60 +2115,12 @@ export class GameEngine {
   private updatePlayers(dt: number): void {
     if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return;
-    const roomCapacity = this.playMode === "multiplayer" ? 2 : 1;
-    const blockedRoomFloorTiles = fullRoomFloorKeys(
-      this.map,
-      this.state.rooms,
-      roomCapacity,
-    );
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
         const bed = this.map.rooms.find((room) => room.id === player.roomId)
           ?.beds[player.bedIndex ?? 0];
         if (bed) player.position = { ...bed };
-        player.velocity = { x: 0, y: 0 };
-        continue;
-      }
-      // A room may become full while another survivor is already walking
-      // across its floor.  Put that intruder just outside the entrance instead
-      // of trapping it against the new boundary; the next bot/human input can
-      // then continue toward an actually available room.
-      const fullRoomContainingPlayer = this.map.rooms.find((mapRoom) => {
-        const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
-        return Boolean(
-          room &&
-          room.ownerIds.length >= roomCapacity &&
-          mapRoom.floorTiles.some(
-            (tile) =>
-              tile.x === Math.round(player.position.x) &&
-              tile.y === Math.round(player.position.y),
-          ),
-        );
-      });
-      if (fullRoomContainingPlayer) {
-        const entrance = fullRoomContainingPlayer.floorTiles.find(
-          (tile) =>
-            Math.abs(tile.x - fullRoomContainingPlayer.door.x) +
-              Math.abs(tile.y - fullRoomContainingPlayer.door.y) ===
-            1,
-        );
-        const exit = entrance
-          ? {
-              x:
-                fullRoomContainingPlayer.door.x +
-                (fullRoomContainingPlayer.door.x - entrance.x),
-              y:
-                fullRoomContainingPlayer.door.y +
-                (fullRoomContainingPlayer.door.y - entrance.y),
-            }
-          : fullRoomContainingPlayer.door;
-        const hasExit = this.map.corridorTiles.some(
-          (tile) => tile.x === exit.x && tile.y === exit.y,
-        );
-        player.position = hasExit
-          ? { ...exit }
-          : { ...fullRoomContainingPlayer.door };
         player.velocity = { x: 0, y: 0 };
         continue;
       }
@@ -2182,7 +2134,6 @@ export class GameEngine {
         },
         BALANCE.player.collisionRadius,
         0.12,
-        blockedRoomFloorTiles,
       );
     }
   }
@@ -3024,6 +2975,16 @@ export class GameEngine {
           distance(ghost.position, a.position) -
           distance(ghost.position, b.position),
       )[0];
+    // Room ownership is retained for result/economy bookkeeping after a
+    // survivor dies. Never keep chasing that stale room record: an undead
+    // parent could otherwise remain parked on the defeated survivor's bed
+    // when one of its minions dealt the finishing blow.
+    if (!targetPlayer) {
+      ghost.targetRoomId = null;
+      ghost.targetPlayerId = null;
+      ghost.path = [];
+      return;
+    }
     // A sealed-room ghost must stop one corridor tile outside the doorway.
     // Targeting the door tile itself let a teleporter materialize directly on
     // the door and emit a hit in the same snapshot, which looked like an
@@ -3317,9 +3278,10 @@ export class GameEngine {
     ghost.targetRoomId = null;
     ghost.targetPlayerId = null;
     ghost.path = [];
-    // Once the last survivor in a sealed room is gone, the ghost must leave by
-    // the doorway.  This prevents an undead that eliminated a bot on a bed
-    // from remaining trapped on that bed until its next respawn movement.
+    // A minion can deal the finishing blow while its undead summoner and other
+    // minions still target the same room. Clear every stale target, not only
+    // the killer's, so all ghosts immediately search for a living survivor and
+    // path back out through the already-breached doorway.
     if (defeatedRoomId) {
       const remainingOwner = this.state.players.some(
         (candidate) =>
@@ -3330,9 +3292,23 @@ export class GameEngine {
         (room) => room.id === defeatedRoomId,
       );
       if (!remainingOwner && mapRoom) {
-        const approach = this.corridorApproachForRoom(mapRoom);
-        ghost.position = { x: approach.x, y: approach.y };
-        ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.35);
+        for (const candidate of this.state.ghosts) {
+          const insideDefeatedRoom = mapRoom.floorTiles.some(
+            (tile) =>
+              tile.x === Math.round(candidate.position.x) &&
+              tile.y === Math.round(candidate.position.y),
+          );
+          if (
+            candidate.targetRoomId !== defeatedRoomId &&
+            candidate.targetPlayerId !== player.id &&
+            !insideDefeatedRoom
+          )
+            continue;
+          candidate.targetRoomId = null;
+          candidate.targetPlayerId = null;
+          candidate.path = [];
+          candidate.attackCooldown = Math.max(candidate.attackCooldown, 0.35);
+        }
       }
     }
   }

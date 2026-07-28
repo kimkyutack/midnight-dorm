@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
-import { fullRoomFloorKeys, moveInWalkableArea } from '../../shared/map';
+import { moveInWalkableArea } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
@@ -10,7 +10,7 @@ import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
-import { facingDeltaForMotion, pointerDirectionFromActor } from './avatarMath';
+import { facingDeltaForMotion } from './avatarMath';
 import { buildingAssetUrl } from './BuildingAssets';
 
 const CAMERA_HEIGHT = 18;
@@ -183,6 +183,8 @@ interface MultiTouchGesture {
 
 interface PortraitMovementDrag {
   id: number;
+  startX: number;
+  startY: number;
 }
 
 interface BuildingDragCandidate {
@@ -1689,8 +1691,6 @@ export class ThreeGameView {
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
   private readonly environmentTextures: THREE.Texture[] = [];
   private roomSkinSyncInitialized = false;
-  private readonly localPredictionBlockedTiles = new Set<string>();
-  private localPredictionCollisionLatched = false;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
@@ -1784,25 +1784,7 @@ export class ThreeGameView {
     this.renderer.setAnimationLoop(this.animate);
   }
 
-  setLocalInput(input: Vec2): void {
-    const wasMoving = Math.hypot(this.localInput.x, this.localInput.y) > 0.0001;
-    const moving = Math.hypot(input.x, input.y) > 0.0001;
-    if (!wasMoving && moving) {
-      this.localPredictionBlockedTiles.clear();
-      for (const key of fullRoomFloorKeys(
-        this.mapData,
-        this.snapshotData.rooms,
-        this.snapshotData.playMode === 'multiplayer' ? 2 : 1,
-      )) {
-        this.localPredictionBlockedTiles.add(key);
-      }
-      this.localPredictionCollisionLatched = true;
-    } else if (!moving) {
-      this.localPredictionBlockedTiles.clear();
-      this.localPredictionCollisionLatched = false;
-    }
-    this.localInput = input;
-  }
+  setLocalInput(input: Vec2): void { this.localInput = input; }
 
   getCameraMode(): 'follow' | 'free' { return this.followingPlayer ? 'follow' : 'free'; }
 
@@ -2872,15 +2854,6 @@ export class ThreeGameView {
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
       * characterTraitForAppearance(local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' }).unclaimedMoveSpeedMultiplier
       * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
-    // The authoritative worker blocks full-room floor tiles for unclaimed
-    // survivors.  Applying the exact same boundary to prediction prevents the
-    // doorway rubber-banding that occurred while a player pressed into a room
-    // already occupied by a bot or another survivor.
-    const blockedRoomFloorTiles = fullRoomFloorKeys(
-      this.mapData,
-      this.snapshotData.rooms,
-      this.snapshotData.playMode === 'multiplayer' ? 2 : 1,
-    );
     for (const [id, view] of this.playerViews) {
       const player = this.snapshotData.players.find((candidate) => candidate.id === id);
       if (!player) continue;
@@ -2888,10 +2861,6 @@ export class ThreeGameView {
       const defeated = !player.alive;
       const isLocal = id === this.playerId;
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
-      const predictionBlockedTiles =
-        hasLocalInput && this.localPredictionCollisionLatched
-          ? this.localPredictionBlockedTiles
-          : blockedRoomFloorTiles;
       if (hasLocalInput) {
         const predicted = moveInWalkableArea(this.mapData, {
           x: view.root.position.x,
@@ -2899,7 +2868,7 @@ export class ThreeGameView {
         }, {
           x: this.localInput.x * localSpeed * dt,
           y: this.localInput.y * localSpeed * dt,
-        }, BALANCE.player.collisionRadius, 0.12, predictionBlockedTiles);
+        }, BALANCE.player.collisionRadius, 0.12);
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const targetOffsetX = view.target.x - predicted.x;
         const targetOffsetZ = view.target.z - predicted.y;
@@ -2915,16 +2884,15 @@ export class ThreeGameView {
           serverError > LOCAL_MAX_PREDICTION_LEAD ||
           (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput)
         ) {
-          this.reconcilePlayerPosition(view, 16, dt, predictionBlockedTiles);
+          this.reconcilePlayerPosition(view, 16, dt);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
-          this.reconcilePlayerPosition(view, 1.4, dt, predictionBlockedTiles);
+          this.reconcilePlayerPosition(view, 1.4, dt);
         }
       } else {
         this.reconcilePlayerPosition(
           view,
           isLocal ? 13 : 10.5,
           dt,
-          isLocal && !lying ? blockedRoomFloorTiles : undefined,
         );
       }
       const dx = view.root.position.x - view.lastPosition.x;
@@ -3297,8 +3265,10 @@ export class ThreeGameView {
       this.renderer.domElement.setPointerCapture(event.pointerId);
       this.portraitMovementDrag = {
         id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
       };
-      this.updatePortraitMovement(event.clientX, event.clientY);
+      this.dispatchPortraitMovement(0, 0);
       return;
     }
     // 점유 전의 생존자는 카메라가 본인을 추적한다. 사망 뒤에는 관전용으로
@@ -3338,7 +3308,17 @@ export class ThreeGameView {
   private readonly onPointerMove = (event: PointerEvent): void => {
     if (this.portraitMovementDrag?.id === event.pointerId) {
       event.preventDefault();
-      this.updatePortraitMovement(event.clientX, event.clientY);
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
+      let dx = event.clientX - this.portraitMovementDrag.startX;
+      let dy = event.clientY - this.portraitMovementDrag.startY;
+      const magnitude = Math.hypot(dx, dy);
+      if (magnitude > radius) {
+        dx = (dx / magnitude) * radius;
+        dy = (dy / magnitude) * radius;
+      }
+      if (magnitude < 6) this.dispatchPortraitMovement(0, 0);
+      else this.dispatchPortraitMovement(dx / radius, dy / radius);
       return;
     }
     if (!this.pointerPositions.has(event.pointerId)) return;
@@ -3529,28 +3509,6 @@ export class ThreeGameView {
     window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', {
       detail: { x: screenX * scale, y: screenY * scale },
     }));
-  }
-
-  private updatePortraitMovement(clientX: number, clientY: number): void {
-    const view = this.playerViews.get(this.playerId);
-    if (!view) {
-      this.dispatchPortraitMovement(0, 0);
-      return;
-    }
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const projected = view.root.position.clone().project(this.camera);
-    const actorX = rect.left + ((projected.x + 1) / 2) * rect.width;
-    const actorY = rect.top + ((1 - projected.y) / 2) * rect.height;
-    const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
-    const direction = pointerDirectionFromActor(
-      clientX,
-      clientY,
-      actorX,
-      actorY,
-      radius,
-      12,
-    );
-    this.dispatchPortraitMovement(direction.x, direction.y);
   }
 
   private selectAt(clientX: number, clientY: number): void {
