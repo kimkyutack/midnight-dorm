@@ -3,7 +3,7 @@ import { BALANCE } from '../shared/balance';
 import { normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
-import type { ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
+import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
 import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
 import { shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
@@ -53,6 +53,8 @@ export class GameRoom extends DurableObject<Env> {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private snapshotAccumulator = 0;
   private persistAccumulator = 0;
+  private persistInFlight: Promise<void> | null = null;
+  private persistQueued = false;
   private recordedMatchId: string | null = null;
   private recordingMatchId: string | null = null;
   private rankedQueue: RankedQueueRoomConfig | null = null;
@@ -454,7 +456,7 @@ export class GameRoom extends DurableObject<Env> {
 
   private broadcastSnapshot(): void {
     if (!this.engine) return;
-    const snapshot = this.engine.snapshot();
+    const snapshot = this.networkSnapshot();
     const message: ServerMessage = {
       type: 'snapshot',
       sequence: snapshot.serverSeq,
@@ -478,8 +480,30 @@ export class GameRoom extends DurableObject<Env> {
       reconnectToken: attachment.reconnectToken,
       reconnectDeadline: Date.now() + BALANCE.reconnectMs,
       map: this.engine.map,
-      snapshot: this.engine.snapshot(),
+      snapshot: this.networkSnapshot(),
     });
+  }
+
+  /**
+   * Navigation paths are server-only authority data. Sending every path node
+   * ten times per second makes undead minion waves disproportionately enlarge
+   * the WebSocket payload even though clients render from positions alone.
+   */
+  private networkSnapshot(): GameSnapshot {
+    const snapshot = (this.engine as GameEngine).snapshot();
+    const ghosts = snapshot.ghosts.map((ghost) =>
+      ghost.path.length > 0 ? { ...ghost, path: [] } : ghost,
+    );
+    const leadGhost =
+      ghosts.find((ghost) => ghost.id === snapshot.ghost.id) ??
+      (snapshot.ghost.path.length > 0
+        ? { ...snapshot.ghost, path: [] }
+        : snapshot.ghost);
+    return {
+      ...snapshot,
+      ghost: leadGhost,
+      ghosts,
+    };
   }
 
   private sendError(socket: WebSocket, code: string, message: string): void {
@@ -497,14 +521,28 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private async persist(): Promise<void> {
-    if (this.engine) await this.ctx.storage.put('engine', this.engine.serialize());
+    this.persistQueued = true;
+    if (this.persistInFlight) return this.persistInFlight;
+    const flush = async (): Promise<void> => {
+      while (this.persistQueued) {
+        this.persistQueued = false;
+        const serialized = this.engine?.serialize();
+        if (serialized) await this.ctx.storage.put('engine', serialized);
+      }
+    };
+    this.persistInFlight = flush().finally(() => {
+      this.persistInFlight = null;
+    });
+    return this.persistInFlight;
   }
 
   private async destroyRoom(): Promise<void> {
     this.stopTicking();
     await this.ctx.storage.deleteAlarm();
-    await this.ctx.storage.deleteAll();
+    this.persistQueued = false;
     this.engine = null;
+    if (this.persistInFlight) await this.persistInFlight;
+    await this.ctx.storage.deleteAll();
   }
 
   private async recordOutcomeIfNeeded(): Promise<void> {

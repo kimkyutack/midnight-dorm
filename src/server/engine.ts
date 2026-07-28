@@ -111,6 +111,11 @@ const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'cursed-contract',
   'soul-vial',
 ]);
+const OFFENSIVE_BUILD_KINDS = new Set<BuildingKind>([
+  'basic-turret',
+  'golden-turret',
+  'electric-coil',
+]);
 
 const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
   'adrenal-shot': 4,
@@ -2420,19 +2425,121 @@ export class GameEngine {
   }
 
   private updateBuildings(dt: number): void {
+    const roomsById = new Map(
+      this.state.rooms.map((room) => [room.id, room] as const),
+    );
+    const ownersById = new Map(
+      this.state.players.map((player) => [player.id, player] as const),
+    );
+    const buildingsByOwner = new Map<string, BuildingState[]>();
+    for (const building of this.state.buildings) {
+      const owned = buildingsByOwner.get(building.ownerId);
+      if (owned) owned.push(building);
+      else buildingsByOwner.set(building.ownerId, [building]);
+    }
+    const effectsByOwner = new Map(
+      this.state.players.map((player) => {
+        const placed = (buildingsByOwner.get(player.id) ?? [])
+          .filter(
+            (building) =>
+              building.kind === 'random-item' && Boolean(building.itemId),
+          )
+          .map((building) => ({
+            itemId: building.itemId as string,
+            count: 1,
+          }));
+        return [
+          player.id,
+          combinedItemEffects([...player.items, ...placed]),
+        ] as const;
+      }),
+    );
+    const traitsByOwner = new Map(
+      this.state.players.map(
+        (player) =>
+          [player.id, characterTraitForAppearance(player.appearance)] as const,
+      ),
+    );
+    const panelModeByOwner = new Map<string, BuildingState['powerPanelMode']>();
+    const overloadUntilByOwner = new Map<string, number>();
+    const rangeBonusByOwner = new Map<string, number>();
+    const soulVialsByOwner = new Map<string, BuildingState[]>();
+    for (const [ownerId, buildings] of buildingsByOwner) {
+      panelModeByOwner.set(
+        ownerId,
+        buildings.find((building) => building.kind === 'power-panel')
+          ?.powerPanelMode,
+      );
+      overloadUntilByOwner.set(
+        ownerId,
+        buildings.reduce(
+          (latest, building) =>
+            building.kind === 'overload-capacitor' &&
+            (building.overloadUntil ?? 0) > this.state.elapsed
+              ? Math.max(latest, building.overloadUntil ?? 0)
+              : latest,
+          0,
+        ),
+      );
+      rangeBonusByOwner.set(
+        ownerId,
+        buildings.find((building) => building.kind === 'range-amplifier')
+          ?.level ?? 0,
+      );
+      soulVialsByOwner.set(
+        ownerId,
+        buildings.filter((building) => building.kind === 'soul-vial'),
+      );
+    }
+    const targetedRoomIds = new Set(
+      this.state.ghosts
+        .filter((ghost) => ghost.hp > 0)
+        .flatMap((ghost) => ghost.targetRoomId ? [ghost.targetRoomId] : []),
+    );
+    const frostBuildings = this.state.buildings.filter(
+      (building) => building.kind === 'frost-turret',
+    );
+    const frostSourcesByGhost = new Map<
+      string,
+      { ids: Set<string>; firstId: string }
+    >();
+    for (const ghost of this.state.ghosts) {
+      if (ghost.hp <= 0 || ghost.healing) continue;
+      const sources = frostBuildings.filter(
+        (building) =>
+          distance(building.tile, ghost.position) <=
+          buildingStats(building.kind, building.level).range,
+      );
+      if (sources.length > 0) {
+        frostSourcesByGhost.set(ghost.id, {
+          ids: new Set(sources.map((building) => building.id)),
+          firstId: (sources[0] as BuildingState).id,
+        });
+      }
+    }
+    const nearestActiveGhost = (tile: Tile): GhostState | undefined => {
+      let nearest: GhostState | undefined;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const ghost of this.state.ghosts) {
+        if (ghost.hp <= 0 || ghost.healing) continue;
+        const candidateDistance = distance(ghost.position, tile);
+        if (candidateDistance >= nearestDistance) continue;
+        nearest = ghost;
+        nearestDistance = candidateDistance;
+      }
+      return nearest;
+    };
+
     for (const building of this.state.buildings) {
       building.cooldown -= dt;
       const visualLevel = building.effectiveLevel ?? building.level;
       const stats = buildingStats(building.kind, visualLevel);
-      const room = this.state.rooms.find(
-        (candidate) => candidate.id === building.roomId,
-      );
-      const owner = this.state.players.find(
-        (candidate) => candidate.id === building.ownerId,
-      );
+      const room = roomsById.get(building.roomId);
+      const owner = ownersById.get(building.ownerId);
       // 아직 점유되지 않은 방의 기본 설비는 보이기만 하고 생산·공격하지 않는다.
       if (!owner) continue;
-      const effects = owner ? this.itemEffectsFor(owner) : combinedItemEffects([]);
+      const effects = effectsByOwner.get(owner.id) ??
+        combinedItemEffects([]);
       if (
         building.kind === "repair-drone" &&
         room &&
@@ -2440,17 +2547,15 @@ export class GameEngine {
         this.state.elapsed >= this.state.repairSuppressedUntil
       )
         room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
-      const nearest = this.state.ghosts
-        .filter((ghost) => ghost.hp > 0 && !ghost.healing)
-        .sort(
-          (a, b) =>
-            distance(a.position, building.tile) -
-            distance(b.position, building.tile),
-        )[0];
+      const offensive = OFFENSIVE_BUILD_KINDS.has(building.kind);
+      const nearest =
+        offensive || building.kind === 'shield-device'
+          ? nearestActiveGhost(building.tile)
+          : undefined;
       if (
         building.kind === "shield-device" &&
         room &&
-        this.state.ghosts.some((ghost) => ghost.targetRoomId === room.id) &&
+        targetedRoomIds.has(room.id) &&
         nearest &&
         distance(nearest.position, building.tile) < 7 &&
         building.cooldown <= 0
@@ -2459,19 +2564,11 @@ export class GameEngine {
         building.cooldown = stats.rate + 8;
       }
       if (building.kind === "frost-turret") {
-        for (const ghost of this.state.ghosts.filter(
-          (candidate) =>
-            candidate.hp > 0 &&
-            !candidate.healing &&
-            distance(candidate.position, building.tile) <= stats.range,
-        )) {
-          const frostSources = this.state.buildings.filter(
-            (candidate) =>
-              candidate.kind === "frost-turret" &&
-              distance(candidate.tile, ghost.position) <=
-                buildingStats(candidate.kind, candidate.level).range,
-          );
-          const stacks = frostSources.length;
+        for (const ghost of this.state.ghosts) {
+          if (ghost.hp <= 0 || ghost.healing) continue;
+          const frostSources = frostSourcesByGhost.get(ghost.id);
+          if (!frostSources?.ids.has(building.id)) continue;
+          const stacks = frostSources.ids.size;
           // Each upgraded spray adds 16% slow, capped so the ghost remains
           // visible and can eventually retreat instead of becoming frozen.
           this.applyGhostSlow(
@@ -2481,47 +2578,31 @@ export class GameEngine {
           );
           // Count adaptation exactly once per ghost/tick, regardless of how
           // many overlapping spray objects happen to be iterated first.
-          if (frostSources[0]?.id === building.id)
+          if (frostSources.firstId === building.id)
             this.applyControlAdaptation(ghost, stacks, dt);
         }
       }
-      const offensive = [
-        "basic-turret",
-        "golden-turret",
-        "electric-coil",
-      ].includes(building.kind);
-      const trait = owner
-        ? characterTraitForAppearance(owner.appearance)
-        : characterTraitForAppearance(DEFAULT_APPEARANCE);
+      if (!offensive) continue;
+      const trait = traitsByOwner.get(owner.id) ??
+        characterTraitForAppearance(DEFAULT_APPEARANCE);
       const skinTrait = turretSkinTrait(
         building.skinId,
         building.kind === 'basic-turret'
           ? building.kind
           : undefined,
       );
-      const panelMode = this.state.buildings.find(
-        (candidate) => candidate.ownerId === building.ownerId && candidate.kind === "power-panel",
-      )?.powerPanelMode;
+      const panelMode = panelModeByOwner.get(building.ownerId);
       const panelAttack = panelMode === "attack";
       const panelTurretDamageMultiplier = panelMode === "defense" || panelMode === "production" ? 0.85 : 1;
       const overloadActive =
         (building.kind === "basic-turret" || building.kind === "golden-turret") &&
-        this.state.buildings.some(
-        (candidate) =>
-          candidate.ownerId === building.ownerId &&
-          candidate.kind === "overload-capacitor" &&
-          this.state.elapsed < (candidate.overloadUntil ?? 0),
-        );
+        (overloadUntilByOwner.get(building.ownerId) ?? 0) >
+          this.state.elapsed;
       // 일반 포탑은 4칸 기본 사거리이며, 황금 심판 포탑과 사거리 아이템만
       // 이 서버 권한 타깃 사거리에 예외 보정을 더한다.
       const roomRangeBonus = building.kind === "electric-coil"
         ? 0
-        : (this.state.buildings.find(
-            (candidate) =>
-              candidate.ownerId === building.ownerId &&
-              candidate.kind === "range-amplifier" &&
-              Boolean(candidate.ownerId),
-          )?.level ?? 0);
+        : (rangeBonusByOwner.get(building.ownerId) ?? 0);
       const range = stats.range + effects.turretRangeBonus + trait.turretRangeBonus + roomRangeBonus;
       if (
         !offensive ||
@@ -2558,8 +2639,7 @@ export class GameEngine {
       }
       const appliedDamage = this.applyGhostDamage(nearest, damage, building.roomId, building.kind);
       if (appliedDamage > 0) {
-        for (const vial of this.state.buildings) {
-          if (vial.ownerId !== building.ownerId || vial.kind !== "soul-vial") continue;
+        for (const vial of soulVialsByOwner.get(building.ownerId) ?? []) {
           vial.storedSoulDamage = Math.min(1_000_000, (vial.storedSoulDamage ?? 0) + appliedDamage);
         }
       }

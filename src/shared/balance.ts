@@ -162,10 +162,7 @@ export const BALANCE = {
       label: '문 수리대',
       description: '매초 문 HP를 회복합니다.',
       maxLevel: 3,
-      // A fully upgraded stand should restore a mid-game door during the
-      // ghost's seven-second recovery trip, rather than merely slowing its
-      // inevitable next break.
-      levels: [level(70, 0, 12, 1, 0), level(140, 0, 36, 1, 0), level(280, 0, 90, 1, 0)],
+      levels: [level(70, 0, 6, 1, 0), level(140, 0, 18, 1, 0), level(280, 0, 45, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',

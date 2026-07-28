@@ -1093,6 +1093,8 @@ describe('authoritative game rules', () => {
 
   it('sells the door repair stand for gold while other support devices use power', () => {
     expect(upgradeCost('repair-drone', 1)).toEqual({ gold: 70, power: 0 });
+    expect([1, 2, 3].map((level) => buildingStats('repair-drone', level).value))
+      .toEqual([6, 18, 45]);
     expect(upgradeCost('electric-coil', 1)).toEqual({ gold: 0, power: 12 });
     expect(upgradeCost('shield-device', 1)).toEqual({ gold: 0, power: 9 });
 
@@ -2601,7 +2603,7 @@ describe('requested progression and event rules', () => {
     }
     expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(400);
     expect(hitCount).toBeGreaterThan(0);
-    expect(buildingStats('repair-drone', 3).value).toBe(90);
+    expect(buildingStats('repair-drone', 3).value).toBe(45);
   });
 
   it('retreats toward the respawn area below twenty percent HP', () => {

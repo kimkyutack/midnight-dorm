@@ -1320,15 +1320,19 @@ function modelPreviewHtml(
   turretMode = false,
   tileSkinId?: string,
   turretSkinId?: string,
+  tileMode = false,
 ): string {
-  if (tileSkinId) {
+  if (tileMode) {
+    if (!tileSkinId) {
+      return `<div class="custom-avatar-stage tile-skin-preview-stage empty-tile-preview" data-avatar-preview><div class="tile-skin-preview-room" aria-hidden="true"></div><span>장착한 타일 스킨 없음</span></div>`;
+    }
     return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div><span>침대 점유 시 방 전체에 적용</span></div>`;
   }
   if (turretMode) {
     const previewUrl =
-      turretSkinAssetUrl(turretSkinId, 15) ??
-      "/assets/buildings/cute-basic-turret-15.png";
-    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.15 미리보기"/><span>Lv.1부터 Lv.15까지 단계별 외형 적용</span></div>`;
+      turretSkinAssetUrl(turretSkinId, 1) ??
+      "/assets/buildings/cute-basic-turret-1.png";
+    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>Lv.1부터 Lv.15까지 단계별 외형 적용</span></div>`;
   }
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
@@ -1441,7 +1445,10 @@ function cosmeticCollectionScreen(
     )
     .join("");
   const catalog = cosmeticsForSlot(selectedSlot).filter(
-    (item) => shopping || cosmeticEntitled(item, currentAccount),
+    (item) =>
+      (shopping || cosmeticEntitled(item, currentAccount)) &&
+      (selectedSlot !== "tile" || item.id !== DEFAULT_TILE_SKIN_ID) &&
+      (selectedSlot !== "turret" || item.id === SURFER_WATER_TURRET_SKIN_ID),
   );
   const displayCatalog =
     selectedSlot === "turret"
@@ -1556,12 +1563,12 @@ function cosmeticCollectionScreen(
         item.description;
       const authoredTurretArt =
         item.slot === "turret"
-          ? turretSkinAssetUrl(item.id, 15)
+          ? turretSkinAssetUrl(item.id, 1)
           : undefined;
       const art = item.slot === "tile"
         ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
         : authoredTurretArt
-          ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.15 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+          ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : premiumSurfer
         ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
         : premiumLifeguard
@@ -1572,23 +1579,22 @@ function cosmeticCollectionScreen(
     .join("");
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
+  const initialTilePreviewId = shopping
+    ? previewItemId ?? WAVE_TILE_SKIN_ID
+    : previewItemId ??
+      displayCatalog.find((item) => item.id === appearance.tileSkin)?.id ??
+      displayCatalog[0]?.id;
   const initialPreviewItem =
     selectedSlot === "skin"
       ? shopping
         ? cosmeticById(previewItemId ?? SURFER_MONG_SKIN_ID)
         : undefined
       : selectedSlot === "tile"
-        ? cosmeticById(
-            shopping
-              ? previewItemId ?? WAVE_TILE_SKIN_ID
-              : appearance.tileSkin ?? DEFAULT_TILE_SKIN_ID,
-          )
+        ? initialTilePreviewId
+          ? cosmeticById(initialTilePreviewId)
+          : undefined
         : selectedSlot === "turret"
-          ? cosmeticById(
-              shopping
-                ? previewItemId ?? SURFER_WATER_TURRET_SKIN_ID
-                : currentAccount.turretSkins["basic-turret"],
-            )
+          ? cosmeticById(previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
         : undefined;
   const initialPreviewAppearance: AvatarAppearance =
     initialPreviewItem?.slot === "skin"
@@ -1609,7 +1615,7 @@ function cosmeticCollectionScreen(
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id ?? DEFAULT_TILE_SKIN_ID : undefined, turretMode ? initialTurret?.id : undefined)}<div><strong data-custom-preview-title>${turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1655,10 +1661,10 @@ function cosmeticCollectionScreen(
         app.querySelector<HTMLImageElement>("[data-turret-preview]");
       if (turretPreview) {
         turretPreview.src = `${
-          turretSkinAssetUrl(item.id, 15) ??
-          "/assets/buildings/cute-basic-turret-15.png"
+          turretSkinAssetUrl(item.id, 1) ??
+          "/assets/buildings/cute-basic-turret-1.png"
         }?v=${APP_RELEASE_VERSION}`;
-        turretPreview.alt = `${item.label} Lv.15 미리보기`;
+        turretPreview.alt = `${item.label} Lv.1 미리보기`;
       }
     } else {
       const previewAppearance: AvatarAppearance =

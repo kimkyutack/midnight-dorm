@@ -486,6 +486,44 @@ function setObjectOpacity(object: THREE.Object3D, opacity: number): void {
   });
 }
 
+function disposeBillboards(object: THREE.Object3D): void {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Sprite)) return;
+    const data = child.userData.billboard as BillboardData | undefined;
+    if (!data) return;
+    data.texture.dispose();
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    for (const material of materials) material.dispose();
+  });
+}
+
+function disposeBuildingRoot(object: THREE.Object3D): void {
+  object.traverse((child) => {
+    if (
+      !(child instanceof THREE.Mesh) &&
+      !(child instanceof THREE.Line) &&
+      !(child instanceof THREE.Sprite)
+    )
+      return;
+    child.geometry?.dispose();
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    for (const material of materials) {
+      if (
+        material instanceof THREE.SpriteMaterial &&
+        material.map instanceof THREE.CanvasTexture
+      )
+        material.map.dispose();
+      // Authored building textures are shared by the module cache. Dispose
+      // only the per-view material and geometry when a level/model changes.
+      material.dispose();
+    }
+  });
+}
+
 export function createPlayerRig(
   appearance: AvatarAppearance,
   displayRank: RankId,
@@ -2565,6 +2603,7 @@ export class ThreeGameView {
       if (view && view.appearanceKey !== appearanceKey) {
         this.scene.remove(view.root);
         view.actor.dispose();
+        disposeBillboards(view.root);
         this.playerViews.delete(player.id);
         view = undefined;
       }
@@ -2635,6 +2674,7 @@ export class ThreeGameView {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
       view.actor.dispose();
+      disposeBillboards(view.root);
       this.playerViews.delete(id);
     }
   }
@@ -2646,6 +2686,7 @@ export class ThreeGameView {
       if (view && view.variant !== ghost.variant) {
         this.scene.remove(view.root);
         view.actor.dispose();
+        disposeBillboards(view.root);
         this.ghostViews.delete(ghost.id);
         view = undefined;
       }
@@ -2663,9 +2704,19 @@ export class ThreeGameView {
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
         hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
         root.add(label, hp);
-        const light = new THREE.PointLight(GHOST_GLOW_COLORS[ghost.variant], ghost.variant === 'giant' ? 1.7 : 0.9, ghost.variant === 'giant' ? 5.2 : 3.2, 2);
-        light.position.y = 1.2;
-        root.add(light);
+        // Minion waves can contain twelve actors. A dynamic point light for
+        // every minion multiplies the fragment-lighting cost while adding
+        // little at their small on-screen size, so only full ghosts emit one.
+        if (ghost.variant !== 'minion') {
+          const light = new THREE.PointLight(
+            GHOST_GLOW_COLORS[ghost.variant],
+            ghost.variant === 'giant' ? 1.7 : 0.9,
+            ghost.variant === 'giant' ? 5.2 : 3.2,
+            2,
+          );
+          light.position.y = 1.2;
+          root.add(light);
+        }
         this.scene.add(root);
         view = {
           root,
@@ -2690,6 +2741,7 @@ export class ThreeGameView {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
       view.actor.dispose();
+      disposeBillboards(view.root);
       this.ghostViews.delete(id);
     }
   }
@@ -2699,6 +2751,24 @@ export class ThreeGameView {
     const local = snapshot.players.find((player) => player.id === this.playerId);
     const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const active = new Set(buildings.map((building) => building.id));
+    const roomsById = new Map(
+      snapshot.rooms.map((room) => [room.id, room] as const),
+    );
+    const overloadUntilByOwner = new Map<string, number>();
+    for (const building of buildings) {
+      if (
+        building.kind !== 'overload-capacitor' ||
+        (building.overloadUntil ?? 0) <= snapshot.elapsed
+      )
+        continue;
+      overloadUntilByOwner.set(
+        building.ownerId,
+        Math.max(
+          overloadUntilByOwner.get(building.ownerId) ?? 0,
+          building.overloadUntil ?? 0,
+        ),
+      );
+    }
     for (const building of buildings) {
       let view = this.buildingViews.get(building.id);
       const visualLevel = building.effectiveLevel ?? building.level;
@@ -2707,6 +2777,7 @@ export class ThreeGameView {
         (view.modelLevel !== visualLevel || view.skinId !== building.skinId || view.kind !== building.kind || view.itemId !== building.itemId)
       ) {
         this.scene.remove(view.root);
+        disposeBuildingRoot(view.root);
         this.buildingViews.delete(building.id);
         view = undefined;
       }
@@ -2741,10 +2812,8 @@ export class ThreeGameView {
       if (this.buildingDrag?.buildingId !== building.id) {
         view.root.position.copy(worldPoint(building.tile));
       }
-      const overloadUntil = snapshot.buildings.find((candidate) =>
-        candidate.ownerId === building.ownerId && candidate.kind === 'overload-capacitor'
-          && (candidate.overloadUntil ?? 0) > snapshot.elapsed,
-      )?.overloadUntil ?? 0;
+      const overloadUntil =
+        overloadUntilByOwner.get(building.ownerId) ?? 0;
       const overloadActive = building.kind === 'basic-turret' && overloadUntil > snapshot.elapsed;
       const chargeRemaining = Math.max(0, (building.soulChargeReadyAt ?? 0) - snapshot.elapsed);
       const soulCharging = chargeRemaining > 0;
@@ -2763,7 +2832,7 @@ export class ThreeGameView {
         building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
           ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
           : null;
-      const room = snapshot.rooms.find((candidate) => candidate.id === building.roomId);
+      const room = roomsById.get(building.roomId);
       const requirement = upgradeRequirement(building.kind, building.level, {
         bedLevel: room?.bedLevels[local?.bedIndex ?? 0] ?? 1,
         doorLevel: room?.doorLevel ?? 1,
@@ -2786,6 +2855,7 @@ export class ThreeGameView {
     for (const [id, view] of this.buildingViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
+      disposeBuildingRoot(view.root);
       this.buildingViews.delete(id);
     }
   }

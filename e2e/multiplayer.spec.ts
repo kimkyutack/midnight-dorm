@@ -364,7 +364,10 @@ test("portrait home separates shop, owned customization and stage start", async 
       "skin-look-cat-ward",
     );
     await page.getByRole("button", { name: "타일", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(2);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(1);
+    await expect(
+      page.locator(".cosmetic-card", { hasText: "기본 병동 타일" }),
+    ).toHaveCount(0);
     const waveTileCard = page.locator(".cosmetic-card", {
       hasText: "파도 타일",
     });
@@ -391,7 +394,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(surferTurretCard).toBeVisible();
     await expect(surferTurretCard.locator("img")).toHaveAttribute(
       "src",
-      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-15\.png\?v=/,
+      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-01\.png\?v=/,
     );
     await expect(
       surferTurretCard.getByRole("button", { name: "1,500 P" }),
@@ -402,7 +405,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await expect(page.locator("[data-turret-preview]")).toHaveAttribute(
       "src",
-      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-15\.png\?v=/,
+      /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-01\.png\?v=/,
     );
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
@@ -429,12 +432,11 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".skin-preview-canvas")).toHaveAttribute("data-avatar-view", "back");
     await expect(page.locator(".skin-preview-canvas")).toHaveAttribute("data-preview-kind", "avatar");
     await page.getByRole("button", { name: "타일", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(1);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(0);
     await expect(
-      page.locator(".cosmetic-card", { hasText: "기본 병동 타일" })
-        .getByRole("button", { name: "착용 중" }),
-    ).toBeDisabled();
-    await expect(page.locator("[data-tile-preview]")).toBeVisible();
+      page.locator(".empty-collection"),
+    ).toContainText("보유한 타일 스킨이 없습니다.");
+    await expect(page.locator("[data-tile-preview]")).toHaveCount(0);
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();
