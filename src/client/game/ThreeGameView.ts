@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
-import { fullRoomFloorKeys, moveInWalkableArea, overlapsBlockedTiles } from '../../shared/map';
+import { fullRoomFloorKeys, moveInWalkableArea } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
@@ -10,7 +10,7 @@ import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
-import { facingDeltaForMotion } from './avatarMath';
+import { facingDeltaForMotion, pointerDirectionFromActor } from './avatarMath';
 import { buildingAssetUrl } from './BuildingAssets';
 
 const CAMERA_HEIGHT = 18;
@@ -28,6 +28,10 @@ const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
 const LOCAL_MAX_PREDICTION_LEAD = 2.6;
+const MAX_RECONCILE_STEP = 0.18;
+const FLOOR_TILE_HEIGHT = 0.08;
+const ROOM_FLOOR_OFFSET_Y = 0.003;
+const ROOM_FLOOR_CENTER_Y = ROOM_FLOOR_OFFSET_Y + FLOOR_TILE_HEIGHT / 2;
 const buildingTextureLoader = new THREE.TextureLoader();
 const buildingTextureCache = new Map<string, THREE.Texture>();
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
@@ -71,7 +75,6 @@ interface ViewPayload {
   snapshot: GameSnapshot;
   onSleep?: () => void;
   onPickupLoot?: (lootId: string) => void;
-  onRoomBlocked?: () => void;
 }
 
 interface BillboardData {
@@ -154,6 +157,7 @@ interface BedView {
 interface RoomTileSkinView {
   skinId: string;
   root: THREE.Group;
+  baseFloor: THREE.InstancedMesh;
   tiles: Array<{
     mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
     delay: number;
@@ -179,8 +183,6 @@ interface MultiTouchGesture {
 
 interface PortraitMovementDrag {
   id: number;
-  startX: number;
-  startY: number;
 }
 
 interface BuildingDragCandidate {
@@ -1668,7 +1670,6 @@ export class ThreeGameView {
   private readonly sleepButton: HTMLButtonElement;
   private readonly onSleep: () => void;
   private readonly onPickupLoot: (lootId: string) => void;
-  private readonly onRoomBlocked: () => void;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly selectionSurface: THREE.Mesh;
@@ -1684,9 +1685,12 @@ export class ThreeGameView {
   private readonly resizeObserver: ResizeObserver;
   private readonly selectionMarker: THREE.Mesh;
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
+  private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
   private readonly environmentTextures: THREE.Texture[] = [];
   private roomSkinSyncInitialized = false;
+  private readonly localPredictionBlockedTiles = new Set<string>();
+  private localPredictionCollisionLatched = false;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private drag: PointerDrag | null = null;
@@ -1706,7 +1710,6 @@ export class ThreeGameView {
   private paused = false;
   private destroyed = false;
   private nearbyLootId: string | null = null;
-  private lastRoomBlockedNoticeAt = 0;
 
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
@@ -1715,7 +1718,6 @@ export class ThreeGameView {
     this.snapshotData = payload.snapshot;
     this.onSleep = payload.onSleep ?? (() => undefined);
     this.onPickupLoot = payload.onPickupLoot ?? (() => undefined);
-    this.onRoomBlocked = payload.onRoomBlocked ?? (() => undefined);
     this.portraitLayout = host.clientHeight > host.clientWidth;
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
@@ -1782,7 +1784,25 @@ export class ThreeGameView {
     this.renderer.setAnimationLoop(this.animate);
   }
 
-  setLocalInput(input: Vec2): void { this.localInput = input; }
+  setLocalInput(input: Vec2): void {
+    const wasMoving = Math.hypot(this.localInput.x, this.localInput.y) > 0.0001;
+    const moving = Math.hypot(input.x, input.y) > 0.0001;
+    if (!wasMoving && moving) {
+      this.localPredictionBlockedTiles.clear();
+      for (const key of fullRoomFloorKeys(
+        this.mapData,
+        this.snapshotData.rooms,
+        this.snapshotData.playMode === 'multiplayer' ? 2 : 1,
+      )) {
+        this.localPredictionBlockedTiles.add(key);
+      }
+      this.localPredictionCollisionLatched = true;
+    } else if (!moving) {
+      this.localPredictionBlockedTiles.clear();
+      this.localPredictionCollisionLatched = false;
+    }
+    this.localInput = input;
+  }
 
   getCameraMode(): 'follow' | 'free' { return this.followingPlayer ? 'follow' : 'free'; }
 
@@ -1790,6 +1810,11 @@ export class ThreeGameView {
 
   /** 수직 2D 카메라는 북쪽 고정이며 테스트 API에는 0으로 노출한다. */
   getCameraYaw(): number { return 0; }
+
+  getLocalRenderedPosition(): Vec2 | null {
+    const position = this.playerViews.get(this.playerId)?.root.position;
+    return position ? { x: position.x, y: position.z } : null;
+  }
 
   focusLocalPlayer(): void {
     this.focusPlayer(this.playerId);
@@ -2095,7 +2120,24 @@ export class ThreeGameView {
     const roomTexture = this.loadEnvironmentTexture(this.theme.roomAsset);
     const wallTexture = this.loadEnvironmentTexture(this.theme.wallAsset);
     this.addTileInstances(corridorTiles, corridorTexture, 0);
-    this.addTileInstances(roomTiles, roomTexture, 0.003);
+    const assignedRoomTileKeys = new Set(
+      this.mapData.rooms.flatMap((room) =>
+        room.floorTiles.map((tile) => `${tile.x},${tile.y}`),
+      ),
+    );
+    const unassignedRoomTiles = roomTiles.filter(
+      (tile) => !assignedRoomTileKeys.has(`${tile.x},${tile.y}`),
+    );
+    if (unassignedRoomTiles.length > 0) {
+      this.addTileInstances(unassignedRoomTiles, roomTexture, ROOM_FLOOR_OFFSET_Y);
+    }
+    for (const room of this.mapData.rooms) {
+      if (room.floorTiles.length === 0) continue;
+      this.baseRoomFloors.set(
+        room.id,
+        this.addTileInstances(room.floorTiles, roomTexture, ROOM_FLOOR_OFFSET_Y),
+      );
+    }
 
     const buildTiles = this.mapData.rooms.flatMap((room) => room.buildTiles);
     const horizontalPlusGeometry = new THREE.BoxGeometry(0.18, 0.022, 0.042);
@@ -2166,6 +2208,7 @@ export class ThreeGameView {
       if (!textureUrl) {
         const previous = this.roomTileSkinViews.get(room.id);
         if (previous) {
+          previous.baseFloor.visible = true;
           this.scene.remove(previous.root);
           this.roomTileSkinViews.delete(room.id);
         }
@@ -2175,18 +2218,23 @@ export class ThreeGameView {
       const previous = this.roomTileSkinViews.get(room.id);
       if (previous?.skinId === room.tileSkinId) continue;
       if (previous) {
+        previous.baseFloor.visible = true;
         this.scene.remove(previous.root);
         this.roomTileSkinViews.delete(room.id);
       }
       const mapRoom = this.mapData.rooms.find((candidate) => candidate.id === room.id);
-      if (!mapRoom?.floorTiles.length) continue;
+      const baseFloor = this.baseRoomFloors.get(room.id);
+      if (!mapRoom?.floorTiles.length || !baseFloor) continue;
+      // A room skin replaces the authored room floor. It must not be an
+      // elevated overlay because that hides build markers and building art.
+      baseFloor.visible = false;
       const texture = this.loadEnvironmentTexture(textureUrl);
       const material = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         map: texture,
         fog: true,
       });
-      const geometry = new THREE.BoxGeometry(0.98, 0.085, 0.98);
+      const geometry = new THREE.BoxGeometry(0.98, FLOOR_TILE_HEIGHT, 0.98);
       const minX = Math.min(...mapRoom.floorTiles.map((tile) => tile.x));
       const maxX = Math.max(...mapRoom.floorTiles.map((tile) => tile.x));
       const minY = Math.min(...mapRoom.floorTiles.map((tile) => tile.y));
@@ -2195,9 +2243,8 @@ export class ThreeGameView {
       root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
       const tiles = mapRoom.floorTiles.map((tile) => {
         const floor = new THREE.Mesh(geometry, material);
-        floor.position.set(tile.x, 0.09, tile.y);
+        floor.position.set(tile.x, ROOM_FLOOR_CENTER_Y, tile.y);
         floor.receiveShadow = true;
-        floor.renderOrder = 30;
         root.add(floor);
         return {
           mesh: floor,
@@ -2257,6 +2304,7 @@ export class ThreeGameView {
       const view: RoomTileSkinView = {
         skinId: room.tileSkinId,
         root,
+        baseFloor,
         tiles,
         wave,
         startedAt: shouldAnimate ? now - serverProgressMs : now - transitionDuration,
@@ -2278,6 +2326,7 @@ export class ThreeGameView {
     }
     for (const [roomId, view] of this.roomTileSkinViews) {
       if (activeRoomIds.has(roomId)) continue;
+      view.baseFloor.visible = true;
       this.scene.remove(view.root);
       this.roomTileSkinViews.delete(roomId);
     }
@@ -2312,7 +2361,7 @@ export class ThreeGameView {
         const eased = 1 - (1 - progress) ** 3;
         tile.mesh.scale.x = Math.max(0.001, eased);
         tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
-        tile.mesh.position.y = 0.09 + Math.sin(progress * Math.PI) * 0.16;
+        tile.mesh.position.y = ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.16;
       }
       if (sweep >= 1 && view.tiles.every((tile) => elapsed >= tile.delay + 520)) {
         view.complete = true;
@@ -2320,7 +2369,7 @@ export class ThreeGameView {
         for (const tile of view.tiles) {
           tile.mesh.scale.x = 1;
           tile.mesh.rotation.z = 0;
-          tile.mesh.position.y = 0.09;
+          tile.mesh.position.y = ROOM_FLOOR_CENTER_Y;
         }
       }
     }
@@ -2379,10 +2428,10 @@ export class ThreeGameView {
     tiles: Tile[],
     texture: THREE.Texture,
     y: number,
-  ): void {
+  ): THREE.InstancedMesh {
     // Room and corridor each have authored art. Keep it at its source color
     // on every device; no theme-specific colour fallback or lighting tint.
-    const geometry = new THREE.BoxGeometry(0.98, 0.08, 0.98);
+    const geometry = new THREE.BoxGeometry(0.98, FLOOR_TILE_HEIGHT, 0.98);
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       map: texture,
@@ -2402,6 +2451,7 @@ export class ThreeGameView {
       floors.setMatrixAt(index, matrix);
     });
     this.scene.add(floors);
+    return floors;
   }
 
   private syncBuildableTiles(time: number): void {
@@ -2837,40 +2887,19 @@ export class ThreeGameView {
       const lying = Boolean(player.alive && player.roomId);
       const defeated = !player.alive;
       const isLocal = id === this.playerId;
-      const shouldSnapOutOfFullRoom =
-        isLocal &&
-        !lying &&
-        overlapsBlockedTiles(
-          view.root.position.x,
-          view.root.position.z,
-          BALANCE.player.collisionRadius,
-          blockedRoomFloorTiles,
-        ) &&
-        !overlapsBlockedTiles(
-          view.target.x,
-          view.target.z,
-          BALANCE.player.collisionRadius,
-          blockedRoomFloorTiles,
-        );
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
-      if (shouldSnapOutOfFullRoom) {
-        // The server ejects an intruder that lost a room race to the outside
-        // door.  A regular collision-aware correction cannot start from a
-        // newly blocked floor tile, so sync this one authoritative transition
-        // directly instead of visibly stuttering against the doorway wall.
-        view.root.position.copy(view.target);
-        if (time - this.lastRoomBlockedNoticeAt > 1_800) {
-          this.lastRoomBlockedNoticeAt = time;
-          this.onRoomBlocked();
-        }
-      } else if (hasLocalInput) {
+      const predictionBlockedTiles =
+        hasLocalInput && this.localPredictionCollisionLatched
+          ? this.localPredictionBlockedTiles
+          : blockedRoomFloorTiles;
+      if (hasLocalInput) {
         const predicted = moveInWalkableArea(this.mapData, {
           x: view.root.position.x,
           y: view.root.position.z,
         }, {
           x: this.localInput.x * localSpeed * dt,
           y: this.localInput.y * localSpeed * dt,
-        }, BALANCE.player.collisionRadius, 0.12, blockedRoomFloorTiles);
+        }, BALANCE.player.collisionRadius, 0.12, predictionBlockedTiles);
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const targetOffsetX = view.target.x - predicted.x;
         const targetOffsetZ = view.target.z - predicted.y;
@@ -2883,15 +2912,12 @@ export class ThreeGameView {
         const targetTrailsInput =
           targetOffsetX * this.localInput.x + targetOffsetZ * this.localInput.y < -0.025;
         if (
-          !targetTrailsInput &&
-          (
-            serverError > LOCAL_MAX_PREDICTION_LEAD ||
-            serverError > LOCAL_HARD_RECONCILE_DISTANCE
-          )
+          serverError > LOCAL_MAX_PREDICTION_LEAD ||
+          (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput)
         ) {
-          this.reconcilePlayerPosition(view, 16, dt, blockedRoomFloorTiles);
+          this.reconcilePlayerPosition(view, 16, dt, predictionBlockedTiles);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
-          this.reconcilePlayerPosition(view, 1.4, dt, blockedRoomFloorTiles);
+          this.reconcilePlayerPosition(view, 1.4, dt, predictionBlockedTiles);
         }
       } else {
         this.reconcilePlayerPosition(
@@ -2947,12 +2973,20 @@ export class ThreeGameView {
     blockedTileKeys?: ReadonlySet<string>,
   ): void {
     const amount = 1 - Math.exp(-speed * dt);
+    let correctionX = (view.target.x - view.root.position.x) * amount;
+    let correctionY = (view.target.z - view.root.position.z) * amount;
+    const correctionDistance = Math.hypot(correctionX, correctionY);
+    if (correctionDistance > MAX_RECONCILE_STEP) {
+      const scale = MAX_RECONCILE_STEP / correctionDistance;
+      correctionX *= scale;
+      correctionY *= scale;
+    }
     const corrected = moveInWalkableArea(this.mapData, {
       x: view.root.position.x,
       y: view.root.position.z,
     }, {
-      x: (view.target.x - view.root.position.x) * amount,
-      y: (view.target.z - view.root.position.z) * amount,
+      x: correctionX,
+      y: correctionY,
     }, BALANCE.player.collisionRadius, 0.12, blockedTileKeys);
     view.root.position.x = corrected.x;
     view.root.position.z = corrected.y;
@@ -3263,10 +3297,8 @@ export class ThreeGameView {
       this.renderer.domElement.setPointerCapture(event.pointerId);
       this.portraitMovementDrag = {
         id: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
       };
-      this.dispatchPortraitMovement(0, 0);
+      this.updatePortraitMovement(event.clientX, event.clientY);
       return;
     }
     // 점유 전의 생존자는 카메라가 본인을 추적한다. 사망 뒤에는 관전용으로
@@ -3306,17 +3338,7 @@ export class ThreeGameView {
   private readonly onPointerMove = (event: PointerEvent): void => {
     if (this.portraitMovementDrag?.id === event.pointerId) {
       event.preventDefault();
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
-      let dx = event.clientX - this.portraitMovementDrag.startX;
-      let dy = event.clientY - this.portraitMovementDrag.startY;
-      const magnitude = Math.hypot(dx, dy);
-      if (magnitude > radius) {
-        dx = (dx / magnitude) * radius;
-        dy = (dy / magnitude) * radius;
-      }
-      if (magnitude < 6) this.dispatchPortraitMovement(0, 0);
-      else this.dispatchPortraitMovement(dx / radius, dy / radius);
+      this.updatePortraitMovement(event.clientX, event.clientY);
       return;
     }
     if (!this.pointerPositions.has(event.pointerId)) return;
@@ -3507,6 +3529,28 @@ export class ThreeGameView {
     window.dispatchEvent(new CustomEvent<Vec2>('dorm:portrait-move', {
       detail: { x: screenX * scale, y: screenY * scale },
     }));
+  }
+
+  private updatePortraitMovement(clientX: number, clientY: number): void {
+    const view = this.playerViews.get(this.playerId);
+    if (!view) {
+      this.dispatchPortraitMovement(0, 0);
+      return;
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const projected = view.root.position.clone().project(this.camera);
+    const actorX = rect.left + ((projected.x + 1) / 2) * rect.width;
+    const actorY = rect.top + ((1 - projected.y) / 2) * rect.height;
+    const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
+    const direction = pointerDirectionFromActor(
+      clientX,
+      clientY,
+      actorX,
+      actorY,
+      radius,
+      12,
+    );
+    this.dispatchPortraitMovement(direction.x, direction.y);
   }
 
   private selectAt(clientX: number, clientY: number): void {

@@ -582,9 +582,10 @@ export function isWalkable(map: MapDefinition, x: number, y: number): boolean {
 }
 
 /**
- * Returns the floor tiles that cannot be entered by an unclaimed survivor.
- * Doors intentionally remain walkable: a player may reach a full room's door,
- * but can never cross its threshold or become an invalid intruder inside it.
+ * Returns the inside threshold of every full room. Blocking every floor tile
+ * made the collision topology change across a large area whenever a bot
+ * claimed a bed. The single tile immediately inside the door is sufficient to
+ * keep an unclaimed survivor out while the door tile remains reachable.
  */
 export function fullRoomFloorKeys(
   map: MapDefinition,
@@ -599,7 +600,15 @@ export function fullRoomFloorKeys(
   return new Set(
     map.rooms
       .filter((room) => fullRoomIds.has(room.id))
-      .flatMap((room) => room.floorTiles.map((tile) => tileKey(tile.x, tile.y))),
+      .flatMap((room) => {
+        const threshold = room.floorTiles.find(
+          (tile) =>
+            Math.abs(tile.x - room.door.x) +
+              Math.abs(tile.y - room.door.y) ===
+            1,
+        );
+        return threshold ? [tileKey(threshold.x, threshold.y)] : [];
+      }),
   );
 }
 
@@ -622,31 +631,6 @@ export function isWalkableArea(
     const key = tileKey(Math.round(sampleX), Math.round(sampleY));
     return keys.has(key) && !blockedTileKeys?.has(key);
   });
-}
-
-/**
- * Reports whether any collision sample of a circular actor overlaps a blocked
- * tile. This is intentionally based on the same samples as `isWalkableArea` so
- * callers can detect a player straddling a newly closed room boundary even
- * when the player's rounded centre is still on the doorway tile.
- */
-export function overlapsBlockedTiles(
-  x: number,
-  y: number,
-  radius: number,
-  blockedTileKeys?: ReadonlySet<string>,
-): boolean {
-  if (!blockedTileKeys?.size) return false;
-  const samples = [
-    [x, y],
-    [x - radius, y - radius],
-    [x + radius, y - radius],
-    [x - radius, y + radius],
-    [x + radius, y + radius],
-  ] as const;
-  return samples.some(([sampleX, sampleY]) =>
-    blockedTileKeys.has(tileKey(Math.round(sampleX), Math.round(sampleY))),
-  );
 }
 
 /**

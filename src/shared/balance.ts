@@ -91,6 +91,10 @@ export const BALANCE = {
     // 유지한다. 과도한 배율은 10Hz 스냅샷 사이의 이동량을 키워 모바일에서
     // 순간이동처럼 보이므로, 기본 생존자와 비슷한 속도로 제한한다.
     outsideTargetSpeedMultiplier: 1.35,
+    // 준비 시간이 끝날 때까지 방을 점유하지 못한 생존자는 계속 도망쳐
+    // 전투를 무기한 지연할 수 없다. 감속과 느린 귀신 변종을 포함해 실제
+    // 대상 생존자의 현재 속도보다 최소 1.5배 빠르게 추격한다.
+    outsideTargetMinimumPlayerMultiplier: 1.5,
     attackInterval: 1.25,
     retreatThreshold: 0.2,
     healDurationSeconds: 7,

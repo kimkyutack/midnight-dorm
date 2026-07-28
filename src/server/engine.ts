@@ -19,7 +19,7 @@ import {
   drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
-import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea, overlapsBlockedTiles, tileKey } from "../shared/map";
+import { fullRoomFloorKeys, isBuildTile, moveInWalkableArea } from "../shared/map";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -1107,7 +1107,16 @@ export class GameEngine {
       player.lastInputSeq = inputSequence;
       return { ok: true };
     }
-    player.velocity = normalize({ x: dx, y: dy });
+    // Keep the analogue input magnitude sent by the client. Normalizing every
+    // non-zero vector made the authoritative player run at full speed while
+    // local prediction used the shorter touch vector, so each snapshot pulled
+    // the rendered survivor forward in visible teleport-like corrections.
+    const magnitude = Math.hypot(dx, dy);
+    const scale = magnitude > 1 ? 1 / magnitude : 1;
+    player.velocity = {
+      x: dx * scale,
+      y: dy * scale,
+    };
     player.lastInputSeq = inputSequence;
     return { ok: true };
   }
@@ -2112,16 +2121,6 @@ export class GameEngine {
       this.state.rooms,
       roomCapacity,
     );
-    const fullRooms = this.map.rooms.flatMap((mapRoom) => {
-      const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
-      if (!room || room.ownerIds.length < roomCapacity) return [];
-      return [{
-        mapRoom,
-        floorKeys: new Set(
-          mapRoom.floorTiles.map((tile) => tileKey(tile.x, tile.y)),
-        ),
-      }];
-    });
     for (const player of this.state.players) {
       if (!player.alive) continue;
       if (player.roomId) {
@@ -2135,14 +2134,18 @@ export class GameEngine {
       // across its floor.  Put that intruder just outside the entrance instead
       // of trapping it against the new boundary; the next bot/human input can
       // then continue toward an actually available room.
-      const fullRoomContainingPlayer = fullRooms.find(({ floorKeys }) =>
-        overlapsBlockedTiles(
-          player.position.x,
-          player.position.y,
-          BALANCE.player.collisionRadius,
-          floorKeys,
-        )
-      )?.mapRoom;
+      const fullRoomContainingPlayer = this.map.rooms.find((mapRoom) => {
+        const room = this.state.rooms.find((candidate) => candidate.id === mapRoom.id);
+        return Boolean(
+          room &&
+          room.ownerIds.length >= roomCapacity &&
+          mapRoom.floorTiles.some(
+            (tile) =>
+              tile.x === Math.round(player.position.x) &&
+              tile.y === Math.round(player.position.y),
+          ),
+        );
+      });
       if (fullRoomContainingPlayer) {
         const entrance = fullRoomContainingPlayer.floorTiles.find(
           (tile) =>
@@ -2169,15 +2172,7 @@ export class GameEngine {
         player.velocity = { x: 0, y: 0 };
         continue;
       }
-      const rank =
-        this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
-      const baseSpeed = player.isBot ? BOT_BASE_SPEED : BALANCE.player.speed;
-      const speed =
-        baseSpeed *
-        rankBenefits(rank).speedMultiplier *
-        characterTraitForAppearance(player.appearance)
-          .unclaimedMoveSpeedMultiplier *
-        (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1);
+      const speed = this.unclaimedPlayerSpeed(player);
       player.position = moveInWalkableArea(
         this.map,
         player.position,
@@ -2190,6 +2185,19 @@ export class GameEngine {
         blockedRoomFloorTiles,
       );
     }
+  }
+
+  private unclaimedPlayerSpeed(player: PlayerState): number {
+    const rank =
+      this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+    const baseSpeed = player.isBot ? BOT_BASE_SPEED : BALANCE.player.speed;
+    return (
+      baseSpeed *
+      rankBenefits(rank).speedMultiplier *
+      characterTraitForAppearance(player.appearance)
+        .unclaimedMoveSpeedMultiplier *
+      (this.state.elapsed < player.speedBoostUntil ? 1.45 : 1)
+    );
   }
 
   private updateBots(dt: number): void {
@@ -2975,6 +2983,8 @@ export class GameEngine {
           outsideTarget.position,
           dt,
           BALANCE.ghost.outsideTargetSpeedMultiplier,
+          this.unclaimedPlayerSpeed(outsideTarget) *
+            BALANCE.ghost.outsideTargetMinimumPlayerMultiplier,
         );
         return;
       }
@@ -3455,6 +3465,7 @@ export class GameEngine {
     destination: Vec2,
     dt: number,
     speedMultiplier = 1,
+    minimumSpeed = 0,
   ): void {
     if (ghost.path.length === 0 || this.serverSeq % 20 === 0) {
       ghost.path = findPath(this.map, ghost.position, destination);
@@ -3495,6 +3506,7 @@ export class GameEngine {
       speedMultiplier *
       (ghost.rage ? 1.32 : 1) *
       slowMultiplier;
+    speed = Math.max(speed, minimumSpeed);
     if (ghost.retreating) speed *= BALANCE.ghost.retreatSpeedMultiplier;
     const radius =
       ghost.variant === "giant"

@@ -42,6 +42,8 @@ interface TestState {
   cameraMode: () => "follow" | "free" | "none";
   cameraZoom: () => number;
   cameraYaw: () => number;
+  renderedPosition: () => { x: number; y: number } | null;
+  resumeRendering: () => void;
 }
 
 async function enter(
@@ -480,9 +482,10 @@ test("portrait home separates shop, owned customization and stage start", async 
       (player) => player.id === beforeDrag.playerId,
     )?.position;
     expect(localBefore).toBeTruthy();
-    await page.mouse.move(195, 422);
+    // The touched point itself is the direction. Movement must begin on
+    // pointerdown without requiring a follow-up drag from a hidden origin.
+    await page.mouse.move(250, 365);
     await page.mouse.down();
-    await page.mouse.move(250, 365, { steps: 6 });
     await page.waitForTimeout(260);
     await page.mouse.up();
     await expect
@@ -784,6 +787,110 @@ test("three solo bots visibly pathfind through doors before the normal countdown
       page.locator("#game-root canvas[data-theme='hospital']"),
     ).toBeVisible();
     await expect(page.locator(".stage-chip .rank-badge")).toHaveCount(1);
+    await page.waitForFunction(
+      () => window.__DORM_TEST__?.snapshot?.status === "COUNTDOWN",
+      undefined,
+      { timeout: 8_000 },
+    );
+    const movementAcrossBotClaims = await page.evaluate(async () => {
+      const game = window.__DORM_TEST__;
+      game?.resumeRendering();
+      const initialLocal = game?.snapshot?.players.find(
+        (player) => player.id === game.playerId,
+      );
+      const initialPosition = initialLocal
+        ? { ...initialLocal.position }
+        : { x: 0, y: 0 };
+      game?.move(0.25, 0);
+      // Automation normally pauses WebGL. Let the first authoritative movement
+      // snapshot and local prediction converge before measuring bot claims, so
+      // the test isolates the occupancy transition rather than renderer startup.
+      const warmupDeadline = performance.now() + 4_000;
+      while (performance.now() < warmupDeadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        const current = window.__DORM_TEST__;
+        const local = current?.snapshot?.players.find(
+          (player) => player.id === current.playerId,
+        );
+        const visual = current?.renderedPosition();
+        if (
+          local &&
+          visual &&
+          Math.hypot(
+            local.position.x - initialPosition.x,
+            local.position.y - initialPosition.y,
+          ) > 0.5 &&
+          Math.hypot(
+            visual.x - local.position.x,
+            visual.y - local.position.y,
+          ) < 0.55
+        ) {
+          break;
+        }
+      }
+      const samples: Array<{
+        rendered: { x: number; y: number };
+        server: { x: number; y: number };
+        claimed: number;
+      }> = [];
+      const errors: number[] = [];
+      const claimedCounts: number[] = [];
+      const deadline = performance.now() + 24_000;
+      while (performance.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        const current = window.__DORM_TEST__;
+        const local = current?.snapshot?.players.find(
+          (player) => player.id === current.playerId,
+        );
+        const visual = current?.renderedPosition();
+        const claimed =
+          current?.snapshot?.players.filter(
+            (player) => player.isBot && player.roomId,
+          ).length ?? 0;
+        if (local && visual) {
+          samples.push({
+            rendered: visual,
+            server: { ...local.position },
+            claimed,
+          });
+          errors.push(
+            Math.hypot(
+              visual.x - local.position.x,
+              visual.y - local.position.y,
+            ),
+          );
+        }
+        claimedCounts.push(claimed);
+        if (claimed >= 3) break;
+      }
+      game?.move(0, 0);
+      let maxStep = 0;
+      let maxTransition: typeof samples | null = null;
+      for (let index = 1; index < samples.length; index += 1) {
+        const previous = samples[index - 1] as (typeof samples)[number];
+        const current = samples[index] as (typeof samples)[number];
+        const step = Math.hypot(
+          current.rendered.x - previous.rendered.x,
+          current.rendered.y - previous.rendered.y,
+        );
+        if (step > maxStep) {
+          maxStep = step;
+          maxTransition = [previous, current];
+        }
+      }
+      return {
+        maxStep,
+        maxTransition,
+        maxError: Math.max(0, ...errors),
+        highestClaimed: Math.max(0, ...claimedCounts),
+      };
+    });
+    expect(movementAcrossBotClaims.highestClaimed).toBe(3);
+    expect(
+      movementAcrossBotClaims.maxStep,
+      JSON.stringify(movementAcrossBotClaims.maxTransition),
+    ).toBeLessThan(0.34);
+    expect(movementAcrossBotClaims.maxError).toBeLessThan(0.9);
     await page.waitForFunction(
       () => {
         const snapshot = window.__DORM_TEST__?.snapshot;

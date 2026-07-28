@@ -105,6 +105,8 @@ declare global {
       cameraMode: () => "follow" | "free" | "none";
       cameraZoom: () => number;
       cameraYaw: () => number;
+      renderedPosition: () => Vec2 | null;
+      resumeRendering: () => void;
     };
   }
 }
@@ -967,6 +969,26 @@ function dismissibleModal(markup: string, className: string): HTMLElement {
   return modal;
 }
 
+async function withGlobalActionLoading<T>(
+  message: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  app.querySelector("[data-action-loading]")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "global-action-loading";
+  overlay.dataset.actionLoading = "";
+  overlay.setAttribute("role", "status");
+  overlay.setAttribute("aria-live", "polite");
+  overlay.setAttribute("aria-busy", "true");
+  overlay.innerHTML = `<div class="global-action-loading-card"><div class="spinner" aria-hidden="true"></div><strong>${escapeHtml(message)}</strong><small>잠시만 기다려주세요.</small></div>`;
+  app.appendChild(overlay);
+  try {
+    return await action();
+  } finally {
+    overlay.remove();
+  }
+}
+
 function confirmPointPurchase(options: {
   label: string;
   quantity?: number;
@@ -1359,7 +1381,10 @@ function supplyShopScreen(): void {
           onConfirm: () => {
             void (async () => {
               try {
-                account = await purchaseConsumable(itemId, quantity);
+                account = await withGlobalActionLoading(
+                  `${item.label} 구매 중`,
+                  () => purchaseConsumable(itemId, quantity),
+                );
                 supplyShopScreen();
                 toast(`${quantity}개를 보급함에 넣었습니다.`);
               } catch (error) {
@@ -1694,7 +1719,10 @@ function cosmeticCollectionScreen(
             onConfirm: () => {
               void (async () => {
                 try {
-                  account = await purchaseCosmetic(itemId);
+                  account = await withGlobalActionLoading(
+                    `${item.label} 구매 중`,
+                    () => purchaseCosmetic(itemId),
+                  );
                   shopScreen(selectedSlot, itemId);
                   toast("구매했습니다. 내 보관함에서 착용할 수 있습니다.");
                 } catch (error) {
@@ -1714,12 +1742,18 @@ function cosmeticCollectionScreen(
         button.textContent = "처리 중";
         void (async () => {
           try {
-            account = await equipCosmetic(
+            account = await withGlobalActionLoading(
               action === "unequip"
-                ? item.slot === "tile"
-                  ? DEFAULT_TILE_SKIN_ID
-                  : currentAccount.appearance.character
-                : itemId,
+                ? `${item.label} 착용 해제 중`
+                : `${item.label} 착용 중`,
+              () =>
+                equipCosmetic(
+                  action === "unequip"
+                    ? item.slot === "tile"
+                      ? DEFAULT_TILE_SKIN_ID
+                      : currentAccount.appearance.character
+                    : itemId,
+                ),
             );
             customizationScreen(selectedSlot);
             toast(
@@ -2356,11 +2390,6 @@ function gameScreen(state: GameSnapshot): void {
       network?.pickupLoot(lootId);
       audio.play("button");
     },
-    onRoomBlocked: () => {
-      inputVector = { x: 0, y: 0 };
-      sendMovement(true);
-      toast("다른 생존자가 먼저 점유한 방입니다. 다른 방을 찾아보세요.");
-    },
   });
   app.querySelector("[data-focus-player]")?.addEventListener("click", () => {
     game?.focusLocalPlayer();
@@ -2537,9 +2566,13 @@ function updateHudTeammates(): void {
   const identity = teammates
     .map(
       (player) =>
-        `${player.id}:${player.nickname}:${player.appearance.character}:${player.profileAvatarUrl ?? ""}:${player.roomId ?? "outside"}`,
+        `${player.id}:${player.nickname}:${player.appearance.character}:${player.profileAvatarUrl ?? ""}`,
     )
     .join("|");
+  // Room occupancy does not change a teammate portrait. Including roomId in
+  // this key rebuilt and decoded every portrait whenever a bot claimed a bed,
+  // briefly blocking the render loop on mobile and making the local survivor
+  // appear to teleport. Rebuild only when visible portrait data changes.
   if (list.dataset.players === identity) return;
   list.dataset.players = identity;
   list.classList.toggle("hidden", teammates.length === 0);
@@ -4550,6 +4583,8 @@ function updateTestApi(): void {
     cameraMode: () => game?.getCameraMode() ?? "none",
     cameraZoom: () => game?.getCameraZoom() ?? 1,
     cameraYaw: () => game?.getCameraYaw() ?? 0,
+    renderedPosition: () => game?.getLocalRenderedPosition() ?? null,
+    resumeRendering: () => game?.resume(),
   };
 }
 
