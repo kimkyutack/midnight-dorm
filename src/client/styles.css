@@ -5131,11 +5131,14 @@ select {
   z-index: 39;
   display: grid;
   place-items: center;
-  padding: max(84px, env(safe-area-inset-top)) 22px max(96px, env(safe-area-inset-bottom));
+  padding: max(84px, env(safe-area-inset-top)) 22px
+    max(96px, env(safe-area-inset-bottom));
   pointer-events: none;
   opacity: 1;
   transform: scale(1);
-  transition: opacity 2s ease, transform 2s ease;
+  transition:
+    opacity 2s ease,
+    transform 2s ease;
 }
 .ghost-threat-poster[hidden] {
   display: none;
@@ -5326,7 +5329,11 @@ select {
   padding: 10px;
   border: 1px solid rgba(144, 231, 242, 0.45);
   border-radius: 16px;
-  background: linear-gradient(150deg, rgba(14, 37, 62, 0.97), rgba(5, 13, 28, 0.95));
+  background: linear-gradient(
+    150deg,
+    rgba(14, 37, 62, 0.97),
+    rgba(5, 13, 28, 0.95)
+  );
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.36);
 }
 .quick-chat-picker > strong {
@@ -5378,7 +5385,10 @@ select {
   white-space: nowrap;
 }
 @keyframes quick-chat-enter {
-  from { opacity: 0; transform: translate(-50%, 7px); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, 7px);
+  }
 }
 .build-panel {
   position: absolute;
@@ -6015,7 +6025,9 @@ select {
   border-radius: 14px;
   color: #9eeff5;
   background: rgba(5, 19, 31, 0.82);
-  box-shadow: inset 0 1px rgba(219, 253, 255, 0.11), 0 7px 16px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 1px rgba(219, 253, 255, 0.11),
+    0 7px 16px rgba(0, 0, 0, 0.28);
 }
 .page-guide-button svg {
   width: 22px;
@@ -6055,7 +6067,9 @@ select {
 }
 .tutorial-modal {
   z-index: 90;
-  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  padding: max(14px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
 }
 .tutorial-sheet {
   display: flex;
@@ -6065,8 +6079,14 @@ select {
   overflow: hidden;
   border: 1px solid rgba(119, 224, 238, 0.42);
   border-radius: 22px;
-  background: linear-gradient(160deg, rgba(19, 38, 70, 0.98), rgba(6, 14, 27, 0.98));
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.56), inset 0 1px rgba(235, 253, 255, 0.1);
+  background: linear-gradient(
+    160deg,
+    rgba(19, 38, 70, 0.98),
+    rgba(6, 14, 27, 0.98)
+  );
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.56),
+    inset 0 1px rgba(235, 253, 255, 0.1);
 }
 .tutorial-sheet > header {
   display: flex;
@@ -6510,7 +6530,11 @@ select {
   padding: 11px 12px;
   border: 1px solid rgba(117, 222, 239, 0.28);
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(10, 36, 53, 0.86), rgba(8, 18, 34, 0.9));
+  background: linear-gradient(
+    135deg,
+    rgba(10, 36, 53, 0.86),
+    rgba(8, 18, 34, 0.9)
+  );
 }
 .social-code span {
   color: #8ddfeb;
@@ -6584,7 +6608,11 @@ select {
   border: 1px solid rgba(123, 194, 211, 0.22);
   border-radius: 13px;
   color: inherit;
-  background: linear-gradient(135deg, rgba(11, 29, 44, 0.84), rgba(6, 17, 29, 0.82));
+  background: linear-gradient(
+    135deg,
+    rgba(11, 29, 44, 0.84),
+    rgba(6, 17, 29, 0.82)
+  );
 }
 .social-person-card > div,
 .social-conversation {
@@ -8934,8 +8962,8 @@ select {
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(5, 65, 112, 0.06), rgba(0, 34, 72, 0.32)),
-    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp")
-      center 60% / cover no-repeat;
+    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp") center
+      60% / cover no-repeat;
   box-shadow:
     inset 0 0 0 1px rgba(226, 253, 255, 0.34),
     inset 0 -18px 28px rgba(0, 49, 91, 0.24);
@@ -8974,12 +9002,78 @@ select {
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 400% 300%;
-  filter:
-    drop-shadow(0 8px 5px rgba(0, 45, 82, 0.4))
+  filter: drop-shadow(0 8px 5px rgba(0, 45, 82, 0.4))
     drop-shadow(0 0 4px rgba(207, 251, 255, 0.6));
   animation:
     surfer-card-frames 0.92s steps(1, end) infinite,
     surfer-card-float 1.45s ease-in-out infinite alternate;
+}
+.lifeguard-raon-card-art {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 246, 207, 0.03), rgba(5, 87, 118, 0.22)),
+    url("/assets/sprites/skins/skin-lifeguard-raon/shop-beach-backdrop.webp")
+      center 62% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 244, 201, 0.46),
+    inset 0 -18px 28px rgba(0, 84, 121, 0.2);
+  animation: lifeguard-beach-drift 5.2s ease-in-out infinite alternate;
+}
+.lifeguard-raon-card-art::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    radial-gradient(circle at 17% 21%, #fff7c7 0 1px, transparent 2px),
+    radial-gradient(circle at 83% 18%, #fff 0 1.2px, transparent 2.2px),
+    radial-gradient(circle at 74% 59%, #d9fbff 0 1px, transparent 2px),
+    linear-gradient(
+      112deg,
+      transparent 34%,
+      rgba(255, 255, 255, 0.2),
+      transparent 60%
+    );
+  content: "";
+  opacity: 0.72;
+  pointer-events: none;
+  animation: surfer-sparkle 1.65s ease-in-out infinite alternate;
+}
+.lifeguard-raon-card-art::after {
+  right: 7%;
+  bottom: 2%;
+  left: 7%;
+  z-index: 1;
+  height: 19%;
+  border-radius: 50%;
+  background: rgba(176, 245, 255, 0.34);
+  filter: blur(7px);
+}
+.lifeguard-raon-card-sprite {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: min(100%, 114px);
+  height: min(100%, 114px);
+  background-image: url("/assets/sprites/skins/skin-lifeguard-raon/movement-sheet.png");
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 400% 300%;
+  filter: drop-shadow(0 8px 5px rgba(0, 55, 76, 0.4))
+    drop-shadow(0 0 4px rgba(255, 242, 195, 0.66));
+  animation:
+    surfer-card-frames 0.72s steps(1, end) infinite,
+    lifeguard-card-run 0.7s ease-in-out infinite alternate;
+}
+.lifeguard-raon-card {
+  background:
+    linear-gradient(155deg, rgba(25, 48, 55, 0.97), rgba(4, 31, 46, 0.98))
+      padding-box,
+    linear-gradient(125deg, #fff5c2 0%, #ff7669 28%, #5de6ff 58%, #fff 100%)
+      border-box;
+  box-shadow:
+    0 0 0 1px rgba(255, 142, 115, 0.2),
+    0 0 19px rgba(55, 210, 238, 0.28),
+    inset 0 0 18px rgba(255, 107, 88, 0.11);
 }
 .cosmetic-new-badge {
   position: absolute !important;
@@ -9008,8 +9102,8 @@ select {
 .custom-avatar-stage.surfer-mong-preview {
   background:
     linear-gradient(180deg, rgba(1, 44, 83, 0.02), rgba(0, 37, 75, 0.25)),
-    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp")
-      center 59% / cover no-repeat;
+    url("/assets/sprites/skins/skin-surfer-mong/shop-wave-backdrop.webp") center
+      59% / cover no-repeat;
   box-shadow:
     inset 0 0 0 1px rgba(222, 253, 255, 0.38),
     inset 0 -30px 48px rgba(0, 42, 78, 0.25),
@@ -9024,7 +9118,12 @@ select {
     radial-gradient(circle at 14% 19%, #fff 0 1px, transparent 2px),
     radial-gradient(circle at 86% 31%, #fff 0 1.5px, transparent 2.5px),
     radial-gradient(circle at 73% 71%, #e5fdff 0 1px, transparent 2px),
-    linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.13), transparent 62%);
+    linear-gradient(
+      115deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.13),
+      transparent 62%
+    );
   box-shadow: none;
   opacity: 0.82;
   animation: surfer-sparkle 1.9s ease-in-out infinite alternate;
@@ -9048,9 +9147,58 @@ select {
 .custom-avatar-stage.surfer-mong-preview .skin-preview-canvas {
   width: min(92%, 340px);
   height: min(94%, 340px);
-  filter:
-    drop-shadow(0 16px 12px rgba(0, 45, 82, 0.42))
+  filter: drop-shadow(0 16px 12px rgba(0, 45, 82, 0.42))
     drop-shadow(0 0 7px rgba(215, 252, 255, 0.58));
+}
+.custom-avatar-stage.lifeguard-raon-preview {
+  background:
+    linear-gradient(180deg, rgba(255, 245, 196, 0.02), rgba(0, 73, 110, 0.2)),
+    url("/assets/sprites/skins/skin-lifeguard-raon/shop-beach-backdrop.webp")
+      center 61% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 243, 193, 0.4),
+    inset 0 -30px 48px rgba(0, 73, 105, 0.24),
+    0 0 18px rgba(66, 213, 239, 0.18);
+  animation: lifeguard-beach-drift 6.2s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.lifeguard-raon-preview::before {
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 13% 18%, #fff 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 30%, #fff8cf 0 1.5px, transparent 2.5px),
+    linear-gradient(
+      112deg,
+      transparent 33%,
+      rgba(255, 255, 255, 0.16),
+      transparent 61%
+    );
+  box-shadow: none;
+  opacity: 0.76;
+  animation: surfer-sparkle 1.75s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.lifeguard-raon-preview::after {
+  position: absolute;
+  z-index: 0;
+  right: -8%;
+  bottom: -6%;
+  left: -8%;
+  height: 25%;
+  border-radius: 50%;
+  background: rgba(174, 244, 255, 0.3);
+  filter: blur(10px);
+  content: "";
+  pointer-events: none;
+}
+.custom-avatar-stage.lifeguard-raon-preview .lifeguard-raon-sprite-preview {
+  z-index: 2;
+}
+.custom-avatar-stage.lifeguard-raon-preview .skin-preview-canvas {
+  width: min(92%, 340px);
+  height: min(94%, 340px);
+  filter: drop-shadow(0 16px 12px rgba(0, 58, 80, 0.4))
+    drop-shadow(0 0 7px rgba(255, 239, 181, 0.58));
 }
 
 @keyframes premium-card-sheen {
@@ -9112,6 +9260,22 @@ select {
     filter: brightness(1.35);
   }
 }
+@keyframes lifeguard-card-run {
+  from {
+    transform: translateY(1px) rotate(-0.6deg);
+  }
+  to {
+    transform: translateY(-1px) rotate(0.6deg);
+  }
+}
+@keyframes lifeguard-beach-drift {
+  from {
+    background-position: center 64%;
+  }
+  to {
+    background-position: center 57%;
+  }
+}
 
 @media (orientation: portrait) {
   .custom-layout {
@@ -9125,6 +9289,10 @@ select {
     width: min(100%, 102px);
     height: min(100%, 102px);
   }
+  .lifeguard-raon-card-sprite {
+    width: min(100%, 104px);
+    height: min(100%, 104px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9133,20 +9301,27 @@ select {
   .surfer-mong-card-art::before,
   .surfer-mong-card-sprite,
   .custom-avatar-stage.surfer-mong-preview,
-  .custom-avatar-stage.surfer-mong-preview::before {
+  .custom-avatar-stage.surfer-mong-preview::before,
+  .lifeguard-raon-card-art,
+  .lifeguard-raon-card-art::before,
+  .lifeguard-raon-card-sprite,
+  .custom-avatar-stage.lifeguard-raon-preview,
+  .custom-avatar-stage.lifeguard-raon-preview::before {
     animation: none;
   }
 }
 
 .surfer-mong-promo-modal {
   z-index: 95;
-  padding:
-    max(12px, env(safe-area-inset-top))
-    max(12px, env(safe-area-inset-right))
-    max(12px, env(safe-area-inset-bottom))
+  padding: max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
     max(12px, env(safe-area-inset-left));
   background:
-    radial-gradient(circle at 50% 18%, rgba(27, 192, 237, 0.2), transparent 45%),
+    radial-gradient(
+      circle at 50% 18%,
+      rgba(27, 192, 237, 0.2),
+      transparent 45%
+    ),
     rgba(0, 8, 19, 0.86);
   backdrop-filter: blur(13px);
 }
@@ -9200,7 +9375,12 @@ select {
     radial-gradient(circle at 14% 22%, #fff 0 1px, transparent 2px),
     radial-gradient(circle at 88% 16%, #d9fbff 0 1.5px, transparent 2.5px),
     radial-gradient(circle at 78% 48%, #fff 0 1px, transparent 2px),
-    linear-gradient(112deg, transparent 35%, rgba(255, 255, 255, 0.17), transparent 58%);
+    linear-gradient(
+      112deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.17),
+      transparent 58%
+    );
   content: "";
   opacity: 0.55;
   pointer-events: none;
@@ -9256,6 +9436,15 @@ select {
   background: rgba(17, 53, 72, 0.7);
   letter-spacing: 0.08em;
 }
+.surfer-mong-promo-copy p {
+  margin: 0 0 10px;
+  color: rgba(239, 253, 255, 0.94);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.42;
+  letter-spacing: -0.035em;
+  text-shadow: 0 3px 12px rgba(0, 31, 54, 0.9);
+}
 .surfer-mong-promo footer {
   position: relative;
   z-index: 6;
@@ -9263,8 +9452,11 @@ select {
   grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.18fr);
   gap: 9px;
   padding: 12px;
-  background:
-    linear-gradient(180deg, rgba(4, 27, 48, 0.96), rgba(2, 17, 34, 0.99));
+  background: linear-gradient(
+    180deg,
+    rgba(4, 27, 48, 0.96),
+    rgba(2, 17, 34, 0.99)
+  );
   box-shadow: 0 -10px 25px rgba(0, 22, 42, 0.34);
 }
 .surfer-mong-promo footer button {
@@ -9290,6 +9482,51 @@ select {
 .surfer-mong-promo footer button:focus-visible {
   outline: 3px solid #fff1a7;
   outline-offset: 2px;
+}
+.summer-special-promo {
+  border-color: rgba(255, 197, 94, 0.94);
+  background: #052838;
+  box-shadow:
+    0 0 0 3px rgba(255, 196, 82, 0.15),
+    0 26px 72px rgba(0, 0, 0, 0.62),
+    0 0 38px rgba(63, 216, 239, 0.24);
+}
+.summer-special-promo .surfer-mong-promo-art {
+  background: #48b7cf;
+}
+.summer-special-promo .surfer-mong-promo-art::before {
+  background:
+    linear-gradient(180deg, rgba(3, 45, 75, 0.74) 0%, transparent 38%),
+    linear-gradient(0deg, rgba(0, 49, 70, 0.58) 0%, transparent 26%);
+}
+.summer-special-promo .surfer-mong-promo-art > img {
+  object-position: center 50%;
+}
+.summer-special-promo .surfer-mong-promo-copy {
+  top: clamp(18px, 4cqh, 32px);
+  right: 42%;
+  left: 18px;
+  text-align: left;
+}
+.summer-special-promo .surfer-mong-promo-copy > span,
+.summer-special-promo .surfer-mong-promo-copy > small {
+  justify-content: flex-start;
+}
+.summer-special-promo .surfer-mong-promo-copy h2 {
+  margin-top: 8px;
+  font-size: clamp(25px, 7.4cqw, 37px);
+  text-shadow:
+    0 3px 0 rgba(174, 46, 37, 0.78),
+    0 6px 24px rgba(0, 54, 75, 0.88),
+    0 0 14px rgba(255, 230, 157, 0.58);
+}
+.summer-special-promo .surfer-promo-shop {
+  border-color: rgba(255, 247, 210, 0.72);
+  color: #48150d;
+  background: linear-gradient(135deg, #fff0a9, #ff826d 48%, #5ce4ef);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.82),
+    0 7px 18px rgba(255, 94, 74, 0.28);
 }
 
 @keyframes surfer-promo-arrive {
@@ -9322,6 +9559,13 @@ select {
   .surfer-mong-promo-copy h2 {
     margin: 5px 0 6px;
     font-size: clamp(24px, 6.5cqh, 31px);
+  }
+  .summer-special-promo .surfer-mong-promo-copy {
+    right: 40%;
+  }
+  .summer-special-promo .surfer-mong-promo-copy p {
+    margin-bottom: 6px;
+    font-size: 11px;
   }
   .surfer-mong-promo footer {
     padding: 8px;

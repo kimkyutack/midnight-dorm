@@ -63,7 +63,7 @@ async function enter(
   if (dismissLaunchPromo) {
     await page
       .getByRole("dialog", {
-        name: "서퍼 몽과 함께 더위를 물리치자!",
+        name: "서퍼 몽과 함께 더위를 날려보자!",
       })
       .getByRole("button", { name: "다시 보지 않기" })
       .click();
@@ -104,7 +104,9 @@ test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
   }
 });
 
-test("friends can exchange a request and a direct message", async ({ browser }) => {
+test("friends can exchange a request and a direct message", async ({
+  browser,
+}) => {
   const firstContext = await portraitContext(browser);
   const secondContext = await portraitContext(browser);
   const first = await firstContext.newPage();
@@ -114,7 +116,9 @@ test("friends can exchange a request and a direct message", async ({ browser }) 
     await enter(second, "친구둘", "friendb");
     await second.getByRole("button", { name: "친구와 채팅" }).click();
     const secondSocial = second.getByRole("dialog", { name: "친구와 채팅" });
-    const friendCode = await secondSocial.locator(".social-code strong").textContent();
+    const friendCode = await secondSocial
+      .locator(".social-code strong")
+      .textContent();
     expect(friendCode).toMatch(/^FD-[A-F0-9]{8}$/);
     await first.getByRole("button", { name: "친구와 채팅" }).click();
     const firstSocial = first.getByRole("dialog", { name: "친구와 채팅" });
@@ -123,13 +127,17 @@ test("friends can exchange a request and a direct message", async ({ browser }) 
     await expect(firstSocial).toContainText("수락 대기 중");
     await secondSocial.getByRole("button", { name: "닫기" }).click();
     await second.getByRole("button", { name: "친구와 채팅" }).click();
-    const refreshedSecondSocial = second.getByRole("dialog", { name: "친구와 채팅" });
+    const refreshedSecondSocial = second.getByRole("dialog", {
+      name: "친구와 채팅",
+    });
     await refreshedSecondSocial.getByRole("button", { name: "수락" }).click();
     await expect(refreshedSecondSocial).toContainText("친구 1/100");
     await refreshedSecondSocial.getByRole("button", { name: "닫기" }).click();
     await firstSocial.getByRole("button", { name: "닫기" }).click();
     await first.getByRole("button", { name: "친구와 채팅" }).click();
-    const reloadedFirstSocial = first.getByRole("dialog", { name: "친구와 채팅" });
+    const reloadedFirstSocial = first.getByRole("dialog", {
+      name: "친구와 채팅",
+    });
     await expect(reloadedFirstSocial).toContainText("친구 1/100");
     await reloadedFirstSocial.locator("[data-social-chat]").click();
     await reloadedFirstSocial.getByPlaceholder("메시지 입력").fill("문 위험!");
@@ -175,7 +183,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(page.locator(".game-home")).toBeVisible();
     await page
       .getByRole("dialog", {
-        name: "서퍼 몽과 함께 더위를 물리치자!",
+        name: "서퍼 몽과 함께 더위를 날려보자!",
       })
       .getByRole("button", { name: "다시 보지 않기" })
       .click();
@@ -464,7 +472,7 @@ test("portrait home separates shop, owned customization and stage start", async 
   }
 });
 
-test("서퍼 몽 출시 팝업이 상점 미리보기로 연결되고 다시 보지 않기를 기억한다", async ({
+test("여름 특별 스킨 통합 팝업이 두 스킨 상점으로 연결되고 다시 보지 않기를 기억한다", async ({
   browser,
 }) => {
   const shopContext = await mobileContext(browser);
@@ -474,14 +482,14 @@ test("서퍼 몽 출시 팝업이 상점 미리보기로 연결되고 다시 보
   try {
     await enter(shopPage, "여름몽", "surfshop", true, false);
     const promo = shopPage.getByRole("dialog", {
-      name: "서퍼 몽과 함께 더위를 물리치자!",
+      name: "썸머 특별 스킨 동시 출시",
     });
     await expect(promo).toBeVisible();
     await expect(promo.locator("img")).toHaveAttribute(
       "src",
-      /surfer-mong-summer-event\.webp/,
+      /summer-special-skins-event\.webp/,
     );
-    await promo.getByRole("button", { name: "구매하러 가기" }).click();
+    await promo.getByRole("button", { name: "스킨 보러 가기" }).click();
     await expect(
       shopPage.getByRole("heading", { name: "외형 상점" }),
     ).toBeVisible();
@@ -489,26 +497,31 @@ test("서퍼 몽 출시 팝업이 상점 미리보기로 연결되고 다시 보
       shopPage.getByRole("button", { name: "스킨", exact: true }),
     ).toHaveClass(/active/);
     await expect(
-      shopPage.locator(
-        `[data-cosmetic-preview="skin-look-puppy-surfer"]`,
-      ),
+      shopPage.locator(`[data-cosmetic-preview="skin-look-tiger-lifeguard"]`),
     ).toHaveClass(/previewing/);
-    await expect(shopPage.locator("[data-custom-preview-title]")).toHaveText(
-      "서퍼 몽",
+    await expect(
+      shopPage.locator(`[data-cosmetic-preview="skin-look-tiger-lifeguard"]`),
+    ).toHaveClass(/lifeguard-raon-card/);
+    await expect(shopPage.locator(".custom-avatar-stage")).toHaveClass(
+      /lifeguard-raon-preview/,
     );
+    await expect(shopPage.locator("[data-custom-preview-title]")).toHaveText(
+      "해변 구조대 라온",
+    );
+    await expect(
+      shopPage.locator(`[data-cosmetic-preview="skin-look-puppy-surfer"]`),
+    ).toBeVisible();
 
     await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
     const dismissPromo = dismissPage.getByRole("dialog", {
-      name: "서퍼 몽과 함께 더위를 물리치자!",
+      name: "썸머 특별 스킨 동시 출시",
     });
-    await dismissPromo
-      .getByRole("button", { name: "다시 보지 않기" })
-      .click();
+    await dismissPromo.getByRole("button", { name: "다시 보지 않기" }).click();
     await dismissPage.reload();
     await expect(dismissPage.locator(".game-home")).toBeVisible();
     await expect(
       dismissPage.getByRole("dialog", {
-        name: "서퍼 몽과 함께 더위를 물리치자!",
+        name: "썸머 특별 스킨 동시 출시",
       }),
     ).toHaveCount(0);
   } finally {
@@ -591,7 +604,8 @@ async function sleepInBed(
             const targetRoom = map?.rooms.find(
               (candidate) => candidate.id === targetRoomId,
             );
-            if (!game || !map || !player || !bed || !targetRoom) return Infinity;
+            if (!game || !map || !player || !bed || !targetRoom)
+              return Infinity;
             const distance = Math.hypot(
               player.position.x - bed.x,
               player.position.y - bed.y,
@@ -599,7 +613,11 @@ async function sleepInBed(
             // Keep the browser driver inside the server's 1.7-tile interaction
             // range, without requiring a fragile exact tile centre.
             const standingOnRoomFloor = targetRoom.floorTiles.some(
-              (tile) => Math.hypot(player.position.x - tile.x, player.position.y - tile.y) <= 0.68,
+              (tile) =>
+                Math.hypot(
+                  player.position.x - tile.x,
+                  player.position.y - tile.y,
+                ) <= 0.68,
             );
             if (standingOnRoomFloor && distance <= 1.65) {
               game.move(0, 0);

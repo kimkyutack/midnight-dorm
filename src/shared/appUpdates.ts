@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = '2026.07.28.3';
+export const APP_RELEASE_VERSION = '2026.07.28.4';
 
 export interface AppUpdate {
   version: string;
@@ -16,9 +16,9 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: '서퍼 몽 여름 출시 이벤트',
-  summary: '• 홈에 처음 들어오면 서퍼 몽 출시 이벤트 팝업을 표시합니다.\n• 구매하러 가기를 누르면 외형 상점의 스킨 탭과 서퍼 몽 미리보기가 바로 열립니다.\n• 다시 보지 않기를 선택하면 같은 기기에서 이벤트 팝업을 더 이상 표시하지 않습니다.',
-  publishedAt: 1785222000000,
+  title: '여름 한정 스킨: 해변 구조대 라온',
+  summary: '• 빨간 구조대 모자와 구명 튜브를 갖춘 해변 구조대 라온을 추가했습니다.\n• 라온의 수호 포탑 사거리 특성을 200% 효율로 적용하며 3,000P에 구매할 수 있습니다.\n• 서퍼 몽과 구조대 라온이 함께 등장하는 여름 특별 스킨 통합 이벤트를 적용했습니다.',
+  publishedAt: 1785225600000,
 };
 
 export const isUpdateAvailable = (currentVersion: string, latestVersion?: string | null): boolean =>

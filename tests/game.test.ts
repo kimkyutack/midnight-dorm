@@ -122,7 +122,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a different deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.5')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
   });
 });
@@ -403,6 +403,11 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-surfer-mong/movement-sheet.png');
     expect(skinSleepUrl(surferAppearance))
       .toBe('/assets/sprites/skins/skin-surfer-mong/sleep.png');
+    const lifeguardAppearance = { character: 'character-tiger', skin: 'skin-look-tiger-lifeguard' };
+    expect(skinMovementSheetUrl(lifeguardAppearance))
+      .toBe('/assets/sprites/skins/skin-lifeguard-raon/movement-sheet.png');
+    expect(skinSleepUrl(lifeguardAppearance))
+      .toBe('/assets/sprites/skins/skin-lifeguard-raon/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -475,13 +480,13 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(37);
+    expect(COSMETIC_CATALOG).toHaveLength(38);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(13);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(14);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
@@ -489,6 +494,7 @@ describe('survivor customization rules', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-puppy-surfer')).toBe('/assets/sprites/skins/skin-surfer-mong/concept.png');
+    expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -544,10 +550,13 @@ describe('survivor customization rules', () => {
     expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 100 });
     const surferSkin = cosmeticById('skin-look-puppy-surfer');
     expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 3_000 });
+    const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
+    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 3_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
         || item.id === 'skin-look-puppy-surfer'
+        || item.id === 'skin-look-tiger-lifeguard'
         || item.unlock.price === 2_500
       ),
     )).toBe(true);
@@ -2511,6 +2520,8 @@ describe('requested progression and event rules', () => {
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-ward' }).goldPerSecond)
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-surfer' }).goldPerSecond)
+      .toBe(2);
+    expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-lifeguard' }).turretRangeBonus)
       .toBe(2);
     expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)
       .toBe(1.5);

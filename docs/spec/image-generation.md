@@ -93,3 +93,9 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - `shop-wave-backdrop.webp`는 서퍼 몽 상점 카드와 미리보기에서 공유하는 전용 파도 배경이다. 캐릭터를 배경에 합성하지 않고 이동 아틀라스를 별도 레이어로 올려 애니메이션과 인게임 정렬을 함께 유지한다.
 - `surfer-mong-summer-event.webp`는 홈 진입 시 사용하는 세로형 출시 이벤트 이미지다. 서퍼 몽이 무릎을 굽히고 양팔로 균형을 잡으며 좌측 위를 바라보는 파도타기 장면으로 구성하고, 정확한 한글 제목과 버튼은 이미지에 굽지 않고 HTML 레이어로 표시한다.
 - 이벤트 이미지 원본은 `source/surfer-mong-summer-event-master.png`에 보존한다.
+- `해변 구조대 라온`은 `public/assets/sprites/skins/skin-lifeguard-raon`에 있으며, 4개 이동 열은 달리는 보폭과 발밑 물보라가 교대되는 프레임이다.
+- 라온의 프레임은 다부진 몸통 중심과 발바닥 기준선을 고정하고, 빨간 구조대 모자·검정 선글라스·짧은 빨간 반바지·왼쪽 어깨의 구명 튜브·입 아래 오른손의 호루라기를 모든 방향에서 유지한다.
+- `shop-beach-backdrop.webp`는 상점 카드와 미리보기의 모래사장 배경이며 조개, 불가사리, 구조대 전망대와 바다를 포함한다. `lifeguard-raon-summer-event.webp`는 홈 출시 팝업용 세로 이미지이고 정확한 한글 제목과 버튼은 HTML 레이어로 표시한다.
+- 라온의 원본 생성 이미지는 `source/`에 보존하고, 게임에는 투명 `concept.png`, `movement-sheet.png`, `sleep.png`와 압축 WebP 배경만 로드한다.
+- 홈 통합 이벤트는 `public/assets/cinematic/summer-special-skins-event.webp`를 사용한다. 파도에서 보드와 함께 뒤집히려는 서퍼 몽을 구조대 라온이 가리키며 달려가는 장면이고, 제목·설명·가격·버튼은 이미지에 굽지 않고 HTML로 표시한다.
+- 통합 이벤트 생성 원본은 `public/assets/cinematic/summer-special-skins-event-master.png`에 보존한다.

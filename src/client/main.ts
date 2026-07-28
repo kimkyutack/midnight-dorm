@@ -59,7 +59,12 @@ import type {
   Tile,
   Vec2,
 } from "../shared/types";
-import type { DirectMessage, SocialInvite, SocialPerson, SocialSnapshot } from "../shared/social";
+import type {
+  DirectMessage,
+  SocialInvite,
+  SocialPerson,
+  SocialSnapshot,
+} from "../shared/social";
 import { SynthAudio, type BackgroundTrack } from "./audio";
 import {
   equipCosmetic,
@@ -133,9 +138,10 @@ let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
 let customizeReturnView: "home" | "room-menu" = "home";
 const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
-const SURFER_MONG_PROMO_DISMISSED_KEY =
-  "midnight-dorm:promo:surfer-mong:v1";
-let surferMongPromoShownThisSession = false;
+const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
+const SUMMER_SPECIAL_PROMO_DISMISSED_KEY =
+  "midnight-dorm:promo:summer-special-skins:v1";
+let summerSkinPromoShownThisSession = false;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -845,53 +851,56 @@ function homeScreen(): void {
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
   startSocialRealtime();
-  showSurferMongLaunchPromo();
+  showSummerSkinLaunchPromo();
 }
 
-function surferMongPromoDismissed(): boolean {
+function summerSkinPromoDismissed(): boolean {
   try {
-    return window.localStorage.getItem(SURFER_MONG_PROMO_DISMISSED_KEY) === "1";
+    return (
+      window.localStorage.getItem(SUMMER_SPECIAL_PROMO_DISMISSED_KEY) === "1"
+    );
   } catch {
     return false;
   }
 }
 
-function permanentlyDismissSurferMongPromo(): void {
+function permanentlyDismissSummerSkinPromo(): void {
   try {
-    window.localStorage.setItem(SURFER_MONG_PROMO_DISMISSED_KEY, "1");
+    window.localStorage.setItem(SUMMER_SPECIAL_PROMO_DISMISSED_KEY, "1");
   } catch {
     // Private browsing can reject storage writes. The session guard still
     // prevents the promotion from reopening while this app instance is alive.
   }
 }
 
-function showSurferMongLaunchPromo(): void {
-  if (
-    !account ||
-    surferMongPromoShownThisSession ||
-    surferMongPromoDismissed() ||
-    account.ownedCosmetics.includes(SURFER_MONG_SKIN_ID)
-  ) {
+function showSummerSkinLaunchPromo(): void {
+  if (!account || summerSkinPromoShownThisSession || summerSkinPromoDismissed())
     return;
-  }
-  surferMongPromoShownThisSession = true;
+  const currentAccount = account;
+  if (
+    [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID].every((skinId) =>
+      currentAccount.ownedCosmetics.includes(skinId),
+    )
+  )
+    return;
+  summerSkinPromoShownThisSession = true;
   const modal = document.createElement("div");
   modal.className = "modal-backdrop surfer-mong-promo-modal";
-  modal.innerHTML = `<section class="surfer-mong-promo" role="dialog" aria-modal="true" aria-labelledby="surfer-mong-promo-title"><div class="surfer-mong-promo-art"><img src="/assets/sprites/skins/skin-surfer-mong/surfer-mong-summer-event.webp?v=${APP_RELEASE_VERSION}" alt="파도 위에서 균형을 잡는 서퍼 몽"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL</span><h2 id="surfer-mong-promo-title">서퍼 몽과 함께<br/>더위를 물리치자!</h2><small>NEW SKIN · 3,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-surfer-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-surfer-promo-shop>구매하러 가기</button></footer></section>`;
+  modal.innerHTML = `<section class="surfer-mong-promo summer-special-promo" role="dialog" aria-modal="true" aria-label="썸머 특별 스킨 동시 출시"><div class="surfer-mong-promo-art"><img src="/assets/cinematic/summer-special-skins-event.webp?v=${APP_RELEASE_VERSION}" alt="뒤집힐 듯 날아오른 서퍼 몽을 구하러 달려가는 해변 구조대 라온"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL SKINS</span><h2>썸머 특별 스킨<br/>동시 출시!</h2><p>파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.</p><small>여름 한정 2종 · 각 3,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
   app.appendChild(modal);
   modal
-    .querySelector("[data-surfer-promo-dismiss]")
+    .querySelector("[data-launch-promo-dismiss]")
     ?.addEventListener("click", () => {
       audio.play("button");
-      permanentlyDismissSurferMongPromo();
+      permanentlyDismissSummerSkinPromo();
       modal.remove();
     });
   modal
-    .querySelector("[data-surfer-promo-shop]")
+    .querySelector("[data-launch-promo-shop]")
     ?.addEventListener("click", () => {
       audio.play("button");
       modal.remove();
-      shopScreen("skin");
+      shopScreen("skin", SURFER_MONG_SKIN_ID);
     });
 }
 
@@ -1285,8 +1294,11 @@ function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
   cosmeticCollectionScreen("customize", activeSlot);
 }
 
-function shopScreen(activeSlot: CosmeticSlot = "character"): void {
-  cosmeticCollectionScreen("shop", activeSlot);
+function shopScreen(
+  activeSlot: CosmeticSlot = "character",
+  previewItemId?: string,
+): void {
+  cosmeticCollectionScreen("shop", activeSlot, previewItemId);
 }
 
 function supplyShopScreen(): void {
@@ -1350,6 +1362,7 @@ function supplyShopScreen(): void {
 function cosmeticCollectionScreen(
   screen: "customize" | "shop",
   activeSlot: CosmeticSlot,
+  previewItemId?: string,
 ): void {
   if (!account) {
     authScreen();
@@ -1375,17 +1388,27 @@ function cosmeticCollectionScreen(
   const displayCatalog =
     shopping && selectedSlot === "skin"
       ? [...catalog].sort(
-          (left, right) =>
-            Number(right.id === SURFER_MONG_SKIN_ID) -
-            Number(left.id === SURFER_MONG_SKIN_ID),
+          (left, right) => {
+            const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
+            const leftOrder = premiumOrder.indexOf(left.id);
+            const rightOrder = premiumOrder.indexOf(right.id);
+            if (leftOrder < 0 && rightOrder < 0) return 0;
+            if (leftOrder < 0) return 1;
+            if (rightOrder < 0) return -1;
+            return leftOrder - rightOrder;
+          },
         )
       : catalog;
   const cards = displayCatalog
     .map((item) => {
       const selected = appearance[selectedSlot] === item.id;
       const premiumSurfer = item.id === SURFER_MONG_SKIN_ID;
+      const premiumLifeguard = item.id === LIFEGUARD_RAON_SKIN_ID;
+      const premiumSummer = premiumSurfer || premiumLifeguard;
       const initiallyPreviewed =
-        shopping && selectedSlot === "skin" && premiumSurfer;
+        shopping &&
+        selectedSlot === "skin" &&
+        item.id === (previewItemId ?? SURFER_MONG_SKIN_ID);
       const owned = currentAccount.ownedCosmetics.includes(item.id);
       const entitled = cosmeticEntitled(item, currentAccount);
       const requiresCharacter =
@@ -1455,15 +1478,17 @@ function cosmeticCollectionScreen(
         item.description;
       const art = premiumSurfer
         ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
-        : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSurfer ? "premium-skin-card surfer-mong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSurfer ? '<span class="cosmetic-new-badge" aria-label="신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+        : premiumLifeguard
+          ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+          : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSummer ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSummer ? '<span class="cosmetic-new-badge" aria-label="여름 한정 신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
   const initialPreviewItem =
     shopping && selectedSlot === "skin"
-      ? cosmeticById(SURFER_MONG_SKIN_ID)
+      ? cosmeticById(previewItemId ?? SURFER_MONG_SKIN_ID)
       : undefined;
   const initialPreviewAppearance: AvatarAppearance =
     initialPreviewItem?.slot === "skin"
@@ -1619,7 +1644,7 @@ function cosmeticCollectionScreen(
               void (async () => {
                 try {
                   account = await purchaseCosmetic(itemId);
-                  shopScreen(selectedSlot);
+                  shopScreen(selectedSlot, itemId);
                   toast("구매했습니다. 내 보관함에서 착용할 수 있습니다.");
                 } catch (error) {
                   toast(
@@ -2226,7 +2251,9 @@ function gameScreen(state: GameSnapshot): void {
   app
     .querySelector("[data-inventory]")
     ?.addEventListener("click", showInventory);
-  app.querySelector("[data-quick-chat]")?.addEventListener("click", showQuickChatPicker);
+  app
+    .querySelector("[data-quick-chat]")
+    ?.addEventListener("click", showQuickChatPicker);
   window.addEventListener(
     "dorm:tile-selected",
     onTileSelected as EventListener,
@@ -2388,10 +2415,12 @@ function updateHud(): void {
         GHOST_THREAT_POSTERS[leadGhost.variant] ??
         GHOST_THREAT_POSTERS.wanderer;
       if (poster) {
-        const fading = snapshot.difficulty.introRemaining <= BALANCE.ghostIntroSeconds - 2;
+        const fading =
+          snapshot.difficulty.introRemaining <= BALANCE.ghostIntroSeconds - 2;
         ghostPoster.classList.toggle("is-fading", fading);
-      const artVariant = leadGhost.variant === "minion" ? "undead" : leadGhost.variant;
-      ghostPoster.innerHTML = `<div class="ghost-threat-paper"><img src="/assets/ghost-intros/ghost-warning-frame.png" alt="" aria-hidden="true"/><img class="ghost-threat-art" src="/assets/sprites/ghosts/${artVariant}/concept.png" alt="${escapeHtml(poster.title)} 일러스트"/><div class="ghost-threat-copy"><span>HOSTILE ENTITY</span><strong>${escapeHtml(poster.title)}</strong><p>${escapeHtml(poster.warning)}</p></div></div>`;
+        const artVariant =
+          leadGhost.variant === "minion" ? "undead" : leadGhost.variant;
+        ghostPoster.innerHTML = `<div class="ghost-threat-paper"><img src="/assets/ghost-intros/ghost-warning-frame.png" alt="" aria-hidden="true"/><img class="ghost-threat-art" src="/assets/sprites/ghosts/${artVariant}/concept.png" alt="${escapeHtml(poster.title)} 일러스트"/><div class="ghost-threat-copy"><span>HOSTILE ENTITY</span><strong>${escapeHtml(poster.title)}</strong><p>${escapeHtml(poster.warning)}</p></div></div>`;
       }
     }
   }
@@ -3451,15 +3480,17 @@ function showQuickChatPicker(): void {
   picker.setAttribute("aria-label", "빠른 문구 선택");
   picker.innerHTML = `<strong>빠른 문구</strong>${QUICK_CHAT_PHRASES.map((phrase) => `<button data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}`;
   app.appendChild(picker);
-  picker.querySelectorAll<HTMLButtonElement>("[data-quick-phrase]").forEach((button) =>
-    button.addEventListener("click", () => {
-      const phrase = button.dataset.quickPhrase as QuickChatPhrase;
-      if (!QUICK_CHAT_PHRASES.includes(phrase)) return;
-      network?.quickChat(phrase);
-      audio.play("button");
-      picker.remove();
-    }),
-  );
+  picker
+    .querySelectorAll<HTMLButtonElement>("[data-quick-phrase]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        const phrase = button.dataset.quickPhrase as QuickChatPhrase;
+        if (!QUICK_CHAT_PHRASES.includes(phrase)) return;
+        network?.quickChat(phrase);
+        audio.play("button");
+        picker.remove();
+      }),
+    );
   window.setTimeout(() => picker.remove(), 5_000);
 }
 
@@ -3916,7 +3947,8 @@ async function showMailbox(): Promise<void> {
 async function fetchSocialSnapshot(): Promise<SocialSnapshot> {
   const response = await fetch("/api/social", { cache: "no-store" });
   const data = (await response.json()) as SocialSnapshot & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? "친구 목록을 불러오지 못했습니다.");
+  if (!response.ok)
+    throw new Error(data.error ?? "친구 목록을 불러오지 못했습니다.");
   return data;
 }
 
@@ -3965,24 +3997,40 @@ function socialAvatarMarkup(person: SocialPerson, compact = false): string {
   return `<img class="social-avatar ${compact ? "compact" : ""}" src="${escapeHtml(avatar)}" alt="${escapeHtml(person.nickname)} 프로필 사진"/>`;
 }
 
-function socialPersonCard(person: SocialPerson, actions: string, detail = "친구"): string {
+function socialPersonCard(
+  person: SocialPerson,
+  actions: string,
+  detail = "친구",
+): string {
   return `<article class="social-person-card"><div>${socialAvatarMarkup(person)}<span><strong>${escapeHtml(person.nickname)}</strong><small>${escapeHtml(rankLabel(person.rank))} · ${escapeHtml(detail)}</small></span></div><footer>${actions}</footer></article>`;
 }
 
-async function socialPost(path: string, body?: unknown): Promise<Record<string, unknown>> {
+async function socialPost(
+  path: string,
+  body?: unknown,
+): Promise<Record<string, unknown>> {
   const response = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "요청을 처리하지 못했습니다.");
+  const data = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok)
+    throw new Error(
+      typeof data.error === "string"
+        ? data.error
+        : "요청을 처리하지 못했습니다.",
+    );
   return data;
 }
 
 async function joinRoomFromInvite(roomCode: string): Promise<void> {
   const room = await getRoomStatus(roomCode);
-  if (!isJoinableRoom(room.status)) throw new Error("이미 시작되었거나 종료된 방입니다.");
+  if (!isJoinableRoom(room.status))
+    throw new Error("이미 시작되었거나 종료된 방입니다.");
   profile.recentRoomCode = roomCode;
   saveProfile(profile);
   connectionOverlay("친구 방에 연결하는 중…");
@@ -3994,45 +4042,81 @@ async function showSocialConversation(
   person: SocialPerson,
   returnToHub: () => Promise<void>,
 ): Promise<void> {
-  const messagePanel = modal.querySelector<HTMLElement>("[data-social-content]");
+  const messagePanel = modal.querySelector<HTMLElement>(
+    "[data-social-content]",
+  );
   if (!messagePanel) return;
   messagePanel.innerHTML = `<div class="social-chat-heading"><button class="btn ghost" data-social-back>‹</button>${socialAvatarMarkup(person, true)}<div><strong>${escapeHtml(person.nickname)}</strong><small>친구와의 대화</small></div></div><div class="social-message-list"><p class="subtitle">대화를 불러오는 중…</p></div><form class="social-message-form"><input maxlength="200" autocomplete="off" placeholder="메시지 입력"/><button type="submit">전송</button></form>`;
   const list = messagePanel.querySelector<HTMLElement>(".social-message-list");
   const load = async (): Promise<void> => {
-    const response = await fetch(`/api/social/messages/${encodeURIComponent(person.accountId)}`, { cache: "no-store" });
-    const data = (await response.json()) as { messages?: DirectMessage[]; error?: string };
-    if (!response.ok) throw new Error(data.error ?? "대화를 불러오지 못했습니다.");
+    const response = await fetch(
+      `/api/social/messages/${encodeURIComponent(person.accountId)}`,
+      { cache: "no-store" },
+    );
+    const data = (await response.json()) as {
+      messages?: DirectMessage[];
+      error?: string;
+    };
+    if (!response.ok)
+      throw new Error(data.error ?? "대화를 불러오지 못했습니다.");
     const messages = data.messages ?? [];
     if (list) {
       list.innerHTML = messages.length
-        ? messages.map((message) => `<p class="social-message ${message.senderAccountId === account?.id ? "mine" : ""}">${escapeHtml(message.body)}</p>`).join("")
+        ? messages
+            .map(
+              (message) =>
+                `<p class="social-message ${message.senderAccountId === account?.id ? "mine" : ""}">${escapeHtml(message.body)}</p>`,
+            )
+            .join("")
         : '<p class="social-empty">아직 대화가 없습니다.<br/>친구에게 먼저 인사해보세요.</p>';
       list.scrollTop = list.scrollHeight;
     }
     await refreshSocialUnreadCount();
   };
-  modal.querySelector("[data-social-back]")?.addEventListener("click", () => void returnToHub());
-  messagePanel.querySelector<HTMLFormElement>(".social-message-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const input = form.querySelector<HTMLInputElement>("input");
-    const text = input?.value.trim() ?? "";
-    if (!text) return;
-    const submit = form.querySelector<HTMLButtonElement>("button");
-    if (submit) submit.disabled = true;
-    void socialPost(`/api/social/messages/${encodeURIComponent(person.accountId)}`, { body: text })
-      .then(() => {
-        if (input) input.value = "";
-        return load();
-      })
-      .catch((error: unknown) => toast(error instanceof Error ? error.message : "메시지를 보내지 못했습니다."))
-      .finally(() => { if (submit) submit.disabled = false; });
-  });
-  try { await load(); }
-  catch (error) { if (list) list.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "대화를 불러오지 못했습니다.")}</p>`; }
+  modal
+    .querySelector("[data-social-back]")
+    ?.addEventListener("click", () => void returnToHub());
+  messagePanel
+    .querySelector<HTMLFormElement>(".social-message-form")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const input = form.querySelector<HTMLInputElement>("input");
+      const text = input?.value.trim() ?? "";
+      if (!text) return;
+      const submit = form.querySelector<HTMLButtonElement>("button");
+      if (submit) submit.disabled = true;
+      void socialPost(
+        `/api/social/messages/${encodeURIComponent(person.accountId)}`,
+        { body: text },
+      )
+        .then(() => {
+          if (input) input.value = "";
+          return load();
+        })
+        .catch((error: unknown) =>
+          toast(
+            error instanceof Error
+              ? error.message
+              : "메시지를 보내지 못했습니다.",
+          ),
+        )
+        .finally(() => {
+          if (submit) submit.disabled = false;
+        });
+    });
+  try {
+    await load();
+  } catch (error) {
+    if (list)
+      list.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "대화를 불러오지 못했습니다.")}</p>`;
+  }
 }
 
-async function showSocialHub(initialTab: "friends" | "chat" | "invites" = "friends", inviteRoomCode?: string): Promise<void> {
+async function showSocialHub(
+  initialTab: "friends" | "chat" | "invites" = "friends",
+  inviteRoomCode?: string,
+): Promise<void> {
   app.querySelector(".social-modal")?.remove();
   const modal = dismissibleModal(
     `<section class="home-picker-sheet social-sheet" role="dialog" aria-modal="true" aria-labelledby="social-title"><header><div><small>SOCIAL</small><h2 id="social-title">친구와 채팅</h2></div><button data-modal-close aria-label="닫기">×</button></header><nav class="social-tabs"><button data-social-tab="friends">친구</button><button data-social-tab="chat">채팅</button><button data-social-tab="invites">초대</button></nav><div data-social-content><p class="social-empty">불러오는 중…</p></div></section>`,
@@ -4047,12 +4131,21 @@ async function showSocialHub(initialTab: "friends" | "chat" | "invites" = "frien
   };
   const render = async (): Promise<void> => {
     if (!content) return;
-    modal.querySelectorAll<HTMLButtonElement>("[data-social-tab]").forEach((button) =>
-      button.classList.toggle("active", button.dataset.socialTab === activeTab),
-    );
+    modal
+      .querySelectorAll<HTMLButtonElement>("[data-social-tab]")
+      .forEach((button) =>
+        button.classList.toggle(
+          "active",
+          button.dataset.socialTab === activeTab,
+        ),
+      );
     if (activeTab === "friends") {
-      const requests = social.requests.filter((request) => request.direction === "incoming");
-      const sentRequests = social.requests.filter((request) => request.direction === "outgoing");
+      const requests = social.requests.filter(
+        (request) => request.direction === "incoming",
+      );
+      const sentRequests = social.requests.filter(
+        (request) => request.direction === "outgoing",
+      );
       const requestHtml = requests.length
         ? `<section class="social-section"><h3>받은 친구 요청</h3>${requests.map((request) => socialPersonCard(request, `<button data-social-friend="accept" data-social-id="${request.accountId}">수락</button><button class="ghost" data-social-friend="decline" data-social-id="${request.accountId}">거절</button>`, "친구 요청")).join("")}</section>`
         : "";
@@ -4060,65 +4153,155 @@ async function showSocialHub(initialTab: "friends" | "chat" | "invites" = "frien
         ? `<section class="social-section"><h3>보낸 친구 요청</h3>${sentRequests.map((request) => socialPersonCard(request, `<button class="ghost" data-social-friend="decline" data-social-id="${request.accountId}">요청 취소</button>`, "수락 대기 중")).join("")}</section>`
         : "";
       content.innerHTML = `<section class="social-code"><span>내 친구 코드</span><strong>${escapeHtml(social.friendCode)}</strong><button data-social-copy>복사</button></section><form class="social-add-form"><input maxlength="11" autocomplete="off" placeholder="FD-1234ABCD"/><button type="submit">친구 추가</button></form>${requestHtml}${sentHtml}<section class="social-section"><h3>친구 ${social.friends.length}/100</h3>${social.friends.length ? social.friends.map((friend) => socialPersonCard(friend, `<button data-social-chat="${friend.accountId}">채팅</button>${inviteRoomCode ? `<button data-social-invite="${friend.accountId}">초대</button>` : ""}<button class="ghost" data-social-friend="remove" data-social-id="${friend.accountId}">삭제</button>`)).join("") : '<p class="social-empty">아직 친구가 없습니다.<br/>친구 코드로 함께할 사람을 추가하세요.</p>'}</section>`;
-      content.querySelector("[data-social-copy]")?.addEventListener("click", () => {
-        void navigator.clipboard?.writeText(social.friendCode);
-        toast("친구 코드를 복사했습니다.");
-      });
-      content.querySelector<HTMLFormElement>(".social-add-form")?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = event.currentTarget as HTMLFormElement;
-        const input = form.querySelector<HTMLInputElement>("input");
-        const friendCode = input?.value ?? "";
-        void socialPost("/api/social/friends/request", { friendCode }).then(async () => {
-          toast("친구 요청을 보냈습니다.");
-          await reload(); await render();
-        }).catch((error: unknown) => toast(error instanceof Error ? error.message : "친구 요청을 보내지 못했습니다."));
-      });
+      content
+        .querySelector("[data-social-copy]")
+        ?.addEventListener("click", () => {
+          void navigator.clipboard?.writeText(social.friendCode);
+          toast("친구 코드를 복사했습니다.");
+        });
+      content
+        .querySelector<HTMLFormElement>(".social-add-form")
+        ?.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const form = event.currentTarget as HTMLFormElement;
+          const input = form.querySelector<HTMLInputElement>("input");
+          const friendCode = input?.value ?? "";
+          void socialPost("/api/social/friends/request", { friendCode })
+            .then(async () => {
+              toast("친구 요청을 보냈습니다.");
+              await reload();
+              await render();
+            })
+            .catch((error: unknown) =>
+              toast(
+                error instanceof Error
+                  ? error.message
+                  : "친구 요청을 보내지 못했습니다.",
+              ),
+            );
+        });
     } else if (activeTab === "chat") {
-      const byId = new Map(social.conversations.map((conversation) => [conversation.accountId, conversation]));
-      content.innerHTML = `<section class="social-section social-conversations"><h3>친구와의 대화</h3>${social.friends.length ? social.friends.map((friend) => {
-        const conversation = byId.get(friend.accountId);
-        return `<button class="social-conversation" data-social-chat="${friend.accountId}">${socialAvatarMarkup(friend, true)}<span><strong>${escapeHtml(friend.nickname)}</strong><small>${escapeHtml(conversation?.lastMessage?.body ?? "새 대화를 시작하세요.")}</small></span>${conversation?.unreadCount ? `<b>${conversation.unreadCount}</b>` : ""}</button>`;
-      }).join("") : '<p class="social-empty">친구를 추가하면 대화를 시작할 수 있습니다.</p>'}</section>`;
+      const byId = new Map(
+        social.conversations.map((conversation) => [
+          conversation.accountId,
+          conversation,
+        ]),
+      );
+      content.innerHTML = `<section class="social-section social-conversations"><h3>친구와의 대화</h3>${
+        social.friends.length
+          ? social.friends
+              .map((friend) => {
+                const conversation = byId.get(friend.accountId);
+                return `<button class="social-conversation" data-social-chat="${friend.accountId}">${socialAvatarMarkup(friend, true)}<span><strong>${escapeHtml(friend.nickname)}</strong><small>${escapeHtml(conversation?.lastMessage?.body ?? "새 대화를 시작하세요.")}</small></span>${conversation?.unreadCount ? `<b>${conversation.unreadCount}</b>` : ""}</button>`;
+              })
+              .join("")
+          : '<p class="social-empty">친구를 추가하면 대화를 시작할 수 있습니다.</p>'
+      }</section>`;
     } else {
       content.innerHTML = `<section class="social-section"><h3>받은 방 초대</h3>${social.invites.length ? social.invites.map((invite: SocialInvite) => socialPersonCard(invite, `<button data-social-invite-action="accept" data-social-invite-id="${invite.id}">수락</button><button class="ghost" data-social-invite-action="decline" data-social-invite-id="${invite.id}">거절</button>`, `방 초대 · ${invite.roomCode}`)).join("") : '<p class="social-empty">받은 방 초대가 없습니다.</p>'}</section>`;
     }
-    content.querySelectorAll<HTMLButtonElement>("[data-social-chat]").forEach((button) => button.addEventListener("click", () => {
-      const person = social.friends.find((friend) => friend.accountId === button.dataset.socialChat);
-      if (person) void showSocialConversation(modal, person, async () => { await reload(); await render(); });
-    }));
-    content.querySelectorAll<HTMLButtonElement>("[data-social-friend]").forEach((button) => button.addEventListener("click", () => {
-      const action = button.dataset.socialFriend;
-      const id = button.dataset.socialId;
-      if (!action || !id) return;
-      void socialPost(`/api/social/friends/${encodeURIComponent(id)}/${action}`).then(async () => { await reload(); await render(); }).catch((error: unknown) => toast(error instanceof Error ? error.message : "친구 요청을 처리하지 못했습니다."));
-    }));
-    content.querySelectorAll<HTMLButtonElement>("[data-social-invite]").forEach((button) => button.addEventListener("click", () => {
-      if (!inviteRoomCode) return;
-      const recipientId = button.dataset.socialInvite;
-      if (!recipientId) return;
-      void socialPost("/api/social/invites", { recipientId, roomCode: inviteRoomCode }).then(() => toast("친구에게 방 초대를 보냈습니다.")).catch((error: unknown) => toast(error instanceof Error ? error.message : "방 초대를 보내지 못했습니다."));
-    }));
-    content.querySelectorAll<HTMLButtonElement>("[data-social-invite-action]").forEach((button) => button.addEventListener("click", () => {
-      const id = button.dataset.socialInviteId;
-      const action = button.dataset.socialInviteAction;
-      if (!id || !action) return;
-      void socialPost(`/api/social/invites/${encodeURIComponent(id)}/${action}`).then(async (data) => {
-        if (action === "accept" && typeof data.roomCode === "string") {
-          modal.remove();
-          await joinRoomFromInvite(data.roomCode);
-          return;
-        }
-        await reload(); await render();
-      }).catch((error: unknown) => toast(error instanceof Error ? error.message : "방 초대를 처리하지 못했습니다."));
-    }));
+    content
+      .querySelectorAll<HTMLButtonElement>("[data-social-chat]")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          const person = social.friends.find(
+            (friend) => friend.accountId === button.dataset.socialChat,
+          );
+          if (person)
+            void showSocialConversation(modal, person, async () => {
+              await reload();
+              await render();
+            });
+        }),
+      );
+    content
+      .querySelectorAll<HTMLButtonElement>("[data-social-friend]")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          const action = button.dataset.socialFriend;
+          const id = button.dataset.socialId;
+          if (!action || !id) return;
+          void socialPost(
+            `/api/social/friends/${encodeURIComponent(id)}/${action}`,
+          )
+            .then(async () => {
+              await reload();
+              await render();
+            })
+            .catch((error: unknown) =>
+              toast(
+                error instanceof Error
+                  ? error.message
+                  : "친구 요청을 처리하지 못했습니다.",
+              ),
+            );
+        }),
+      );
+    content
+      .querySelectorAll<HTMLButtonElement>("[data-social-invite]")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          if (!inviteRoomCode) return;
+          const recipientId = button.dataset.socialInvite;
+          if (!recipientId) return;
+          void socialPost("/api/social/invites", {
+            recipientId,
+            roomCode: inviteRoomCode,
+          })
+            .then(() => toast("친구에게 방 초대를 보냈습니다."))
+            .catch((error: unknown) =>
+              toast(
+                error instanceof Error
+                  ? error.message
+                  : "방 초대를 보내지 못했습니다.",
+              ),
+            );
+        }),
+      );
+    content
+      .querySelectorAll<HTMLButtonElement>("[data-social-invite-action]")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          const id = button.dataset.socialInviteId;
+          const action = button.dataset.socialInviteAction;
+          if (!id || !action) return;
+          void socialPost(
+            `/api/social/invites/${encodeURIComponent(id)}/${action}`,
+          )
+            .then(async (data) => {
+              if (action === "accept" && typeof data.roomCode === "string") {
+                modal.remove();
+                await joinRoomFromInvite(data.roomCode);
+                return;
+              }
+              await reload();
+              await render();
+            })
+            .catch((error: unknown) =>
+              toast(
+                error instanceof Error
+                  ? error.message
+                  : "방 초대를 처리하지 못했습니다.",
+              ),
+            );
+        }),
+      );
   };
-  modal.querySelectorAll<HTMLButtonElement>("[data-social-tab]").forEach((button) => button.addEventListener("click", () => {
-    activeTab = button.dataset.socialTab as typeof activeTab;
-    void render();
-  }));
-  try { await reload(); await render(); }
-  catch (error) { if (content) content.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "친구 목록을 불러오지 못했습니다.")}</p>`; }
+  modal
+    .querySelectorAll<HTMLButtonElement>("[data-social-tab]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        activeTab = button.dataset.socialTab as typeof activeTab;
+        void render();
+      }),
+    );
+  try {
+    await reload();
+    await render();
+  } catch (error) {
+    if (content)
+      content.innerHTML = `<p class="social-empty">${escapeHtml(error instanceof Error ? error.message : "친구 목록을 불러오지 못했습니다.")}</p>`;
+  }
 }
 
 async function forceRefreshForUpdate(version: string): Promise<void> {

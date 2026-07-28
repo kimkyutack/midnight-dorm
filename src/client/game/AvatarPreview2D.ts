@@ -11,6 +11,7 @@ export type AvatarSpriteView = SpriteDirection;
 type MovementFrame = 'idle' | 'walk-1' | 'walk-2' | 'walk-3';
 
 const SURFER_MONG_SKIN_ID = 'skin-look-puppy-surfer';
+const LIFEGUARD_RAON_SKIN_ID = 'skin-look-tiger-lifeguard';
 const SURF_FRAMES: readonly MovementFrame[] = ['idle', 'walk-1', 'walk-2', 'walk-3'];
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
@@ -94,7 +95,7 @@ export class AvatarPreview2D {
     if (this.destroyed) return;
     this.destroyed = true;
     cancelAnimationFrame(this.animationFrame);
-    this.host.classList.remove('surfer-mong-preview');
+    this.host.classList.remove('surfer-mong-preview', 'lifeguard-raon-preview');
     this.root.remove();
   }
 
@@ -106,12 +107,20 @@ export class AvatarPreview2D {
     return this.appearance.skin === SURFER_MONG_SKIN_ID;
   }
 
+  private isLifeguardRaon(): boolean {
+    return this.appearance.skin === LIFEGUARD_RAON_SKIN_ID;
+  }
+
+  private isAnimatedPremiumSkin(): boolean {
+    return this.isSurferMong() || this.isLifeguardRaon();
+  }
+
   private shouldAnimate(): boolean {
-    return this.homePresentation || this.isSurferMong();
+    return this.homePresentation || this.isAnimatedPremiumSkin();
   }
 
   private presentationFrame(): MovementFrame {
-    if (this.isSurferMong()) {
+    if (this.isAnimatedPremiumSkin()) {
       return SURF_FRAMES[Math.max(0, this.homeStep) % SURF_FRAMES.length] ?? 'idle';
     }
     return this.homePresentation ? this.homeFrame() : 'idle';
@@ -119,8 +128,11 @@ export class AvatarPreview2D {
 
   private updatePresentationClasses(): void {
     const surferMong = this.isSurferMong();
+    const lifeguardRaon = this.isLifeguardRaon();
     this.root.classList.toggle('surfer-mong-sprite-preview', surferMong);
+    this.root.classList.toggle('lifeguard-raon-sprite-preview', lifeguardRaon);
     this.host.classList.toggle('surfer-mong-preview', surferMong);
+    this.host.classList.toggle('lifeguard-raon-preview', lifeguardRaon);
   }
 
   private syncAnimation(): void {
@@ -168,7 +180,7 @@ export class AvatarPreview2D {
 
   private readonly animatePreview = (time: number): void => {
     if (this.destroyed) return;
-    const step = Math.floor(time / (this.isSurferMong() ? 230 : 360)) % 4;
+    const step = Math.floor(time / (this.isAnimatedPremiumSkin() ? 230 : 360)) % 4;
     if (step !== this.homeStep) {
       this.homeStep = step;
       this.render(this.presentationFrame());
