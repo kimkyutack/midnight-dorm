@@ -22,7 +22,30 @@ export const CURRENT_APP_UPDATE: AppUpdate = {
   publishedAt: 1785230400000,
 };
 
+/**
+ * Release identifiers use `YYYY.MM.DD.patch`.  Equality alone is not enough:
+ * an out-of-date D1 row must never tell a newer client to refresh backwards.
+ */
+export function compareAppVersions(left: string, right: string): number {
+  const parse = (version: string): number[] | null => {
+    const parts = version.split('.').map((part) => Number(part));
+    return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0)
+      ? parts
+      : null;
+  };
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  // Keep an unknown future deployment from being silently ignored, while
+  // still comparing all normal release versions numerically.
+  if (!leftParts || !rightParts) return left.localeCompare(right);
+  for (let index = 0; index < leftParts.length; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
 export const isUpdateAvailable = (
   currentVersion: string,
   latestVersion?: string | null,
-): boolean => Boolean(latestVersion && latestVersion !== currentVersion);
+): boolean => Boolean(latestVersion && compareAppVersions(latestVersion, currentVersion) > 0);

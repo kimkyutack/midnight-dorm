@@ -1,6 +1,6 @@
 import type { GameRoom } from './GameRoom';
 import { getStage, unlockedStageIndex } from '../shared/progression';
-import { CURRENT_APP_UPDATE, type AppUpdate } from '../shared/appUpdates';
+import { CURRENT_APP_UPDATE, isUpdateAvailable, type AppUpdate } from '../shared/appUpdates';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
 import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
@@ -48,7 +48,18 @@ async function routeAppUpdates(request: Request, env: Env): Promise<Response> {
       const row = await env.DB.prepare(
         'SELECT version, title, summary, published_at FROM app_updates ORDER BY published_at DESC, version DESC LIMIT 1',
       ).first<AppUpdateRow>();
-      return Response.json({ latest: row ? appUpdateFromRow(row) : null }, { headers: noStoreHeaders });
+      const databaseLatest = row ? appUpdateFromRow(row) : null;
+      // Static assets and the Worker can be deployed before the matching D1
+      // migration. In that window the compiled release metadata is newer than
+      // the newest stored row and must win, otherwise a current client gets a
+      // false "new update" prompt for an older date.
+      const latest = !databaseLatest || isUpdateAvailable(
+        databaseLatest.version,
+        CURRENT_APP_UPDATE.version,
+      )
+        ? CURRENT_APP_UPDATE
+        : databaseLatest;
+      return Response.json({ latest }, { headers: noStoreHeaders });
     }
     const result = await env.DB.prepare(
       'SELECT version, title, summary, published_at FROM app_updates ORDER BY published_at DESC, version DESC LIMIT ?',

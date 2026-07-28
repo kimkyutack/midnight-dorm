@@ -2869,8 +2869,11 @@ export class ThreeGameView {
         const targetTrailsInput =
           targetOffsetX * this.localInput.x + targetOffsetZ * this.localInput.y < -0.025;
         if (
-          serverError > LOCAL_MAX_PREDICTION_LEAD ||
-          (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput)
+          !targetTrailsInput &&
+          (
+            serverError > LOCAL_MAX_PREDICTION_LEAD ||
+            serverError > LOCAL_HARD_RECONCILE_DISTANCE
+          )
         ) {
           this.reconcilePlayerPosition(view, 16, dt, blockedRoomFloorTiles);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
