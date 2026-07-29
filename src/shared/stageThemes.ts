@@ -87,7 +87,7 @@ export function stageThemeFor(stageId: string): StageTheme {
       : tier === 'inferno' ? 'desert'
         : tier === 'epic' ? 'junkyard'
           : tier === 'mythic' ? 'occult'
-            : tier === 'legendary' ? 'void'
+            : ['legendary', 'calamity', 'cataclysm', 'ruin', 'apocalypse'].includes(tier ?? '') ? 'void'
               : 'hospital';
   return STAGE_THEMES[themeId];
 }

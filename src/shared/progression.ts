@@ -45,8 +45,6 @@ const STAGE_TIERS = [
   { id: 'apocalypse', label: '종말', count: 99 },
 ] as const;
 
-const TOTAL_STAGE_COUNT = STAGE_TIERS.reduce((total, tier) => total + tier.count, 0);
-
 export type GhostStageSkill = 'turret-jam' | 'gold-lock' | 'repair-lock' | 'door-crush';
 
 export interface StageDefinition {
@@ -151,7 +149,7 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
     damageMultiplier: Number((1 + earlyIndex * 0.023 + earlyPressure * 0.45 + endgameIndex * 0.011).toFixed(3)),
     speedMultiplier: Number(Math.min(1.55, 1 + index * 0.0016).toFixed(3)),
     levelHpGrowth: Number(Math.min(0.38, 0.16 + index * 0.0007).toFixed(3)),
-    levelDamageGrowth: Number(Math.min(0.30, 0.11 + index * 0.00055).toFixed(3)),
+    levelDamageGrowth: Number(Math.min(0.30, 0.11 + index * 0.00056).toFixed(3)),
     skillInterval: Math.max(8, 28 - Math.floor(index / 12)),
     skills,
     victoryXp: 60 + index * 14,

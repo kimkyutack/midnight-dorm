@@ -26,6 +26,7 @@ import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/Buildin
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
+import { decideBotIntent } from '../src/server/bots';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -125,7 +126,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.5')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -268,6 +269,10 @@ describe('deterministic shared world', () => {
     expect(stageThemeFor('epic-1').id).toBe('junkyard');
     expect(stageThemeFor('mythic-1').id).toBe('occult');
     expect(stageThemeFor('legendary-1').id).toBe('void');
+    expect(stageThemeFor('calamity-1').id).toBe('void');
+    expect(stageThemeFor('cataclysm-1').id).toBe('void');
+    expect(stageThemeFor('ruin-1').id).toBe('void');
+    expect(stageThemeFor('apocalypse-99').id).toBe('void');
     const assets = ['easy-1', 'nightmare-1', 'hell-1', 'inferno-1', 'epic-1', 'mythic-1', 'legendary-1']
       .map((stage) => {
         const theme = stageThemeFor(stage);
@@ -276,8 +281,18 @@ describe('deterministic shared world', () => {
     expect(new Set(assets).size).toBe(assets.length);
   });
 
-  it('defines a badge and evolving hat identity for all six ranks', () => {
-    const ranks = ['beginner', 'intermediate', 'expert', 'master', 'veteran', 'legend'] as const;
+  it('defines a badge and evolving hat identity for all nine ranks', () => {
+    const ranks = [
+      'beginner',
+      'intermediate',
+      'expert',
+      'master',
+      'veteran',
+      'legend',
+      'transcendent',
+      'immortal',
+      'absolute',
+    ] as const;
     expect(new Set(ranks.map((rank) => rankBadgeSymbol(rank))).size).toBe(ranks.length);
     expect(ranks.every((rank) => RANK_VISUALS[rank].hatLabel.length > 0)).toBe(true);
   });
@@ -554,17 +569,21 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('swift').movementUrl)
-      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v4');
+      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v5');
     expect(ghostSpriteDefinition('swift').attackUrl)
-      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v4');
-    for (const variant of ['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant', 'demolisher'] as const) {
+      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v5');
+    for (const variant of ['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant', 'demolisher', 'wallpaper'] as const) {
       expect(ghostSpriteDefinition(variant).attackUrl)
-        .toBe(`/assets/sprites/ghosts/${variant}/attack-sheet.png?v=ghost-atlas-v4`);
+        .toBe(`/assets/sprites/ghosts/${variant}/attack-sheet.png?v=ghost-atlas-v5`);
     }
     expect(ghostSpriteDefinition('demolisher').skillPrepareUrl)
-      .toBe('/assets/sprites/ghosts/demolisher/skill-prepare-sheet.png?v=ghost-atlas-v4');
+      .toBe('/assets/sprites/ghosts/demolisher/skill-prepare-sheet.png?v=ghost-atlas-v5');
     expect(ghostSpriteDefinition('demolisher').skillCastUrl)
-      .toBe('/assets/sprites/ghosts/demolisher/skill-cast-sheet.png?v=ghost-atlas-v4');
+      .toBe('/assets/sprites/ghosts/demolisher/skill-cast-sheet.png?v=ghost-atlas-v5');
+    expect(ghostSpriteDefinition('wallpaper').skillPrepareUrl)
+      .toBe('/assets/sprites/ghosts/wallpaper/skill-prepare-sheet.png?v=ghost-atlas-v5');
+    expect(ghostSpriteDefinition('wallpaper').skillCastUrl)
+      .toBe('/assets/sprites/ghosts/wallpaper/skill-cast-sheet.png?v=ghost-atlas-v5');
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
@@ -695,11 +714,11 @@ describe('survivor customization rules', () => {
     expect(drawLimitForCharacter('character-fox')).toBe(5);
     expect(characterTrait('character-hamster').firstGuardianLevelBonus).toBe(1);
     expect(characterTrait('character-crocodile').turretDamageMultiplier).toBe(1.35);
-    expect(characterTrait('character-duck').goldPerSecond).toBe(3);
+    expect(characterTrait('character-duck').powerPerSecond).toBe(1);
     expect(characterTrait('character-tiger').turretRangeBonus).toBe(1);
     expect(characterTrait('character-dinosaur').turretRateMultiplier).toBeCloseTo(1 / 1.4, 6);
     expect(drawLimitForCharacter('character-monkey')).toBe(6);
-    expect(characterTrait('character-gorilla').occupiedDoorLevelBonus).toBe(1);
+    expect(characterTrait('character-gorilla').doorShieldRatio).toBe(0.5);
   });
 
   it('gives every purchased turret skin a matching server combat trait', () => {
@@ -1556,8 +1575,8 @@ describe('authoritative game rules', () => {
     expect(upgradeCost('bed', 6)).toEqual({ gold: 400, power: 40 });
     expect(upgradeCost('reinforced-door', 2)).toEqual({ gold: 20, power: 0 });
     expect(upgradeCost('reinforced-door', 6)).toEqual({ gold: 320, power: 32 });
-    expect(upgradeCost('generator', 1)).toEqual({ gold: 200, power: 0 });
-    expect(upgradeCost('generator', 5)).toEqual({ gold: 3_200, power: 320 });
+    expect(upgradeCost('generator', 1)).toEqual({ gold: 150, power: 0 });
+    expect(upgradeCost('generator', 5)).toEqual({ gold: 2_400, power: 240 });
 
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
     expect(engine.upgrade(playerId, `bed:${roomId}`).ok).toBe(true);
@@ -2114,6 +2133,83 @@ describe('requested progression and event rules', () => {
     expect(humanDistance).toBeGreaterThan(botDistance);
   });
 
+  it('makes a hard bot answer door pressure with a nearby turret before economy', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === room?.id);
+    const ghost = snapshot.ghosts[0];
+    if (!bot || !room || !mapRoom || !ghost) throw new Error('missing bot pressure fixture');
+    bot.isBot = true;
+    bot.gold = 1_000;
+    bot.power = 1_000;
+    snapshot.buildings = snapshot.buildings.filter((building) => building.roomId !== room.id);
+    ghost.targetRoomId = room.id;
+    ghost.retreating = false;
+    ghost.healing = false;
+    const intent = decideBotIntent(bot, snapshot, engine.map, 'hard');
+    expect(intent).toMatchObject({
+      type: 'build',
+      roomId: room.id,
+      kind: 'basic-turret',
+    });
+    if (intent.type !== 'build') throw new Error('hard bot did not build a turret');
+    const nearestDistance = Math.min(
+      ...mapRoom.buildTiles.map((tile) =>
+        Math.hypot(tile.x - mapRoom.door.x, tile.y - mapRoom.door.y),
+      ),
+    );
+    expect(
+      Math.hypot(intent.tile.x - mapRoom.door.x, intent.tile.y - mapRoom.door.y),
+    ).toBeCloseTo(nearestDistance);
+  });
+
+  it('moves a distant starter turret toward the door before buying another building', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === room?.id);
+    if (!bot || !room || !mapRoom) throw new Error('missing bot relocation fixture');
+    bot.isBot = true;
+    bot.gold = 1_000;
+    bot.power = 1_000;
+    const farTile = [...mapRoom.buildTiles].sort(
+      (left, right) =>
+        Math.hypot(right.x - mapRoom.door.x, right.y - mapRoom.door.y) -
+        Math.hypot(left.x - mapRoom.door.x, left.y - mapRoom.door.y),
+    )[0];
+    if (!farTile) throw new Error('missing distant turret tile');
+    snapshot.buildings = [{
+      id: 'bot-starter-turret',
+      kind: 'basic-turret',
+      roomId: room.id,
+      ownerId: bot.id,
+      skinId: '',
+      tile: { ...farTile, roomId: room.id },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 0,
+      investedPower: 0,
+      investmentByPlayer: {},
+    }];
+    const intent = decideBotIntent(bot, snapshot, engine.map, 'hard');
+    expect(intent).toMatchObject({
+      type: 'move-building',
+      buildingId: 'bot-starter-turret',
+    });
+    if (intent.type !== 'move-building') throw new Error('hard bot did not move its starter turret');
+    expect(
+      Math.hypot(intent.tile.x - mapRoom.door.x, intent.tile.y - mapRoom.door.y),
+    ).toBeLessThan(
+      Math.hypot(farTile.x - mapRoom.door.x, farTile.y - mapRoom.door.y),
+    );
+  });
+
   it('reaches a randomly selected occupied door across the expanded map', () => {
     const engine = new GameEngine('GHOSTPATH', generateMap(51_515), false);
     const player = engine.join({ nickname: '문지기', deviceId: 'device-ghost-path' });
@@ -2295,7 +2391,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'power')).toBe(false);
     engine.tick(0.05);
     const events = engine.drainEvents();
-    expect(events.some((event) => event.kind === 'gold' && event.amount === 3 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
+    expect(events.some((event) => event.kind === 'gold' && event.amount === 6 && event.position?.x === mapRoom?.bed.x && event.position?.y === mapRoom?.bed.y)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.label === '특성')).toBe(false);
     expect(events.some((event) => event.kind === 'gold' && event.label === '보관 아이템' && event.amount === 5)).toBe(true);
     expect(events.some((event) => event.kind === 'gold' && event.amount === 8 && event.position?.x === gemTile.x && event.position?.y === gemTile.y)).toBe(true);
@@ -2824,7 +2920,7 @@ describe('requested progression and event rules', () => {
       ['normal-2', 19],
       ['hard-1', 15],
       ['nightmare-1', 15],
-      ['legendary-99', 15],
+      ['apocalypse-99', 15],
     ] as const;
     for (const [stageId, expected] of stages) {
       const engine = new GameEngine(`GROWTH-${stageId}`, generateMap(93_000 + expected), true, { stageId });
@@ -3231,7 +3327,7 @@ describe('requested progression and event rules', () => {
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-ward' }).goldPerSecond)
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-puppy', skin: 'skin-look-puppy-surfer' }).goldPerSecond)
-      .toBe(2);
+      .toBe(5);
     expect(bedGoldProductionForAppearance(
       { character: 'character-puppy', skin: 'skin-basic-puppy' },
       1,
@@ -3239,19 +3335,25 @@ describe('requested progression and event rules', () => {
     expect(bedGoldProductionForAppearance(
       { character: 'character-puppy', skin: 'skin-look-puppy-surfer' },
       1,
-    )).toBe(3);
+    )).toBe(6);
     expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-lifeguard' }).turretRangeBonus)
       .toBe(2);
+    expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-lifeguard' }).turretRateMultiplier)
+      .toBeCloseTo(1 / 1.2, 6);
+    expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-ward' }).turretRateMultiplier)
+      .toBeCloseTo(1 / 1.05, 6);
+    expect(characterTraitForAppearance({ character: 'character-duck', skin: 'skin-look-duck-ward' }).powerPerSecond)
+      .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-basic-hamster' }).firstGuardianLevelBonus)
       .toBe(1);
     expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-look-hamster-ward' }).firstGuardianLevelBonus)
       .toBe(2);
-    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }).occupiedDoorLevelBonus)
-      .toBe(1);
-    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }).occupiedDoorLevelBonus)
-      .toBe(2);
+    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }).doorShieldRatio)
+      .toBe(0.5);
+    expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }).doorShieldRatio)
+      .toBe(0.75);
   });
 
   it('starts the hamster guardian turret at Lv.2, or Lv.3 with its skin, only once', () => {
@@ -3280,8 +3382,8 @@ describe('requested progression and event rules', () => {
     verifyInitialGuardian({ character: 'character-hamster', skin: 'skin-look-hamster-ward' }, 3);
   });
 
-  it('raises the gorilla room door to Lv.2, or Lv.3 with its skin, on occupancy', () => {
-    const verifyDoorLevel = (appearance: { character: string; skin: string }, expectedLevel: number): void => {
+  it('gives the gorilla door a 50%, or skinned 75%, shield that takes damage first', () => {
+    const verifyDoorShield = (appearance: { character: string; skin: string }, expectedRatio: number): void => {
       const { engine, ids } = setup();
       const playerId = ids[0] as string;
       expect(engine.start(playerId).ok).toBe(true);
@@ -3295,14 +3397,47 @@ describe('requested progression and event rules', () => {
       player.position = { ...(mapRoom.beds[0] as Tile) };
       engine.restore(configured);
       expect(engine.interact(playerId).ok).toBe(true);
-      expect(engine.snapshot().rooms.find((room) => room.id === mapRoom.id)?.doorLevel).toBe(expectedLevel);
+      const occupiedRoom = engine.snapshot().rooms.find((room) => room.id === mapRoom.id);
+      expect(occupiedRoom?.doorLevel).toBe(1);
+      expect(occupiedRoom?.doorShieldMaxHp).toBe(Math.floor((occupiedRoom?.doorMaxHp ?? 0) * expectedRatio));
+      expect(occupiedRoom?.doorShieldHp).toBe(occupiedRoom?.doorShieldMaxHp);
+
+      const combat = engine.serialize();
+      const ghost = combat.snapshot.ghosts[0];
+      const room = combat.snapshot.rooms.find((candidate) => candidate.id === mapRoom.id);
+      if (!ghost || !room) throw new Error('missing gorilla shield combat fixture');
+      const approach = engine.map.corridorTiles.find(
+        (tile) =>
+          Math.abs(tile.x - mapRoom.door.x) +
+            Math.abs(tile.y - mapRoom.door.y) ===
+          1,
+      );
+      if (!approach) throw new Error('missing gorilla door approach');
+      combat.snapshot.status = 'PLAYING';
+      combat.snapshot.countdown = 0;
+      ghost.position = { ...approach };
+      ghost.targetRoomId = mapRoom.id;
+      ghost.targetPlayerId = null;
+      ghost.attackCooldown = 0;
+      ghost.path = [];
+      const beforeDoorHp = room.doorHp;
+      const beforeShieldHp = room.doorShieldHp;
+      engine.restore(combat);
+      for (let index = 0; index < 40; index += 1) {
+        engine.tick(0.05);
+        const currentRoom = engine.snapshot().rooms.find((candidate) => candidate.id === mapRoom.id);
+        if ((currentRoom?.doorShieldHp ?? beforeShieldHp) < beforeShieldHp) break;
+      }
+      const struckRoom = engine.snapshot().rooms.find((candidate) => candidate.id === mapRoom.id);
+      expect(struckRoom?.doorHp).toBe(beforeDoorHp);
+      expect(struckRoom?.doorShieldHp).toBeLessThan(beforeShieldHp);
     };
 
-    verifyDoorLevel({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }, 2);
-    verifyDoorLevel({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }, 3);
+    verifyDoorShield({ character: 'character-gorilla', skin: 'skin-basic-gorilla' }, 0.5);
+    verifyDoorShield({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }, 0.75);
   });
 
-  it('can create all ten primary ghost variants as match events', () => {
+  it('can create all eleven primary ghost variants as match events', () => {
     const variants = new Set<string>();
     for (let index = 0; index < 120; index += 1) {
       const engine = new GameEngine(`EVENT${index}`, generateMap(30_000 + index), false);
@@ -3311,7 +3446,7 @@ describe('requested progression and event rules', () => {
     }
     expect(variants).toEqual(new Set([
       'wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant',
-      'demolisher',
+      'demolisher', 'wallpaper',
     ]));
   }, 15_000);
 
@@ -3396,6 +3531,72 @@ describe('requested progression and event rules', () => {
     )).toBe(true);
   });
 
+  it('charges the wallpaper ghost slowly, telegraphs, then disables three nearby room tiles without removing buildings', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    if (!mapRoom) throw new Error('missing wallpaper target room');
+    const approach = engine.map.corridorTiles.find(
+      (candidate) =>
+        Math.abs(candidate.x - mapRoom.door.x) +
+          Math.abs(candidate.y - mapRoom.door.y) ===
+        1,
+    );
+    if (!approach) throw new Error('missing wallpaper corridor approach');
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0] as GhostState;
+    ghost.variant = 'wallpaper';
+    ghost.displayName = '오염 도배귀';
+    ghost.position = { ...approach };
+    ghost.targetRoomId = roomId;
+    ghost.targetPlayerId = null;
+    ghost.attackCooldown = 0;
+    ghost.path = [];
+    ghost.mana = 100;
+    ghost.maxMana = 100;
+    ghost.abilityPhase = 'idle';
+    ghost.abilityStartedAt = -1;
+    ghost.abilityEndsAt = -1;
+    ghost.abilityTargetBuildingId = null;
+    ghost.contaminatedTiles = [];
+    ghost.contaminationEndsAt = -1;
+    const targetId = 'wallpaper-target';
+    persisted.snapshot.buildings.push({
+      id: targetId,
+      kind: 'generator',
+      roomId,
+      ownerId: playerId,
+      skinId: '',
+      tile: { ...tile, roomId },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 150,
+      investedPower: 0,
+      investmentByPlayer: {
+        [playerId]: { gold: 150, power: 0 },
+      },
+    });
+    engine.restore(persisted);
+    engine.drainEvents();
+    engine.tick(0.05);
+    expect(engine.snapshot().ghosts[0]?.abilityPhase).toBe('preparing');
+    expect(engine.drainEvents().some(
+      (event) => event.kind === 'ghost-skill' && event.itemId === 'wallpaper-prepare',
+    )).toBe(true);
+
+    for (let index = 0; index < 8; index += 1) engine.tick(0.1);
+    const contaminated = engine.snapshot().ghosts[0];
+    expect(contaminated?.contaminatedTiles).toHaveLength(3);
+    expect(contaminated?.contaminatedTiles).toContainEqual({ ...tile, roomId });
+    expect(engine.snapshot().buildings.some((building) => building.id === targetId)).toBe(true);
+    expect(engine.drainEvents().some(
+      (event) => event.kind === 'ghost-skill' && event.itemId === 'wallpaper-cast',
+    )).toBe(true);
+  });
+
   it('splits twin damage so both ghosts together equal one standard ghost attack', () => {
     let engine: GameEngine | null = null;
     for (let index = 0; index < 120; index += 1) {
@@ -3452,14 +3653,18 @@ describe('requested progression and event rules', () => {
 });
 
 describe('persistent account progression', () => {
-  it('creates the complete 190-stage ladder including the hard tier', () => {
-    expect(STAGES).toHaveLength(190);
+  it('creates the complete 345-stage ladder through apocalypse', () => {
+    expect(STAGES).toHaveLength(345);
     expect(STAGES[0]).toMatchObject({ id: 'easy-1', label: '쉬움 1', index: 0 });
     expect(STAGES[1]).toMatchObject({ id: 'normal-1', label: '노말 1' });
     expect(STAGES[5]).toMatchObject({ id: 'normal-5', label: '노말 5' });
     expect(STAGES[6]).toMatchObject({ id: 'hard-1', label: '어려움 1' });
     expect(STAGES[11]).toMatchObject({ id: 'nightmare-1', label: '악몽 1' });
-    expect(STAGES.at(-1)).toMatchObject({ id: 'legendary-99', label: '레전더리 99', index: 189 });
+    expect(STAGES[91]).toMatchObject({ id: 'legendary-1', label: '레전더리 1' });
+    expect(STAGES[121]).toMatchObject({ id: 'calamity-1', label: '재앙 1' });
+    expect(STAGES[156]).toMatchObject({ id: 'cataclysm-1', label: '대재앙 1' });
+    expect(STAGES[196]).toMatchObject({ id: 'ruin-1', label: '파멸 1' });
+    expect(STAGES.at(-1)).toMatchObject({ id: 'apocalypse-99', label: '종말 99', index: 344 });
   });
 
   it('raises every core pressure curve and unlocks ghost skills by stage', () => {
@@ -3478,8 +3683,8 @@ describe('persistent account progression', () => {
     expect(getStage('epic-1').skills).toContain('door-crush');
     expect(getStage('easy-1').levelHpGrowth).toBe(0.16);
     expect(getStage('easy-1').levelDamageGrowth).toBe(0.11);
-    expect(getStage('legendary-99').levelHpGrowth).toBe(0.34);
-    expect(getStage('legendary-99').levelDamageGrowth).toBe(0.28);
+    expect(getStage('apocalypse-99').levelHpGrowth).toBe(0.38);
+    expect(getStage('apocalypse-99').levelDamageGrowth).toBe(0.3);
   });
 
   it('calculates separate ranks and always displays the higher rank', () => {
@@ -3489,8 +3694,11 @@ describe('persistent account progression', () => {
     expect(rankFromXp(2_000)).toBe('master');
     expect(rankFromXp(5_000)).toBe('veteran');
     expect(rankFromXp(10_000)).toBe('legend');
+    expect(rankFromXp(20_000)).toBe('transcendent');
+    expect(rankFromXp(50_000)).toBe('immortal');
+    expect(rankFromXp(100_000)).toBe('absolute');
     expect(higherRank('expert', 'veteran')).toBe('veteran');
-    expect(higherRank('legend', 'master')).toBe('legend');
+    expect(higherRank('absolute', 'immortal')).toBe('absolute');
   });
 
   it('applies solo-rank benefits while construction ceilings stay fixed', () => {
@@ -3534,11 +3742,11 @@ describe('persistent account progression', () => {
     const easyPlayer = easy.join({ nickname: '쉬움도전자', deviceId: 'device-easy' });
     begin(easy, easyPlayer.player.id);
 
-    const legendary = new GameEngine('LASTSTAGE', generateMap(19_002), false, { stageId: 'legendary-99', playMode: 'solo' });
+    const legendary = new GameEngine('LASTSTAGE', generateMap(19_002), false, { stageId: 'apocalypse-99', playMode: 'solo' });
     const legendaryPlayer = legendary.join({ nickname: '신화도전자', deviceId: 'device-legendary' });
     begin(legendary, legendaryPlayer.player.id);
     expect(legendary.snapshot().ghost.maxHp).toBeGreaterThan(easy.snapshot().ghost.maxHp * 5);
-    expect(legendary.snapshot().stageLabel).toBe('레전더리 99');
+    expect(legendary.snapshot().stageLabel).toBe('종말 99');
 
     const persisted = legendary.serialize();
     const ghost = persisted.snapshot.ghosts[0];

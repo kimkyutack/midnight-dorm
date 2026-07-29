@@ -2283,6 +2283,7 @@ export class GameEngine {
     for (const bot of this.state.players.filter((player) => player.isBot)) {
       const runtime = this.botRuntime.get(bot.id);
       if (!runtime) continue;
+      const difficulty = this.effectiveBotDifficulty(runtime.difficulty);
       if (!bot.roomId) {
         if (!this.isAvailableBotBedTarget(runtime.bedTarget))
           runtime.bedTarget = this.reserveBedForBot(bot);
@@ -2296,7 +2297,7 @@ export class GameEngine {
           bot,
           this.state,
           this.map,
-          runtime.difficulty,
+          difficulty,
           runtime.bedTarget,
         );
         this.applyBotIntent(
@@ -2316,16 +2317,29 @@ export class GameEngine {
       runtime.reaction -= dt;
       if (runtime.reaction > 0) continue;
       runtime.reaction =
-        BOT_REACTION_SECONDS[runtime.difficulty] *
+        BOT_REACTION_SECONDS[difficulty] *
         (0.8 + this.rng.next() * 0.45);
       const intent = decideBotIntent(
         bot,
         this.state,
         this.map,
-        runtime.difficulty,
+        difficulty,
       );
       this.applyBotIntent(bot.id, intent);
     }
+  }
+
+  /**
+   * Early stages leave deliberately imperfect bots intact. From 어려움 onward
+   * even an easy fill bot understands the basic economy/defence loop, and from
+   * 지옥 onward every fill bot uses the full pressure-response policy. This
+   * keeps bot intelligence aligned with the encounter instead of only with the
+   * lobby button that originally created it.
+   */
+  private effectiveBotDifficulty(base: BotDifficulty): BotDifficulty {
+    if (this.stage.index >= 21) return 'hard';
+    if (this.stage.index >= 6 && base === 'easy') return 'normal';
+    return base;
   }
 
   private isAvailableBotBedTarget(target: BotBedTarget | null): target is BotBedTarget {
@@ -2389,6 +2403,8 @@ export class GameEngine {
       if (intent.type === "interact") this.interact(botId);
       else if (intent.type === "build")
         this.build(botId, intent.roomId, intent.tile, intent.kind);
+      else if (intent.type === "move-building")
+        this.moveBuilding(botId, intent.buildingId, intent.tile);
       else if (intent.type === "upgrade") this.upgrade(botId, intent.targetId);
     }
   }
@@ -2406,7 +2422,11 @@ export class GameEngine {
       const effects = this.itemEffectsFor(player);
       const inventoryEffects = combinedItemEffects(player.items);
       const placedItemBuildings = this.state.buildings.filter(
-        (building) => building.ownerId === player.id && building.kind === 'random-item' && building.itemId,
+        (building) =>
+          building.ownerId === player.id &&
+          building.kind === 'random-item' &&
+          building.itemId &&
+          !this.isBuildingContaminated(building),
       );
       const activeRank =
         this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
@@ -2419,7 +2439,8 @@ export class GameEngine {
       const goldBuildings = this.state.buildings.filter(
         (building) =>
           building.ownerId === player.id &&
-          (building.kind === "gem-core" || building.kind === "starter-grave"),
+          (building.kind === "gem-core" || building.kind === "starter-grave") &&
+          !this.isBuildingContaminated(building),
       );
       // Keep the bed's floating income to the bed's own production. Random
       // item income stays separate; economy traits are intentionally part of
@@ -2499,7 +2520,9 @@ export class GameEngine {
       }
       const generators = this.state.buildings.filter(
         (building) =>
-          building.ownerId === player.id && building.kind === "generator",
+          building.ownerId === player.id &&
+          building.kind === "generator" &&
+          !this.isBuildingContaminated(building),
       );
       // 발전기와 전력 아이템도 침대 골드처럼 매초 한 번만 지급한다.
       // 강화 단계는 지급 주기를 줄이지 않고, 한 번에 주는 전력만 2배로 키운다.
@@ -2510,11 +2533,24 @@ export class GameEngine {
           (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.powerPerSecond ?? 0) * productionMultiplier,
           0,
         );
+        const traitPowerPerSecond =
+          characterTraitForAppearance(player.appearance).powerPerSecond *
+          productionMultiplier;
         const powerPerSecond = generators.reduce(
           (total, generator) => total + buildingStats("generator", generator.level).value * productionMultiplier,
-          inventoryEffects.powerPerSecond * productionMultiplier + placedItemPowerPerSecond,
+          inventoryEffects.powerPerSecond * productionMultiplier +
+            placedItemPowerPerSecond +
+            traitPowerPerSecond,
         );
         player.power += powerPerSecond;
+        if (traitPowerPerSecond > 0)
+          this.pendingEvents.push({
+            kind: "power",
+            playerId: player.id,
+            amount: traitPowerPerSecond,
+            position: playerBed ? { ...playerBed } : { ...player.position },
+            label: characterTraitForAppearance(player.appearance).label,
+          });
         if (inventoryEffects.powerPerSecond > 0)
           this.pendingEvents.push({
             kind: "power",
@@ -2655,6 +2691,7 @@ export class GameEngine {
       const owner = ownersById.get(building.ownerId);
       // 아직 점유되지 않은 방의 기본 설비는 보이기만 하고 생산·공격하지 않는다.
       if (!owner) continue;
+      if (this.isBuildingContaminated(building)) continue;
       const effects = effectsByOwner.get(owner.id) ??
         combinedItemEffects([]);
       if (
@@ -2819,6 +2856,11 @@ export class GameEngine {
         : 0;
       const duration = resolveAfter >= 100 ? 0.45 : resolveAfter >= 70 ? 0.9 : stats.value;
       target.controlResolve = resolveAfter >= 100 ? 50 : resolveAfter;
+      this.announceControlResistance(
+        target,
+        "bind",
+        resolveAfter,
+      );
       target.stunnedUntil = Math.max(target.stunnedUntil, this.state.elapsed + duration);
       if (resolveAfter >= 100) target.controlImmuneUntil = target.stunnedUntil + 2.5;
       target.netTriggeredTargetRoomId = room.id;
@@ -2854,7 +2896,12 @@ export class GameEngine {
   private applyControlAdaptation(ghost: GhostState, stacks: number, dt: number): void {
     if (!this.state.difficulty.controlAdaptation || this.state.elapsed < ghost.controlImmuneUntil) return;
     const perSecond = stacks >= 3 ? 54 : stacks === 2 ? 30 : 12;
-    ghost.controlResolve = Math.min(100, ghost.controlResolve + perSecond * dt);
+    const resolveAfter = Math.min(
+      100,
+      ghost.controlResolve + perSecond * dt,
+    );
+    ghost.controlResolve = resolveAfter;
+    this.announceControlResistance(ghost, "slow", resolveAfter);
     if (ghost.controlResolve < 100) return;
     ghost.controlResolve = 50;
     ghost.controlImmuneUntil = this.state.elapsed + 2.5;
@@ -2865,6 +2912,24 @@ export class GameEngine {
       position: { ...ghost.position },
       targetId: ghost.id,
       label: '제어 적응 · 2.5초 면역',
+    });
+  }
+
+  private announceControlResistance(
+    ghost: GhostState,
+    control: "slow" | "bind",
+    resolve: number,
+  ): void {
+    const milestone = Math.min(4, Math.floor(resolve / 25));
+    if (milestone <= ghost.controlResistanceNoticeLevel) return;
+    ghost.controlResistanceNoticeLevel = milestone;
+    this.pendingEvents.push({
+      kind: "ghost-skill",
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      itemId:
+        control === "slow" ? "slow-resistance" : "bind-resistance",
+      label: `${control === "slow" ? "이속감소" : "속박"} 저항 ${milestone * 25}%`,
     });
   }
 
@@ -2950,6 +3015,8 @@ export class GameEngine {
     if (next <= 0 && ghost.barrierLayers > 0) {
       if (ghost.variant === "demolisher")
         this.resetDemolisherAbility(ghost, false);
+      if (ghost.variant === "wallpaper")
+        this.resetWallpaperAbility(ghost, false);
       ghost.barrierLayers -= 1;
       ghost.hp = 1;
       ghost.retreating = true;
@@ -2980,6 +3047,8 @@ export class GameEngine {
     if (crossesRetreatLine) {
       if (ghost.variant === "demolisher")
         this.resetDemolisherAbility(ghost, false);
+      if (ghost.variant === "wallpaper")
+        this.resetWallpaperAbility(ghost, false);
       ghost.hp = Math.max(1, next);
       ghost.retreating = true;
       ghost.retreatCount += 1;
@@ -3034,6 +3103,153 @@ export class GameEngine {
     ghost.abilityStartedAt = -1;
     ghost.abilityEndsAt = -1;
     ghost.abilityTargetBuildingId = null;
+  }
+
+  private wallpaperManaPerDoorHit(level: number): number {
+    // About sixty-seven clean hits at Lv.1. Growth makes the threat visible in
+    // long matches, but the cap prevents repeated room shutdowns.
+    return Math.min(2.8, 1.5 + Math.max(0, level - 1) * 0.16);
+  }
+
+  private wallpaperTargets(roomId: string): BuildingState[] {
+    const room = this.state.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) return [];
+    return this.state.buildings.filter(
+      (building) =>
+        building.roomId === roomId &&
+        Boolean(building.ownerId) &&
+        room.ownerIds.includes(building.ownerId),
+    );
+  }
+
+  private wallpaperContaminationTiles(roomId: string, origin: Tile): Tile[] {
+    const mapRoom = this.map.rooms.find((room) => room.id === roomId);
+    if (!mapRoom) return [];
+    return [...mapRoom.buildTiles]
+      .sort((left, right) => {
+        const leftDistance =
+          Math.abs(left.x - origin.x) + Math.abs(left.y - origin.y);
+        const rightDistance =
+          Math.abs(right.x - origin.x) + Math.abs(right.y - origin.y);
+        return (
+          leftDistance - rightDistance ||
+          left.y - right.y ||
+          left.x - right.x
+        );
+      })
+      .slice(0, 3)
+      .map((tile) => ({ ...tile, roomId }));
+  }
+
+  private resetWallpaperAbility(
+    ghost: GhostState,
+    consumeMana: boolean,
+  ): void {
+    if (consumeMana) ghost.mana = 0;
+    ghost.abilityPhase = "idle";
+    ghost.abilityStartedAt = -1;
+    ghost.abilityEndsAt = -1;
+    ghost.abilityTargetBuildingId = null;
+  }
+
+  private startWallpaperAbility(ghost: GhostState, roomId: string): boolean {
+    if (
+      ghost.variant !== "wallpaper" ||
+      ghost.abilityPhase !== "idle" ||
+      ghost.mana < ghost.maxMana
+    )
+      return false;
+    const candidates = this.wallpaperTargets(roomId);
+    const target =
+      candidates.length > 0
+        ? candidates[this.rng.int(0, candidates.length - 1)]
+        : undefined;
+    if (!target) return false;
+    ghost.abilityPhase = "preparing";
+    ghost.abilityStartedAt = this.state.elapsed;
+    ghost.abilityEndsAt = this.state.elapsed + 3;
+    ghost.abilityTargetBuildingId = target.id;
+    ghost.attackCooldown = Math.max(ghost.attackCooldown, 3.8);
+    ghost.path = [];
+    this.pendingEvents.push({
+      kind: "ghost-skill",
+      sourceId: ghost.id,
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      targetPosition: { ...target.tile },
+      itemId: "wallpaper-prepare",
+      label: "오염 도배 준비 · 3초",
+    });
+    return true;
+  }
+
+  /** Returns true while the wallpaper ghost blocks its ordinary actions. */
+  private updateWallpaperAbility(ghost: GhostState): boolean {
+    if (ghost.variant !== "wallpaper") return false;
+    if (
+      ghost.contaminatedTiles.length > 0 &&
+      this.state.elapsed >= ghost.contaminationEndsAt
+    ) {
+      ghost.contaminatedTiles = [];
+      ghost.contaminationEndsAt = -1;
+    }
+    if (ghost.abilityPhase === "idle") return false;
+    if (ghost.abilityPhase === "preparing") {
+      if (this.state.elapsed < ghost.abilityEndsAt) return true;
+      const candidates = ghost.targetRoomId
+        ? this.wallpaperTargets(ghost.targetRoomId)
+        : [];
+      const selected =
+        candidates.find(
+          (building) => building.id === ghost.abilityTargetBuildingId,
+        ) ??
+        (candidates.length > 0
+          ? candidates[this.rng.int(0, candidates.length - 1)]
+          : undefined);
+      if (!selected) {
+        this.resetWallpaperAbility(ghost, true);
+        return false;
+      }
+      ghost.contaminatedTiles = this.wallpaperContaminationTiles(
+        selected.roomId,
+        selected.tile,
+      );
+      ghost.contaminationEndsAt =
+        this.state.elapsed + Math.min(18, 12 + (ghost.level - 1) * 0.5);
+      ghost.abilityPhase = "casting";
+      ghost.abilityStartedAt = this.state.elapsed;
+      ghost.abilityEndsAt = this.state.elapsed + 0.8;
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.8);
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        sourceId: ghost.id,
+        position: { ...ghost.position },
+        targetId: ghost.id,
+        targetPosition: { ...selected.tile },
+        roomId: selected.roomId,
+        itemId: "wallpaper-cast",
+        label: "오염 도배 · 설비 정지",
+      });
+      return true;
+    }
+    if (this.state.elapsed < ghost.abilityEndsAt) return true;
+    this.resetWallpaperAbility(ghost, true);
+    return false;
+  }
+
+  private isBuildingContaminated(building: BuildingState): boolean {
+    return this.state.ghosts.some(
+      (ghost) =>
+        ghost.variant === "wallpaper" &&
+        ghost.hp > 0 &&
+        this.state.elapsed < ghost.contaminationEndsAt &&
+        ghost.contaminatedTiles.some(
+          (tile) =>
+            tile.x === building.tile.x &&
+            tile.y === building.tile.y &&
+            tile.roomId === building.roomId,
+        ),
+    );
   }
 
   private startDemolisherAbility(ghost: GhostState, roomId: string): boolean {
@@ -3130,7 +3346,13 @@ export class GameEngine {
   }
 
   private updateGhost(ghost: GhostState, dt: number): void {
-    if (ghost.hp <= 0) return;
+    if (ghost.hp <= 0) {
+      if (ghost.variant === "wallpaper") {
+        ghost.contaminatedTiles = [];
+        ghost.contaminationEndsAt = -1;
+      }
+      return;
+    }
     ghost.phase = ghost.level;
     ghost.rage =
       ghost.variant !== "minion" &&
@@ -3139,7 +3361,11 @@ export class GameEngine {
     ghost.abilityCooldown -= dt;
 
     if (this.state.elapsed < ghost.stunnedUntil) {
-      if (ghost.variant === "demolisher" && ghost.abilityPhase !== "idle")
+      if (
+        (ghost.variant === "demolisher" ||
+          ghost.variant === "wallpaper") &&
+        ghost.abilityPhase !== "idle"
+      )
         ghost.abilityEndsAt += dt;
       ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.2);
       return;
@@ -3168,6 +3394,8 @@ export class GameEngine {
     ) {
       if (ghost.variant === "demolisher")
         this.resetDemolisherAbility(ghost, false);
+      if (ghost.variant === "wallpaper")
+        this.resetWallpaperAbility(ghost, false);
       ghost.retreating = true;
       ghost.retreatCount += 1;
       ghost.targetRoomId = null;
@@ -3220,6 +3448,7 @@ export class GameEngine {
     }
 
     if (this.updateDemolisherAbility(ghost)) return;
+    if (this.updateWallpaperAbility(ghost)) return;
 
     if (ghost.abilityCooldown <= 0) {
       if (ghost.variant === "teleporter") this.teleportToAnotherDoor(ghost);
@@ -3412,8 +3641,19 @@ export class GameEngine {
         BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction) *
         (this.state.elapsed < room.doorBraceUntil ? 0.75 : 1) *
         panelDoorDamageMultiplier;
-      const nextDoorHp = Math.max(0, room.doorHp - damage);
+      const shieldAbsorbed = Math.min(
+        Math.max(0, room.doorShieldHp),
+        damage,
+      );
+      if (shieldAbsorbed > 0)
+        room.doorShieldHp = Math.max(
+          0,
+          room.doorShieldHp - shieldAbsorbed,
+        );
+      const doorDamage = Math.max(0, damage - shieldAbsorbed);
+      const nextDoorHp = Math.max(0, room.doorHp - doorDamage);
       const triggersLastLatch = Boolean(
+        doorDamage > 0 &&
         room.lastLatchArmedBy &&
         room.doorHp / room.doorMaxHp > 0.15 &&
         nextDoorHp / room.doorMaxHp <= 0.15,
@@ -3474,6 +3714,12 @@ export class GameEngine {
           ghost.mana + this.demolisherManaPerDoorHit(ghost.level),
         );
       }
+      if (ghost.variant === "wallpaper") {
+        ghost.mana = Math.min(
+          ghost.maxMana,
+          ghost.mana + this.wallpaperManaPerDoorHit(ghost.level),
+        );
+      }
       this.pendingEvents.push({
         kind: "door-hit",
         position: mapRoom.door,
@@ -3484,9 +3730,15 @@ export class GameEngine {
         roomId: room.id,
         targetId: ghost.id,
         amount: damage,
+        label:
+          shieldAbsorbed > 0
+            ? `이중문 방어막 -${Math.ceil(shieldAbsorbed)}`
+            : undefined,
       });
       if (ghost.variant === "demolisher")
         this.startDemolisherAbility(ghost, room.id);
+      if (ghost.variant === "wallpaper")
+        this.startWallpaperAbility(ghost, room.id);
       if (
         ghost.variant !== "minion" &&
         ghost.attackCount >= ghost.attacksToNextLevel
@@ -3992,8 +4244,14 @@ export class GameEngine {
       player.power = clamp(player.power, 0, 999_999);
       player.hp = clamp(player.hp, 0, player.maxHp);
     }
-    for (const room of this.state.rooms)
+    for (const room of this.state.rooms) {
       room.doorHp = clamp(room.doorHp, 0, room.doorMaxHp);
+      room.doorShieldHp = clamp(
+        room.doorShieldHp,
+        0,
+        room.doorShieldMaxHp,
+      );
+    }
     for (const ghost of this.state.ghosts)
       ghost.hp = clamp(ghost.hp, 0, ghost.maxHp);
     this.syncPrimaryGhost();

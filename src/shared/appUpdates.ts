@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.3";
+export const APP_RELEASE_VERSION = "2026.07.29.4";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "웃는 해체귀·전투 연출 개선",
+  title: "오염 도배귀·최상위 난이도 확장",
   summary:
-    "• 문 타격으로 마나를 채워 건물을 철거하는 웃는 해체귀가 등장합니다.\n• 3초 시전 예고와 전용 준비·시전 모션으로 대응 시점을 명확히 표시합니다.\n• 피격·포탑 반동·문 충격·건물 동작 연출을 성능 단계에 맞춰 개선했습니다.",
-  publishedAt: 1785308400000,
+    "• 설비가 놓인 타일을 오염시키는 오염 도배귀와 전용 스킬 모션이 추가되었습니다.\n• 레전더리 이후 재앙·대재앙·파멸·종말까지 총 345개 스테이지로 확장되었습니다.\n• 달오리·고릴라·여름 스킨 특성과 달빛 발전기 가격, 난이도별 생존 봇 전략을 조정했습니다.",
+  publishedAt: 1785312000000,
 };
 
 /**

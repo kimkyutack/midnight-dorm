@@ -61,7 +61,7 @@ interface AtlasLayer {
 
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
-const GHOST_ATLAS_VERSION = 'ghost-atlas-v4';
+const GHOST_ATLAS_VERSION = 'ghost-atlas-v5';
 let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
 
 /**
@@ -137,6 +137,7 @@ const GHOST_SPRITE_IDS = new Set<GhostVariant>([
   'undead',
   'giant',
   'demolisher',
+  'wallpaper',
 ]);
 
 const ghostSizes: Record<GhostVariant, number> = {
@@ -150,6 +151,7 @@ const ghostSizes: Record<GhostVariant, number> = {
   undead: 1.5,
   giant: 2.22,
   demolisher: 1.62,
+  wallpaper: 1.58,
   minion: 0.76,
 };
 
@@ -243,10 +245,10 @@ export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinit
     // instead of keeping a transparent texture for the entire match.
     movementUrl: `/assets/sprites/ghosts/${safeVariant}/movement-sheet.png?v=${GHOST_ATLAS_VERSION}`,
     attackUrl: `/assets/sprites/ghosts/${safeVariant}/attack-sheet.png?v=${GHOST_ATLAS_VERSION}`,
-    skillPrepareUrl: safeVariant === 'demolisher'
+    skillPrepareUrl: safeVariant === 'demolisher' || safeVariant === 'wallpaper'
       ? `/assets/sprites/ghosts/${safeVariant}/skill-prepare-sheet.png?v=${GHOST_ATLAS_VERSION}`
       : undefined,
-    skillCastUrl: safeVariant === 'demolisher'
+    skillCastUrl: safeVariant === 'demolisher' || safeVariant === 'wallpaper'
       ? `/assets/sprites/ghosts/${safeVariant}/skill-cast-sheet.png?v=${GHOST_ATLAS_VERSION}`
       : undefined,
     size: ghostSizes[variant],

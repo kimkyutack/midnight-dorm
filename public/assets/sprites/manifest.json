@@ -90,6 +90,7 @@
     { "id": "teleporter", "root": "/assets/sprites/ghosts/teleporter" },
     { "id": "undead", "root": "/assets/sprites/ghosts/undead" },
     { "id": "giant", "root": "/assets/sprites/ghosts/giant" },
-    { "id": "demolisher", "root": "/assets/sprites/ghosts/demolisher" }
+    { "id": "demolisher", "root": "/assets/sprites/ghosts/demolisher" },
+    { "id": "wallpaper", "root": "/assets/sprites/ghosts/wallpaper" }
   ]
 }

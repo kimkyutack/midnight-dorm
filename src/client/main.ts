@@ -497,6 +497,10 @@ const GHOST_THREAT_POSTERS: Readonly<
     title: "웃는 해체귀",
     warning: "문을 오래 두드리면 마나를 모아 방 안의 건물을 철거합니다. 붉은 준비 동작을 놓치지 마세요.",
   },
+  wallpaper: {
+    title: "오염 도배귀",
+    warning: "문을 두드려 마나를 채우면 방 안 세 타일을 오염시켜 설비를 멈춥니다. 보랏빛 준비 동작을 조심하세요.",
+  },
 };
 
 const TUTORIAL_ORDER: TutorialTopic[] = [
@@ -3678,6 +3682,14 @@ function playEvents(events: GameEvent[]): void {
   );
   if (demolition)
     toast("웃는 해체귀가 건물 하나를 철거했습니다.");
+  const controlResistance = events.find(
+    (event) =>
+      event.kind === "ghost-skill" &&
+      (event.itemId === "slow-resistance" ||
+        event.itemId === "bind-resistance"),
+  );
+  if (controlResistance?.label)
+    toast(`귀신의 ${controlResistance.label}이 올랐습니다.`);
   if (
     events.some(
       (event) =>

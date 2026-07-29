@@ -103,6 +103,7 @@ const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   undead: 0x8dff64,
   giant: 0x58e9ff,
   demolisher: 0xff3f4f,
+  wallpaper: 0xb856ff,
   minion: 0x8dff64,
 };
 
@@ -207,6 +208,7 @@ interface DoorView {
   frame: THREE.Mesh;
   details: THREE.Group;
   hp: THREE.Sprite;
+  shield: THREE.Sprite;
   label: THREE.Sprite;
   upgrade: THREE.Sprite;
   closedTarget: number;
@@ -1388,6 +1390,7 @@ function createGhostModel(variant: GhostState['variant']): GhostPreviewModel {
     undead: { robe: 0x182315, skin: 0x879b7d, glow: 0x8dff64 },
     giant: { robe: 0x1b1010, skin: 0x79695f, glow: 0xff6a32 },
     demolisher: { robe: 0x161116, skin: 0xc0b7b2, glow: 0xff3f4f },
+    wallpaper: { robe: 0x24132e, skin: 0xc5b4c7, glow: 0xb856ff },
     minion: { robe: 0x27321f, skin: 0xa4b98d, glow: 0xb2ff75 },
   };
   const palette = palettes[variant];
@@ -1858,6 +1861,7 @@ export class ThreeGameView {
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
   private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
+  private readonly contaminationViews = new Map<string, THREE.Group>();
   private readonly environmentTextures: THREE.Texture[] = [];
   private readonly playerStateById = new Map<string, PlayerState>();
   private readonly ghostStateById = new Map<string, GhostState>();
@@ -2056,6 +2060,7 @@ export class ThreeGameView {
     this.rebuildSnapshotIndexes(snapshot);
     this.syncPlayers(snapshot.players);
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
+    this.syncContamination(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncBeds(snapshot);
     this.syncBuildings(snapshot);
     this.syncLootDrops(snapshot);
@@ -3009,10 +3014,12 @@ export class ThreeGameView {
         const hp = makeBillboard();
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
         hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
+        const abilityColor =
+          ghost.variant === 'wallpaper' ? 0xb856ff : 0xff304f;
         const telegraph = effectMesh(
           new THREE.RingGeometry(0.54, 0.69, 32),
           new THREE.MeshBasicMaterial({
-            color: 0xff304f,
+            color: abilityColor,
             transparent: true,
             opacity: 0.78,
             side: THREE.DoubleSide,
@@ -3026,7 +3033,7 @@ export class ThreeGameView {
         const targetMarker = effectMesh(
           new THREE.RingGeometry(0.3, 0.47, 4),
           new THREE.MeshBasicMaterial({
-            color: 0xff314f,
+            color: abilityColor,
             transparent: true,
             opacity: 0.82,
             side: THREE.DoubleSide,
@@ -3070,14 +3077,17 @@ export class ThreeGameView {
       }
       view.target.copy(worldPoint(ghost.position));
       const netted = this.snapshotData.elapsed < ghost.stunnedUntil;
-      const manaLabel = ghost.variant === 'demolisher'
+      const manaLabel =
+        ghost.variant === 'demolisher' || ghost.variant === 'wallpaper'
         ? ` · 마나 ${Math.floor((ghost.mana / Math.max(1, ghost.maxMana)) * 100)}%`
         : '';
       updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}:${netted}:${manaLabel}`, `${ghost.displayName} · Lv.${ghost.level}${manaLabel}${netted ? ' · 그물' : ''}`, netted ? '#fff0a5' : '#ffb4c2', 'rgba(25,4,12,.84)');
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
       const telegraphActive =
-        ghost.variant === 'demolisher' && ghost.abilityPhase !== 'idle';
+        (ghost.variant === 'demolisher' ||
+          ghost.variant === 'wallpaper') &&
+        ghost.abilityPhase !== 'idle';
       view.telegraph.visible = telegraphActive;
       const targetBuilding = ghost.abilityTargetBuildingId
         ? this.buildingStateById.get(ghost.abilityTargetBuildingId)
@@ -3099,6 +3109,60 @@ export class ThreeGameView {
       view.actor.dispose();
       disposeBillboards(view.root);
       this.ghostViews.delete(id);
+    }
+  }
+
+  private syncContamination(ghosts: GhostState[]): void {
+    const active = new Set<string>();
+    for (const ghost of ghosts) {
+      if (
+        ghost.variant !== 'wallpaper' ||
+        ghost.hp <= 0 ||
+        this.snapshotData.elapsed >= ghost.contaminationEndsAt
+      )
+        continue;
+      for (const tile of ghost.contaminatedTiles) {
+        const key = `${ghost.id}:${tile.roomId ?? ''}:${tile.x}:${tile.y}`;
+        active.add(key);
+        if (this.contaminationViews.has(key)) continue;
+        const root = new THREE.Group();
+        root.position.set(tile.x, 0.115, tile.y);
+        root.renderOrder = 4_950;
+        const stain = effectMesh(
+          new THREE.BoxGeometry(0.9, 0.025, 0.9),
+          new THREE.MeshBasicMaterial({
+            color: 0x61216f,
+            transparent: true,
+            opacity: 0.58,
+            depthWrite: false,
+          }),
+        );
+        root.add(stain);
+        const lineMaterial = new THREE.MeshBasicMaterial({
+          color: 0xb8ff72,
+          transparent: true,
+          opacity: 0.7,
+          depthWrite: false,
+        });
+        for (const offset of [-0.24, 0, 0.24]) {
+          const strip = effectMesh(
+            new THREE.BoxGeometry(0.06, 0.03, 0.76),
+            lineMaterial,
+            [offset, 0.02, 0],
+          );
+          strip.rotation.y = 0.28 + offset * 0.7;
+          root.add(strip);
+        }
+        root.userData.phase = key.length * 0.73;
+        this.scene.add(root);
+        this.contaminationViews.set(key, root);
+      }
+    }
+    for (const [key, view] of this.contaminationViews) {
+      if (active.has(key)) continue;
+      this.scene.remove(view);
+      disposeTransientObject(view);
+      this.contaminationViews.delete(key);
     }
   }
 
@@ -3261,6 +3325,11 @@ export class ThreeGameView {
         hp.scale.set(1.72, 0.42, 1);
         hp.position.set(0, 0.82, -0.62);
         hp.renderOrder = 11_100;
+        const shield = makeBillboard();
+        shield.scale.set(1.72, 0.34, 1);
+        shield.position.set(0, 0.8, -0.2);
+        shield.renderOrder = 11_105;
+        shield.visible = false;
         const label = makeBillboard();
         label.scale.set(1.4, 0.38, 1);
         label.position.set(0, 0.92, -1.16);
@@ -3270,7 +3339,7 @@ export class ThreeGameView {
         upgrade.position.set(0, 0.48, 0);
         upgrade.renderOrder = 11_200;
         upgrade.visible = false;
-        hud.add(hp, label, upgrade);
+        hud.add(hp, shield, label, upgrade);
         root.add(hud);
         this.scene.add(root);
         const closed = state.ownerIds.length > 0 ? 1 : 0;
@@ -3282,6 +3351,7 @@ export class ThreeGameView {
           frame,
           details,
           hp,
+          shield,
           label,
           upgrade,
           closedTarget: closed,
@@ -3299,6 +3369,18 @@ export class ThreeGameView {
       if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
       updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff');
       updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578');
+      view.shield.visible = state.doorShieldMaxHp > 0;
+      if (view.shield.visible) {
+        const shieldRatio =
+          state.doorShieldHp / Math.max(1, state.doorShieldMaxHp);
+        updateBarBillboard(
+          view.shield,
+          `${Math.ceil(state.doorShieldHp)}:${Math.ceil(state.doorShieldMaxHp)}`,
+          shieldRatio,
+          `방어막 ${Math.ceil(state.doorShieldHp)} / ${Math.ceil(state.doorShieldMaxHp)}`,
+          shieldRatio > 0 ? '#72dfff' : '#566173',
+        );
+      }
       const local = snapshot.players.find((player) => player.id === this.playerId);
       const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
       const nextCost = intact && state.doorLevel < maxBuildingLevel('reinforced-door', rank ?? 'beginner')
@@ -3487,16 +3569,21 @@ export class ThreeGameView {
       );
       if (
         !netted &&
-        ghost.variant === 'demolisher' &&
+        (ghost.variant === 'demolisher' ||
+          ghost.variant === 'wallpaper') &&
         ghost.abilityPhase === 'preparing'
       ) {
         view.actor.setSkillPrepare(skillElapsed, 3_000);
       } else if (
         !netted &&
-        ghost.variant === 'demolisher' &&
+        (ghost.variant === 'demolisher' ||
+          ghost.variant === 'wallpaper') &&
         ghost.abilityPhase === 'casting'
       ) {
-        view.actor.setSkillCast(skillElapsed, 650);
+        view.actor.setSkillCast(
+          skillElapsed,
+          ghost.variant === 'wallpaper' ? 800 : 650,
+        );
       } else if (!netted && attackElapsed >= 0 && attackElapsed < attackDuration) {
         view.actor.setAttack(attackElapsed, attackDuration);
       } else {
@@ -3516,6 +3603,11 @@ export class ThreeGameView {
       view.actor.object.position.z = moving && !netted
         ? -Math.abs(Math.sin(time * 0.008 + view.seed)) * 0.045
         : 0;
+    }
+    for (const view of this.contaminationViews.values()) {
+      const phase = Number(view.userData.phase ?? 0);
+      const pulse = 0.96 + Math.sin(time * 0.004 + phase) * 0.035;
+      view.scale.setScalar(pulse);
     }
   }
 

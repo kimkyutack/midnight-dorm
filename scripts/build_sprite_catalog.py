@@ -36,6 +36,7 @@ GHOSTS = (
     "undead",
     "giant",
     "demolisher",
+    "wallpaper",
 )
 
 
@@ -74,8 +75,8 @@ def main() -> None:
     draw = ImageDraw.Draw(output)
     font = ImageFont.load_default(size=17)
     small_font = ImageFont.load_default(size=14)
-    draw.text((20, 16), "MIDNIGHT WARD - 21 SPRITE CONCEPTS", fill="#f7f9ff", font=font)
-    draw.text((20, 39), "12 survivors / 9 ghosts", fill="#78dff1", font=small_font)
+    draw.text((20, 16), f"MIDNIGHT WARD - {len(entries)} SPRITE CONCEPTS", fill="#f7f9ff", font=font)
+    draw.text((20, 39), f"{len(SURVIVORS)} survivors / {len(GHOSTS)} ghosts", fill="#78dff1", font=small_font)
 
     for index, (group, sprite_id) in enumerate(entries):
         column = index % columns

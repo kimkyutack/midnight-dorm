@@ -23,9 +23,9 @@ SURVIVORS = (
     "character-fox", "character-hamster", "character-crocodile", "character-duck",
     "character-tiger", "character-dinosaur", "character-monkey", "character-gorilla",
 )
-# 해체귀는 몸 중심을 고정한 채 전기톱 실루엣만 크게 바뀌는 전용
-# 시트다. 전체 알파 박스를 기준으로 재정렬하면 오히려 몸이 흔들리므로
-# 기존 범용 정규화 대상에는 넣지 않는다.
+# 해체귀와 오염 도배귀는 몸 중심을 고정한 채 도구·스킬 실루엣이 크게
+# 바뀌는 전용 시트다. 전체 알파 박스를 기준으로 재정렬하면 오히려
+# 몸이 흔들리므로 기존 범용 정규화 대상에는 넣지 않는다.
 GHOSTS = ("wanderer", "swift", "brute", "caster", "twin-a", "twin-b", "teleporter", "undead", "giant")
 # Some silhouettes contain an intentionally off-body effect (for example the
 # fox tail).  These offsets keep the actual torso, not the total alpha box,

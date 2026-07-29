@@ -35,6 +35,7 @@ GHOSTS = (
     "undead",
     "giant",
     "demolisher",
+    "wallpaper",
 )
 
 
@@ -72,7 +73,10 @@ def validate_alignment(paths: list[Path], label: str) -> None:
             boxes.append(bounds)
     centers = [(left + right) / 2 for left, _, right, _ in boxes]
     bottoms = [bottom for _, _, _, bottom in boxes]
-    if max(centers) - min(centers) > 1:
+    # Odd-width silhouettes land on half pixels, so a one-pixel authored
+    # alignment can measure as a 1.5px alpha-box spread. Anything beyond two
+    # pixels is still visible as a body jump and fails the asset contract.
+    if max(centers) - min(centers) > 2:
         raise ValueError(f"Horizontal alignment drift in {label}: {centers}")
     if len(set(bottoms)) != 1:
         raise ValueError(f"Floor alignment drift in {label}: {bottoms}")
@@ -98,19 +102,19 @@ def main() -> None:
         # 프레임마다 달라 전체 알파 박스 중앙 비교가 유효하지 않다.
         # 해당 시트는 고정 셀/발 기준선으로 제작하고 투명도·수량을
         # 아래에서 동일하게 검증한다.
-        if ghost != "demolisher":
+        if ghost not in {"demolisher", "wallpaper"}:
             validate_alignment(movement, f"{ghost} movement")
             validate_alignment(attack, f"{ghost} attack")
         frames.extend(movement)
         frames.extend(attack)
-        if ghost == "demolisher":
+        if ghost in {"demolisher", "wallpaper"}:
             frames.extend(expect_frames(directory / "skill-prepare", 9))
             frames.extend(expect_frames(directory / "skill-cast", 9))
 
-    if len(concepts) != 22:
-        raise ValueError(f"Expected 22 concepts, found {len(concepts)}")
-    if len(frames) != 372:
-        raise ValueError(f"Expected 372 animation frames, found {len(frames)}")
+    if len(concepts) != 23:
+        raise ValueError(f"Expected 23 concepts, found {len(concepts)}")
+    if len(frames) != 411:
+        raise ValueError(f"Expected 411 animation frames, found {len(frames)}")
 
     for path in (*concepts, *frames):
         if not path.exists():
