@@ -4,6 +4,8 @@
   "leftDirection": "mirror-side",
   "movementFrames": ["idle", "walk-1", "walk-2", "walk-3"],
   "attackFrames": ["attack-1", "attack-2", "attack-3"],
+  "skillPrepareFrames": ["prepare-1", "prepare-2", "prepare-3"],
+  "skillCastFrames": ["cast-1", "cast-2", "cast-3"],
   "survivors": [
     {
       "id": "character-bunny",
@@ -87,6 +89,7 @@
     { "id": "twin-b", "root": "/assets/sprites/ghosts/twin-b" },
     { "id": "teleporter", "root": "/assets/sprites/ghosts/teleporter" },
     { "id": "undead", "root": "/assets/sprites/ghosts/undead" },
-    { "id": "giant", "root": "/assets/sprites/ghosts/giant" }
+    { "id": "giant", "root": "/assets/sprites/ghosts/giant" },
+    { "id": "demolisher", "root": "/assets/sprites/ghosts/demolisher" }
   ]
 }

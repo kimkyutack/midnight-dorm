@@ -493,6 +493,10 @@ const GHOST_THREAT_POSTERS: Readonly<
     title: "천장 닿는 거인",
     warning: "한 번의 문 공격이 묵직합니다. 문 보강을 서두르세요.",
   },
+  demolisher: {
+    title: "웃는 해체귀",
+    warning: "문을 오래 두드리면 마나를 모아 방 안의 건물을 철거합니다. 붉은 준비 동작을 놓치지 마세요.",
+  },
 };
 
 const TUTORIAL_ORDER: TutorialTopic[] = [
@@ -1212,11 +1216,11 @@ function showHomeStagePicker(): void {
   const currentAccount = account;
   const progressionMode: PlayMode =
     homePlayMode === "multiplayer" ? "multiplayer" : "solo";
-  const unlocked = stagesThrough(
+  const unlocked = [...stagesThrough(
     progressionMode === "solo"
       ? currentAccount.soloStageIndex
       : currentAccount.multiplayerStageIndex,
-  );
+  )].reverse();
   const selected = selectedHomeStage(currentAccount, homePlayMode);
   const modal = dismissibleModal(
     `<section class="home-picker-sheet stage-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="stage-picker-title"><header><div><small>STAGE</small><h2 id="stage-picker-title">도전할 스테이지</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-stage-grid">${unlocked
@@ -2503,6 +2507,14 @@ function updateHud(): void {
   if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
   const room = snapshot.rooms.find((candidate) => candidate.id === me?.roomId);
+  const localDanger = Boolean(
+    me &&
+      (isPlayerUnderGhostAttack(me, snapshot.ghosts) ||
+        (room && room.doorHp / Math.max(1, room.doorMaxHp) <= 0.3)),
+  );
+  app
+    .querySelector("#game-shell")
+    ?.classList.toggle("local-danger", localDanger);
   app
     .querySelector(".portrait-drag-hint")
     ?.classList.toggle("hidden", Boolean(me?.roomId) || !me?.alive);
@@ -3658,6 +3670,14 @@ function playEvents(events: GameEvent[]): void {
     (event) => event.kind === "upgrade" && event.playerId === playerId,
   );
   if (upgrade?.label) toast(`${upgrade.label} 업그레이드 완료`);
+  const demolition = events.find(
+    (event) =>
+      event.kind === "building-remove" &&
+      event.itemId === "demolition-cast" &&
+      event.playerId === playerId,
+  );
+  if (demolition)
+    toast("웃는 해체귀가 건물 하나를 철거했습니다.");
   if (
     events.some(
       (event) =>

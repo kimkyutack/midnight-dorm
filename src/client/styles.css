@@ -4903,6 +4903,32 @@ select {
     );
   box-shadow: inset 0 0 86px rgba(0, 0, 0, 0.58);
 }
+#game-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    inset 0 0 54px rgba(255, 24, 61, 0.7),
+    inset 0 0 120px rgba(82, 0, 19, 0.4);
+  transition: opacity 180ms ease;
+}
+#game-shell.local-danger::before {
+  opacity: 0.52;
+  animation: local-danger-breathe 1.15s ease-in-out infinite alternate;
+}
+@keyframes local-danger-breathe {
+  from { opacity: 0.3; }
+  to { opacity: 0.62; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #game-shell.local-danger::before {
+    animation: none;
+    opacity: 0.42;
+  }
+}
 #game-root,
 #game-root canvas {
   width: 100% !important;

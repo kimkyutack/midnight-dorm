@@ -3,7 +3,12 @@ import type { AvatarAppearance, GhostVariant } from '../../shared/types';
 import { skinMovementSheetUrl, skinSleepUrl } from './SkinAssets';
 
 export type SpriteDirection = 'front' | 'back' | 'side';
-export type SpriteAtlasMode = 'movement' | 'attack' | 'sleep';
+export type SpriteAtlasMode =
+  | 'movement'
+  | 'attack'
+  | 'skill-prepare'
+  | 'skill-cast'
+  | 'sleep';
 
 export interface SpriteFacing {
   direction: SpriteDirection;
@@ -13,6 +18,8 @@ export interface SpriteFacing {
 interface AtlasLayerDefinition {
   movementUrl: string;
   attackUrl?: string;
+  skillPrepareUrl?: string;
+  skillCastUrl?: string;
   sleepUrl?: string;
   tint?: THREE.ColorRepresentation;
 }
@@ -36,6 +43,10 @@ interface AtlasLayer {
   movementTexture: THREE.Texture;
   attackUrl?: string;
   attackTexture?: THREE.Texture;
+  skillPrepareUrl?: string;
+  skillPrepareTexture?: THREE.Texture;
+  skillCastUrl?: string;
+  skillCastTexture?: THREE.Texture;
   sleepUrl?: string;
   sleepTexture?: THREE.Texture;
   material: THREE.ShaderMaterial;
@@ -43,13 +54,14 @@ interface AtlasLayer {
   scaleUniform: THREE.IUniform<THREE.Vector2>;
   offsetUniform: THREE.IUniform<THREE.Vector2>;
   opacityUniform: THREE.IUniform<number>;
+  tintUniform: THREE.IUniform<THREE.Color>;
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   hideWhenSleeping: boolean;
 }
 
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
-const GHOST_ATLAS_VERSION = 'ghost-atlas-v3';
+const GHOST_ATLAS_VERSION = 'ghost-atlas-v4';
 let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
 
 /**
@@ -124,6 +136,7 @@ const GHOST_SPRITE_IDS = new Set<GhostVariant>([
   'teleporter',
   'undead',
   'giant',
+  'demolisher',
 ]);
 
 const ghostSizes: Record<GhostVariant, number> = {
@@ -136,6 +149,7 @@ const ghostSizes: Record<GhostVariant, number> = {
   teleporter: 1.54,
   undead: 1.5,
   giant: 2.22,
+  demolisher: 1.62,
   minion: 0.76,
 };
 
@@ -229,6 +243,12 @@ export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinit
     // instead of keeping a transparent texture for the entire match.
     movementUrl: `/assets/sprites/ghosts/${safeVariant}/movement-sheet.png?v=${GHOST_ATLAS_VERSION}`,
     attackUrl: `/assets/sprites/ghosts/${safeVariant}/attack-sheet.png?v=${GHOST_ATLAS_VERSION}`,
+    skillPrepareUrl: safeVariant === 'demolisher'
+      ? `/assets/sprites/ghosts/${safeVariant}/skill-prepare-sheet.png?v=${GHOST_ATLAS_VERSION}`
+      : undefined,
+    skillCastUrl: safeVariant === 'demolisher'
+      ? `/assets/sprites/ghosts/${safeVariant}/skill-cast-sheet.png?v=${GHOST_ATLAS_VERSION}`
+      : undefined,
     size: ghostSizes[variant],
     renderOrder: 5_100,
     name: variant,
@@ -293,6 +313,14 @@ export class AtlasSpriteActor {
     this.setFrame('attack', attackFrameAt(elapsed, duration));
   }
 
+  setSkillPrepare(elapsed: number, duration: number): void {
+    this.setFrame('skill-prepare', attackFrameAt(elapsed, duration));
+  }
+
+  setSkillCast(elapsed: number, duration: number): void {
+    this.setFrame('skill-cast', attackFrameAt(elapsed, duration));
+  }
+
   setScreenRotation(radians: number): void {
     this.object.rotation.y = radians;
   }
@@ -305,12 +333,22 @@ export class AtlasSpriteActor {
     for (const layer of this.layers) layer.opacityUniform.value = opacity;
   }
 
+  setTint(color: THREE.ColorRepresentation): void {
+    for (const layer of this.layers) layer.tintUniform.value.set(color);
+  }
+
+  setVisualScale(width = 1, height = 1): void {
+    this.object.scale.set(this.size * width, this.size, this.size * height);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     for (const layer of this.layers) {
       releaseTexture(layer.movementUrl);
       if (layer.attackUrl) releaseTexture(layer.attackUrl);
+      if (layer.skillPrepareUrl) releaseTexture(layer.skillPrepareUrl);
+      if (layer.skillCastUrl) releaseTexture(layer.skillCastUrl);
       if (layer.sleepUrl) releaseTexture(layer.sleepUrl);
       layer.mesh.geometry.dispose();
       layer.material.dispose();
@@ -321,17 +359,24 @@ export class AtlasSpriteActor {
   private addLayer(definition: AtlasLayerDefinition, renderOrder: number, hideWhenSleeping: boolean): void {
     const movementTexture = acquireTexture(definition.movementUrl);
     const attackTexture = definition.attackUrl ? acquireTexture(definition.attackUrl) : undefined;
+    const skillPrepareTexture = definition.skillPrepareUrl
+      ? acquireTexture(definition.skillPrepareUrl)
+      : undefined;
+    const skillCastTexture = definition.skillCastUrl
+      ? acquireTexture(definition.skillCastUrl)
+      : undefined;
     const sleepTexture = definition.sleepUrl ? acquireTexture(definition.sleepUrl) : undefined;
     const mapUniform = new THREE.Uniform(movementTexture);
     const scaleUniform = new THREE.Uniform(new THREE.Vector2(0.25, 1 / 3));
     const offsetUniform = new THREE.Uniform(new THREE.Vector2(0, 2 / 3));
     const opacityUniform = new THREE.Uniform(1);
+    const tintUniform = new THREE.Uniform(new THREE.Color(definition.tint ?? 0xffffff));
     const material = new THREE.ShaderMaterial({
       uniforms: {
         atlasMap: mapUniform,
         atlasScale: scaleUniform,
         atlasOffset: offsetUniform,
-        actorTint: new THREE.Uniform(new THREE.Color(definition.tint ?? 0xffffff)),
+        actorTint: tintUniform,
         actorOpacity: opacityUniform,
       },
       vertexShader: `
@@ -374,6 +419,10 @@ export class AtlasSpriteActor {
       movementTexture,
       attackUrl: definition.attackUrl,
       attackTexture,
+      skillPrepareUrl: definition.skillPrepareUrl,
+      skillPrepareTexture,
+      skillCastUrl: definition.skillCastUrl,
+      skillCastTexture,
       sleepUrl: definition.sleepUrl,
       sleepTexture,
       material,
@@ -381,6 +430,7 @@ export class AtlasSpriteActor {
       scaleUniform,
       offsetUniform,
       opacityUniform,
+      tintUniform,
       mesh: plane,
       hideWhenSleeping,
     });
@@ -395,16 +445,26 @@ export class AtlasSpriteActor {
           : this.facing.direction
       : this.facing.direction;
     const row = direction === 'front' ? 0 : direction === 'back' ? 1 : 2;
-    const columns = mode === 'sleep' ? 1 : mode === 'attack' ? 3 : 4;
+    const skillMode = mode === 'skill-prepare' || mode === 'skill-cast';
+    const columns = mode === 'sleep' ? 1 : mode === 'attack' || skillMode ? 3 : 4;
     const safeFrame = Math.min(columns - 1, Math.max(0, frame));
     for (const layer of this.layers) {
       const useSleep = mode === 'sleep' && Boolean(layer.sleepTexture);
       const useAttack = !useSleep && mode === 'attack' && Boolean(layer.attackTexture);
-      const activeColumns = useSleep ? 1 : useAttack ? 3 : 4;
-      const activeFrame = useSleep ? 0 : useAttack ? safeFrame : Math.min(3, safeFrame);
+      const useSkillPrepare =
+        !useSleep && mode === 'skill-prepare' && Boolean(layer.skillPrepareTexture);
+      const useSkillCast =
+        !useSleep && mode === 'skill-cast' && Boolean(layer.skillCastTexture);
+      const usesThreeColumns = useAttack || useSkillPrepare || useSkillCast;
+      const activeColumns = useSleep ? 1 : usesThreeColumns ? 3 : 4;
+      const activeFrame = useSleep ? 0 : usesThreeColumns ? safeFrame : Math.min(3, safeFrame);
       const mirrored = this.facing.mirrored !== (this.facing.direction === 'side' && this.sideFacesLeft && !useSleep);
       layer.mapUniform.value = useSleep
         ? layer.sleepTexture as THREE.Texture
+        : useSkillPrepare
+          ? layer.skillPrepareTexture as THREE.Texture
+          : useSkillCast
+            ? layer.skillCastTexture as THREE.Texture
         : useAttack
           ? layer.attackTexture as THREE.Texture
           : layer.movementTexture;
@@ -415,7 +475,15 @@ export class AtlasSpriteActor {
       );
       layer.mesh.userData.direction = this.facing.direction;
       layer.mesh.userData.mirrored = mirrored;
-      layer.mesh.userData.mode = useSleep ? 'sleep' : useAttack ? 'attack' : 'movement';
+      layer.mesh.userData.mode = useSleep
+        ? 'sleep'
+        : useSkillPrepare
+          ? 'skill-prepare'
+          : useSkillCast
+            ? 'skill-cast'
+            : useAttack
+              ? 'attack'
+              : 'movement';
       layer.mesh.userData.frame = activeFrame;
       layer.mesh.visible = !(mode === 'sleep' && layer.hideWhenSleeping);
     }

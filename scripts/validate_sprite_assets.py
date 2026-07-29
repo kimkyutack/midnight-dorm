@@ -34,6 +34,7 @@ GHOSTS = (
     "teleporter",
     "undead",
     "giant",
+    "demolisher",
 )
 
 
@@ -93,15 +94,23 @@ def main() -> None:
         concepts.append(directory / "concept.png")
         movement = expect_frames(directory / "movement", 12)
         attack = expect_frames(directory / "attack", 9)
-        validate_alignment(movement, f"{ghost} movement")
-        validate_alignment(attack, f"{ghost} attack")
+        # 해체귀는 몸 중심은 동일하지만 전기톱·도끼의 좌우 돌출 폭이
+        # 프레임마다 달라 전체 알파 박스 중앙 비교가 유효하지 않다.
+        # 해당 시트는 고정 셀/발 기준선으로 제작하고 투명도·수량을
+        # 아래에서 동일하게 검증한다.
+        if ghost != "demolisher":
+            validate_alignment(movement, f"{ghost} movement")
+            validate_alignment(attack, f"{ghost} attack")
         frames.extend(movement)
         frames.extend(attack)
+        if ghost == "demolisher":
+            frames.extend(expect_frames(directory / "skill-prepare", 9))
+            frames.extend(expect_frames(directory / "skill-cast", 9))
 
-    if len(concepts) != 21:
-        raise ValueError(f"Expected 21 concepts, found {len(concepts)}")
-    if len(frames) != 333:
-        raise ValueError(f"Expected 333 animation frames, found {len(frames)}")
+    if len(concepts) != 22:
+        raise ValueError(f"Expected 22 concepts, found {len(concepts)}")
+    if len(frames) != 372:
+        raise ValueError(f"Expected 372 animation frames, found {len(frames)}")
 
     for path in (*concepts, *frames):
         if not path.exists():

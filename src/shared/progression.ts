@@ -7,6 +7,9 @@ export const RANKS = [
   { id: 'master', label: '초고수', minXp: 2_000 },
   { id: 'veteran', label: '베테랑', minXp: 5_000 },
   { id: 'legend', label: '레전드', minXp: 10_000 },
+  { id: 'transcendent', label: '초월', minXp: 20_000 },
+  { id: 'immortal', label: '불멸', minXp: 50_000 },
+  { id: 'absolute', label: '절대자', minXp: 100_000 },
 ] as const satisfies ReadonlyArray<{ id: RankId; label: string; minXp: number }>;
 
 export interface RankVisual {
@@ -21,6 +24,9 @@ export const RANK_VISUALS: Readonly<Record<RankId, RankVisual>> = {
   master: { badgeSymbol: '♛', hatLabel: '은빛 왕관' },
   veteran: { badgeSymbol: '✪', hatLabel: '황금 지휘관 왕관' },
   legend: { badgeSymbol: '✺', hatLabel: '심연의 전설 왕관' },
+  transcendent: { badgeSymbol: '✧', hatLabel: '초월의 성광관' },
+  immortal: { badgeSymbol: '♜', hatLabel: '불멸의 영혼관' },
+  absolute: { badgeSymbol: '✹', hatLabel: '절대자의 천공관' },
 };
 
 const STAGE_TIERS = [
@@ -32,7 +38,11 @@ const STAGE_TIERS = [
   { id: 'inferno', label: '불지옥', count: 15 },
   { id: 'epic', label: '에픽', count: 20 },
   { id: 'mythic', label: '신화', count: 25 },
-  { id: 'legendary', label: '레전더리', count: 99 },
+  { id: 'legendary', label: '레전더리', count: 30 },
+  { id: 'calamity', label: '재앙', count: 35 },
+  { id: 'cataclysm', label: '대재앙', count: 40 },
+  { id: 'ruin', label: '파멸', count: 50 },
+  { id: 'apocalypse', label: '종말', count: 99 },
 ] as const;
 
 const TOTAL_STAGE_COUNT = STAGE_TIERS.reduce((total, tier) => total + tier.count, 0);
@@ -75,6 +85,10 @@ const DIFFICULTY_MODIFIERS: Readonly<Record<string, DifficultyModifierPreset>> =
   epic: { timeAttackChance: 0.25, controlAdaptation: true, barrierLayers: 3, directionalShield: true },
   mythic: { timeAttackChance: 0.30, controlAdaptation: true, barrierLayers: 4, directionalShield: true },
   legendary: { timeAttackChance: 0.35, controlAdaptation: true, barrierLayers: 5, directionalShield: true },
+  calamity: { timeAttackChance: 0.40, controlAdaptation: true, barrierLayers: 6, directionalShield: true },
+  cataclysm: { timeAttackChance: 0.45, controlAdaptation: true, barrierLayers: 7, directionalShield: true },
+  ruin: { timeAttackChance: 0.50, controlAdaptation: true, barrierLayers: 8, directionalShield: true },
+  apocalypse: { timeAttackChance: 0.55, controlAdaptation: true, barrierLayers: 9, directionalShield: true },
 };
 
 /** The random roll is made once by the room engine and then stored in its snapshot. */
@@ -116,7 +130,12 @@ export const rankedCrownImage = (tier: 'bronze' | 'silver' | 'gold'): string => 
 export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
   Array.from({ length: tier.count }, (_, offset) => ({ tier, level: offset + 1 })),
 ).map(({ tier, level }, index) => {
-  const pressure = index / (TOTAL_STAGE_COUNT - 1);
+  // The original ladder ended around global index 189. Preserve its readable
+  // early progression, then use a slower end-game slope so the 345-stage
+  // ladder requires strategy without producing unbounded one-shot numbers.
+  const earlyIndex = Math.min(index, 120);
+  const earlyPressure = earlyIndex / 120;
+  const endgameIndex = Math.max(0, index - 120);
   const skills: GhostStageSkill[] = [];
   if (index >= 11) skills.push('turret-jam');
   if (index >= 21) skills.push('gold-lock');
@@ -128,12 +147,12 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
     tier: tier.id,
     level,
     label: `${tier.label} ${level}`,
-    hpMultiplier: Number((1 + index * 0.037 + pressure * pressure * 1.0).toFixed(3)),
-    damageMultiplier: Number((1 + index * 0.023 + pressure * 0.6).toFixed(3)),
-    speedMultiplier: Number(Math.min(1.48, 1 + index * 0.003).toFixed(3)),
-    levelHpGrowth: Number(Math.min(0.34, 0.16 + index * 0.0011).toFixed(3)),
-    levelDamageGrowth: Number(Math.min(0.28, 0.11 + index * 0.001).toFixed(3)),
-    skillInterval: Math.max(9, 28 - Math.floor(index / 10)),
+    hpMultiplier: Number((1 + earlyIndex * 0.037 + earlyPressure * earlyPressure * 0.65 + endgameIndex * 0.018).toFixed(3)),
+    damageMultiplier: Number((1 + earlyIndex * 0.023 + earlyPressure * 0.45 + endgameIndex * 0.011).toFixed(3)),
+    speedMultiplier: Number(Math.min(1.55, 1 + index * 0.0016).toFixed(3)),
+    levelHpGrowth: Number(Math.min(0.38, 0.16 + index * 0.0007).toFixed(3)),
+    levelDamageGrowth: Number(Math.min(0.30, 0.11 + index * 0.00055).toFixed(3)),
+    skillInterval: Math.max(8, 28 - Math.floor(index / 12)),
     skills,
     victoryXp: 60 + index * 14,
   };
@@ -154,16 +173,23 @@ const BENEFITS: Record<RankId, RankBenefits> = {
   master: { speedMultiplier: 1.09, startingGoldBonus: 20, startingPowerBonus: 7, bedGoldMultiplier: 1.3, ghostDifficultyMultiplier: 1.15 },
   veteran: { speedMultiplier: 1.11, startingGoldBonus: 30, startingPowerBonus: 10, bedGoldMultiplier: 1.4, ghostDifficultyMultiplier: 1.2 },
   legend: { speedMultiplier: 1.14, startingGoldBonus: 45, startingPowerBonus: 15, bedGoldMultiplier: 1.5, ghostDifficultyMultiplier: 1.25 },
+  transcendent: { speedMultiplier: 1.16, startingGoldBonus: 60, startingPowerBonus: 20, bedGoldMultiplier: 1.65, ghostDifficultyMultiplier: 1.3 },
+  immortal: { speedMultiplier: 1.18, startingGoldBonus: 75, startingPowerBonus: 25, bedGoldMultiplier: 1.8, ghostDifficultyMultiplier: 1.35 },
+  absolute: { speedMultiplier: 1.2, startingGoldBonus: 95, startingPowerBonus: 32, bedGoldMultiplier: 2, ghostDifficultyMultiplier: 1.4 },
 };
 
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));
 export const rankLabel = (rank: RankId): string => RANKS[rankIndex(rank)]?.label ?? '하수';
 export const rankBadgeSymbol = (rank: RankId): string => RANK_VISUALS[rank].badgeSymbol;
-export const rankBadgeImage = (rank: RankId): string => `/assets/ranks/${rank}.png`;
+export const rankBadgeImage = (rank: RankId): string =>
+  `/assets/ranks/${rank}.${rank === 'transcendent' || rank === 'immortal' || rank === 'absolute' ? 'svg' : 'png'}`;
 export const rankLabelGradient = (rank: RankId): readonly [string, string, string] | null => {
   if (rank === 'master') return ['#b18bff', '#f2d6ff', '#8eeeff'];
   if (rank === 'veteran') return ['#ff8d67', '#ffe48b', '#fff2d0'];
   if (rank === 'legend') return ['#ffffff', '#ffd47a', '#ff77c4'];
+  if (rank === 'transcendent') return ['#8ffcff', '#c7a5ff', '#fff7b0'];
+  if (rank === 'immortal') return ['#8bffe2', '#ffffff', '#9275ff'];
+  if (rank === 'absolute') return ['#ffef8f', '#ffffff', '#ff62cc'];
   return null;
 };
 export const rankFromXp = (xp: number): RankId => [...RANKS].reverse().find((rank) => xp >= rank.minXp)?.id ?? 'beginner';

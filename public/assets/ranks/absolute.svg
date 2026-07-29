@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff9bb"/>
+      <stop offset=".35" stop-color="#ffd24e"/>
+      <stop offset=".7" stop-color="#ff74ca"/>
+      <stop offset="1" stop-color="#9a52ff"/>
+    </linearGradient>
+    <radialGradient id="core"><stop stop-color="#fff"/><stop offset=".25" stop-color="#fff38a"/><stop offset=".62" stop-color="#ff5bc4"/><stop offset="1" stop-color="#3a176f"/></radialGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <path d="M64 4 78 20l21-8 4 23 21 9-13 21 13 20-21 9-4 23-21-8-14 16-14-16-21 8-4-23-21-9 13-20L4 44l21-9 4-23 21 8Z" fill="#190b35" stroke="url(#gold)" stroke-width="5"/>
+  <circle cx="64" cy="65" r="38" fill="url(#core)" filter="url(#glow)"/>
+  <path d="M64 25 73 49l26 2-20 16 6 25-21-14-21 14 6-25-20-16 26-2Z" fill="none" stroke="#fff5a8" stroke-width="7" stroke-linejoin="round"/>
+  <circle cx="64" cy="65" r="10" fill="#fff" stroke="#ff83d3" stroke-width="4"/>
+</svg>

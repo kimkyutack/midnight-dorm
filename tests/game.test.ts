@@ -125,7 +125,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.3')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.4')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -554,13 +554,17 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('swift').movementUrl)
-      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v3');
+      .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v4');
     expect(ghostSpriteDefinition('swift').attackUrl)
-      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v3');
-    for (const variant of ['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant'] as const) {
+      .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v4');
+    for (const variant of ['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant', 'demolisher'] as const) {
       expect(ghostSpriteDefinition(variant).attackUrl)
-        .toBe(`/assets/sprites/ghosts/${variant}/attack-sheet.png?v=ghost-atlas-v3`);
+        .toBe(`/assets/sprites/ghosts/${variant}/attack-sheet.png?v=ghost-atlas-v4`);
     }
+    expect(ghostSpriteDefinition('demolisher').skillPrepareUrl)
+      .toBe('/assets/sprites/ghosts/demolisher/skill-prepare-sheet.png?v=ghost-atlas-v4');
+    expect(ghostSpriteDefinition('demolisher').skillCastUrl)
+      .toBe('/assets/sprites/ghosts/demolisher/skill-cast-sheet.png?v=ghost-atlas-v4');
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
@@ -3298,7 +3302,7 @@ describe('requested progression and event rules', () => {
     verifyDoorLevel({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }, 3);
   });
 
-  it('can create all nine primary ghost variants as match events', () => {
+  it('can create all ten primary ghost variants as match events', () => {
     const variants = new Set<string>();
     for (let index = 0; index < 120; index += 1) {
       const engine = new GameEngine(`EVENT${index}`, generateMap(30_000 + index), false);
@@ -3307,8 +3311,90 @@ describe('requested progression and event rules', () => {
     }
     expect(variants).toEqual(new Set([
       'wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant',
+      'demolisher',
     ]));
   }, 15_000);
+
+  it('charges the demolisher slowly, telegraphs for three seconds, then removes one owned building without refund', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const mapRoom = engine.map.rooms.find((room) => room.id === roomId);
+    if (!mapRoom) throw new Error('missing demolisher target room');
+    const approach = engine.map.corridorTiles.find(
+      (candidate) =>
+        Math.abs(candidate.x - mapRoom.door.x) +
+          Math.abs(candidate.y - mapRoom.door.y) ===
+        1,
+    );
+    if (!approach) throw new Error('missing corridor approach');
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0] as GhostState;
+    ghost.variant = 'demolisher';
+    ghost.displayName = '웃는 해체귀';
+    ghost.position = { ...approach };
+    ghost.targetRoomId = roomId;
+    ghost.targetPlayerId = null;
+    ghost.attackCooldown = 0;
+    ghost.path = [];
+    ghost.mana = 0;
+    ghost.maxMana = 100;
+    ghost.abilityPhase = 'idle';
+    ghost.abilityStartedAt = -1;
+    ghost.abilityEndsAt = -1;
+    ghost.abilityTargetBuildingId = null;
+    const targetId = 'demolisher-target';
+    persisted.snapshot.buildings.push({
+      id: targetId,
+      kind: 'generator',
+      roomId,
+      ownerId: playerId,
+      skinId: '',
+      tile: { ...tile, roomId },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 200,
+      investedPower: 0,
+      investmentByPlayer: {
+        [playerId]: { gold: 200, power: 0 },
+      },
+    });
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing demolisher target owner');
+    engine.restore(persisted);
+
+    engine.tick(0.05);
+    expect(engine.snapshot().ghosts[0]?.mana).toBeCloseTo(1.25, 5);
+    expect(engine.snapshot().ghosts[0]?.abilityPhase).toBe('idle');
+
+    const charged = engine.serialize();
+    const chargedGhost = charged.snapshot.ghosts[0] as GhostState;
+    chargedGhost.mana = 100;
+    chargedGhost.attackCooldown = 0;
+    engine.restore(charged);
+    engine.drainEvents();
+    engine.tick(0.05);
+    expect(engine.snapshot().ghosts[0]?.abilityPhase).toBe('preparing');
+    expect(engine.snapshot().buildings.some((building) => building.id === targetId)).toBe(true);
+    expect(engine.drainEvents().some(
+      (event) => event.kind === 'ghost-skill' && event.itemId === 'demolition-prepare',
+    )).toBe(true);
+
+    for (let index = 0; index < 7; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().buildings.some((building) => building.id === targetId)).toBe(true);
+    engine.tick(0.1);
+    expect(engine.snapshot().buildings.some((building) => building.id === targetId)).toBe(false);
+    expect(engine.drainEvents().some(
+      (event) =>
+        event.kind === 'building-remove' &&
+        event.itemId === 'demolition-cast' &&
+        event.amount === 0,
+    )).toBe(true);
+  });
 
   it('splits twin damage so both ghosts together equal one standard ghost attack', () => {
     let engine: GameEngine | null = null;

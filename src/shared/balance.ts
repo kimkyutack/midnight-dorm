@@ -36,7 +36,7 @@ const BED_LEVELS = Array.from({ length: 10 }, (_, index) => {
 });
 const GENERATOR_LEVELS = Array.from({ length: 10 }, (_, index) => {
   const generatorLevel = index + 1;
-  const gold = 200 * 2 ** index;
+  const gold = 150 * 2 ** index;
   return level(gold, generatorLevel >= 5 ? Math.ceil(gold * 0.1) : 0, 2 ** index, 1, 0);
 });
 

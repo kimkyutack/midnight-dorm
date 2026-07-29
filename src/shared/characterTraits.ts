@@ -23,6 +23,7 @@ export interface CharacterTrait {
   turretDamageMultiplier: number;
   turretRateMultiplier: number;
   goldPerSecond: number;
+  powerPerSecond: number;
   extraDraws: number;
   unclaimedMoveSpeedMultiplier: number;
   turretRangeBonus: number;
@@ -30,6 +31,8 @@ export interface CharacterTrait {
   firstGuardianLevelBonus: number;
   /** Added to Lv.1 when the player first occupies a room. */
   occupiedDoorLevelBonus: number;
+  /** Outer door shield as a ratio of the current maximum door HP. */
+  doorShieldRatio: number;
 }
 
 const NONE: CharacterTrait = {
@@ -39,11 +42,13 @@ const NONE: CharacterTrait = {
   turretDamageMultiplier: 1,
   turretRateMultiplier: 1,
   goldPerSecond: 0,
+  powerPerSecond: 0,
   extraDraws: 0,
   unclaimedMoveSpeedMultiplier: 1,
   turretRangeBonus: 0,
   firstGuardianLevelBonus: 0,
   occupiedDoorLevelBonus: 0,
+  doorShieldRatio: 0,
 };
 
 /** 캐릭터 외형은 서버가 판정하는 고유 특성 하나와 정확히 대응한다. */
@@ -94,9 +99,9 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
   'character-duck': {
     ...NONE,
     id: 'duck-treasure',
-    label: '달빛 저금통',
-    description: '침대를 점유한 동안 초당 골드 획득량이 3 증가합니다.',
-    goldPerSecond: 3,
+    label: '달빛 충전',
+    description: '침대를 점유한 동안 매초 전력 1을 얻습니다.',
+    powerPerSecond: 1,
   },
   'character-tiger': {
     ...NONE,
@@ -122,9 +127,9 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
   'character-gorilla': {
     ...NONE,
     id: 'gorilla-bastion',
-    label: '요새 보강',
-    description: '방을 점유하면 문이 Lv.2가 됩니다.',
-    occupiedDoorLevelBonus: 1,
+    label: '이중문 설치',
+    description: '방을 점유하면 문 최대 HP의 50%만큼 방어막이 생깁니다.',
+    doorShieldRatio: 0.5,
   },
 };
 
@@ -150,11 +155,13 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     turretDamageMultiplier: boostedMultiplier(base.turretDamageMultiplier),
     turretRateMultiplier: 1 / (1 + (attackSpeed - 1) * multiplier),
     goldPerSecond: base.goldPerSecond * multiplier,
+    powerPerSecond: base.powerPerSecond * multiplier,
     extraDraws: Math.round(base.extraDraws * multiplier),
     unclaimedMoveSpeedMultiplier: boostedMultiplier(base.unclaimedMoveSpeedMultiplier),
     turretRangeBonus: base.turretRangeBonus * multiplier,
     firstGuardianLevelBonus: Math.round(base.firstGuardianLevelBonus * multiplier),
     occupiedDoorLevelBonus: Math.round(base.occupiedDoorLevelBonus * multiplier),
+    doorShieldRatio: base.doorShieldRatio * multiplier,
   };
   if (!special) return boosted;
   return {
@@ -165,11 +172,13 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     turretDamageMultiplier: special.turretDamageMultiplier ?? boosted.turretDamageMultiplier,
     turretRateMultiplier: special.turretRateMultiplier ?? boosted.turretRateMultiplier,
     goldPerSecond: special.goldPerSecond ?? boosted.goldPerSecond,
+    powerPerSecond: special.powerPerSecond ?? boosted.powerPerSecond,
     extraDraws: special.extraDraws ?? boosted.extraDraws,
     unclaimedMoveSpeedMultiplier: special.unclaimedMoveSpeedMultiplier ?? boosted.unclaimedMoveSpeedMultiplier,
     turretRangeBonus: special.turretRangeBonus ?? boosted.turretRangeBonus,
     firstGuardianLevelBonus: special.firstGuardianLevelBonus ?? boosted.firstGuardianLevelBonus,
     occupiedDoorLevelBonus: special.occupiedDoorLevelBonus ?? boosted.occupiedDoorLevelBonus,
+    doorShieldRatio: special.doorShieldRatio ?? boosted.doorShieldRatio,
   };
 };
 

@@ -79,9 +79,11 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 
 ## 수직 탑다운 2.5D 스프라이트
 
-- 생존자 12종과 본체 귀신 9종의 `concept.png`를 각각 제공한다. 언데드가 소환하는 `minion`은 별도 콘셉트 수에 포함하지 않는다.
+- 생존자 12종과 본체 귀신 10종의 `concept.png`를 각각 제공한다. 언데드가 소환하는 `minion`은 별도 콘셉트 수에 포함하지 않는다.
 - 생존자 이동 시트는 4열 × 3행이다. 열은 `idle`, `walk-1`, `walk-2`, `walk-3`, 행은 `front`, `back`, `side` 순서다.
 - 귀신 이동 시트도 같은 4열 × 3행이고, 공격 시트는 3열 × 3행이다. 공격 열은 `attack-1`, `attack-2`, `attack-3`으로 준비·타격·회복을 표현한다.
+- `웃는 해체귀`는 기본 이동·공격 시트 외에 3열 × 3행 `skill-prepare-sheet.png`와 `skill-cast-sheet.png`를 사용한다. 준비 시트는 붉은 마나가 차오르는 3초 예고, 시전 시트는 전기톱과 철거 문양이 터지는 순간을 표현한다.
+- 해체귀는 전기톱이 크게 돌출되는 프레임에서도 몸통 중심과 발 기준선을 고정한다. 무기까지 포함한 전체 알파 박스 중앙값으로 프레임을 재정렬하지 않는다.
 - `side`는 우측 방향 원본이며 왼쪽 이동은 런타임에서 수평 반전한다.
 - 분리된 모든 프레임은 알파 채널이 있는 투명 PNG다. 원본 크로마키 시트는 각 캐릭터의 `source/`에 보존한다.
 - 전체 경로와 프레임 규칙은 `public/assets/sprites/manifest.json`, 제작 결과 확인은 `public/assets/sprites/roster-preview.png`를 기준으로 한다.

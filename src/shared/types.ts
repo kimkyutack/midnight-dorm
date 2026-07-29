@@ -218,6 +218,9 @@ export interface RoomState {
   tileSkinActivatedAt: number;
   doorHp: number;
   doorMaxHp: number;
+  /** Gorilla double-door passive: temporary outer shield that takes door hits first. */
+  doorShieldHp: number;
+  doorShieldMaxHp: number;
   doorLevel: number;
   bedLevel: number;
   bedLevels: number[];
@@ -310,6 +313,8 @@ export interface GhostState {
   /** High-difficulty control adaptation. It survives recovery retreats. */
   controlResolve: number;
   controlImmuneUntil: number;
+  /** Last 25% resistance milestone announced to clients, preventing per-tick toast spam. */
+  controlResistanceNoticeLevel: number;
   /** One net can trigger for each selected door-attack attempt. */
   netTriggeredTargetRoomId: string | null;
   barrierLayers: number;
@@ -318,6 +323,16 @@ export interface GhostState {
   shieldCrossfireUntil: number;
   shieldCrossfireRoomId: string | null;
   directionalShieldDisabledUntil: number;
+  /** Mana-backed special actions stay server-authoritative and persist across reconnects. */
+  mana: number;
+  maxMana: number;
+  abilityPhase: 'idle' | 'preparing' | 'casting';
+  abilityStartedAt: number;
+  abilityEndsAt: number;
+  abilityTargetBuildingId: string | null;
+  /** Wallpaper ghost contamination remains authoritative across reconnects. */
+  contaminatedTiles: Tile[];
+  contaminationEndsAt: number;
   summonerId?: string;
 }
 
@@ -331,9 +346,20 @@ export type GhostVariant =
   | 'teleporter'
   | 'undead'
   | 'giant'
+  | 'demolisher'
+  | 'wallpaper'
   | 'minion';
 
-export type RankId = 'beginner' | 'intermediate' | 'expert' | 'master' | 'veteran' | 'legend';
+export type RankId =
+  | 'beginner'
+  | 'intermediate'
+  | 'expert'
+  | 'master'
+  | 'veteran'
+  | 'legend'
+  | 'transcendent'
+  | 'immortal'
+  | 'absolute';
 export type PlayMode = 'solo' | 'multiplayer';
 /** The progression identity a player chooses to show on an in-game label. */
 export type ProfileDisplayMode = PlayMode | 'ranked';

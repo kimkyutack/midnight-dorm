@@ -268,6 +268,8 @@ export class GameEngine {
       tileSkinActivatedAt: -1,
       doorHp: BALANCE.door.baseHp,
       doorMaxHp: BALANCE.door.baseHp,
+      doorShieldHp: 0,
+      doorShieldMaxHp: 0,
       doorLevel: 1,
       bedLevel: 1,
       bedLevels: room.beds.map(() => 1),
@@ -289,22 +291,26 @@ export class GameEngine {
     const eventRoll = this.testMode ? 0 : this.rng.next();
     const variants: GhostVariant[] = this.testMode
       ? ["wanderer"]
-      : eventRoll < 0.14
+      : eventRoll < 0.13
         ? ["twin-a", "twin-b"]
         : [
-            eventRoll < 0.28
+            eventRoll < 0.24
               ? "swift"
-              : eventRoll < 0.4
+              : eventRoll < 0.34
                 ? "caster"
-                : eventRoll < 0.52
+                : eventRoll < 0.44
                   ? "brute"
-                  : eventRoll < 0.68
+                  : eventRoll < 0.57
                     ? "teleporter"
-                    : eventRoll < 0.84
+                    : eventRoll < 0.70
                       ? "undead"
-                      : eventRoll < 0.94
+                      : eventRoll < 0.79
                         ? "giant"
-                        : "wanderer",
+                        : eventRoll < 0.88
+                          ? "demolisher"
+                          : eventRoll < 0.96
+                            ? "wallpaper"
+                            : "wanderer",
           ];
     const ghosts = variants.map((variant, index) =>
       this.makeGhost(variant, index),
@@ -351,6 +357,8 @@ export class GameEngine {
       teleporter: "문을 바꾸는 도약귀",
       undead: "미니미를 부르는 언데드",
       giant: "묵직한 거대 귀신",
+      demolisher: "건물을 지우는 해체귀",
+      wallpaper: "방을 오염시키는 도배귀",
       minion: "언데드 미니미",
     };
     return {
@@ -393,6 +401,8 @@ export class GameEngine {
       teleporter: "문틈 도약귀",
       undead: "무덤의 산모",
       giant: "천장 닿는 거인",
+      demolisher: "웃는 해체귀",
+      wallpaper: "오염 도배귀",
       minion: "썩은 미니미",
     };
     return {
@@ -427,12 +437,21 @@ export class GameEngine {
         variant === "teleporter" ? 12 : variant === "undead" ? 10 : 20,
       controlResolve: 0,
       controlImmuneUntil: 0,
+      controlResistanceNoticeLevel: 0,
       netTriggeredTargetRoomId: null,
       barrierLayers: 0,
       mistUntil: 0,
       shieldCrossfireUntil: 0,
       shieldCrossfireRoomId: null,
       directionalShieldDisabledUntil: 0,
+      mana: 0,
+      maxMana: 100,
+      abilityPhase: "idle",
+      abilityStartedAt: -1,
+      abilityEndsAt: -1,
+      abilityTargetBuildingId: null,
+      contaminatedTiles: [],
+      contaminationEndsAt: -1,
     };
   }
 
@@ -488,12 +507,21 @@ export class GameEngine {
             : 20;
       ghost.controlResolve ??= 0;
       ghost.controlImmuneUntil ??= 0;
+      ghost.controlResistanceNoticeLevel ??= Math.floor(ghost.controlResolve / 25);
       ghost.netTriggeredTargetRoomId ??= null;
       ghost.barrierLayers ??= this.state.difficulty.barrierLayers;
       ghost.mistUntil ??= 0;
       ghost.shieldCrossfireUntil ??= 0;
       ghost.shieldCrossfireRoomId ??= null;
       ghost.directionalShieldDisabledUntil ??= 0;
+      ghost.mana ??= 0;
+      ghost.maxMana ??= 100;
+      ghost.abilityPhase ??= "idle";
+      ghost.abilityStartedAt ??= -1;
+      ghost.abilityEndsAt ??= -1;
+      ghost.abilityTargetBuildingId ??= null;
+      ghost.contaminatedTiles ??= [];
+      ghost.contaminationEndsAt ??= -1;
     }
     for (const player of this.state.players) {
       player.accountId ??= null;
@@ -548,6 +576,9 @@ export class GameEngine {
       room.doorRegenAccumulator = finite(room.doorRegenAccumulator, -1);
       room.doorAnchorUntil ??= 0;
       room.doorMaxHpMultiplier ??= 1;
+      room.doorShieldMaxHp ??= 0;
+      room.doorShieldHp ??= 0;
+      this.refreshDoorShield(room, false);
     }
     for (const building of this.state.buildings) {
       building.skinId ??=
@@ -1236,6 +1267,10 @@ export class GameEngine {
         label: `${BALANCE.buildings['reinforced-door'].label} Lv.${grantedDoorLevel}`,
       });
     }
+    // The gorilla passive is a real outer door layer, not another door-level
+    // shortcut. A stronger second occupant can increase the layer, while the
+    // existing damage remains preserved.
+    this.refreshDoorShield(candidate.room, true);
     if (firstOccupant) {
       candidate.room.tileSkinId =
         player.appearance.tileSkin &&
@@ -1529,6 +1564,26 @@ export class GameEngine {
     const baseHp = BALANCE.door.upgradeHp[room.doorLevel - 1] as number;
     room.doorMaxHp = Math.max(1, Math.floor(baseHp * room.doorMaxHpMultiplier));
     room.doorHp = Math.min(room.doorHp, room.doorMaxHp);
+    this.refreshDoorShield(room, true);
+  }
+
+  private refreshDoorShield(room: RoomState, grantNewCapacity: boolean): void {
+    const previousMax = Math.max(0, room.doorShieldMaxHp ?? 0);
+    const ratio = room.ownerIds.reduce((maximum, ownerId) => {
+      const owner = this.state.players.find((player) => player.id === ownerId);
+      return owner
+        ? Math.max(
+            maximum,
+            characterTraitForAppearance(owner.appearance).doorShieldRatio,
+          )
+        : maximum;
+    }, 0);
+    const nextMax = Math.max(0, Math.floor(room.doorMaxHp * ratio));
+    const current = Math.max(0, room.doorShieldHp ?? 0);
+    room.doorShieldMaxHp = nextMax;
+    room.doorShieldHp = grantNewCapacity
+      ? Math.min(nextMax, current + Math.max(0, nextMax - previousMax))
+      : Math.min(nextMax, current);
   }
 
   upgrade(playerId: string, targetId: string): ActionResult {
@@ -2893,6 +2948,8 @@ export class GameEngine {
       damage * directionalMultiplier * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
     const next = Math.max(0, before - appliedDamage);
     if (next <= 0 && ghost.barrierLayers > 0) {
+      if (ghost.variant === "demolisher")
+        this.resetDemolisherAbility(ghost, false);
       ghost.barrierLayers -= 1;
       ghost.hp = 1;
       ghost.retreating = true;
@@ -2921,6 +2978,8 @@ export class GameEngine {
       before / ghost.maxHp > BALANCE.ghost.retreatThreshold &&
       next / ghost.maxHp <= BALANCE.ghost.retreatThreshold;
     if (crossesRetreatLine) {
+      if (ghost.variant === "demolisher")
+        this.resetDemolisherAbility(ghost, false);
       ghost.hp = Math.max(1, next);
       ghost.retreating = true;
       ghost.retreatCount += 1;
@@ -2952,6 +3011,124 @@ export class GameEngine {
     this.syncPrimaryGhost();
   }
 
+  private demolisherManaPerDoorHit(level: number): number {
+    // The first cast takes roughly eighty successful door strikes at Lv.1.
+    // Level growth matters, but the cap prevents late-game cast spam.
+    return Math.min(2.6, 1.25 + Math.max(0, level - 1) * 0.15);
+  }
+
+  private demolisherTargets(roomId: string): BuildingState[] {
+    const room = this.state.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) return [];
+    return this.state.buildings.filter(
+      (building) =>
+        building.roomId === roomId &&
+        Boolean(building.ownerId) &&
+        room.ownerIds.includes(building.ownerId),
+    );
+  }
+
+  private resetDemolisherAbility(ghost: GhostState, consumeMana: boolean): void {
+    if (consumeMana) ghost.mana = 0;
+    ghost.abilityPhase = "idle";
+    ghost.abilityStartedAt = -1;
+    ghost.abilityEndsAt = -1;
+    ghost.abilityTargetBuildingId = null;
+  }
+
+  private startDemolisherAbility(ghost: GhostState, roomId: string): boolean {
+    if (
+      ghost.variant !== "demolisher" ||
+      ghost.abilityPhase !== "idle" ||
+      ghost.mana < ghost.maxMana
+    )
+      return false;
+    const candidates = this.demolisherTargets(roomId);
+    const target = candidates.length > 0
+      ? candidates[this.rng.int(0, candidates.length - 1)]
+      : undefined;
+    if (!target) return false;
+    ghost.abilityPhase = "preparing";
+    ghost.abilityStartedAt = this.state.elapsed;
+    ghost.abilityEndsAt = this.state.elapsed + 3;
+    ghost.abilityTargetBuildingId = target.id;
+    ghost.attackCooldown = Math.max(ghost.attackCooldown, 3.6);
+    ghost.path = [];
+    this.pendingEvents.push({
+      kind: "ghost-skill",
+      sourceId: ghost.id,
+      position: { ...ghost.position },
+      targetId: ghost.id,
+      targetPosition: { ...target.tile },
+      itemId: "demolition-prepare",
+      label: "철거 주문 준비 · 3초",
+    });
+    return true;
+  }
+
+  /** Returns true while the special action blocks ordinary movement and attacks. */
+  private updateDemolisherAbility(ghost: GhostState): boolean {
+    if (ghost.variant !== "demolisher" || ghost.abilityPhase === "idle")
+      return false;
+    if (ghost.abilityPhase === "preparing") {
+      if (this.state.elapsed < ghost.abilityEndsAt) return true;
+      const candidates = ghost.targetRoomId
+        ? this.demolisherTargets(ghost.targetRoomId)
+        : [];
+      const selected =
+        candidates.find(
+          (building) => building.id === ghost.abilityTargetBuildingId,
+        ) ?? (candidates.length > 0
+          ? candidates[this.rng.int(0, candidates.length - 1)]
+          : undefined);
+      if (!selected) {
+        this.resetDemolisherAbility(ghost, true);
+        return false;
+      }
+      this.state.buildings = this.state.buildings.filter(
+        (building) => building.id !== selected.id,
+      );
+      for (const player of this.state.players) {
+        if (player.armedSoulVialId === selected.id)
+          player.armedSoulVialId = null;
+      }
+      if (
+        selected.kind === "basic-turret" ||
+        selected.kind === "turret-enhancer"
+      )
+        this.syncDynamicTurretLevels(this.createBuildingTickIndex());
+      ghost.abilityPhase = "casting";
+      ghost.abilityStartedAt = this.state.elapsed;
+      ghost.abilityEndsAt = this.state.elapsed + 0.65;
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.65);
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        sourceId: ghost.id,
+        position: { ...ghost.position },
+        targetId: ghost.id,
+        targetPosition: { ...selected.tile },
+        itemId: "demolition-cast",
+        label: "강제 철거",
+      });
+      this.pendingEvents.push({
+        kind: "building-remove",
+        sourceId: ghost.id,
+        position: { ...selected.tile },
+        targetId: selected.id,
+        playerId: selected.ownerId,
+        roomId: selected.roomId,
+        buildingKind: selected.kind,
+        itemId: "demolition-cast",
+        label: "해체귀에게 철거됨",
+        amount: 0,
+      });
+      return true;
+    }
+    if (this.state.elapsed < ghost.abilityEndsAt) return true;
+    this.resetDemolisherAbility(ghost, true);
+    return false;
+  }
+
   private updateGhost(ghost: GhostState, dt: number): void {
     if (ghost.hp <= 0) return;
     ghost.phase = ghost.level;
@@ -2962,6 +3139,8 @@ export class GameEngine {
     ghost.abilityCooldown -= dt;
 
     if (this.state.elapsed < ghost.stunnedUntil) {
+      if (ghost.variant === "demolisher" && ghost.abilityPhase !== "idle")
+        ghost.abilityEndsAt += dt;
       ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.2);
       return;
     }
@@ -2987,6 +3166,8 @@ export class GameEngine {
       !ghost.healing &&
       ghost.hp / ghost.maxHp <= BALANCE.ghost.retreatThreshold
     ) {
+      if (ghost.variant === "demolisher")
+        this.resetDemolisherAbility(ghost, false);
       ghost.retreating = true;
       ghost.retreatCount += 1;
       ghost.targetRoomId = null;
@@ -3037,6 +3218,8 @@ export class GameEngine {
       }
       return;
     }
+
+    if (this.updateDemolisherAbility(ghost)) return;
 
     if (ghost.abilityCooldown <= 0) {
       if (ghost.variant === "teleporter") this.teleportToAnotherDoor(ghost);
@@ -3285,6 +3468,12 @@ export class GameEngine {
       room.lastDoorHitAt = this.state.elapsed;
       room.doorRegenAccumulator = -1;
       if (ghost.variant !== "minion") ghost.attackCount += 1;
+      if (ghost.variant === "demolisher") {
+        ghost.mana = Math.min(
+          ghost.maxMana,
+          ghost.mana + this.demolisherManaPerDoorHit(ghost.level),
+        );
+      }
       this.pendingEvents.push({
         kind: "door-hit",
         position: mapRoom.door,
@@ -3296,6 +3485,8 @@ export class GameEngine {
         targetId: ghost.id,
         amount: damage,
       });
+      if (ghost.variant === "demolisher")
+        this.startDemolisherAbility(ghost, room.id);
       if (
         ghost.variant !== "minion" &&
         ghost.attackCount >= ghost.attacksToNextLevel

@@ -41,6 +41,15 @@ const MAX_RAPID_EFFECTS_PER_POOL = 32;
 const TURRET_VISUAL_INTERVAL_MS = 55;
 const INTERACTION_SCAN_INTERVAL_MS = 100;
 const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
+type EffectQuality = 'high' | 'balanced' | 'low';
+const ACTIVE_BUILDING_MOTION_KINDS = new Set<BuildingKind>([
+  'generator',
+  'repair-drone',
+  'electric-coil',
+  'shield-device',
+  'overload-capacitor',
+  'soul-vial',
+]);
 const buildingTextureLoader = new THREE.TextureLoader();
 const buildingTextureCache = new Map<string, THREE.Texture>();
 
@@ -93,6 +102,7 @@ const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   teleporter: 0x42dfff,
   undead: 0x8dff64,
   giant: 0x58e9ff,
+  demolisher: 0xff3f4f,
   minion: 0x8dff64,
 };
 
@@ -164,6 +174,10 @@ interface GhostView {
   target: THREE.Vector3;
   seed: number;
   attackStartedAt: number;
+  hitFlashUntil: number;
+  hitSquashUntil: number;
+  telegraph: THREE.Mesh;
+  targetMarker: THREE.Mesh;
 }
 
 interface BuildingView {
@@ -175,6 +189,10 @@ interface BuildingView {
   skinId: string;
   kind: BuildingKind;
   itemId?: string;
+  barrelRestZ: number;
+  recoil: number;
+  pulseStartedAt: number;
+  statusScale: number;
 }
 
 interface LootView {
@@ -194,6 +212,7 @@ interface DoorView {
   closedTarget: number;
   closedAmount: number;
   visualLevel: number;
+  impactUntil: number;
 }
 
 interface BedView {
@@ -1368,6 +1387,7 @@ function createGhostModel(variant: GhostState['variant']): GhostPreviewModel {
     teleporter: { robe: 0x071b28, skin: 0x98aeb4, glow: 0x25e4ff },
     undead: { robe: 0x182315, skin: 0x879b7d, glow: 0x8dff64 },
     giant: { robe: 0x1b1010, skin: 0x79695f, glow: 0xff6a32 },
+    demolisher: { robe: 0x161116, skin: 0xc0b7b2, glow: 0xff3f4f },
     minion: { robe: 0x27321f, skin: 0xa4b98d, glow: 0xb2ff75 },
   };
   const palette = palettes[variant];
@@ -1851,6 +1871,7 @@ export class ThreeGameView {
   private readonly waterSplashPool: THREE.Group[] = [];
   private readonly beamPool: THREE.Line[] = [];
   private readonly impactRingPool: THREE.Mesh[] = [];
+  private readonly dustPool: THREE.Group[] = [];
   private readonly effectPoolCreated = new Map<string, number>();
   private readonly lastTurretVisualAt = new Map<string, number>();
   private roomSkinSyncInitialized = false;
@@ -1879,6 +1900,9 @@ export class ThreeGameView {
   private frameTimeEma = 16.7;
   private nextQualitySampleAt = 0;
   private qualityHeadroomSamples = 0;
+  private effectHeadroomSamples = 0;
+  private effectQuality: EffectQuality = 'high';
+  private moonLight: THREE.DirectionalLight | null = null;
 
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
@@ -2132,6 +2156,7 @@ export class ThreeGameView {
       this.waterSplashPool,
       this.beamPool,
       this.impactRingPool,
+      this.dustPool,
     ])
       for (const object of pool) disposeTransientObject(object);
     this.scene.traverse((object) => {
@@ -2161,6 +2186,8 @@ export class ThreeGameView {
     this.animateLoot();
     this.animateTurrets(dt);
     this.animateDoors(dt);
+    this.animateBuildings(time);
+    this.animateAmbient(time);
     this.animateEffects(time);
     this.animateRoomTileSkins(time);
     this.syncBuildableTiles(time);
@@ -2177,6 +2204,23 @@ export class ThreeGameView {
     this.renderer.domElement.dataset.frameMs = this.frameTimeEma.toFixed(1);
     this.renderer.domElement.dataset.drawCalls = String(this.renderer.info.render.calls);
     this.renderer.domElement.dataset.effects = String(this.effects.length);
+
+    if (this.frameTimeEma > 28) {
+      this.effectQuality = 'low';
+      this.effectHeadroomSamples = 0;
+    } else if (this.frameTimeEma > 21.5) {
+      this.effectQuality = 'balanced';
+      this.effectHeadroomSamples = 0;
+    } else if (this.frameTimeEma < 15.5) {
+      this.effectHeadroomSamples += 1;
+      if (this.effectHeadroomSamples >= 3) {
+        this.effectQuality = 'high';
+        this.effectHeadroomSamples = 0;
+      }
+    } else {
+      this.effectHeadroomSamples = 0;
+    }
+    this.renderer.domElement.dataset.effectQuality = this.effectQuality;
 
     let nextRatio = this.renderPixelRatio;
     if (this.frameTimeEma > 21.5) {
@@ -2348,6 +2392,7 @@ export class ThreeGameView {
   private createLighting(): void {
     this.scene.add(new THREE.HemisphereLight(this.theme.hemisphereSky, this.theme.hemisphereGround, 2.05));
     const moon = new THREE.DirectionalLight(this.theme.moon, 3.65);
+    this.moonLight = moon;
     moon.position.set(12, 18, 9);
     moon.castShadow = true;
     moon.shadow.mapSize.set(512, 512);
@@ -2944,6 +2989,8 @@ export class ThreeGameView {
       let view = this.ghostViews.get(ghost.id);
       if (view && view.variant !== ghost.variant) {
         this.scene.remove(view.root);
+        this.scene.remove(view.targetMarker);
+        disposeTransientObject(view.targetMarker);
         view.actor.dispose();
         disposeBillboards(view.root);
         this.ghostViews.delete(ghost.id);
@@ -2962,7 +3009,35 @@ export class ThreeGameView {
         const hp = makeBillboard();
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
         hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
-        root.add(label, hp);
+        const telegraph = effectMesh(
+          new THREE.RingGeometry(0.54, 0.69, 32),
+          new THREE.MeshBasicMaterial({
+            color: 0xff304f,
+            transparent: true,
+            opacity: 0.78,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+          [0, 0.08, 0],
+        );
+        telegraph.rotation.x = -Math.PI / 2;
+        telegraph.renderOrder = 8_600;
+        telegraph.visible = false;
+        const targetMarker = effectMesh(
+          new THREE.RingGeometry(0.3, 0.47, 4),
+          new THREE.MeshBasicMaterial({
+            color: 0xff314f,
+            transparent: true,
+            opacity: 0.82,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        targetMarker.rotation.x = -Math.PI / 2;
+        targetMarker.renderOrder = 8_590;
+        targetMarker.visible = false;
+        root.add(label, hp, telegraph);
+        this.scene.add(targetMarker);
         // Minion waves can contain twelve actors. A dynamic point light for
         // every minion multiplies the fragment-lighting cost while adding
         // little at their small on-screen size, so only full ghosts emit one.
@@ -2986,19 +3061,41 @@ export class ThreeGameView {
           target: worldPoint(ghost.position),
           seed: ghost.id.length * 1.19,
           attackStartedAt: Number.NEGATIVE_INFINITY,
+          hitFlashUntil: Number.NEGATIVE_INFINITY,
+          hitSquashUntil: Number.NEGATIVE_INFINITY,
+          telegraph,
+          targetMarker,
         };
         this.ghostViews.set(ghost.id, view);
       }
       view.target.copy(worldPoint(ghost.position));
       const netted = this.snapshotData.elapsed < ghost.stunnedUntil;
-      updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}:${netted}`, `${ghost.displayName} · Lv.${ghost.level}${netted ? ' · 그물' : ''}`, netted ? '#fff0a5' : '#ffb4c2', 'rgba(25,4,12,.84)');
+      const manaLabel = ghost.variant === 'demolisher'
+        ? ` · 마나 ${Math.floor((ghost.mana / Math.max(1, ghost.maxMana)) * 100)}%`
+        : '';
+      updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}:${netted}:${manaLabel}`, `${ghost.displayName} · Lv.${ghost.level}${manaLabel}${netted ? ' · 그물' : ''}`, netted ? '#fff0a5' : '#ffb4c2', 'rgba(25,4,12,.84)');
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
+      const telegraphActive =
+        ghost.variant === 'demolisher' && ghost.abilityPhase !== 'idle';
+      view.telegraph.visible = telegraphActive;
+      const targetBuilding = ghost.abilityTargetBuildingId
+        ? this.buildingStateById.get(ghost.abilityTargetBuildingId)
+        : undefined;
+      view.targetMarker.visible = telegraphActive && Boolean(targetBuilding);
+      if (targetBuilding)
+        view.targetMarker.position.set(
+          targetBuilding.tile.x,
+          0.12,
+          targetBuilding.tile.y,
+        );
       setObjectOpacity(view.root, ghost.hp > 0 ? (ghost.healing ? 0.62 : 1) : 0.08);
     }
     for (const [id, view] of this.ghostViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
+      this.scene.remove(view.targetMarker);
+      disposeTransientObject(view.targetMarker);
       view.actor.dispose();
       disposeBillboards(view.root);
       this.ghostViews.delete(id);
@@ -3062,6 +3159,10 @@ export class ThreeGameView {
           skinId: building.skinId,
           kind: building.kind,
           itemId: building.itemId,
+          barrelRestZ: model.barrel?.position.z ?? 0,
+          recoil: 0,
+          pulseStartedAt: performance.now(),
+          statusScale: 1,
         };
         this.buildingViews.set(building.id, view);
       }
@@ -3084,9 +3185,9 @@ export class ThreeGameView {
           ? `Lv.${building.level} +${building.effectiveLevel - building.level}`
           : `Lv.${building.level}`;
       updateTextBillboard(view.level, `${building.level}:${building.effectiveLevel ?? building.level}:${Math.ceil(overloadUntil - snapshot.elapsed)}:${Math.ceil(chargeRemaining)}`, levelLabel, soulCharging ? '#b9f4ff' : overloadActive ? '#ffe57a' : '#ffffff', soulCharging ? 'rgba(15,81,125,.94)' : overloadActive ? 'rgba(99,30,10,.92)' : 'rgba(8,12,24,.9)');
-      view.root.scale.setScalar(soulCharging
+      view.statusScale = soulCharging
         ? 1 + Math.sin(snapshot.elapsed * 20) * 0.08
-        : overloadActive ? 1 + Math.sin(snapshot.elapsed * 18) * 0.055 : 1);
+        : overloadActive ? 1 + Math.sin(snapshot.elapsed * 18) * 0.055 : 1;
       const nextCost =
         building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
           ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
@@ -3186,6 +3287,7 @@ export class ThreeGameView {
           closedTarget: closed,
           closedAmount: closed,
           visualLevel: 0,
+          impactUntil: Number.NEGATIVE_INFINITY,
         };
         applyDoorVisual(view, state.doorLevel);
         this.doorViews.set(room.id, view);
@@ -3214,10 +3316,15 @@ export class ThreeGameView {
   }
 
   private animateDoors(dt: number): void {
+    const now = performance.now();
     for (const view of this.doorViews.values()) {
       view.closedAmount = damp(view.closedAmount, view.closedTarget, 8.5, dt);
       view.panel.scale.x = 0.18 + view.closedAmount * 0.82;
-      view.panel.position.x = (1 - view.closedAmount) * 0.34;
+      const impact = clamp((view.impactUntil - now) / 170, 0, 1);
+      view.panel.position.x =
+        (1 - view.closedAmount) * 0.34 +
+        Math.sin(now * 0.075) * impact * 0.045;
+      view.panel.rotation.z = Math.sin(now * 0.09) * impact * 0.025;
     }
   }
 
@@ -3374,13 +3481,38 @@ export class ThreeGameView {
       const attackDuration = ghostAttackDuration(ghost.variant);
       const attackElapsed = time - view.attackStartedAt;
       const netted = this.snapshotData.elapsed < ghost.stunnedUntil;
-      if (!netted && attackElapsed >= 0 && attackElapsed < attackDuration) {
+      const skillElapsed = Math.max(
+        0,
+        (this.snapshotData.elapsed - ghost.abilityStartedAt) * 1_000,
+      );
+      if (
+        !netted &&
+        ghost.variant === 'demolisher' &&
+        ghost.abilityPhase === 'preparing'
+      ) {
+        view.actor.setSkillPrepare(skillElapsed, 3_000);
+      } else if (
+        !netted &&
+        ghost.variant === 'demolisher' &&
+        ghost.abilityPhase === 'casting'
+      ) {
+        view.actor.setSkillCast(skillElapsed, 650);
+      } else if (!netted && attackElapsed >= 0 && attackElapsed < attackDuration) {
         view.actor.setAttack(attackElapsed, attackDuration);
       } else {
         view.actor.setMovement(dx, dz, moving && !netted, time, view.seed);
       }
       view.actor.setScreenRotation(0);
-      view.actor.setScale(view.actor.size);
+      const hitProgress = clamp((view.hitSquashUntil - time) / 140, 0, 1);
+      view.actor.setVisualScale(1 + hitProgress * 0.08, 1 - hitProgress * 0.1);
+      view.actor.setTint(time < view.hitFlashUntil ? 0xffc9c9 : 0xffffff);
+      if (view.telegraph.visible) {
+        const pulse = 1 + Math.sin(time * 0.012) * 0.16;
+        view.telegraph.scale.setScalar(pulse);
+        view.targetMarker.scale.setScalar(0.92 + Math.sin(time * 0.014) * 0.12);
+        const telegraphMaterial = view.telegraph.material as THREE.MeshBasicMaterial;
+        telegraphMaterial.opacity = ghost.abilityPhase === 'casting' ? 0.96 : 0.68;
+      }
       view.actor.object.position.z = moving && !netted
         ? -Math.abs(Math.sin(time * 0.008 + view.seed)) * 0.045
         : 0;
@@ -3412,7 +3544,61 @@ export class ThreeGameView {
       if (!target) continue;
       const desired = Math.atan2(target.x - building.tile.x, target.y - building.tile.y);
       view.barrel.rotation.y = dampAngle(view.barrel.rotation.y, desired, 15, dt);
+      view.recoil = damp(view.recoil, 0, 18, dt);
+      view.barrel.position.z = view.barrelRestZ + view.recoil * 0.11;
     }
+  }
+
+  private effectLimit(): number {
+    return this.effectQuality === 'high'
+      ? MAX_TRANSIENT_EFFECTS
+      : this.effectQuality === 'balanced'
+        ? 56
+        : 32;
+  }
+
+  private turretVisualInterval(): number {
+    return this.effectQuality === 'high'
+      ? TURRET_VISUAL_INTERVAL_MS
+      : this.effectQuality === 'balanced'
+        ? 85
+        : 120;
+  }
+
+  private isEffectVisible(position: Vec2, margin = 2.5): boolean {
+    const halfWidth = Math.abs(this.camera.right - this.camera.left) / 2;
+    const halfHeight = Math.abs(this.camera.top - this.camera.bottom) / 2;
+    return (
+      Math.abs(position.x - this.cameraTarget.x) <= halfWidth + margin &&
+      Math.abs(position.y - this.cameraTarget.z) <= halfHeight + margin
+    );
+  }
+
+  private animateBuildings(time: number): void {
+    for (const [id, view] of this.buildingViews) {
+      const building = this.buildingStateById.get(id);
+      if (!building) continue;
+      const pulseProgress = clamp((time - view.pulseStartedAt) / 360, 0, 1);
+      const enterScale =
+        pulseProgress < 1
+          ? 0.82 + Math.sin((pulseProgress * Math.PI) / 2) * 0.18
+          : 1;
+      const activePulse =
+        this.effectQuality !== 'low' &&
+        ACTIVE_BUILDING_MOTION_KINDS.has(building.kind) &&
+        this.isEffectVisible(building.tile, 1)
+          ? 1 + Math.sin(time * 0.0035 + building.tile.x * 0.7) * 0.014
+          : 1;
+      view.root.scale.setScalar(view.statusScale * enterScale * activePulse);
+    }
+  }
+
+  private animateAmbient(time: number): void {
+    if (!this.moonLight) return;
+    this.moonLight.intensity =
+      this.effectQuality === 'low'
+        ? 3.65
+        : 3.65 + Math.sin(time * 0.00045) * 0.09;
   }
 
   private animateEffects(time: number): void {
@@ -3618,7 +3804,86 @@ export class ThreeGameView {
     return ring;
   }
 
+  private acquireDoorDust(): THREE.Group | null {
+    return this.acquirePooledObject(
+      'door-dust',
+      this.dustPool,
+      () => {
+        const cloud = new THREE.Group();
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xa6a19a,
+          transparent: true,
+          opacity: 0.5,
+          depthWrite: false,
+        });
+        for (let index = 0; index < 4; index += 1) {
+          const puff = effectMesh(
+            new THREE.CircleGeometry(0.07 + index * 0.012, 8),
+            material,
+            [
+              (index - 1.5) * 0.11,
+              (index % 2) * 0.04,
+              (index % 3 - 1) * 0.07,
+            ],
+          );
+          puff.lookAt(this.camera.position);
+          cloud.add(puff);
+        }
+        cloud.renderOrder = 8_100;
+        return cloud;
+      },
+      12,
+    );
+  }
+
   private playEvent(event: GameEvent): void {
+    const now = performance.now();
+    if (event.kind === 'ghost-hit' && event.targetId) {
+      const target = this.ghostViews.get(event.targetId);
+      if (target) {
+        target.hitFlashUntil = now + 90;
+        target.hitSquashUntil = now + 140;
+      }
+    }
+    if (event.kind === 'door-hit' && event.roomId) {
+      const door = this.doorViews.get(event.roomId);
+      if (door) door.impactUntil = now + 170;
+      if (
+        event.position &&
+        this.effectQuality !== 'low' &&
+        this.isEffectVisible(event.position, 1)
+      ) {
+        const dust = this.acquireDoorDust();
+        if (dust) {
+          dust.position.copy(worldPoint(event.position, 0.18));
+          this.queuePooledEffect(dust, this.dustPool, {
+            born: now,
+            duration: 320,
+            rise: 0.3,
+            baseScale: dust.scale.clone(),
+            scaleGrowth: 0.65,
+          });
+        }
+      }
+    }
+    if (event.kind === 'turret-fire' && event.sourceId) {
+      const turret = this.buildingViews.get(event.sourceId);
+      if (turret) turret.recoil = 1;
+    }
+    if (
+      (event.kind === 'build' || event.kind === 'upgrade') &&
+      event.position
+    ) {
+      for (const [id, building] of this.buildingStateById) {
+        if (
+          building.tile.x !== event.position.x ||
+          building.tile.y !== event.position.y
+        )
+          continue;
+        const view = this.buildingViews.get(id);
+        if (view) view.pulseStartedAt = now;
+      }
+    }
     if (event.kind === 'door-hit' && event.targetId && event.position) {
       const attacker = this.ghostViews.get(event.targetId);
       // A blink/sprint snapshot can arrive alongside an older door-hit. The
@@ -3724,13 +3989,14 @@ export class ThreeGameView {
       return;
     }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
-      const born = performance.now();
+      const born = now;
       const sourceKey = event.sourceId ??
         `${event.position.x}:${event.position.y}:${event.buildingKind ?? ''}`;
       const lastVisualAt = this.lastTurretVisualAt.get(sourceKey) ?? -Infinity;
       if (
-        born - lastVisualAt < TURRET_VISUAL_INTERVAL_MS ||
-        this.effects.length >= MAX_TRANSIENT_EFFECTS
+        born - lastVisualAt < this.turretVisualInterval() ||
+        this.effects.length >= this.effectLimit() ||
+        !this.isEffectVisible(event.position)
       )
         return;
       this.lastTurretVisualAt.set(sourceKey, born);
@@ -3794,15 +4060,19 @@ export class ThreeGameView {
       }
       return;
     }
-    if (!event.position || !['ghost-hit', 'door-hit', 'player-hit', 'death', 'build', 'building-remove', 'ghost-level-up', 'ghost-skill'].includes(event.kind)) return;
+    if (!event.position || !['ghost-hit', 'door-hit', 'player-hit', 'death', 'build', 'upgrade', 'building-remove', 'ghost-level-up', 'ghost-skill'].includes(event.kind)) return;
     const color = event.kind === 'build' ? 0x68efa4 : event.kind === 'building-remove' ? 0xffa067 : event.kind === 'ghost-skill' ? 0xc27bff : 0xff5578;
-    if (this.effects.length >= MAX_TRANSIENT_EFFECTS) return;
+    if (
+      this.effects.length >= this.effectLimit() ||
+      !this.isEffectVisible(event.position)
+    )
+      return;
     const ring = this.acquireImpactRing(color);
     if (!ring) return;
     ring.position.set(event.position.x, 0.7, event.position.y);
     ring.lookAt(this.camera.position);
     this.queuePooledEffect(ring, this.impactRingPool, {
-      born: performance.now(),
+      born: now,
       duration: 340,
       baseScale: ring.scale.clone(),
       scaleGrowth: 1.4,

@@ -13,11 +13,13 @@ export interface SkinTraitOverride {
   turretDamageMultiplier?: number;
   turretRateMultiplier?: number;
   goldPerSecond?: number;
+  powerPerSecond?: number;
   extraDraws?: number;
   unclaimedMoveSpeedMultiplier?: number;
   turretRangeBonus?: number;
   firstGuardianLevelBonus?: number;
   occupiedDoorLevelBonus?: number;
+  doorShieldRatio?: number;
 }
 
 export interface CosmeticDefinition {
@@ -47,11 +49,11 @@ const CHARACTERS = [
   { id: 'character-fox', slot: 'character', label: '별여우 초롱', description: '초고수만 만날 수 있는 별빛 여우', symbol: '여', swatch: '#d9784d', unlock: { kind: 'rank', rank: 'master' } },
   { id: 'character-hamster', slot: 'character', label: '유령햄스터 콩', description: '볼이 빵빵한 야간 정찰대원', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 900 } },
   { id: 'character-crocodile', slot: 'character', label: '늪악어 크로크', description: '늪지의 턱힘으로 포탑 피해를 크게 높인다', symbol: '악', swatch: '#5d9b61', unlock: { kind: 'points', price: 1_500 } },
-  { id: 'character-duck', slot: 'character', label: '달오리 꽥', description: '달빛 동전을 물어오는 부유한 정찰대원', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 1_350 } },
+  { id: 'character-duck', slot: 'character', label: '달오리 꽥', description: '매초 전력 1을 충전하는 달빛 정찰대원', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 1_350 } },
   { id: 'character-tiger', slot: 'character', label: '달호랑이 라온', description: '호랑이의 도약으로 누구보다 빠르게 방을 찾아간다', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 1_800 } },
   { id: 'character-dinosaur', slot: 'character', label: '별공룡 라그', description: '포탑의 과충전 발사를 지휘하는 작은 공룡', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_000 } },
   { id: 'character-monkey', slot: 'character', label: '달원숭이 몽키', description: '행운의 손재주로 램프를 두 번 더 돌린다', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_400 } },
-  { id: 'character-gorilla', slot: 'character', label: '요새고릴라 콩', description: '든든한 시야로 모든 포탑의 사거리를 넓힌다', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_600 } },
+  { id: 'character-gorilla', slot: 'character', label: '요새고릴라 콩', description: '문 최대 HP의 50%만큼 이중문 방어막을 만든다', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_600 } },
 ] as const satisfies readonly CosmeticDefinition[];
 
 /**
@@ -62,17 +64,17 @@ const SKINS = [
   { id: 'skin-look-bunny-ward', slot: 'skin', characterId: 'character-bunny', traitMultiplier: 1.5, traitOverride: { label: '탐험가의 발걸음', description: '침대를 점유하기 전 이동속도가 1.5배가 됩니다.', unclaimedMoveSpeedMultiplier: 1.5 }, label: '탐험가 모모', description: '노란 안전모와 파란 후드의 완성형 이벤트 스킨', symbol: '토', swatch: '#e9c7bc', unlock: { kind: 'points', price: 100 } },
   { id: 'skin-look-cat-ward', slot: 'skin', characterId: 'character-cat', traitMultiplier: 1.5, label: '새벽 탐정 루루', description: '빨간 재킷과 배낭을 갖춘 완성형 스킨', symbol: '냥', swatch: '#bdc5da', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'points', price: 2_500 } },
-  { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 5_000 } },
-  { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, traitOverride: { label: '파도 위 행운', description: '침대를 점유한 동안 매초 골드 5를 추가로 얻습니다.', goldPerSecond: 5 }, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, traitOverride: { label: '해변 구조 지휘', description: '포탑 사거리가 2칸 늘고 공격속도가 20% 증가합니다.', turretRangeBonus: 2, turretRateMultiplier: 1 / 1.2 }, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-crocodile-ward', slot: 'skin', characterId: 'character-crocodile', traitMultiplier: 1.5, label: '늪지 경비 크로크', description: '보호 장비를 갖춘 완성형 스킨', symbol: '악', swatch: '#5d9b61', unlock: { kind: 'points', price: 2_500 } },
-  { id: 'skin-look-duck-ward', slot: 'skin', characterId: 'character-duck', traitMultiplier: 1.5, label: '달빛 정찰 꽥', description: '정찰 헬멧을 쓴 완성형 스킨', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 2_500 } },
-  { id: 'skin-look-tiger-ward', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 1.5, label: '붉은 번개 라온', description: '붉은 전투복의 완성형 스킨', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-duck-ward', slot: 'skin', characterId: 'character-duck', traitMultiplier: 1.5, traitOverride: { label: '달빛 고속 충전', description: '침대를 점유한 동안 매초 전력 1.5를 얻습니다.', powerPerSecond: 1.5 }, label: '달빛 정찰 꽥', description: '정찰 헬멧을 쓴 완성형 스킨', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-tiger-ward', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 1.5, traitOverride: { label: '붉은 번개 사격', description: '포탑 사거리가 1칸 늘고 공격속도가 5% 증가합니다.', turretRangeBonus: 1, turretRateMultiplier: 1 / 1.05 }, label: '붉은 번개 라온', description: '붉은 전투복의 완성형 스킨', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-dinosaur-ward', slot: 'skin', characterId: 'character-dinosaur', traitMultiplier: 1.5, label: '과충전 라그', description: '기계 장비를 갖춘 완성형 스킨', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-monkey-ward', slot: 'skin', characterId: 'character-monkey', traitMultiplier: 1.5, label: '야간 정비 몽키', description: '정비복을 입은 완성형 스킨', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_500 } },
-  { id: 'skin-look-gorilla-ward', slot: 'skin', characterId: 'character-gorilla', traitMultiplier: 1.5, label: '요새 수호 콩', description: '중장비 수호복의 완성형 스킨', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_500 } },
+  { id: 'skin-look-gorilla-ward', slot: 'skin', characterId: 'character-gorilla', traitMultiplier: 1.5, traitOverride: { label: '삼중 요새문', description: '방을 점유하면 문 최대 HP의 75%만큼 방어막이 생깁니다.', doorShieldRatio: 0.75 }, label: '요새 수호 콩', description: '중장비 수호복의 완성형 스킨', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_500 } },
 ] as const satisfies readonly CosmeticDefinition[];
 
 export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';

@@ -35,6 +35,7 @@ GHOSTS = (
     "teleporter",
     "undead",
     "giant",
+    "demolisher",
 )
 
 

@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.2";
+export const APP_RELEASE_VERSION = "2026.07.29.3";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "타임어택·포탑 강화 개선",
+  title: "웃는 해체귀·전투 연출 개선",
   summary:
-    "• 타임어택 종료 순간 귀신 강화 경고를 화면 중앙에 표시합니다.\n• 설치 모달의 수호 포탑에도 현재 장착한 포탑 스킨을 표시합니다.\n• 포탑 강화소가 상하좌우에 적용되며 이동·철거 시 강화 대상을 즉시 재계산합니다.",
-  publishedAt: 1785299200000,
+    "• 문 타격으로 마나를 채워 건물을 철거하는 웃는 해체귀가 등장합니다.\n• 3초 시전 예고와 전용 준비·시전 모션으로 대응 시점을 명확히 표시합니다.\n• 피격·포탑 반동·문 충격·건물 동작 연출을 성능 단계에 맞춰 개선했습니다.",
+  publishedAt: 1785308400000,
 };
 
 /**
