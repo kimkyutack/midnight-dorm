@@ -3,7 +3,7 @@ import { turretSkinAssetUrl } from '../../shared/customization';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
-const BUILDING_ART_VERSION = 'cute-tile-v12-reward-ids';
+const BUILDING_ART_VERSION = 'cute-tile-v13-hide-and-seek-doll';
 
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',
@@ -28,6 +28,7 @@ const STATIC_ART: Partial<Record<BuildingKind, string>> = {
   'power-panel': 'cute-power-panel',
   'cursed-contract': 'cute-cursed-contract',
   'soul-vial': 'cute-soul-vial',
+  'hide-and-seek-doll': 'cute-hide-and-seek-doll',
 };
 
 /** Every random-box result owns a distinct, centered in-world illustration. */

@@ -215,6 +215,7 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "power-panel",
   "cursed-contract",
   "soul-vial",
+  "hide-and-seek-doll",
 ];
 
 const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
@@ -240,6 +241,7 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "power-panel": "▦",
   "cursed-contract": "✧",
   "soul-vial": "◉",
+  "hide-and-seek-doll": "◌",
   "starter-grave": "†",
   "random-item": "✦",
 };
@@ -2975,6 +2977,7 @@ function renderBuildPanel(tile: Tile): void {
         "reflect-mirror",
         "power-panel",
         "soul-vial",
+        "hide-and-seek-doll",
       ].includes(kind) &&
       ownedBuildings.some((building) => building.kind === kind)
     )
@@ -2992,6 +2995,8 @@ function renderBuildPanel(tile: Tile): void {
         gameState.buildings.some((building) => building.kind === kind))
     )
       return gameState.contractUsed ? "이번 게임에서 사용 완료" : "이미 설치됨";
+    if (kind === "hide-and-seek-doll" && me.hideAndSeekDollBuilt)
+      return "이번 게임 설치 완료";
     return null;
   };
   const buildCard = (kind: BuildingKind): string => {
@@ -3261,6 +3266,21 @@ function renderTargetPanel(selection: SceneSelection): void {
         closeBuildPanel();
         toast("충전할 내 포탑을 선택하세요.");
       });
+    wireBuildingRemoval(panel, building.id);
+    return;
+  }
+  if (building && kind === "hide-and-seek-doll") {
+    panel.innerHTML = `${panelHeadingMarkup("ACTIVE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>사용 효과</span><strong>귀신 목표 변경</strong></div><small>다른 생존 방이 있으면 그곳으로 이동합니다. 다른 방이 없으면 3초 동안 복도를 방황합니다.</small></div><button class="upgrade-cta" type="button" data-use-hide-and-seek>인형 사용</button>${removalMarkup}`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    panel.querySelector<HTMLButtonElement>("[data-use-hide-and-seek]")?.addEventListener("click", () => {
+      const modal = dismissibleModal(`<section class="panel compact purchase-confirm" role="dialog" aria-modal="true"><span class="eyebrow">HIDE AND SEEK</span><h2>숨바꼭질 인형을 사용하시겠습니까?</h2><p class="subtitle">사용하면 인형은 사라지고, 귀신의 공격 목표가 바뀝니다. 한 번만 사용 가능하니 신중하게 사용하세요.</p><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn gold" data-confirm-hide-and-seek>사용</button></div></section>`, "purchase-confirm-modal");
+      modal.querySelector<HTMLButtonElement>("[data-confirm-hide-and-seek]")?.addEventListener("click", () => {
+        modal.remove();
+        closeBuildPanel();
+        network?.activateBuilding(building.id, "hide-and-seek");
+      });
+    });
     wireBuildingRemoval(panel, building.id);
     return;
   }

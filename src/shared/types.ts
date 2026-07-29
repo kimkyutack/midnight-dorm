@@ -97,6 +97,7 @@ export type BuildingKind =
   | 'power-panel'
   | 'cursed-contract'
   | 'soul-vial'
+  | 'hide-and-seek-doll'
   | 'starter-grave'
   /** A drawn or countdown loot reward. It is placed like a small building. */
   | 'random-item';
@@ -206,6 +207,8 @@ export interface PlayerState {
   contractProductionMultiplier: number;
   /** The soul vial has been armed and is waiting for this survivor to select a turret. */
   armedSoulVialId: string | null;
+  /** Hide-and-seek doll is a once-per-match installation, even after it is consumed. */
+  hideAndSeekDollBuilt: boolean;
 }
 
 export interface RoomState {
@@ -333,6 +336,11 @@ export interface GhostState {
   /** Wallpaper ghost contamination remains authoritative across reconnects. */
   contaminatedTiles: Tile[];
   contaminationEndsAt: number;
+  /** A hide-and-seek doll briefly disorients the ghost before it follows a new route. */
+  confusedUntil: number;
+  /** When there is no alternative target, the ghost wanders corridors until this time. */
+  wanderUntil: number;
+  wanderTarget: Tile | null;
   summonerId?: string;
 }
 
@@ -503,7 +511,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
-  | (BaseMessage & { type: 'activate-building'; buildingId: string; action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire'; targetId?: string })
+  | (BaseMessage & { type: 'activate-building'; buildingId: string; action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire' | 'hide-and-seek'; targetId?: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
   | (BaseMessage & { type: 'pickup-loot'; lootId: string })
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })

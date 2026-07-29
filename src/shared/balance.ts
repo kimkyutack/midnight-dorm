@@ -258,6 +258,12 @@ export const BALANCE = {
       maxLevel: 1,
       levels: [level(5_000, 0, 0.35, 0, 0)],
     },
+    'hide-and-seek-doll': {
+      label: '숨바꼭질 인형',
+      description: '귀신의 공격 목표를 바꿉니다. 한 번만 사용 가능하니 신중하게 사용하세요.',
+      maxLevel: 1,
+      levels: [level(100, 0, 0, 0, 0)],
+    },
     'starter-grave': {
       label: '잠든 무덤',
       description: '방을 점유하면 매초 골드 1을 얻습니다.',

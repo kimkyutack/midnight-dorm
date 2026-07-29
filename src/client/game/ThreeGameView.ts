@@ -179,6 +179,7 @@ interface GhostView {
   hitSquashUntil: number;
   telegraph: THREE.Mesh;
   targetMarker: THREE.Mesh;
+  confused: THREE.Sprite;
 }
 
 interface BuildingView {
@@ -1536,6 +1537,7 @@ function buildingColor(kind: BuildingKind): number {
     'power-panel': 0xffd66f,
     'cursed-contract': 0xe688bd,
     'soul-vial': 0x9beaff,
+    'hide-and-seek-doll': 0xc6a2ff,
     'starter-grave': 0x8b97a5,
     'random-item': 0xffca62,
   };
@@ -3014,6 +3016,10 @@ export class ThreeGameView {
         const hp = makeBillboard();
         hp.scale.set(ghost.variant === 'minion' ? 1.2 : 1.9, ghost.variant === 'minion' ? 0.34 : 0.46, 1);
         hp.position.set(0, ghost.variant === 'giant' ? 2.85 : ghost.variant === 'minion' ? 0.84 : 1.96, ghost.variant === 'giant' ? -0.66 : ghost.variant === 'minion' ? -0.16 : -0.45);
+        const confused = makeBillboard();
+        confused.scale.set(0.72, 0.5, 1);
+        confused.position.set(0, ghost.variant === 'giant' ? 3.72 : ghost.variant === 'minion' ? 1.47 : 2.72, ghost.variant === 'giant' ? -1.26 : ghost.variant === 'minion' ? -0.54 : -1.05);
+        confused.visible = false;
         const abilityColor =
           ghost.variant === 'wallpaper' ? 0xb856ff : 0xff304f;
         const telegraph = effectMesh(
@@ -3043,7 +3049,7 @@ export class ThreeGameView {
         targetMarker.rotation.x = -Math.PI / 2;
         targetMarker.renderOrder = 8_590;
         targetMarker.visible = false;
-        root.add(label, hp, telegraph);
+        root.add(label, hp, confused, telegraph);
         this.scene.add(targetMarker);
         // Minion waves can contain twelve actors. A dynamic point light for
         // every minion multiplies the fragment-lighting cost while adding
@@ -3072,6 +3078,7 @@ export class ThreeGameView {
           hitSquashUntil: Number.NEGATIVE_INFINITY,
           telegraph,
           targetMarker,
+          confused,
         };
         this.ghostViews.set(ghost.id, view);
       }
@@ -3082,6 +3089,12 @@ export class ThreeGameView {
         ? ` · 마나 ${Math.floor((ghost.mana / Math.max(1, ghost.maxMana)) * 100)}%`
         : '';
       updateTextBillboard(view.label, `${ghost.displayName}:${ghost.level}:${netted}:${manaLabel}`, `${ghost.displayName} · Lv.${ghost.level}${manaLabel}${netted ? ' · 그물' : ''}`, netted ? '#fff0a5' : '#ffb4c2', 'rgba(25,4,12,.84)');
+      const confused = this.snapshotData.elapsed < ghost.confusedUntil;
+      view.confused.visible = confused;
+      if (confused) {
+        updateTextBillboard(view.confused, `dizzy:${Math.ceil(ghost.confusedUntil - this.snapshotData.elapsed)}`, '💫', '#fff0b4', 'rgba(44,20,78,.86)');
+        view.confused.position.x = Math.sin(performance.now() * 0.012 + view.seed) * 0.12;
+      }
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
       const telegraphActive =

@@ -111,6 +111,7 @@ const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'power-panel',
   'cursed-contract',
   'soul-vial',
+  'hide-and-seek-doll',
 ]);
 const OFFENSIVE_BUILD_KINDS = new Set<BuildingKind>([
   'basic-turret',
@@ -452,6 +453,9 @@ export class GameEngine {
       abilityTargetBuildingId: null,
       contaminatedTiles: [],
       contaminationEndsAt: -1,
+      confusedUntil: -1,
+      wanderUntil: -1,
+      wanderTarget: null,
     };
   }
 
@@ -522,6 +526,9 @@ export class GameEngine {
       ghost.abilityTargetBuildingId ??= null;
       ghost.contaminatedTiles ??= [];
       ghost.contaminationEndsAt ??= -1;
+      ghost.confusedUntil ??= -1;
+      ghost.wanderUntil ??= -1;
+      ghost.wanderTarget ??= null;
     }
     for (const player of this.state.players) {
       player.accountId ??= null;
@@ -554,6 +561,7 @@ export class GameEngine {
       player.upgradeDiscountRate ??= 0;
       player.contractProductionMultiplier ??= 1;
       player.armedSoulVialId ??= null;
+      player.hideAndSeekDollBuilt ??= false;
     }
     for (const room of this.state.rooms) {
       room.ownerIds ??= room.ownerId ? [room.ownerId] : [];
@@ -1367,6 +1375,8 @@ export class GameEngine {
       (this.state.contractUsed || this.state.buildings.some((building) => building.kind === kind))
     )
       return { ok: false, error: "저주 계약서는 이번 게임에서 이미 사용했습니다." };
+    if (kind === "hide-and-seek-doll" && player.hideAndSeekDollBuilt)
+      return { ok: false, error: "숨바꼭질 인형은 이번 게임에서 이미 설치했습니다." };
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (kind === "golden-turret") {
@@ -1437,6 +1447,7 @@ export class GameEngine {
       powerPanelMode: "attack",
     };
     this.state.buildings.push(building);
+    if (kind === "hide-and-seek-doll") player.hideAndSeekDollBuilt = true;
     if (isFirstGuardian) player.firstGuardianBuilt = true;
     if (kind === "basic-turret" || kind === "turret-enhancer")
       this.syncDynamicTurretLevels(this.createBuildingTickIndex());
@@ -1553,7 +1564,61 @@ export class GameEngine {
       });
       return { ok: true };
     }
+    if (building.kind === "hide-and-seek-doll" && message.action === "hide-and-seek") {
+      this.useHideAndSeekDoll(player, building);
+      return { ok: true };
+    }
     return { ok: false, error: "이 설비는 지금 사용할 수 없습니다." };
+  }
+
+  private useHideAndSeekDoll(player: PlayerState, building: BuildingState): void {
+    const currentTargets = this.state.ghosts.filter(
+      (ghost) => ghost.hp > 0 && !ghost.retreating && !ghost.healing,
+    );
+    for (const ghost of currentTargets) {
+      const alternatives = this.state.rooms.filter(
+        (room) =>
+          room.id !== ghost.targetRoomId &&
+          room.ownerIds.some((ownerId) =>
+            this.state.players.some(
+              (candidate) => candidate.id === ownerId && candidate.alive,
+            ),
+          ),
+      );
+      ghost.confusedUntil = this.state.elapsed + 2;
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.35);
+      ghost.path = [];
+      if (alternatives.length > 0) {
+        const target = alternatives[this.rng.int(0, alternatives.length - 1)];
+        if (target) {
+          ghost.targetRoomId = target.id;
+          ghost.targetPlayerId = null;
+          ghost.wanderUntil = -1;
+          ghost.wanderTarget = null;
+        }
+      } else {
+        ghost.targetRoomId = null;
+        ghost.targetPlayerId = null;
+        ghost.wanderUntil = this.state.elapsed + 3;
+        ghost.wanderTarget = this.randomCorridorTile();
+      }
+      this.pendingEvents.push({
+        kind: "ghost-skill",
+        sourceId: player.id,
+        targetId: ghost.id,
+        position: { ...ghost.position },
+        itemId: "hide-and-seek-doll",
+        label: alternatives.length > 0 ? "헤롱헤롱 · 목표 변경" : "헤롱헤롱 · 복도 방황",
+      });
+    }
+    this.consumeBuilding(building.id);
+  }
+
+  private randomCorridorTile(): Tile | null {
+    const candidates = this.map.corridorTiles;
+    if (candidates.length === 0) return null;
+    const tile = candidates[this.rng.int(0, candidates.length - 1)];
+    return tile ? { ...tile } : null;
   }
 
   private consumeBuilding(buildingId: string): void {
@@ -3450,6 +3515,24 @@ export class GameEngine {
     if (this.updateDemolisherAbility(ghost)) return;
     if (this.updateWallpaperAbility(ghost)) return;
 
+    // The doll deliberately clears the attack target. While no other
+    // survivor room exists, keep the ghost visibly wandering in corridors
+    // instead of immediately reselecting the same door on the next tick.
+    if (this.state.elapsed < ghost.wanderUntil) {
+      if (!ghost.wanderTarget || distance(ghost.position, ghost.wanderTarget) < 0.45) {
+        ghost.wanderTarget = this.randomCorridorTile();
+        ghost.path = [];
+      }
+      if (ghost.wanderTarget) this.moveGhostToward(ghost, ghost.wanderTarget, dt, 0.82);
+      return;
+    }
+    if (ghost.wanderUntil >= 0) {
+      ghost.wanderUntil = -1;
+      ghost.wanderTarget = null;
+      ghost.path = [];
+      ghost.targetRoomId = this.selectGhostTarget(ghost);
+    }
+
     if (ghost.abilityCooldown <= 0) {
       if (ghost.variant === "teleporter") this.teleportToAnotherDoor(ghost);
       else if (ghost.variant === "undead") this.summonMinions(ghost);
@@ -4325,6 +4408,7 @@ export class GameEngine {
       upgradeDiscountRate: 0,
       contractProductionMultiplier: 1,
       armedSoulVialId: null,
+      hideAndSeekDollBuilt: false,
     };
   }
 }
