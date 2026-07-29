@@ -9,6 +9,7 @@ export interface NetworkEvents {
   ping: { milliseconds: number };
   roomExit: { reason: 'left' | 'kicked' | 'room-closed' };
   quickChat: { playerId: string; phrase: QuickChatPhrase };
+  gameChat: { playerId: string; message: string };
 }
 
 type Listener<K extends keyof NetworkEvents> = (value: NetworkEvents[K]) => void;
@@ -159,6 +160,7 @@ export class GameNetwork {
     this.send({ type: 'use-consumable', itemId, ...target });
   }
   quickChat(phrase: QuickChatPhrase): void { this.send({ type: 'quick-chat', phrase }); }
+  gameChat(message: string): void { this.send({ type: 'game-chat', message }); }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 
@@ -190,6 +192,7 @@ export class GameNetwork {
     else if (message.type === 'error') this.emit('error', { message: message.message });
     else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
     else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });
+    else if (message.type === 'game-chat') this.emit('gameChat', { playerId: message.playerId, message: message.message });
     else if (message.type === 'room-exit') {
       this.stopped = true;
       this.stopHeartbeat();

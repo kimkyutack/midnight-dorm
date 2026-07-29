@@ -364,7 +364,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       "skin-look-cat-ward",
     );
     await page.getByRole("button", { name: "타일", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(1);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(2);
     await expect(
       page.locator(".cosmetic-card", { hasText: "기본 병동 타일" }),
     ).toHaveCount(0);
@@ -387,6 +387,16 @@ test("portrait home separates shop, owned customization and stage start", async 
       "src",
       /\/assets\/tiles\/skin-wave\/wave-tile\.webp\?v=/,
     );
+    const sandTileCard = page.locator(".cosmetic-card", {
+      hasText: "모래사장 타일",
+    });
+    await expect(sandTileCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/tiles\/skin-beach-sand\/sand-tile\.webp\?v=/,
+    );
+    await expect(
+      sandTileCard.getByRole("button", { name: "1,000 P" }),
+    ).toBeEnabled();
     await page.getByRole("button", { name: "포탑", exact: true }).click();
     const surferTurretCard = page.locator(
       `[data-cosmetic-preview="turret-basic-surfer-water"]`,
@@ -407,6 +417,17 @@ test("portrait home separates shop, owned customization and stage start", async 
       "src",
       /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-01\.png\?v=/,
     );
+    const parasolTurretCard = page.locator(
+      `[data-cosmetic-preview="turret-basic-lifeguard-parasol"]`,
+    );
+    await expect(parasolTurretCard).toBeVisible();
+    await expect(parasolTurretCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/turret-skins\/skin-lifeguard-parasol\/level-01\.png\?v=/,
+    );
+    await expect(
+      parasolTurretCard.getByRole("button", { name: "1,500 P" }),
+    ).toBeEnabled();
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
     await expect(
@@ -437,6 +458,18 @@ test("portrait home separates shop, owned customization and stage start", async 
       page.locator(".empty-collection"),
     ).toContainText("보유한 타일 스킨이 없습니다.");
     await expect(page.locator("[data-tile-preview]")).toHaveCount(0);
+    await page.getByRole("button", { name: "포탑", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "내 보관함" }),
+    ).toBeVisible();
+    await expect(page.locator(".cosmetic-card")).toHaveCount(0);
+    await expect(page.locator("[data-turret-preview]")).toHaveAttribute(
+      "src",
+      /\/assets\/buildings\/cute-basic-turret-1\.png\?v=/,
+    );
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText(
+      "수호포 · 병동형",
+    );
     await page.getByRole("button", { name: "이전 화면" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     expect(await page.request.post("/api/auth/logout")).toBeOK();

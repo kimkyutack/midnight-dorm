@@ -3,7 +3,7 @@ import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
   'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'move-building', 'upgrade',
-  'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'quick-chat', 'rematch', 'ping', 'resync',
+  'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'quick-chat', 'game-chat', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
@@ -100,6 +100,11 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
     case 'quick-chat':
       if (!['문 위험!', '포탑 강화해!', '내가 끝낼게!', '좋은 아이템 발견!'].includes(String(value.phrase))) {
         return { ok: false, error: 'invalid quick chat phrase' };
+      }
+      break;
+    case 'game-chat':
+      if (typeof value.message !== 'string' || value.message.trim().length < 1 || value.message.trim().length > 80) {
+        return { ok: false, error: 'invalid game chat message' };
       }
       break;
     case 'ping':

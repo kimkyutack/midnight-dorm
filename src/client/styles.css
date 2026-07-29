@@ -4976,17 +4976,64 @@ select {
   display: none;
 }
 .hud-teammate {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  max-width: 96px;
+  max-width: 120px;
   padding: 2px 5px 2px 3px;
   border: 1px solid rgba(157, 232, 245, 0.17);
   border-radius: 999px;
   color: #eaf7ff;
   background: rgba(120, 219, 235, 0.08);
   cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    opacity 160ms ease;
+}
+.hud-teammate.under-attack {
+  border-color: rgba(255, 96, 112, 0.88);
+  background: linear-gradient(
+    135deg,
+    rgba(158, 24, 48, 0.82),
+    rgba(69, 9, 25, 0.86)
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 76, 96, 0.18),
+    0 0 14px rgba(255, 44, 72, 0.35);
+  animation: teammate-danger-pulse 0.8s ease-in-out infinite alternate;
+}
+.hud-teammate.dead {
+  border-color: rgba(143, 153, 169, 0.28);
+  color: #9aa4b3;
+  background: rgba(26, 31, 42, 0.88);
+  opacity: 0.72;
+}
+.hud-teammate.dead .player-face {
+  filter: grayscale(1) brightness(0.55);
+}
+.hud-teammate-state {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border-radius: 999px;
+  color: #d8dde7;
+  background: rgba(0, 0, 0, 0.44);
+  font-size: 7px;
+  line-height: 1;
+}
+@keyframes teammate-danger-pulse {
+  from {
+    box-shadow:
+      0 0 0 1px rgba(255, 76, 96, 0.12),
+      0 0 8px rgba(255, 44, 72, 0.22);
+  }
+  to {
+    box-shadow:
+      0 0 0 1px rgba(255, 110, 124, 0.26),
+      0 0 18px rgba(255, 44, 72, 0.48);
+  }
 }
 .hud-teammate:active {
   transform: translateY(1px) scale(0.97);
@@ -5029,7 +5076,7 @@ select {
   width: 5px;
   height: 4px;
 }
-.hud-teammate > span:last-child {
+.hud-teammate > span {
   min-width: 0;
   overflow: hidden;
   font-size: 8px;
@@ -5323,7 +5370,7 @@ select {
   right: max(20px, calc(env(safe-area-inset-right) + 14px));
   bottom: max(94px, calc(env(safe-area-inset-bottom) + 82px));
   z-index: 22;
-  width: min(190px, 52cqw);
+  width: min(270px, 76cqw);
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -5336,7 +5383,12 @@ select {
   );
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.36);
 }
-.quick-chat-picker > strong {
+.quick-chat-picker > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.quick-chat-picker > header strong {
   color: #a5ecf2;
   font-size: 9px;
   letter-spacing: 0.12em;
@@ -5352,8 +5404,55 @@ select {
   font-weight: 900;
   text-align: left;
 }
+.quick-chat-picker .quick-chat-close {
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 9px;
+  font-size: 17px;
+  text-align: center;
+}
+.game-chat-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.game-chat-form input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid rgba(139, 214, 226, 0.28);
+  border-radius: 10px;
+  outline: none;
+  color: #f4fdff;
+  background: rgba(3, 17, 31, 0.88);
+  font: 700 12px/1 sans-serif;
+}
+.game-chat-form input:focus {
+  border-color: rgba(128, 229, 242, 0.75);
+  box-shadow: 0 0 0 2px rgba(84, 211, 232, 0.12);
+}
+.game-chat-form button[type="submit"] {
+  min-height: 38px;
+  color: #071722;
+  background: linear-gradient(135deg, #9debf3, #67c9e5);
+  text-align: center;
+}
+.quick-chat-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.quick-chat-options button {
+  padding: 0 8px;
+  font-size: 10px;
+}
 .quick-chat-picker button:active {
   transform: scale(0.98);
+}
+#game-shell.intro-movement-locked .joystick,
+#game-shell.intro-movement-locked .portrait-drag-hint {
+  pointer-events: none;
 }
 .quick-chat-bubble {
   position: absolute;
@@ -7777,7 +7876,7 @@ select {
     display: none;
   }
   #app[data-view="game"] .hud-teammate {
-    max-width: 84px;
+    max-width: 112px;
     padding: 1px 4px 1px 2px;
   }
   #app[data-view="game"] .hud-teammate .player-face {
@@ -7811,7 +7910,7 @@ select {
     width: 4px;
     height: 3px;
   }
-  #app[data-view="game"] .hud-teammate > span:last-child {
+  #app[data-view="game"] .hud-teammate > span {
     font-size: 7px;
   }
   #app[data-view="game"] .battle-stats {

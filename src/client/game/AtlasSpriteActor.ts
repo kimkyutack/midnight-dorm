@@ -280,6 +280,10 @@ export class AtlasSpriteActor {
     this.setFrame('movement', 0);
   }
 
+  setFacingFromDelta(dx: number, dz: number): void {
+    this.facing = spriteFacingFromDelta(dx, dz, this.facing);
+  }
+
   setSleep(mirrored = false): void {
     this.facing = { direction: 'side', mirrored };
     this.setFrame('sleep', 0);

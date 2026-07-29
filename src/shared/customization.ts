@@ -77,7 +77,9 @@ const SKINS = [
 
 export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';
 export const WAVE_TILE_SKIN_ID = 'tile-wave-surfer';
+export const BEACH_SAND_TILE_SKIN_ID = 'tile-beach-lifeguard';
 export const SURFER_WATER_TURRET_SKIN_ID = 'turret-basic-surfer-water';
+export const LIFEGUARD_PARASOL_TURRET_SKIN_ID = 'turret-basic-lifeguard-parasol';
 
 const TILE_SKINS = [
   {
@@ -99,6 +101,16 @@ const TILE_SKINS = [
     unlock: { kind: 'points', price: 1_000 },
     assetDirectory: 'skin-wave/wave-tile.webp',
   },
+  {
+    id: BEACH_SAND_TILE_SKIN_ID,
+    slot: 'tile',
+    label: '모래사장 타일',
+    description: '침대를 점유하면 모래 소용돌이가 퍼지며 포근한 해변 타일로 바뀝니다.',
+    symbol: '모',
+    swatch: '#e8c783',
+    unlock: { kind: 'points', price: 1_000 },
+    assetDirectory: 'skin-beach-sand/sand-tile.webp',
+  },
 ] as const satisfies readonly CosmeticDefinition[];
 
 const TURRET_SKINS = [
@@ -113,6 +125,17 @@ const TURRET_SKINS = [
     swatch: '#ffc84f',
     unlock: { kind: 'points', price: 1_500 },
     assetDirectory: 'skin-surfer-water-blaster',
+  },
+  {
+    id: LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+    slot: 'turret',
+    turretKind: 'basic-turret',
+    label: '파라솔 포탑',
+    description: '접힌 파라솔부터 해변 구조대 지휘소까지 15단계 외형을 적용합니다.',
+    symbol: '솔',
+    swatch: '#ef5548',
+    unlock: { kind: 'points', price: 1_500 },
+    assetDirectory: 'skin-lifeguard-parasol',
   },
   { id: 'turret-basic-toy', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 장난감', description: '둥근 별 장식과 크림색 포신', symbol: '별', swatch: '#f1b86b', unlock: { kind: 'points', price: 300 } },
   { id: 'turret-basic-pumpkin', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 호박등', description: '주황빛 눈이 반짝이는 호박 포대', symbol: '호', swatch: '#e87942', unlock: { kind: 'points', price: 520 } },

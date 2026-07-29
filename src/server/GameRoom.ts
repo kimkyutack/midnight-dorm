@@ -15,6 +15,7 @@ interface ConnectionAttachment {
   lastSequence: number;
   lastBuildAt: number;
   lastQuickChatAt?: number;
+  lastGameChatAt?: number;
   snapshotFrames?: boolean;
 }
 
@@ -286,6 +287,29 @@ export class GameRoom extends DurableObject<Env> {
         timestamp: now,
         playerId: player.id,
         phrase: parsed.message.phrase,
+      });
+      for (const targetSocket of this.ctx.getWebSockets()) {
+        if (targetSocket.readyState === WebSocket.OPEN) targetSocket.send(message);
+      }
+      return;
+    }
+    if (parsed.message.type === 'game-chat') {
+      const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
+      const now = Date.now();
+      if (!player || player.isBot || now - (attachment.lastGameChatAt ?? 0) < 750) {
+        this.sendError(socket, 'ACTION_THROTTLED', '채팅은 잠시 후 다시 보낼 수 있습니다.');
+        return;
+      }
+      const messageText = parsed.message.message.replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (!messageText) return;
+      attachment.lastGameChatAt = now;
+      socket.serializeAttachment(attachment);
+      const message = encodeMessage({
+        type: 'game-chat',
+        sequence: engine.snapshot().serverSeq,
+        timestamp: now,
+        playerId: player.id,
+        message: messageText,
       });
       for (const targetSocket of this.ctx.getWebSockets()) {
         if (targetSocket.readyState === WebSocket.OPEN) targetSocket.send(message);

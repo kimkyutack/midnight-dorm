@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.28.6";
+export const APP_RELEASE_VERSION = "2026.07.29.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "서퍼 몽 테마: 서퍼 물총포",
+  title: "해변 구조대 라온 테마",
   summary:
-    "• 상점과 내 보관함에 포탑 스킨 탭을 추가했습니다.\n• 서퍼 물총포는 Lv.1 돌고래 물총부터 Lv.15 대왕 물총까지 단계마다 다른 외형을 사용합니다.\n• 서퍼 물총포의 탄환을 물줄기와 물보라 효과로 변경했습니다. 가격은 1,500P입니다.",
-  publishedAt: 1785234000000,
+    "• 침대 점유 시 모래 소용돌이가 퍼지는 모래사장 타일을 추가했습니다.\n• Lv.1의 접힌 파라솔부터 Lv.15 구조대 지휘소까지 실루엣이 성장하는 파라솔 포탑을 추가했습니다.\n• 공격받는 팀원의 HUD 프로필이 즉시 붉게 표시되도록 판정을 보강했습니다.",
+  publishedAt: 1785294000000,
 };
 
 /**

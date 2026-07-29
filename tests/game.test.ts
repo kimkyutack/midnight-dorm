@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -12,8 +12,9 @@ import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
-import type { ClientMessage, GameSnapshot, Tile } from '../src/shared/types';
+import type { ClientMessage, GameSnapshot, GhostState, PlayerState, Tile } from '../src/shared/types';
 import { GameEngine } from '../src/server/engine';
+import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
@@ -69,8 +70,8 @@ function begin(engine: GameEngine, hostId: string): GameSnapshot {
 }
 
 function advanceFrozenIntros(engine: GameEngine): void {
-  // Every match opens with the ghost poster. Time Attack adds another frozen
-  // announcement after it, so setup fixtures must wait through both phases.
+  // Time Attack is announced first; every match then shows its ghost poster.
+  // Setup fixtures wait through both frozen phases.
   for (
     let index = 0;
     index < 80 && ['GHOST_INTRO', 'EVENT_INTRO'].includes(engine.snapshot().status);
@@ -123,7 +124,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.28.7')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -199,6 +200,37 @@ describe('realtime snapshot frames', () => {
       serverSeq: frame.serverSeq + 2,
     }, revisedBuildings);
     expect(revised?.buildings).toBe(revisedBuildings);
+  });
+});
+
+describe('combat presentation', () => {
+  it('keeps a teammate HUD card red while an active ghost targets that player or room', () => {
+    const player = {
+      id: 'player-2',
+      alive: true,
+      roomId: 'room-2',
+    } as PlayerState;
+    const ghost = {
+      hp: 100,
+      retreating: false,
+      healing: false,
+      targetPlayerId: null,
+      targetRoomId: 'room-2',
+    } as GhostState;
+
+    expect(isPlayerUnderGhostAttack(player, [ghost])).toBe(true);
+
+    ghost.targetRoomId = null;
+    ghost.targetPlayerId = player.id;
+    expect(isPlayerUnderGhostAttack(player, [ghost])).toBe(true);
+
+    ghost.retreating = true;
+    expect(isPlayerUnderGhostAttack(player, [ghost])).toBe(false);
+
+    ghost.retreating = false;
+    ghost.targetPlayerId = null;
+    ghost.targetRoomId = 'room-3';
+    expect(isPlayerUnderGhostAttack(player, [ghost])).toBe(false);
   });
 });
 
@@ -396,6 +428,25 @@ describe('generated mobile game art', () => {
     );
   });
 
+  it('maps the lifeguard parasol through 15 authored silhouettes', () => {
+    const assets = Array.from({ length: 15 }, (_, index) =>
+      buildingAssetUrl(
+        'basic-turret',
+        index + 1,
+        undefined,
+        LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+      ),
+    );
+    expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
+    expect(new Set(assets).size).toBe(15);
+    expect(turretSkinAssetUrl(LIFEGUARD_PARASOL_TURRET_SKIN_ID, 1)).toBe(
+      '/assets/turret-skins/skin-lifeguard-parasol/level-01.png',
+    );
+    expect(turretSkinAssetUrl(LIFEGUARD_PARASOL_TURRET_SKIN_ID, 15)).toBe(
+      '/assets/turret-skins/skin-lifeguard-parasol/level-15.png',
+    );
+  });
+
   it('maps every moonlight generator level to its own crisp tile-safe image', () => {
     const assets = Array.from({ length: 10 }, (_, index) =>
       buildingAssetUrl('generator', index + 1),
@@ -492,6 +543,10 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v3');
     expect(ghostSpriteDefinition('swift').attackUrl)
       .toBe('/assets/sprites/ghosts/swift/attack-sheet.png?v=ghost-atlas-v3');
+    for (const variant of ['wanderer', 'swift', 'brute', 'caster', 'twin-a', 'twin-b', 'teleporter', 'undead', 'giant'] as const) {
+      expect(ghostSpriteDefinition(variant).attackUrl)
+        .toBe(`/assets/sprites/ghosts/${variant}/attack-sheet.png?v=ghost-atlas-v3`);
+    }
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
   });
 
@@ -534,7 +589,7 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(41);
+    expect(COSMETIC_CATALOG).toHaveLength(43);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'tile', 'turret']),
     );
@@ -542,7 +597,7 @@ describe('survivor customization rules', () => {
     expect(STARTER_COSMETICS).toContain(DEFAULT_TILE_SKIN_ID);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(14);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(2);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(3);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
@@ -556,6 +611,17 @@ describe('survivor customization rules', () => {
     expect(tileSkinTextureUrl(DEFAULT_TILE_SKIN_ID)).toBeUndefined();
   });
 
+  it('sells the lifeguard beach tile with its own center-out transition asset', () => {
+    expect(cosmeticById(BEACH_SAND_TILE_SKIN_ID)).toMatchObject({
+      slot: 'tile',
+      label: '모래사장 타일',
+      unlock: { kind: 'points', price: 1_000 },
+    });
+    expect(tileSkinTextureUrl(BEACH_SAND_TILE_SKIN_ID)).toBe(
+      '/assets/tiles/skin-beach-sand/sand-tile.webp',
+    );
+  });
+
   it('sells the surfer water turret as a neutral 1,500 point cosmetic', () => {
     expect(cosmeticById(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
       slot: 'turret',
@@ -564,6 +630,21 @@ describe('survivor customization rules', () => {
       unlock: { kind: 'points', price: 1_500 },
     });
     expect(turretSkinTrait(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
+      turretKind: 'basic-turret',
+      damageMultiplier: 1,
+      rateMultiplier: 1,
+      frostSlowStrengthMultiplier: 1,
+    });
+  });
+
+  it('sells the lifeguard parasol turret as a neutral 1,500 point cosmetic', () => {
+    expect(cosmeticById(LIFEGUARD_PARASOL_TURRET_SKIN_ID)).toMatchObject({
+      slot: 'turret',
+      turretKind: 'basic-turret',
+      label: '파라솔 포탑',
+      unlock: { kind: 'points', price: 1_500 },
+    });
+    expect(turretSkinTrait(LIFEGUARD_PARASOL_TURRET_SKIN_ID)).toMatchObject({
       turretKind: 'basic-turret',
       damageMultiplier: 1,
       rateMultiplier: 1,
@@ -750,6 +831,29 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().status).toBe('PLAYING');
   });
 
+  it('shows Time Attack before the frozen ghost poster and does not buffer movement', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    const prepared = engine.serialize();
+    prepared.snapshot.difficulty.modifier = 'time-attack';
+    prepared.snapshot.difficulty.timeAttackRemaining = 300;
+    engine.restore(prepared);
+    const initialPosition = { ...engine.snapshot().players[0]!.position };
+    expect(engine.start(playerId).ok).toBe(true);
+    expect(engine.snapshot().status).toBe('EVENT_INTRO');
+    expect(engine.handle(playerId, envelope({ type: 'move', dx: 1, dy: 0, inputSequence: 1 })).ok).toBe(true);
+    for (let index = 0; index < 20 && engine.snapshot().status === 'EVENT_INTRO'; index += 1) {
+      engine.tick(0.1);
+    }
+    expect(engine.snapshot().status).toBe('GHOST_INTRO');
+    expect(engine.snapshot().players[0]?.position).toEqual(initialPosition);
+    expect(engine.snapshot().players[0]?.velocity).toEqual({ x: 0, y: 0 });
+    for (let index = 0; index < 20 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) {
+      engine.tick(0.1);
+    }
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
+  });
+
   it('keeps explicitly claimed solo beds in distinct rooms', () => {
     const { engine, ids } = setup(4);
     const state = begin(engine, ids[0] as string);
@@ -836,7 +940,11 @@ describe('authoritative game rules', () => {
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
-    for (let index = 0; index < 12; index += 1) engine.tick(0.1);
+    for (
+      let index = 0;
+      index < 80 && engine.snapshot().status === 'COUNTDOWN';
+      index += 1
+    ) engine.tick(0.1);
     const before = engine.snapshot();
     const player = before.players.find((candidate) => candidate.id === playerId);
     expect(before.status).toBe('PLAYING');
@@ -1407,6 +1515,9 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage(JSON.stringify({ type: 'leave-room', sequence: 4, timestamp: 2 })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'quick-chat', sequence: 5, timestamp: 2, phrase: '문 위험!' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'quick-chat', sequence: 6, timestamp: 2, phrase: '아무 말' })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'game-chat', sequence: 7, timestamp: 2, message: '왼쪽 방 도와줘!' })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'game-chat', sequence: 8, timestamp: 2, message: '   ' })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'game-chat', sequence: 9, timestamp: 2, message: '가'.repeat(81) })).ok).toBe(false);
   });
 
   it('restores the same player with a valid 30-second reconnect token', () => {

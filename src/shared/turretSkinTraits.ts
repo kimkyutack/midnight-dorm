@@ -31,6 +31,11 @@ export const TURRET_SKIN_TRAITS: Readonly<Record<string, TurretSkinTrait>> = {
     label: '물보라 탄환',
     description: '물총 외형과 물보라 발사 효과를 적용합니다.',
   },
+  'turret-basic-lifeguard-parasol': {
+    ...neutral('basic-turret'),
+    label: '구조대 파라솔',
+    description: '접힌 파라솔부터 해변 구조대 지휘소까지 15단계 외형을 적용합니다.',
+  },
   'turret-basic-toy': {
     ...neutral('basic-turret'),
     label: '별빛 탄환',

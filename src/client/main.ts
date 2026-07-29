@@ -16,6 +16,7 @@ import {
   drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
+import { isPlayerUnderGhostAttack } from "../shared/combatPresentation";
 import {
   characterAvailable,
   cosmeticAvailable,
@@ -23,6 +24,7 @@ import {
   cosmeticsForSlot,
   customizationReward,
   DEFAULT_TILE_SKIN_ID,
+  LIFEGUARD_PARASOL_TURRET_SKIN_ID,
   defaultSkinForCharacter,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
@@ -147,9 +149,8 @@ interface SocialRealtimeEvent {
   type?: "ready" | "friend-request" | "friend-accepted" | "message" | "invite";
   fromAccountId?: string;
 }
-let socialModalRealtimeRefresh:
-  | ((event: SocialRealtimeEvent) => void)
-  | null = null;
+let socialModalRealtimeRefresh: ((event: SocialRealtimeEvent) => void) | null =
+  null;
 let customizeReturnView: "home" | "room-menu" = "home";
 const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
 const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
@@ -1324,15 +1325,15 @@ function modelPreviewHtml(
 ): string {
   if (tileMode) {
     if (!tileSkinId) {
-      return `<div class="custom-avatar-stage tile-skin-preview-stage empty-tile-preview" data-avatar-preview><div class="tile-skin-preview-room" aria-hidden="true"></div><span>장착한 타일 스킨 없음</span></div>`;
+      return `<div class="custom-avatar-stage tile-skin-preview-stage empty-tile-preview" data-avatar-preview><div class="tile-skin-preview-room" aria-hidden="true"></div></div>`;
     }
-    return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div><span>침대 점유 시 방 전체에 적용</span></div>`;
+    return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div></div>`;
   }
   if (turretMode) {
     const previewUrl =
       turretSkinAssetUrl(turretSkinId, 1) ??
       "/assets/buildings/cute-basic-turret-1.png";
-    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>Lv.1부터 Lv.15까지 단계별 외형 적용</span></div>`;
+    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>레벨별 외형 적용</span></div>`;
   }
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
@@ -1448,26 +1449,30 @@ function cosmeticCollectionScreen(
     (item) =>
       (shopping || cosmeticEntitled(item, currentAccount)) &&
       (selectedSlot !== "tile" || item.id !== DEFAULT_TILE_SKIN_ID) &&
-      (selectedSlot !== "turret" || item.id === SURFER_WATER_TURRET_SKIN_ID),
+      (selectedSlot !== "turret" ||
+        item.id === SURFER_WATER_TURRET_SKIN_ID ||
+        item.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID),
   );
   const displayCatalog =
     selectedSlot === "turret"
       ? [...catalog].sort((left, right) => {
           if (left.id === SURFER_WATER_TURRET_SKIN_ID) return -1;
           if (right.id === SURFER_WATER_TURRET_SKIN_ID) return 1;
+          if (left.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID) return -1;
+          if (right.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID) return 1;
           return 0;
         })
       : shopping && selectedSlot === "skin"
-      ? [...catalog].sort((left, right) => {
-          const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
-          const leftOrder = premiumOrder.indexOf(left.id);
-          const rightOrder = premiumOrder.indexOf(right.id);
-          if (leftOrder < 0 && rightOrder < 0) return 0;
-          if (leftOrder < 0) return 1;
-          if (rightOrder < 0) return -1;
-          return leftOrder - rightOrder;
-        })
-      : catalog;
+        ? [...catalog].sort((left, right) => {
+            const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
+            const leftOrder = premiumOrder.indexOf(left.id);
+            const rightOrder = premiumOrder.indexOf(right.id);
+            if (leftOrder < 0 && rightOrder < 0) return 0;
+            if (leftOrder < 0) return 1;
+            if (rightOrder < 0) return -1;
+            return leftOrder - rightOrder;
+          })
+        : catalog;
   const cards = displayCatalog
     .map((item) => {
       const selected =
@@ -1483,12 +1488,12 @@ function cosmeticCollectionScreen(
       const premiumSummer = premiumSurfer || premiumLifeguard;
       const initialCatalogPreviewId =
         selectedSlot === "skin"
-          ? previewItemId ?? SURFER_MONG_SKIN_ID
+          ? (previewItemId ?? SURFER_MONG_SKIN_ID)
           : selectedSlot === "tile"
-            ? previewItemId ?? WAVE_TILE_SKIN_ID
+            ? (previewItemId ?? WAVE_TILE_SKIN_ID)
             : selectedSlot === "turret"
-              ? previewItemId ?? SURFER_WATER_TURRET_SKIN_ID
-            : previewItemId;
+              ? (previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
+              : previewItemId;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
@@ -1562,28 +1567,36 @@ function cosmeticCollectionScreen(
         turretTraitInfo?.description ??
         item.description;
       const authoredTurretArt =
-        item.slot === "turret"
-          ? turretSkinAssetUrl(item.id, 1)
-          : undefined;
-      const art = item.slot === "tile"
-        ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
-        : authoredTurretArt
-          ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
-        : premiumSurfer
-        ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
-        : premiumLifeguard
-          ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
-          : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
+        item.slot === "turret" ? turretSkinAssetUrl(item.id, 1) : undefined;
+      const art =
+        item.slot === "tile"
+          ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
+          : authoredTurretArt
+            ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+            : premiumSurfer
+              ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+              : premiumLifeguard
+                ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
       return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSummer ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSummer ? '<span class="cosmetic-new-badge" aria-label="여름 한정 신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
   const initialTilePreviewId = shopping
-    ? previewItemId ?? WAVE_TILE_SKIN_ID
-    : previewItemId ??
+    ? (previewItemId ?? WAVE_TILE_SKIN_ID)
+    : (previewItemId ??
       displayCatalog.find((item) => item.id === appearance.tileSkin)?.id ??
-      displayCatalog[0]?.id;
+      displayCatalog[0]?.id);
+  const initialTurretPreviewId = shopping
+    ? (previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
+    : (displayCatalog.find((item) => item.id === previewItemId)?.id ??
+      displayCatalog.find(
+        (item) =>
+          item.turretKind &&
+          currentAccount.turretSkins[item.turretKind] === item.id,
+      )?.id ??
+      displayCatalog[0]?.id);
   const initialPreviewItem =
     selectedSlot === "skin"
       ? shopping
@@ -1594,8 +1607,10 @@ function cosmeticCollectionScreen(
           ? cosmeticById(initialTilePreviewId)
           : undefined
         : selectedSlot === "turret"
-          ? cosmeticById(previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
-        : undefined;
+          ? initialTurretPreviewId
+            ? cosmeticById(initialTurretPreviewId)
+            : undefined
+          : undefined;
   const initialPreviewAppearance: AvatarAppearance =
     initialPreviewItem?.slot === "skin"
       ? {
@@ -1606,16 +1621,14 @@ function cosmeticCollectionScreen(
       : appearance;
   const turretMode = selectedSlot === "turret";
   const tileMode = selectedSlot === "tile";
-  const initialTurret = turretMode
-    ? initialPreviewItem
-    : undefined;
+  const initialTurret = turretMode ? initialPreviewItem : undefined;
   const initialTrait = characterTraitForAppearance(initialPreviewAppearance);
   const initialTurretTrait = initialTurret?.turretKind
     ? turretSkinTrait(initialTurret.id, initialTurret.turretKind)
     : null;
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : turretMode ? "TURRET WORKSHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : turretMode ? "포탑 외형 격납고" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "실제 인게임 포탑 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1649,16 +1662,18 @@ function cosmeticCollectionScreen(
     const item = cosmeticById(itemId);
     if (!item) return;
     if (item.slot === "tile") {
-      const tilePreview =
-        app.querySelector<HTMLImageElement>("[data-tile-preview]");
+      const tilePreview = app.querySelector<HTMLImageElement>(
+        "[data-tile-preview]",
+      );
       if (tilePreview) {
         tilePreview.src = `${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}`;
         tilePreview.alt = `${item.label} 타일 미리보기`;
       }
     } else if (item.slot === "turret") {
       if (!item.turretKind) return;
-      const turretPreview =
-        app.querySelector<HTMLImageElement>("[data-turret-preview]");
+      const turretPreview = app.querySelector<HTMLImageElement>(
+        "[data-turret-preview]",
+      );
       if (turretPreview) {
         turretPreview.src = `${
           turretSkinAssetUrl(item.id, 1) ??
@@ -2213,6 +2228,11 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     const speaker = snapshot.players.find((player) => player.id === speakerId);
     if (speaker) showQuickChatBubble(speaker.nickname, phrase);
   });
+  roomNetwork.on("gameChat", ({ playerId: speakerId, message }) => {
+    if (network !== roomNetwork || !snapshot) return;
+    const speaker = snapshot.players.find((player) => player.id === speakerId);
+    if (speaker) showQuickChatBubble(speaker.nickname, message);
+  });
   roomNetwork.connect();
 }
 
@@ -2358,7 +2378,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="빠른 문구">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -2473,6 +2493,12 @@ function renderForSnapshot(state: GameSnapshot, force: boolean): void {
 
 function updateHud(): void {
   if (!snapshot || currentView !== "game") return;
+  const movementIntroLocked =
+    snapshot.status === "GHOST_INTRO" || snapshot.status === "EVENT_INTRO";
+  app
+    .querySelector("#game-shell")
+    ?.classList.toggle("intro-movement-locked", movementIntroLocked);
+  if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
   const room = snapshot.rooms.find((candidate) => candidate.id === me?.roomId);
   app
@@ -2596,15 +2622,23 @@ function updateHud(): void {
 
 function updateHudTeammates(): void {
   if (!snapshot) return;
+  const currentSnapshot = snapshot;
   const list = app.querySelector<HTMLElement>("[data-hud-players]");
   if (!list) return;
-  const teammates = snapshot.players.filter(
-    (player) => player.id !== playerId && player.alive,
+  const teammates = currentSnapshot.players.filter(
+    (player) => player.id !== playerId,
+  );
+  const attackedIds = new Set(
+    teammates
+      .filter((player) =>
+        isPlayerUnderGhostAttack(player, currentSnapshot.ghosts),
+      )
+      .map((player) => player.id),
   );
   const identity = teammates
     .map(
       (player) =>
-        `${player.id}:${player.nickname}:${player.appearance.character}:${player.profileAvatarUrl ?? ""}`,
+        `${player.id}:${player.nickname}:${player.appearance.character}:${player.profileAvatarUrl ?? ""}:${player.alive ? "alive" : "dead"}:${attackedIds.has(player.id) ? "attacked" : "safe"}`,
     )
     .join("|");
   // Room occupancy does not change a teammate portrait. Including roomId in
@@ -2617,7 +2651,7 @@ function updateHudTeammates(): void {
   list.innerHTML = teammates
     .map(
       (player) =>
-        `<button type="button" class="hud-teammate" data-focus-teammate="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.nickname)} 위치로 카메라 이동">${playerPortraitHtml(player)}<span>${escapeHtml(player.nickname)}</span></button>`,
+        `<button type="button" class="hud-teammate ${player.alive ? "" : "dead"} ${attackedIds.has(player.id) ? "under-attack" : ""}" data-focus-teammate="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.nickname)} ${player.alive ? "위치로 카메라 이동" : "사망"}">${playerPortraitHtml(player)}<span>${escapeHtml(player.nickname)}</span>${player.alive ? "" : '<b class="hud-teammate-state">사망</b>'}</button>`,
     )
     .join("");
   list
@@ -3452,7 +3486,29 @@ function closeBuildPanel(): void {
   app.querySelector("[data-build-panel]")?.classList.add("hidden");
 }
 
+function movementLockedByIntro(): boolean {
+  return (
+    snapshot?.status === "GHOST_INTRO" || snapshot?.status === "EVENT_INTRO"
+  );
+}
+
+function resetMovementForIntro(): void {
+  inputVector = { x: 0, y: 0 };
+  game?.setLocalInput(inputVector);
+  if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+  pendingMovementTimer = 0;
+  if (movementKeepaliveTimer)
+    window.clearInterval(movementKeepaliveTimer);
+  movementKeepaliveTimer = 0;
+  const knob = app.querySelector<HTMLElement>(".joystick-knob");
+  if (knob) knob.style.transform = "";
+}
+
 function onPortraitMove(event: CustomEvent<Vec2>): void {
+  if (movementLockedByIntro()) {
+    resetMovementForIntro();
+    return;
+  }
   inputVector = event.detail;
   sendMovement(inputVector.x === 0 && inputVector.y === 0);
 }
@@ -3463,6 +3519,10 @@ function setupJoystick(): void {
   if (!base || !knob) return;
   let pointerId = -1;
   const update = (event: PointerEvent): void => {
+    if (movementLockedByIntro()) {
+      resetMovementForIntro();
+      return;
+    }
     const rect = base.getBoundingClientRect();
     const radius = rect.width * 0.32;
     let dx = event.clientX - (rect.left + rect.width / 2);
@@ -3478,6 +3538,10 @@ function setupJoystick(): void {
     sendMovement();
   };
   base.addEventListener("pointerdown", (event) => {
+    if (movementLockedByIntro()) {
+      resetMovementForIntro();
+      return;
+    }
     pointerId = event.pointerId;
     base.setPointerCapture(pointerId);
     update(event);
@@ -3525,6 +3589,10 @@ function syncMovementKeepalive(): void {
 }
 
 function sendMovement(force = false): void {
+  if (movementLockedByIntro()) {
+    resetMovementForIntro();
+    return;
+  }
   game?.setLocalInput(inputVector);
   syncMovementKeepalive();
   if (force) {
@@ -3608,9 +3676,24 @@ function showQuickChatPicker(): void {
   app.querySelector(".quick-chat-picker")?.remove();
   const picker = document.createElement("section");
   picker.className = "quick-chat-picker";
-  picker.setAttribute("aria-label", "빠른 문구 선택");
-  picker.innerHTML = `<strong>빠른 문구</strong>${QUICK_CHAT_PHRASES.map((phrase) => `<button data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}`;
+  picker.setAttribute("aria-label", "인게임 팀 채팅");
+  picker.innerHTML = `<header><strong>팀 채팅</strong><button type="button" class="quick-chat-close" data-chat-close aria-label="채팅 닫기">×</button></header><form class="game-chat-form" data-game-chat-form><input data-game-chat-input maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="메시지를 입력하세요" aria-label="팀 채팅 메시지"/><button type="submit">전송</button></form><div class="quick-chat-options" aria-label="빠른 문구">${QUICK_CHAT_PHRASES.map((phrase) => `<button type="button" data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}</div>`;
   app.appendChild(picker);
+  picker
+    .querySelector("[data-chat-close]")
+    ?.addEventListener("click", () => picker.remove());
+  picker
+    .querySelector<HTMLFormElement>("[data-game-chat-form]")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input =
+        picker.querySelector<HTMLInputElement>("[data-game-chat-input]");
+      const message = input?.value.replace(/\s+/g, " ").trim() ?? "";
+      if (!message) return;
+      network?.gameChat(message.slice(0, 80));
+      audio.play("button");
+      picker.remove();
+    });
   picker
     .querySelectorAll<HTMLButtonElement>("[data-quick-phrase]")
     .forEach((button) =>
@@ -3622,10 +3705,16 @@ function showQuickChatPicker(): void {
         picker.remove();
       }),
     );
-  window.setTimeout(() => picker.remove(), 5_000);
+  window.setTimeout(
+    () =>
+      picker
+        .querySelector<HTMLInputElement>("[data-game-chat-input]")
+        ?.focus(),
+    0,
+  );
 }
 
-function showQuickChatBubble(nickname: string, phrase: QuickChatPhrase): void {
+function showQuickChatBubble(nickname: string, phrase: string): void {
   const existing = app.querySelector(".quick-chat-bubble");
   existing?.remove();
   const bubble = document.createElement("div");
@@ -4215,12 +4304,10 @@ async function showSocialConversation(
     await refreshSocialUnreadCount();
   };
   setLiveLoader({ accountId: person.accountId, load });
-  modal
-    .querySelector("[data-social-back]")
-    ?.addEventListener("click", () => {
-      setLiveLoader(null);
-      void returnToHub();
-    });
+  modal.querySelector("[data-social-back]")?.addEventListener("click", () => {
+    setLiveLoader(null);
+    void returnToHub();
+  });
   messagePanel
     .querySelector<HTMLFormElement>(".social-message-form")
     ?.addEventListener("submit", (event) => {
@@ -4269,9 +4356,10 @@ async function showSocialHub(
   );
   let activeTab = initialTab;
   let social: SocialSnapshot;
-  let liveConversation:
-    | { accountId: string; load: () => Promise<void> }
-    | null = null;
+  let liveConversation: {
+    accountId: string;
+    load: () => Promise<void>;
+  } | null = null;
   let liveRefreshRunning = false;
   let queuedLiveEvent: SocialRealtimeEvent | null = null;
   const content = modal.querySelector<HTMLElement>("[data-social-content]");
@@ -4359,12 +4447,17 @@ async function showSocialHub(
             (friend) => friend.accountId === button.dataset.socialChat,
           );
           if (person)
-            void showSocialConversation(modal, person, async () => {
-              await reload();
-              await render();
-            }, (conversation) => {
-              liveConversation = conversation;
-            });
+            void showSocialConversation(
+              modal,
+              person,
+              async () => {
+                await reload();
+                await render();
+              },
+              (conversation) => {
+                liveConversation = conversation;
+              },
+            );
         }),
       );
     content

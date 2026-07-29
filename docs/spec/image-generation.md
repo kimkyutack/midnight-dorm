@@ -102,3 +102,7 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - `파도 타일` 생성 원본은 `public/assets/tiles/skin-wave/wave-tile-master.png`, 런타임용 512px WebP는 `public/assets/tiles/skin-wave/wave-tile.webp`다.
 - 파도 타일은 정사각 탑다운 시점, 청록·하늘색 수면, 흰 거품 하이라이트와 진한 파란 테두리를 사용한다. 64px 이하에서도 물결과 타일 경계가 선명해야 하며 캐릭터·서핑보드·텍스트는 포함하지 않는다.
 - 방 점유 전환의 파도 띠와 타일 플립은 런타임 Three.js 연출로 처리하고, 최종 바닥 표면만 파도 타일 이미지를 반복 사용한다.
+- `모래사장 타일` 생성 원본은 `public/assets/tiles/skin-beach-sand/sand-tile-master.png`, 런타임용 512px WebP는 `public/assets/tiles/skin-beach-sand/sand-tile.webp`다.
+- 모래사장 타일은 따뜻한 베이지색 모래, 얕은 블록형 테두리, 조개와 불가사리 흔적을 사용한다. 중앙은 건물과 `＋` 표시를 방해하지 않도록 조용하게 유지한다.
+- `파라솔 포탑` 원본 크로마키 이미지는 `public/assets/turret-skins/skin-lifeguard-parasol/source/`, 런타임 투명 이미지는 같은 스킨 폴더의 `level-01.png`부터 `level-15.png`에 저장한다.
+- 파라솔 포탑은 Lv.1의 접힌 파라솔부터 Lv.15의 다단 구조대 지휘소까지 형태가 확실히 달라야 한다. 별도 총열을 그리지 않고 파라솔 자체의 위 꼭지점을 발사 지점으로 사용하며, 장식 개수나 밝기만으로 레벨을 구분하지 않는다.

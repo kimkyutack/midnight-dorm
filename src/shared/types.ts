@@ -483,6 +483,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })
   | (BaseMessage & { type: 'use-consumable'; itemId: ConsumableId; roomId?: string; targetId?: string; tile?: Tile })
   | (BaseMessage & { type: 'quick-chat'; phrase: QuickChatPhrase })
+  | (BaseMessage & { type: 'game-chat'; message: string })
   | (BaseMessage & { type: 'rematch' })
   | (BaseMessage & { type: 'ping'; clientTime: number })
   | (BaseMessage & { type: 'resync' });
@@ -507,6 +508,7 @@ export type ServerMessage =
   | (BaseMessage & { type: 'error'; code: string; message: string })
   | (BaseMessage & { type: 'pong'; clientTime: number; serverTime: number })
   | (BaseMessage & { type: 'quick-chat'; playerId: string; phrase: QuickChatPhrase })
+  | (BaseMessage & { type: 'game-chat'; playerId: string; message: string })
   | (BaseMessage & { type: 'room-exit'; reason: 'left' | 'kicked' | 'room-closed' })
   | (BaseMessage & { type: 'room-closed'; reason: string });
 

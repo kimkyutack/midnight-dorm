@@ -906,6 +906,10 @@ export class GameEngine {
         // method is reached. Keep the engine switch exhaustive for tests and
         // reconnect replay safety.
         return { ok: true };
+      case "game-chat":
+        // Free-form team chat is validated, throttled and broadcast by the
+        // room transport. It never mutates the authoritative simulation.
+        return { ok: true };
       case "move":
         return this.setMovement(
           playerId,
@@ -953,11 +957,17 @@ export class GameEngine {
     );
     if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    // Every match starts with a frozen warning poster for its selected ghost.
-    // The preparation timer and player movement start only after it ends.
-    this.state.status = 'GHOST_INTRO';
+    // Time Attack is the only modifier announced before the selected ghost.
+    // Both cards are frozen phases; the preparation timer starts afterwards.
+    this.state.status =
+      this.state.difficulty.modifier === 'time-attack'
+        ? 'EVENT_INTRO'
+        : 'GHOST_INTRO';
     this.state.countdown = this.countdownSecondsForMatch();
-    this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
+    this.state.difficulty.introRemaining =
+      this.state.status === 'EVENT_INTRO'
+        ? BALANCE.timeAttackIntroSeconds
+        : BALANCE.ghostIntroSeconds;
     // Countdown cargo is a short, optional opening event.  It is absent from
     // deterministic test matches so existing simulation fixtures stay stable.
     this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
@@ -969,11 +979,13 @@ export class GameEngine {
    * suite can reach combat quickly.  A solo match is different: the bots must
    * visibly traverse the same corridors and claim beds before combat starts.
    * Keep its simulated 30-second preparation phase while preserving the
-   * accelerated no-bot fixture used by the rest of the test suite.
+   * accelerated no-bot fixture used by the rest of the test suite. Twelve
+   * simulated seconds keeps tests fast while giving two browser clients enough
+   * time to traverse the randomized map before combat starts.
    */
   private countdownSecondsForMatch(): number {
     return this.testMode && this.botRuntime.size === 0
-      ? 1.2
+      ? 12
       : BALANCE.countdownSeconds;
   }
 
@@ -1114,6 +1126,14 @@ export class GameEngine {
     )
       return { ok: false, error: "비정상 이동 입력입니다." };
     if (inputSequence <= player.lastInputSeq) return { ok: true };
+    if (
+      this.state.status === "GHOST_INTRO" ||
+      this.state.status === "EVENT_INTRO"
+    ) {
+      player.velocity = { x: 0, y: 0 };
+      player.lastInputSeq = inputSequence;
+      return { ok: true };
+    }
     if (player.roomId) {
       player.velocity = { x: 0, y: 0 };
       player.lastInputSeq = inputSequence;
@@ -2001,22 +2021,16 @@ export class GameEngine {
       // the remaining two seconds before the countdown begins.
       this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
       if (this.state.difficulty.introRemaining <= 0) {
-        if (this.state.difficulty.modifier === 'time-attack') {
-          this.state.status = 'EVENT_INTRO';
-          this.state.difficulty.introRemaining = 2;
-        } else {
-          this.state.status = 'COUNTDOWN';
-          this.state.countdown = this.countdownSecondsForMatch();
-          this.releaseCountdownLoot();
-        }
-      }
-    } else if (this.state.status === 'EVENT_INTRO') {
-      // Time Attack announcement deliberately freezes every simulation system.
-      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
-      if (this.state.difficulty.introRemaining <= 0) {
         this.state.status = 'COUNTDOWN';
         this.state.countdown = this.countdownSecondsForMatch();
         this.releaseCountdownLoot();
+      }
+    } else if (this.state.status === 'EVENT_INTRO') {
+      // Time Attack is shown first, then the normal per-ghost warning poster.
+      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
+      if (this.state.difficulty.introRemaining <= 0) {
+        this.state.status = 'GHOST_INTRO';
+        this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
       }
     } else if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);

@@ -5,7 +5,11 @@ import { moveInWalkableArea } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
-import { SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl } from '../../shared/customization';
+import {
+  BEACH_SAND_TILE_SKIN_ID,
+  SURFER_WATER_TURRET_SKIN_ID,
+  tileSkinTextureUrl,
+} from '../../shared/customization';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, RoomState, Tile, TurretKind, Vec2 } from '../../shared/types';
@@ -201,17 +205,20 @@ interface BedView {
 
 interface RoomTileSkinView {
   skinId: string;
+  transition: 'wave' | 'sand-vortex';
   root: THREE.Group;
   baseFloor: THREE.InstancedMesh;
   tiles: Array<{
     mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
     delay: number;
   }>;
-  wave: THREE.Group;
+  effect: THREE.Group;
   startedAt: number;
   duration: number;
   minX: number;
   maxX: number;
+  centerX: number;
+  centerY: number;
   complete: boolean;
 }
 
@@ -2482,6 +2489,12 @@ export class ThreeGameView {
       const maxX = Math.max(...mapRoom.floorTiles.map((tile) => tile.x));
       const minY = Math.min(...mapRoom.floorTiles.map((tile) => tile.y));
       const maxY = Math.max(...mapRoom.floorTiles.map((tile) => tile.y));
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const transition =
+        room.tileSkinId === BEACH_SAND_TILE_SKIN_ID
+          ? 'sand-vortex'
+          : 'wave';
       const root = new THREE.Group();
       root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
       const tiles = mapRoom.floorTiles.map((tile) => {
@@ -2491,51 +2504,88 @@ export class ThreeGameView {
         root.add(floor);
         return {
           mesh: floor,
-          delay: Math.max(0, tile.x - minX) * 115,
+          delay:
+            transition === 'sand-vortex'
+              ? Math.hypot(tile.x - centerX, tile.y - centerY) * 105
+              : Math.max(0, tile.x - minX) * 115,
         };
       });
 
-      const wave = new THREE.Group();
-      const roomDepth = Math.max(1, maxY - minY + 1);
-      const waveMaterial = new THREE.MeshBasicMaterial({
-        color: 0x72edff,
-        map: texture,
-        transparent: true,
-        opacity: 0.62,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
-      const waveBody = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.45, roomDepth + 0.7),
-        waveMaterial,
-      );
-      waveBody.rotation.x = -Math.PI / 2;
-      waveBody.renderOrder = 2_500;
-      wave.add(waveBody);
-      for (const offset of [-0.32, 0.34]) {
-        const foam = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.13, roomDepth + 0.9),
-          new THREE.MeshBasicMaterial({
-            color: offset < 0 ? 0xdfffff : 0xffffff,
+      const effect = new THREE.Group();
+      if (transition === 'wave') {
+        const roomDepth = Math.max(1, maxY - minY + 1);
+        const waveMaterial = new THREE.MeshBasicMaterial({
+          color: 0x72edff,
+          map: texture,
+          transparent: true,
+          opacity: 0.62,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const waveBody = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.45, roomDepth + 0.7),
+          waveMaterial,
+        );
+        waveBody.rotation.x = -Math.PI / 2;
+        waveBody.renderOrder = 2_500;
+        effect.add(waveBody);
+        for (const offset of [-0.32, 0.34]) {
+          const foam = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.13, roomDepth + 0.9),
+            new THREE.MeshBasicMaterial({
+              color: offset < 0 ? 0xdfffff : 0xffffff,
+              transparent: true,
+              opacity: offset < 0 ? 0.58 : 0.84,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+          );
+          foam.rotation.x = -Math.PI / 2;
+          foam.position.x = offset;
+          foam.position.y = 0.035;
+          foam.renderOrder = 2_501;
+          effect.add(foam);
+        }
+        effect.position.set(minX - 1.1, 0.23, centerY);
+      } else {
+        const maxRadius = Math.max(1.25, Math.hypot(maxX - minX, maxY - minY) * 0.34);
+        for (const [index, radiusScale] of [0.34, 0.63, 1].entries()) {
+          const swirlMaterial = new THREE.MeshBasicMaterial({
+            color: index === 1 ? 0xf4d899 : 0xd99b4f,
             transparent: true,
-            opacity: offset < 0 ? 0.58 : 0.84,
+            opacity: 0.78 - index * 0.13,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             side: THREE.DoubleSide,
-          }),
-        );
-        foam.rotation.x = -Math.PI / 2;
-        foam.position.x = offset;
-        foam.position.y = 0.035;
-        foam.renderOrder = 2_501;
-        wave.add(foam);
+          });
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(
+              maxRadius * radiusScale * 0.72,
+              maxRadius * radiusScale,
+              44,
+              1,
+              index * 0.78,
+              Math.PI * 1.55,
+            ),
+            swirlMaterial,
+          );
+          ring.rotation.x = -Math.PI / 2;
+          ring.rotation.z = index * 1.8;
+          ring.position.y = 0.02 + index * 0.012;
+          ring.renderOrder = 2_500 + index;
+          effect.add(ring);
+        }
+        effect.position.set(centerX, 0.22, centerY);
       }
-      wave.position.set(minX - 1.1, 0.23, (minY + maxY) / 2);
-      root.add(wave);
+      root.add(effect);
       this.scene.add(root);
 
-      const transitionDuration = 820 + Math.max(0, maxX - minX) * 115;
+      const transitionDuration =
+        transition === 'sand-vortex'
+          ? 1_250 + Math.max(...tiles.map((tile) => tile.delay), 0)
+          : 820 + Math.max(0, maxX - minX) * 115;
       const serverProgressMs = Math.max(
         0,
         (snapshot.elapsed - Math.max(0, room.tileSkinActivatedAt)) * 1_000,
@@ -2546,24 +2596,32 @@ export class ThreeGameView {
         serverProgressMs < transitionDuration + 600;
       const view: RoomTileSkinView = {
         skinId: room.tileSkinId,
+        transition,
         root,
         baseFloor,
         tiles,
-        wave,
+        effect,
         startedAt: shouldAnimate ? now - serverProgressMs : now - transitionDuration,
         duration: transitionDuration,
         minX,
         maxX,
+        centerX,
+        centerY,
         complete: !shouldAnimate,
       };
       if (!shouldAnimate) {
-        wave.visible = false;
+        effect.visible = false;
         for (const tile of tiles) {
           tile.mesh.scale.x = 1;
+          tile.mesh.scale.z = 1;
           tile.mesh.rotation.z = 0;
+          tile.mesh.rotation.y = 0;
         }
       } else {
-        for (const tile of tiles) tile.mesh.scale.x = 0.001;
+        for (const tile of tiles) {
+          tile.mesh.scale.x = 0.001;
+          if (transition === 'sand-vortex') tile.mesh.scale.z = 0.001;
+        }
       }
       this.roomTileSkinViews.set(room.id, view);
     }
@@ -2582,11 +2640,20 @@ export class ThreeGameView {
       const elapsed = Math.max(0, time - view.startedAt);
       const sweep = clamp(elapsed / view.duration, 0, 1);
       const easedSweep = 1 - (1 - sweep) ** 3;
-      view.wave.position.x =
-        view.minX - 1.1 + (view.maxX - view.minX + 2.2) * easedSweep;
-      const waveOpacity = Math.sin(Math.PI * sweep);
-      view.wave.visible = sweep < 1;
-      view.wave.traverse((object) => {
+      if (view.transition === 'wave') {
+        view.effect.position.x =
+          view.minX - 1.1 + (view.maxX - view.minX + 2.2) * easedSweep;
+      } else {
+        view.effect.rotation.y = elapsed * 0.0045;
+        const vortexScale = 0.68 + Math.sin(Math.PI * sweep) * 0.48;
+        view.effect.scale.setScalar(vortexScale);
+      }
+      const effectOpacity =
+        view.transition === 'sand-vortex'
+          ? Math.sin(Math.PI * Math.min(1, sweep * 1.08))
+          : Math.sin(Math.PI * sweep);
+      view.effect.visible = sweep < 1;
+      view.effect.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const materials = Array.isArray(object.material)
           ? object.material
@@ -2595,7 +2662,7 @@ export class ThreeGameView {
           if (material instanceof THREE.MeshBasicMaterial) {
             const baseOpacity = Number(material.userData.baseOpacity ?? material.opacity);
             material.userData.baseOpacity ??= baseOpacity;
-            material.opacity = baseOpacity * Math.max(0, waveOpacity);
+            material.opacity = baseOpacity * Math.max(0, effectOpacity);
           }
         }
       });
@@ -2603,15 +2670,25 @@ export class ThreeGameView {
         const progress = clamp((elapsed - tile.delay) / 520, 0, 1);
         const eased = 1 - (1 - progress) ** 3;
         tile.mesh.scale.x = Math.max(0.001, eased);
-        tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
-        tile.mesh.position.y = ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.16;
+        if (view.transition === 'sand-vortex') {
+          tile.mesh.scale.z = Math.max(0.001, eased);
+          tile.mesh.rotation.y = (1 - eased) * Math.PI * 0.72;
+          tile.mesh.position.y =
+            ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.24;
+        } else {
+          tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
+          tile.mesh.position.y =
+            ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.16;
+        }
       }
       if (sweep >= 1 && view.tiles.every((tile) => elapsed >= tile.delay + 520)) {
         view.complete = true;
-        view.wave.visible = false;
+        view.effect.visible = false;
         for (const tile of view.tiles) {
           tile.mesh.scale.x = 1;
+          tile.mesh.scale.z = 1;
           tile.mesh.rotation.z = 0;
+          tile.mesh.rotation.y = 0;
           tile.mesh.position.y = ROOM_FLOOR_CENTER_Y;
         }
       }
@@ -3547,6 +3624,13 @@ export class ThreeGameView {
       const origin = event.sourcePosition ?? event.position;
       const maximumDrift = event.sourcePosition ? 0.72 : 1.2;
       if (!attacker || attacker.target.distanceToSquared(worldPoint(origin)) > maximumDrift * maximumDrift) return;
+      // A door strike must face the door itself, not the last pathfinding
+      // waypoint. Otherwise every ghost can reuse a stale vertical facing
+      // while attacking a door to its left or right.
+      attacker.actor.setFacingFromDelta(
+        event.position.x - origin.x,
+        event.position.y - origin.y,
+      );
       // Start close to frame zero so short mobile attack sheets are visible
       // instead of immediately advancing to their middle frame.
       attacker.attackStartedAt = performance.now() - 70;
