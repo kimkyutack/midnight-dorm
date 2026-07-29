@@ -237,7 +237,7 @@ describe('combat presentation', () => {
 });
 
 describe('deterministic shared world', () => {
-  it('never reverses a held drag when a bot action repeats an older local position', () => {
+  it('keeps predicting a held drag while a bot claim frame has not acknowledged its latest input', () => {
     const authoritative = { x: 5, y: 5 };
     const input = { x: 1, y: 0 };
     let rendered = { x: 7.55, y: 5 };
@@ -247,12 +247,32 @@ describe('deterministic shared world', () => {
         { x: rendered.x + 0.1, y: rendered.y },
         authoritative,
         input,
+        2.6,
+        8,
+        7,
       );
-      expect(next.x).toBeGreaterThanOrEqual(rendered.x);
-      expect(Math.hypot(next.x - authoritative.x, next.y - authoritative.y))
-        .toBeLessThanOrEqual(2.61);
+      expect(next.x).toBeGreaterThan(rendered.x);
       rendered = next;
     }
+    expect(rendered.x).toBeCloseTo(8.75);
+  });
+
+  it('restores the prediction lead cap after the server acknowledges the held drag', () => {
+    const authoritative = { x: 5, y: 5 };
+    const input = { x: 1, y: 0 };
+    const rendered = { x: 7.55, y: 5 };
+    const next = limitLocalPredictionLead(
+      rendered,
+      { x: rendered.x + 0.1, y: rendered.y },
+      authoritative,
+      input,
+      2.6,
+      8,
+      8,
+    );
+    expect(next.x).toBeGreaterThanOrEqual(rendered.x);
+    expect(Math.hypot(next.x - authoritative.x, next.y - authoritative.y))
+      .toBeLessThanOrEqual(2.601);
   });
 
   it('replays a seeded random sequence exactly', () => {

@@ -62,7 +62,21 @@ export function limitLocalPredictionLead(
   authoritative: Vec2,
   input: Vec2,
   maximumLead = LOCAL_MAX_PREDICTION_LEAD,
+  localInputSequence?: number,
+  authoritativeInputSequence?: number,
 ): Vec2 {
+  // Room occupancy can be broadcast while the local survivor position still
+  // predates the newest drag intent. Capping prediction against that
+  // unacknowledged position creates an invisible wall. Shared map collision
+  // still constrains prediction, so wait for the server acknowledgement
+  // before applying the network lead cap.
+  if (
+    localInputSequence !== undefined &&
+    authoritativeInputSequence !== undefined &&
+    authoritativeInputSequence < localInputSequence
+  ) {
+    return predicted;
+  }
   const offsetX = authoritative.x - predicted.x;
   const offsetY = authoritative.y - predicted.y;
   const predictedError = Math.hypot(offsetX, offsetY);
@@ -73,10 +87,8 @@ export function limitLocalPredictionLead(
     authoritative.x - current.x,
     authoritative.y - current.y,
   );
-  // A bot claim is broadcast immediately and can repeat an older local
-  // position between movement ticks. Never pull the rendered survivor
-  // backwards against a held drag; pause at the lead cap until the next
-  // authoritative movement snapshot catches up.
+  // Never pull the rendered survivor backwards against a held drag after the
+  // authoritative frame has acknowledged that input.
   if (currentError >= maximumLead) return current;
 
   let low = 0;
@@ -1887,6 +1899,7 @@ export class ThreeGameView {
   private roomSkinSyncInitialized = false;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
+  private localInputSequence = 0;
   private drag: PointerDrag | null = null;
   private gesture: MultiTouchGesture | null = null;
   private portraitMovementDrag: PortraitMovementDrag | null = null;
@@ -1991,7 +2004,15 @@ export class ThreeGameView {
     this.renderer.setAnimationLoop(this.animate);
   }
 
-  setLocalInput(input: Vec2): void { this.localInput = input; }
+  setLocalInput(input: Vec2, inputSequence?: number): void {
+    this.localInput = input;
+    if (inputSequence !== undefined) {
+      this.localInputSequence = Math.max(
+        this.localInputSequence,
+        inputSequence,
+      );
+    }
+  }
 
   getCameraMode(): 'follow' | 'free' { return this.followingPlayer ? 'follow' : 'free'; }
 
@@ -3568,6 +3589,9 @@ export class ThreeGameView {
           rawPredicted,
           { x: view.target.x, y: view.target.z },
           this.localInput,
+          LOCAL_MAX_PREDICTION_LEAD,
+          this.localInputSequence,
+          player.lastInputSeq,
         );
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const targetOffsetX = view.target.x - predicted.x;

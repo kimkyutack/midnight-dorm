@@ -3729,7 +3729,11 @@ function setupJoystick(): void {
 function flushMovement(): void {
   pendingMovementTimer = 0;
   lastMovementSentAt = performance.now();
-  network?.move(inputVector.x, inputVector.y, ++inputSequence);
+  const nextInputSequence = ++inputSequence;
+  // Keep prediction tied to the exact input sent to the authoritative worker,
+  // so a bot occupancy frame cannot be mistaken for a movement collision.
+  game?.setLocalInput(inputVector, nextInputSequence);
+  network?.move(inputVector.x, inputVector.y, nextInputSequence);
 }
 
 function syncMovementKeepalive(): void {
