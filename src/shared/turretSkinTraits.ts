@@ -34,12 +34,12 @@ export const TURRET_SKIN_TRAITS: Readonly<Record<string, TurretSkinTrait>> = {
   'turret-basic-lifeguard-parasol': {
     ...neutral('basic-turret'),
     label: '구조대 파라솔',
-    description: '접힌 파라솔부터 해변 구조대 지휘소까지 15단계 외형을 적용합니다.',
+    description: '접힌 파라솔부터 구조대 지휘소까지 성장합니다.',
   },
   'turret-basic-cyberpunk-laser': {
     ...neutral('basic-turret'),
     label: '네온 레이저',
-    description: '15단계 사이버 총기 외형과 굵은 네온 레이저 효과를 적용합니다.',
+    description: '사이버 총기 외형과 굵은 네온 레이저를 적용합니다.',
   },
   'turret-basic-toy': {
     ...neutral('basic-turret'),

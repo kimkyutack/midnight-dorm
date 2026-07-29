@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.7";
+export const APP_RELEASE_VERSION = "2026.07.29.8";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "사이버펑크 테마 확장",
+  title: "외형 상점 문구 정리",
   summary:
-    "• 보랏빛 회로와 네온 빌딩 전환 연출을 가진 네온 회로 타일을 추가했습니다.\n• 권총부터 거대 레이저포까지 15단계로 성장하는 네온 레이저포를 추가했습니다.\n• 네온 레이저포 공격에 성능 제한형 굵은 레이저 이펙트를 적용했습니다.",
-  publishedAt: 1785351600000,
+    "• 포탑 스킨 목록 설명에서 레벨 수 표기를 제거했습니다.\n• 타일 스킨 설명을 카드 안에서 잘리지 않도록 짧게 정리했습니다.",
+  publishedAt: 1785387600000,
 };
 
 /**
