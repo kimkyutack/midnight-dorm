@@ -250,7 +250,7 @@ export interface BuildingState {
   investedGold?: number;
   investedPower?: number;
   investmentByPlayer?: Record<string, { gold: number; power: number }>;
-  /** Temporary level from adjacent turret enhancers; never changes invested level. */
+  /** Temporary combat level from cardinally adjacent enhancers; may exceed the permanent art/upgrade cap. */
   effectiveLevel?: number;
   /** Overload capacitor finishes charging at this match time. */
   overloadReadyAt?: number;

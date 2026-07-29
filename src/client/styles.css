@@ -2812,6 +2812,41 @@
 .time-attack-clock.overtime {
   animation: time-attack-pulse 0.8s ease-in-out infinite alternate;
 }
+.time-attack-expired-notice {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 76;
+  box-sizing: border-box;
+  width: 90%;
+  padding: 14px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 62, 79, 0.8);
+  border-radius: 12px;
+  color: #ff4055;
+  background: rgba(0, 0, 0, 0.94);
+  box-shadow:
+    0 0 30px rgba(255, 32, 54, 0.35),
+    0 12px 34px rgba(0, 0, 0, 0.52);
+  transform: translate(-50%, -46%) scale(0.97);
+  font-size: clamp(11px, 3.2vw, 18px);
+  font-size: clamp(11px, 3.2cqw, 18px);
+  font-weight: 1000;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  pointer-events: none;
+}
+.time-attack-expired-notice.show {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
 .phase-banner.time-attack-intro {
   top: 50%;
   left: 50%;

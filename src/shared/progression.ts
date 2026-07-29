@@ -62,6 +62,9 @@ export interface DifficultyModifierPreset {
   directionalShield: boolean;
 }
 
+export const TIME_ATTACK_EXPIRED_MESSAGE =
+  '시간이 초과 되어 귀신이 더욱 강력해집니다';
+
 const DIFFICULTY_MODIFIERS: Readonly<Record<string, DifficultyModifierPreset>> = {
   easy: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
   normal: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },

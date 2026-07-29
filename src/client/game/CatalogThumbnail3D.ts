@@ -388,6 +388,17 @@ interface CatalogArtHost {
   querySelectorAll<E extends Element = Element>(selectors: string): NodeListOf<E>;
 }
 
+export function buildingCatalogAssetUrl(
+  kind: BuildingKind,
+  turretSkins: TurretSkinLoadout = DEFAULT_TURRET_SKINS,
+): string | null {
+  const skinId =
+    kind in turretSkins
+      ? turretSkins[kind as keyof TurretSkinLoadout]
+      : undefined;
+  return buildingAssetUrl(kind, 1, undefined, skinId);
+}
+
 /** 현재 화면에 있는 카드만 실제 게임 모델로 그려, 모바일 WebGL 부하를 제한한다. */
 export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptions = {}): void {
   const turretSkins = options.turretSkins ?? DEFAULT_TURRET_SKINS;
@@ -418,7 +429,7 @@ export function hydrateCatalogArt(host: CatalogArtHost, options: CatalogArtOptio
   host.querySelectorAll<HTMLImageElement>('[data-building-art]').forEach((image) => {
     const kind = image.dataset.buildingArt as BuildingKind;
     if (!kind) return;
-    const imageAsset = buildingAssetUrl(kind);
+    const imageAsset = buildingCatalogAssetUrl(kind, turretSkins);
     if (imageAsset) {
       setImage(image, imageAsset);
       return;

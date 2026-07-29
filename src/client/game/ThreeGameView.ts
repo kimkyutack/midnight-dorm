@@ -1548,9 +1548,13 @@ function randomRewardTint(itemId?: string): number {
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
   const visualLevel = building.effectiveLevel ?? building.level;
+  const artLevel = Math.min(
+    visualLevel,
+    maxBuildingLevel(building.kind),
+  );
   const imageAsset = buildingAssetUrl(
     building.kind,
-    visualLevel,
+    artLevel,
     building.itemId,
     building.skinId,
   );

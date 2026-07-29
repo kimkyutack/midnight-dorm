@@ -39,6 +39,7 @@ import {
   RANKED_TIER_LABEL,
   rankLabel,
   stagesThrough,
+  TIME_ATTACK_EXPIRED_MESSAGE,
 } from "../shared/progression";
 import { stageThemeFor } from "../shared/stageThemes";
 import {
@@ -180,6 +181,7 @@ const pendingActions = new Map<string, number>();
 let ping = 0;
 let resultRecorded = false;
 let toastTimer = 0;
+let timeAttackExpiredTimer = 0;
 let deathNoticeTimer = 0;
 let rankedQueuePollTimer = 0;
 const e2eMode = new URLSearchParams(location.search).get("e2e") === "1";
@@ -2378,7 +2380,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -3657,12 +3659,33 @@ function playEvents(events: GameEvent[]): void {
   );
   if (upgrade?.label) toast(`${upgrade.label} 업그레이드 완료`);
   if (
+    events.some(
+      (event) =>
+        event.kind === "ghost-skill" &&
+        event.label === TIME_ATTACK_EXPIRED_MESSAGE,
+    )
+  )
+    showTimeAttackExpiredNotice();
+  if (
     profile.vibration &&
     events.some(
       (event) => event.kind === "door-hit" || event.kind === "player-hit",
     )
   )
     navigator.vibrate?.(35);
+}
+
+function showTimeAttackExpiredNotice(): void {
+  const notice = app.querySelector<HTMLElement>("[data-time-attack-expired]");
+  if (!notice) return;
+  notice.textContent = TIME_ATTACK_EXPIRED_MESSAGE;
+  notice.classList.remove("hidden");
+  window.requestAnimationFrame(() => notice.classList.add("show"));
+  window.clearTimeout(timeAttackExpiredTimer);
+  timeAttackExpiredTimer = window.setTimeout(() => {
+    notice.classList.remove("show");
+    window.setTimeout(() => notice.classList.add("hidden"), 220);
+  }, 3_000);
 }
 
 const QUICK_CHAT_PHRASES: readonly QuickChatPhrase[] = [

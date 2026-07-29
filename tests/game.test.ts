@@ -5,7 +5,7 @@ import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, chara
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
-import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES } from '../src/shared/progression';
+import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
@@ -23,6 +23,7 @@ import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
+import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
 
@@ -124,7 +125,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.2')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.3')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -444,6 +445,19 @@ describe('generated mobile game art', () => {
     );
     expect(turretSkinAssetUrl(LIFEGUARD_PARASOL_TURRET_SKIN_ID, 15)).toBe(
       '/assets/turret-skins/skin-lifeguard-parasol/level-15.png',
+    );
+  });
+
+  it('uses the equipped guardian skin in the in-game installation catalog', () => {
+    expect(
+      buildingCatalogAssetUrl('basic-turret', {
+        'basic-turret': LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+        'rapid-turret': 'turret-rapid-firefly',
+        'frost-turret': 'turret-frost-snow',
+        'arc-turret': 'turret-arc-storm',
+      }),
+    ).toContain(
+      '/assets/turret-skins/skin-lifeguard-parasol/level-01.png',
     );
   });
 
@@ -854,6 +868,27 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().status).toBe('COUNTDOWN');
   });
 
+  it('announces the stronger ghost exactly when the five-minute Time Attack expires', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    persisted.snapshot.status = 'PLAYING';
+    persisted.snapshot.difficulty.modifier = 'time-attack';
+    persisted.snapshot.difficulty.timeAttackRemaining = 0.05;
+    engine.restore(persisted);
+    engine.drainEvents();
+
+    engine.tick(0.1);
+
+    expect(engine.snapshot().status).toBe('OVERTIME');
+    expect(engine.drainEvents()).toContainEqual(
+      expect.objectContaining({
+        kind: 'ghost-skill',
+        label: TIME_ATTACK_EXPIRED_MESSAGE,
+      }),
+    );
+  });
+
   it('keeps explicitly claimed solo beds in distinct rooms', () => {
     const { engine, ids } = setup(4);
     const state = begin(engine, ids[0] as string);
@@ -1166,6 +1201,94 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().buildings.find((building) => building.id === turret.id)?.tile).toEqual({ x: (tiles[1] as Tile).x, y: (tiles[1] as Tile).y });
     expect(engine.snapshot().buildings.find((building) => building.id === generator.id)?.tile).toEqual({ x: (tiles[2] as Tile).x, y: (tiles[2] as Tile).y });
     expect(engine.moveBuilding(playerId, turret.id, { x: 0, y: 0 }).ok).toBe(false);
+  });
+
+  it('enhances all four cardinal turrets and immediately rebinds bonuses after a move', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const roomId = engine.snapshot().players.find(
+      (player) => player.id === playerId,
+    )?.roomId;
+    const room = engine.map.rooms.find((candidate) => candidate.id === roomId);
+    if (!roomId || !room) throw new Error('missing enhancer room');
+    const occupied = new Set(
+      engine.snapshot().buildings.map(
+        (building) => `${building.tile.x}:${building.tile.y}`,
+      ),
+    );
+    const available = new Map(
+      room.buildTiles
+        .filter((tile) => !occupied.has(`${tile.x}:${tile.y}`))
+        .map((tile) => [`${tile.x}:${tile.y}`, tile] as const),
+    );
+    const center = [...available.values()].find((tile) => {
+      const requiredTiles: Tile[] = [
+        [tile.x - 1, tile.y],
+        [tile.x + 1, tile.y],
+        [tile.x, tile.y - 1],
+        [tile.x, tile.y + 1],
+        [tile.x + 2, tile.y],
+      ].map(([x, y]) => ({ x: x as number, y: y as number }));
+      return requiredTiles.every((candidate) =>
+        available.has(`${candidate.x}:${candidate.y}`),
+      );
+    });
+    if (!center) throw new Error('missing cardinal enhancer fixture');
+    const left = available.get(`${center.x - 1}:${center.y}`) as Tile;
+    const right = available.get(`${center.x + 1}:${center.y}`) as Tile;
+    const up = available.get(`${center.x}:${center.y - 1}`) as Tile;
+    const down = available.get(`${center.x}:${center.y + 1}`) as Tile;
+    const farRight = available.get(`${center.x + 2}:${center.y}`) as Tile;
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing enhancer owner');
+    player.gold = 10_000;
+    player.power = 10_000;
+    engine.restore(persisted);
+
+    expect(engine.build(playerId, roomId, center, 'turret-enhancer').ok).toBe(true);
+    for (const tile of [left, right, up, down, farRight])
+      expect(engine.build(playerId, roomId, tile, 'basic-turret').ok).toBe(true);
+
+    const firstState = engine.snapshot();
+    const enhancer = firstState.buildings.find(
+      (building) => building.kind === 'turret-enhancer',
+    );
+    const turretAt = (tile: Tile) =>
+      engine.snapshot().buildings.find(
+        (building) =>
+          building.kind === 'basic-turret' &&
+          building.tile.x === tile.x &&
+          building.tile.y === tile.y,
+      );
+    if (!enhancer) throw new Error('missing enhancer');
+    for (const tile of [left, right, up, down])
+      expect(turretAt(tile)?.effectiveLevel).toBe(2);
+    expect(turretAt(farRight)?.effectiveLevel).toBe(1);
+
+    const levelState = engine.serialize();
+    const leftTurret = levelState.snapshot.buildings.find(
+      (building) =>
+        building.kind === 'basic-turret' &&
+        building.tile.x === left.x &&
+        building.tile.y === left.y,
+    );
+    if (!leftTurret) throw new Error('missing max-level turret');
+    leftTurret.level = 15;
+    engine.restore(levelState);
+    engine.tick(0.01);
+    expect(turretAt(left)?.effectiveLevel).toBe(16);
+    expect(buildingStats('basic-turret', 16).value)
+      .toBeGreaterThan(buildingStats('basic-turret', 15).value);
+
+    expect(engine.moveBuilding(playerId, enhancer.id, right).ok).toBe(true);
+    expect(turretAt(left)?.effectiveLevel).toBe(15);
+    expect(turretAt(up)?.effectiveLevel).toBe(1);
+    expect(turretAt(down)?.effectiveLevel).toBe(1);
+    expect(turretAt(farRight)?.effectiveLevel).toBe(2);
   });
 
   it('installs several identical generators on different tiles without substituting another building', () => {

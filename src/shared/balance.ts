@@ -224,7 +224,7 @@ export const BALANCE = {
     },
     'turret-enhancer': {
       label: '포탑 강화소',
-      description: '좌우 수호 포탑을 1레벨 높입니다.',
+      description: '상하좌우 수호 포탑을 1레벨 높입니다.',
       maxLevel: 1,
       levels: [level(0, 350, 1, 0, 0)],
     },
@@ -340,7 +340,8 @@ export function upgradeRequirement(
 }
 
 export function buildingStats(kind: BuildingKind, requestedLevel: number): BuildingLevelStats {
-  const safeLevel = Math.max(1, Math.min(BALANCE.buildings[kind].maxLevel, Math.floor(requestedLevel)));
+  const normalizedLevel = Math.max(1, Math.floor(requestedLevel));
+  const safeLevel = Math.min(BALANCE.buildings[kind].maxLevel, normalizedLevel);
   const definition = BALANCE.buildings[kind];
   if (!TURRETS.has(kind)) return definition.levels[safeLevel - 1] as BuildingLevelStats;
   const base = definition.levels[0] as BuildingLevelStats;
@@ -356,8 +357,12 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
       range: base.range,
     };
   }
-  const scale = 1 + (safeLevel - 1) * 0.34;
-  const rateScale = Math.max(0.42, 1 - (safeLevel - 1) * 0.035);
+  // A Lv.15 guardian keeps its final art, but adjacent enhancers may continue
+  // its combat progression beyond the permanent cap. The invested level and
+  // upgrade cost stay capped; only temporary damage/fire-rate stats advance.
+  const combatLevel = kind === 'basic-turret' ? normalizedLevel : safeLevel;
+  const scale = 1 + (combatLevel - 1) * 0.34;
+  const rateScale = Math.max(0.42, 1 - (combatLevel - 1) * 0.035);
   const cost = upgradeCostWithoutStats(kind, safeLevel);
   return {
     gold: cost.gold,

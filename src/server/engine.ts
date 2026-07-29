@@ -34,6 +34,7 @@ import {
   isEliteRank,
   rankBenefits,
   rankLabel,
+  TIME_ATTACK_EXPIRED_MESSAGE,
   timeAttackChanceForStage,
   type StageDefinition,
 } from "../shared/progression";
@@ -1402,6 +1403,8 @@ export class GameEngine {
     };
     this.state.buildings.push(building);
     if (isFirstGuardian) player.firstGuardianBuilt = true;
+    if (kind === "basic-turret" || kind === "turret-enhancer")
+      this.syncDynamicTurretLevels(this.createBuildingTickIndex());
     this.pendingEvents.push({ kind: "build", position: tile, playerId });
     return { ok: true };
   }
@@ -1678,6 +1681,8 @@ export class GameEngine {
     this.state.buildings = this.state.buildings.filter(
       (candidate) => candidate.id !== buildingId,
     );
+    if (building.kind === "basic-turret" || building.kind === "turret-enhancer")
+      this.syncDynamicTurretLevels(this.createBuildingTickIndex());
     if (player.armedSoulVialId === buildingId) player.armedSoulVialId = null;
     this.pendingEvents.push({
       kind: "building-remove",
@@ -1717,6 +1722,13 @@ export class GameEngine {
     const previousTile = { ...building.tile };
     building.tile = { x: tile.x, y: tile.y };
     if (destination) destination.tile = previousTile;
+    if (
+      building.kind === "basic-turret" ||
+      building.kind === "turret-enhancer" ||
+      destination?.kind === "basic-turret" ||
+      destination?.kind === "turret-enhancer"
+    )
+      this.syncDynamicTurretLevels(this.createBuildingTickIndex());
     this.pendingEvents.push({
       kind: 'build',
       position: { ...building.tile },
@@ -2068,8 +2080,14 @@ export class GameEngine {
       if (owned) owned.push(building);
       else buildingsByOwner.set(building.ownerId, [building]);
       if (building.kind !== "turret-enhancer") continue;
-      for (const turretX of [building.tile.x - 1, building.tile.x + 1]) {
-        const key = `${building.ownerId}:${building.roomId}:${turretX}:${building.tile.y}`;
+      const adjacentTiles = [
+        { x: building.tile.x - 1, y: building.tile.y },
+        { x: building.tile.x + 1, y: building.tile.y },
+        { x: building.tile.x, y: building.tile.y - 1 },
+        { x: building.tile.x, y: building.tile.y + 1 },
+      ];
+      for (const tile of adjacentTiles) {
+        const key = `${building.ownerId}:${building.roomId}:${tile.x}:${tile.y}`;
         adjacentEnhancersByTurret.set(
           key,
           (adjacentEnhancersByTurret.get(key) ?? 0) + 1,
@@ -2090,10 +2108,7 @@ export class GameEngine {
       const adjacentEnhancers = index.adjacentEnhancersByTurret.get(
         `${turret.ownerId}:${turret.roomId}:${turret.tile.x}:${turret.tile.y}`,
       ) ?? 0;
-      turret.effectiveLevel = Math.min(
-        maxBuildingLevel(turret.kind),
-        turret.level + adjacentEnhancers,
-      );
+      turret.effectiveLevel = turret.level + adjacentEnhancers;
     }
   }
 
@@ -2145,7 +2160,12 @@ export class GameEngine {
     this.state.status = 'OVERTIME';
     this.state.difficulty.overtimeStacks = 0;
     this.applyOvertimeGrowth();
-    this.pendingEvents.push({ kind: 'ghost-skill', position: { ...this.state.ghost.position }, targetId: this.state.ghost.id, label: 'TIME ATTACK 초과 · 귀신 각성' });
+    this.pendingEvents.push({
+      kind: 'ghost-skill',
+      position: { ...this.state.ghost.position },
+      targetId: this.state.ghost.id,
+      label: TIME_ATTACK_EXPIRED_MESSAGE,
+    });
   }
 
   private updateOvertime(dt: number): void {

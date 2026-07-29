@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.1";
+export const APP_RELEASE_VERSION = "2026.07.29.2";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "해변 구조대 라온 테마",
+  title: "타임어택·포탑 강화 개선",
   summary:
-    "• 침대 점유 시 모래 소용돌이가 퍼지는 모래사장 타일을 추가했습니다.\n• Lv.1의 접힌 파라솔부터 Lv.15 구조대 지휘소까지 실루엣이 성장하는 파라솔 포탑을 추가했습니다.\n• 공격받는 팀원의 HUD 프로필이 즉시 붉게 표시되도록 판정을 보강했습니다.",
-  publishedAt: 1785294000000,
+    "• 타임어택 종료 순간 귀신 강화 경고를 화면 중앙에 표시합니다.\n• 설치 모달의 수호 포탑에도 현재 장착한 포탑 스킨을 표시합니다.\n• 포탑 강화소가 상하좌우에 적용되며 이동·철거 시 강화 대상을 즉시 재계산합니다.",
+  publishedAt: 1785299200000,
 };
 
 /**
