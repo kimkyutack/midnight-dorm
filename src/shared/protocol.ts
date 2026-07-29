@@ -8,7 +8,7 @@ const clientTypes = new Set([
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
   'electric-coil', 'shield-device', 'lucky-machine', 'gem-core', 'ghost-net', 'range-amplifier', 'overload-capacitor', 'turret-enhancer',
-  'door-anchor', 'reflect-mirror', 'power-panel', 'cursed-contract', 'soul-vial', 'starter-grave', 'random-item',
+  'door-anchor', 'reflect-mirror', 'power-panel', 'cursed-contract', 'soul-vial', 'hide-and-seek-doll', 'starter-grave', 'random-item',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -71,7 +71,7 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'activate-building':
       if (typeof value.buildingId !== 'string'
-        || !['use', 'attack', 'defense', 'production', 'berserk', 'soul-arm', 'soul-cancel', 'soul-fire'].includes(String(value.action))
+        || !['use', 'attack', 'defense', 'production', 'berserk', 'soul-arm', 'soul-cancel', 'soul-fire', 'hide-and-seek'].includes(String(value.action))
         || (value.targetId !== undefined && typeof value.targetId !== 'string')) {
         return { ok: false, error: 'invalid building activation' };
       }

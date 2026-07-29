@@ -218,6 +218,18 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "hide-and-seek-doll",
 ];
 
+/** Gold tab is deliberately ordered from core economy to one-shot strategy. */
+const GOLD_BUILD_ORDER: BuildingKind[] = [
+  "basic-turret",
+  "generator",
+  "repair-drone",
+  "lucky-machine",
+  "hide-and-seek-doll",
+  "power-panel",
+  "soul-vial",
+  "cursed-contract",
+];
+
 const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   bed: "▰",
   "reinforced-door": "▣",
@@ -3008,7 +3020,7 @@ function renderBuildPanel(tile: Tile): void {
     const enabled = affordable && !limitReason;
     return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${limitReason ? ' data-build-limit="true"' : ""} ${enabled ? "" : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
   };
-  const goldCards = availableKinds
+  const goldCards = GOLD_BUILD_ORDER
     // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
     // 아니라 골드/아이템 설비이므로 골드 탭에 항상 남겨 둔다.
     .filter(

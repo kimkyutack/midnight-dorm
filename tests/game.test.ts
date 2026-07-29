@@ -1654,6 +1654,8 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage('{bad json').ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 99, dy: 0, inputSequence: 1 })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1.5, y: 2 }, kind: 'nuke' })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1, y: 2 }, kind: 'hide-and-seek-doll' })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'activate-building', sequence: 1, timestamp: 2, buildingId: 'building-1', action: 'hide-and-seek' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'kick-player', sequence: 2, timestamp: 2, playerId: 77 })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move-building', sequence: 3, timestamp: 2, buildingId: 'building-1', tile: { x: 2.4, y: 3 } })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move-building', sequence: 3, timestamp: 2, buildingId: 'building-1', tile: { x: 2, y: 3 } })).ok).toBe(true);
