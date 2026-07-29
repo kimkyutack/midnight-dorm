@@ -103,6 +103,11 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 라온의 원본 생성 이미지는 `source/`에 보존하고, 게임에는 투명 `concept.png`, `movement-sheet.png`, `sleep.png`와 압축 WebP 배경만 로드한다.
 - 홈 통합 이벤트는 `public/assets/cinematic/summer-special-skins-event.webp`를 사용한다. 파도에서 보드와 함께 뒤집히려는 서퍼 몽을 구조대 라온이 가리키며 달려가는 장면이고, 제목·설명·가격·버튼은 이미지에 굽지 않고 HTML로 표시한다.
 - 통합 이벤트 생성 원본은 `public/assets/cinematic/summer-special-skins-event-master.png`에 보존한다.
+- `네온 라이더 루루`는 `public/assets/sprites/skins/skin-neon-rider-lulu`에 저장한다. 4열 × 3행 이동 시트는 정면·측면·후면의 동일 몸통 중심을 유지하고, 눈을 가린 고글·네온 라이플·인라인스케이트와 별 모양 네온 궤적을 모든 프레임에 포함한다.
+- `사이버 드라이버 콩`은 `public/assets/sprites/skins/skin-cyber-driver-kong`에 저장한다. 4열 × 3행 이동 시트는 후드 아래 보이는 눈, 보라색 권총, 운전대와 탑다운 사이버 스포츠카를 유지하며 바퀴 무지개빛과 배기 불꽃을 프레임별로 변화시킨다.
+- 두 사이버펑크 스킨은 각각 별도의 `sleep.png`를 사용한다. 원본 크로마키 시트와 투명화 중간 산출물은 각 스킨의 `source/`에 보존하고, 런타임은 정규화된 `concept.png`, `movement-sheet.png`, `frames/`, `sleep.png`만 사용한다.
+- 상점 카드와 미리보기는 `public/assets/cinematic/cyberpunk-neon-city-backdrop.webp`를 공유한다. 고층 네온 도시와 보라색 원근 그리드를 사용하되 캐릭터는 배경에 굽지 않고 별도 스프라이트로 합성한다. 생성 원본은 같은 폴더의 `cyberpunk-neon-city-backdrop-master.png`에 보존한다.
+- 홈 이벤트 슬라이드는 `public/assets/cinematic/cyberpunk-premium-skins-event.webp`를 사용하고, 루루와 콩이 함께 질주하는 장면의 상단 여백에 제목·설명을 HTML로 배치한다. 원본은 `cyberpunk-premium-skins-event-master.png`에 보존하며 생성 이미지 안에는 번역이 어려운 글자를 넣지 않는다.
 - `파도 타일` 생성 원본은 `public/assets/tiles/skin-wave/wave-tile-master.png`, 런타임용 512px WebP는 `public/assets/tiles/skin-wave/wave-tile.webp`다.
 - 파도 타일은 정사각 탑다운 시점, 청록·하늘색 수면, 흰 거품 하이라이트와 진한 파란 테두리를 사용한다. 64px 이하에서도 물결과 타일 경계가 선명해야 하며 캐릭터·서핑보드·텍스트는 포함하지 않는다.
 - 방 점유 전환의 파도 띠와 타일 플립은 런타임 Three.js 연출로 처리하고, 최종 바닥 표면만 파도 타일 이미지를 반복 사용한다.
@@ -110,3 +115,7 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 모래사장 타일은 따뜻한 베이지색 모래, 얕은 블록형 테두리, 조개와 불가사리 흔적을 사용한다. 중앙은 건물과 `＋` 표시를 방해하지 않도록 조용하게 유지한다.
 - `파라솔 포탑` 원본 크로마키 이미지는 `public/assets/turret-skins/skin-lifeguard-parasol/source/`, 런타임 투명 이미지는 같은 스킨 폴더의 `level-01.png`부터 `level-15.png`에 저장한다.
 - 파라솔 포탑은 Lv.1의 접힌 파라솔부터 Lv.15의 다단 구조대 지휘소까지 형태가 확실히 달라야 한다. 별도 총열을 그리지 않고 파라솔 자체의 위 꼭지점을 발사 지점으로 사용하며, 장식 개수나 밝기만으로 레벨을 구분하지 않는다.
+- `네온 회로 타일` 생성 원본은 `public/assets/tiles/skin-cyberpunk-neon/neon-circuit-tile-master.png`, 런타임용 512px WebP는 같은 폴더의 `neon-circuit-tile.webp`다. 보라색 금속 패널과 청록·핑크 회로를 외곽에 집중하고 중앙은 건물 가독성을 위해 어둡고 조용하게 유지한다.
+- `네온 레이저포`의 15개 크로마키 원본은 `public/assets/turret-skins/skin-cyberpunk-laser/source/`, 정규화된 512px 투명 PNG는 같은 스킨 폴더의 `level-01.png`부터 `level-15.png`에 저장한다.
+- 레벨은 `권총 → 중권총 → 기관권총 → 기관단총 → 카빈 → 돌격소총 → 펄스 라이플 → 중화기 라이플 → 레일 라이플 → 레일건 → 플라즈마포 → 이온포 → 공성 빔포 → 중형 레이저포 → 레이저 요새` 순으로 형태가 변한다. 밝은 아이보리·건메탈 본체로 보라색 타일과 분리하고 네온색은 회로와 코어에 제한한다.
+- 마젠타를 사용하는 사이버펑크 원본은 범용 크로마 제거기의 마젠타 억제 단계를 사용하지 않는다. `scripts/remove_green_chroma_preserve_magenta.mjs`로 녹색 우세 픽셀만 제거한 뒤 동일한 512px 중심축에 정렬한다.

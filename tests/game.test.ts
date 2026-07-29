@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -126,7 +126,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.6')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.8')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -542,6 +542,16 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-lifeguard-raon/movement-sheet.png');
     expect(skinSleepUrl(lifeguardAppearance))
       .toBe('/assets/sprites/skins/skin-lifeguard-raon/sleep.png');
+    const neonLuluAppearance = { character: 'character-cat', skin: 'skin-look-cat-neon-rider' };
+    expect(skinMovementSheetUrl(neonLuluAppearance))
+      .toBe('/assets/sprites/skins/skin-neon-rider-lulu/movement-sheet.png');
+    expect(skinSleepUrl(neonLuluAppearance))
+      .toBe('/assets/sprites/skins/skin-neon-rider-lulu/sleep.png');
+    const cyberKongAppearance = { character: 'character-hamster', skin: 'skin-look-hamster-cyber-driver' };
+    expect(skinMovementSheetUrl(cyberKongAppearance))
+      .toBe('/assets/sprites/skins/skin-cyber-driver-kong/movement-sheet.png');
+    expect(skinSleepUrl(cyberKongAppearance))
+      .toBe('/assets/sprites/skins/skin-cyber-driver-kong/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -626,15 +636,15 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(43);
+    expect(COSMETIC_CATALOG).toHaveLength(47);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'tile', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).toContain(DEFAULT_TILE_SKIN_ID);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(14);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(3);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(16);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(4);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
@@ -656,6 +666,17 @@ describe('survivor customization rules', () => {
     });
     expect(tileSkinTextureUrl(BEACH_SAND_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-beach-sand/sand-tile.webp',
+    );
+  });
+
+  it('sells the cyberpunk tile with its own neon-collapse transition asset', () => {
+    expect(cosmeticById(CYBERPUNK_NEON_TILE_SKIN_ID)).toMatchObject({
+      slot: 'tile',
+      label: '네온 회로 타일',
+      unlock: { kind: 'points', price: 1_000 },
+    });
+    expect(tileSkinTextureUrl(CYBERPUNK_NEON_TILE_SKIN_ID)).toBe(
+      '/assets/tiles/skin-cyberpunk-neon/neon-circuit-tile.webp',
     );
   });
 
@@ -689,11 +710,34 @@ describe('survivor customization rules', () => {
     });
   });
 
+  it('sells the cyberpunk laser turret as a neutral 15-level cosmetic', () => {
+    expect(cosmeticById(CYBERPUNK_LASER_TURRET_SKIN_ID)).toMatchObject({
+      slot: 'turret',
+      turretKind: 'basic-turret',
+      label: '네온 레이저포',
+      unlock: { kind: 'points', price: 1_500 },
+    });
+    expect(turretSkinTrait(CYBERPUNK_LASER_TURRET_SKIN_ID)).toMatchObject({
+      turretKind: 'basic-turret',
+      damageMultiplier: 1,
+      rateMultiplier: 1,
+      frostSlowStrengthMultiplier: 1,
+    });
+    expect(turretSkinAssetUrl(CYBERPUNK_LASER_TURRET_SKIN_ID, 1)).toBe(
+      '/assets/turret-skins/skin-cyberpunk-laser/level-01.png',
+    );
+    expect(turretSkinAssetUrl(CYBERPUNK_LASER_TURRET_SKIN_ID, 15)).toBe(
+      '/assets/turret-skins/skin-cyberpunk-laser/level-15.png',
+    );
+  });
+
   it('uses base concept art for characters and complete art only for skin cards', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-puppy-surfer')).toBe('/assets/sprites/skins/skin-surfer-mong/concept.png');
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
+    expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
+    expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -751,11 +795,17 @@ describe('survivor customization rules', () => {
     expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
     expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    const neonLuluSkin = cosmeticById('skin-look-cat-neon-rider');
+    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    const cyberKongSkin = cosmeticById('skin-look-hamster-cyber-driver');
+    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
         || item.id === 'skin-look-puppy-surfer'
         || item.id === 'skin-look-tiger-lifeguard'
+        || item.id === 'skin-look-cat-neon-rider'
+        || item.id === 'skin-look-hamster-cyber-driver'
         || item.unlock.price === 2_500
       ),
     )).toBe(true);
@@ -3344,6 +3394,10 @@ describe('requested progression and event rules', () => {
       .toBeCloseTo(1 / 1.2, 6);
     expect(characterTraitForAppearance({ character: 'character-tiger', skin: 'skin-look-tiger-ward' }).turretRateMultiplier)
       .toBeCloseTo(1 / 1.05, 6);
+    expect(characterTraitForAppearance({ character: 'character-cat', skin: 'skin-look-cat-neon-rider' }).turretRateMultiplier)
+      .toBe(0.5);
+    expect(characterTraitForAppearance({ character: 'character-hamster', skin: 'skin-look-hamster-cyber-driver' }).turretStartingLevel)
+      .toBe(5);
     expect(characterTraitForAppearance({ character: 'character-duck', skin: 'skin-look-duck-ward' }).powerPerSecond)
       .toBe(1.5);
     expect(characterTraitForAppearance({ character: 'character-bunny', skin: 'skin-look-bunny-ward' }).unclaimedMoveSpeedMultiplier)
@@ -3358,8 +3412,11 @@ describe('requested progression and event rules', () => {
       .toBe(0.75);
   });
 
-  it('starts the hamster guardian turret at Lv.2, or Lv.3 with its skin, only once', () => {
-    const verifyInitialGuardian = (appearance: { character: string; skin: string }, expectedLevel: number): void => {
+  it('starts the hamster guardian once, while cyber Kong starts every turret at Lv.5', () => {
+    const verifyInitialGuardian = (
+      appearance: { character: string; skin: string },
+      expectedLevels: readonly number[],
+    ): void => {
       const { engine, ids } = setup();
       const playerId = ids[0] as string;
       begin(engine, playerId);
@@ -3377,11 +3434,21 @@ describe('requested progression and event rules', () => {
       if (!secondTile) throw new Error('missing second build tile');
       expect(engine.build(playerId, roomId, secondTile, 'basic-turret').ok).toBe(true);
       const guardians = engine.snapshot().buildings.filter((building) => building.kind === 'basic-turret');
-      expect(guardians.map((building) => building.level)).toEqual([expectedLevel, 1]);
+      expect(guardians.map((building) => building.level)).toEqual(expectedLevels);
     };
 
-    verifyInitialGuardian({ character: 'character-hamster', skin: 'skin-basic-hamster' }, 2);
-    verifyInitialGuardian({ character: 'character-hamster', skin: 'skin-look-hamster-ward' }, 3);
+    verifyInitialGuardian(
+      { character: 'character-hamster', skin: 'skin-basic-hamster' },
+      [2, 1],
+    );
+    verifyInitialGuardian(
+      { character: 'character-hamster', skin: 'skin-look-hamster-ward' },
+      [3, 1],
+    );
+    verifyInitialGuardian(
+      { character: 'character-hamster', skin: 'skin-look-hamster-cyber-driver' },
+      [5, 5],
+    );
   });
 
   it('gives the gorilla door a 50%, or skinned 75%, shield that takes damage first', () => {

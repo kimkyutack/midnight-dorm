@@ -78,6 +78,16 @@
       "id": "skin-look-puppy-surfer",
       "label": "서퍼 몽",
       "root": "/assets/sprites/skins/skin-surfer-mong"
+    },
+    {
+      "id": "skin-look-cat-neon-rider",
+      "label": "네온 라이더 루루",
+      "root": "/assets/sprites/skins/skin-neon-rider-lulu"
+    },
+    {
+      "id": "skin-look-hamster-cyber-driver",
+      "label": "사이버 드라이버 콩",
+      "root": "/assets/sprites/skins/skin-cyber-driver-kong"
     }
   ],
   "ghosts": [

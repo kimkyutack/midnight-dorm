@@ -23,13 +23,14 @@ import {
   cosmeticById,
   cosmeticsForSlot,
   customizationReward,
+  CYBERPUNK_LASER_TURRET_SKIN_ID,
+  CYBERPUNK_NEON_TILE_SKIN_ID,
   DEFAULT_TILE_SKIN_ID,
   LIFEGUARD_PARASOL_TURRET_SKIN_ID,
   defaultSkinForCharacter,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
   turretSkinAssetUrl,
-  WAVE_TILE_SKIN_ID,
 } from "../shared/customization";
 import {
   rankBadgeImage,
@@ -155,9 +156,13 @@ let socialModalRealtimeRefresh: ((event: SocialRealtimeEvent) => void) | null =
 let customizeReturnView: "home" | "room-menu" = "home";
 const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
 const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
+const NEON_RIDER_LULU_SKIN_ID = "skin-look-cat-neon-rider";
+const CYBER_DRIVER_KONG_SKIN_ID = "skin-look-hamster-cyber-driver";
 const SUMMER_SPECIAL_PROMO_DISMISSED_KEY =
   "midnight-dorm:promo:summer-special-skins:v1";
-let summerSkinPromoShownThisSession = false;
+const CYBERPUNK_SPECIAL_PROMO_DISMISSED_KEY =
+  "midnight-dorm:promo:cyberpunk-special-skins:v1";
+let skinLaunchPromoShownThisSession = false;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -890,57 +895,150 @@ function homeScreen(): void {
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
   startSocialRealtime();
-  showSummerSkinLaunchPromo();
+  showSkinLaunchPromoCarousel();
 }
 
-function summerSkinPromoDismissed(): boolean {
+interface SkinLaunchCampaign {
+  id: "summer" | "cyberpunk";
+  dismissedKey: string;
+  ownedSkinIds: readonly string[];
+  targetSkinId: string;
+  className: string;
+  ariaLabel: string;
+  imageUrl: string;
+  imageAlt: string;
+  eyebrow: string;
+  title: string;
+  body: string;
+  footnote: string;
+}
+
+const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
+  {
+    id: "summer",
+    dismissedKey: SUMMER_SPECIAL_PROMO_DISMISSED_KEY,
+    ownedSkinIds: [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID],
+    targetSkinId: LIFEGUARD_RAON_SKIN_ID,
+    className: "summer-special-promo",
+    ariaLabel: "썸머 특별 스킨 동시 출시",
+    imageUrl: "/assets/cinematic/summer-special-skins-event.webp",
+    imageAlt: "뒤집힐 듯 날아오른 서퍼 몽을 구하러 달려가는 해변 구조대 라온",
+    eyebrow: "SUMMER SPECIAL SKINS",
+    title: "썸머 특별 스킨<br/>동시 출시!",
+    body: "파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.",
+    footnote: "여름 한정 2종 · 각 5,000 P",
+  },
+  {
+    id: "cyberpunk",
+    dismissedKey: CYBERPUNK_SPECIAL_PROMO_DISMISSED_KEY,
+    ownedSkinIds: [NEON_RIDER_LULU_SKIN_ID, CYBER_DRIVER_KONG_SKIN_ID],
+    targetSkinId: NEON_RIDER_LULU_SKIN_ID,
+    className: "cyberpunk-special-promo",
+    ariaLabel: "사이버펑크 프리미엄 스킨 동시 출시",
+    imageUrl: "/assets/cinematic/cyberpunk-premium-skins-event.webp",
+    imageAlt: "네온 인라인을 타는 루루와 사이버 스포츠카를 모는 콩",
+    eyebrow: "CYBERPUNK PREMIUM",
+    title: "네온 시티를<br/>질주하라!",
+    body: "네온 라이더 루루와<br/>사이버 드라이버 콩이 도착했습니다.",
+    footnote: "프리미엄 2종 · 각 5,000 P",
+  },
+] as const;
+
+function skinLaunchPromoDismissed(campaign: SkinLaunchCampaign): boolean {
   try {
-    return (
-      window.localStorage.getItem(SUMMER_SPECIAL_PROMO_DISMISSED_KEY) === "1"
-    );
+    return window.localStorage.getItem(campaign.dismissedKey) === "1";
   } catch {
     return false;
   }
 }
 
-function permanentlyDismissSummerSkinPromo(): void {
+function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
   try {
-    window.localStorage.setItem(SUMMER_SPECIAL_PROMO_DISMISSED_KEY, "1");
+    window.localStorage.setItem(campaign.dismissedKey, "1");
   } catch {
     // Private browsing can reject storage writes. The session guard still
     // prevents the promotion from reopening while this app instance is alive.
   }
 }
 
-function showSummerSkinLaunchPromo(): void {
-  if (!account || summerSkinPromoShownThisSession || summerSkinPromoDismissed())
-    return;
+function showSkinLaunchPromoCarousel(): void {
+  if (!account || skinLaunchPromoShownThisSession) return;
   const currentAccount = account;
-  if (
-    [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID].every((skinId) =>
-      currentAccount.ownedCosmetics.includes(skinId),
-    )
-  )
-    return;
-  summerSkinPromoShownThisSession = true;
+  const campaigns = SKIN_LAUNCH_CAMPAIGNS.filter(
+    (campaign) =>
+      !skinLaunchPromoDismissed(campaign)
+      && !campaign.ownedSkinIds.every((skinId) =>
+        currentAccount.ownedCosmetics.includes(skinId),
+      ),
+  );
+  if (!campaigns.length) return;
+  skinLaunchPromoShownThisSession = true;
+  let activeIndex = 0;
   const modal = document.createElement("div");
   modal.className = "modal-backdrop surfer-mong-promo-modal";
-  modal.innerHTML = `<section class="surfer-mong-promo summer-special-promo" role="dialog" aria-modal="true" aria-label="썸머 특별 스킨 동시 출시"><div class="surfer-mong-promo-art"><img src="/assets/cinematic/summer-special-skins-event.webp?v=${APP_RELEASE_VERSION}" alt="뒤집힐 듯 날아오른 서퍼 몽을 구하러 달려가는 해변 구조대 라온"/><div class="surfer-mong-promo-copy"><span>SUMMER SPECIAL SKINS</span><h2>썸머 특별 스킨<br/>동시 출시!</h2><p>파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.</p><small>여름 한정 2종 · 각 5,000 P</small></div></div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
+  const renderCampaign = (): void => {
+    const campaign = campaigns[activeIndex];
+    if (!campaign) {
+      modal.remove();
+      return;
+    }
+    const carouselControls =
+      campaigns.length > 1
+        ? `<nav class="skin-promo-carousel-nav" aria-label="출시 이벤트 이동"><button type="button" data-launch-promo-prev aria-label="이전 이벤트">‹</button><div>${campaigns
+            .map(
+              (_, index) =>
+                `<button type="button" class="${index === activeIndex ? "active" : ""}" data-launch-promo-index="${index}" aria-label="${index + 1}번째 이벤트"${index === activeIndex ? ' aria-current="true"' : ""}></button>`,
+            )
+            .join("")}</div><button type="button" data-launch-promo-next aria-label="다음 이벤트">›</button></nav>`
+        : "";
+    modal.innerHTML = `<section class="surfer-mong-promo ${campaign.className}" role="dialog" aria-modal="true" aria-label="${campaign.ariaLabel}" data-launch-promo="${campaign.id}"><div class="surfer-mong-promo-art"><img src="${campaign.imageUrl}?v=${APP_RELEASE_VERSION}" alt="${campaign.imageAlt}"/><div class="surfer-mong-promo-copy"><span>${campaign.eyebrow}</span><h2>${campaign.title}</h2><p>${campaign.body}</p><small>${campaign.footnote}</small></div>${carouselControls}</div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
+  };
+  renderCampaign();
   app.appendChild(modal);
-  modal
-    .querySelector("[data-launch-promo-dismiss]")
-    ?.addEventListener("click", () => {
+  modal.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const campaign = campaigns[activeIndex];
+    if (!campaign) return;
+    if (target.closest("[data-launch-promo-dismiss]")) {
       audio.play("button");
-      permanentlyDismissSummerSkinPromo();
-      modal.remove();
-    });
-  modal
-    .querySelector("[data-launch-promo-shop]")
-    ?.addEventListener("click", () => {
+      permanentlyDismissSkinLaunchPromo(campaign);
+      campaigns.splice(activeIndex, 1);
+      if (!campaigns.length) {
+        modal.remove();
+        return;
+      }
+      activeIndex %= campaigns.length;
+      renderCampaign();
+      return;
+    }
+    if (target.closest("[data-launch-promo-shop]")) {
       audio.play("button");
       modal.remove();
-      shopScreen("skin", LIFEGUARD_RAON_SKIN_ID);
-    });
+      shopScreen("skin", campaign.targetSkinId);
+      return;
+    }
+    if (target.closest("[data-launch-promo-prev]")) {
+      audio.play("button");
+      activeIndex = (activeIndex - 1 + campaigns.length) % campaigns.length;
+      renderCampaign();
+      return;
+    }
+    if (target.closest("[data-launch-promo-next]")) {
+      audio.play("button");
+      activeIndex = (activeIndex + 1) % campaigns.length;
+      renderCampaign();
+      return;
+    }
+    const indexButton = target.closest<HTMLElement>("[data-launch-promo-index]");
+    if (indexButton) {
+      const nextIndex = Number(indexButton.dataset.launchPromoIndex);
+      if (Number.isInteger(nextIndex) && campaigns[nextIndex]) {
+        audio.play("button");
+        activeIndex = nextIndex;
+        renderCampaign();
+      }
+    }
+  });
 }
 
 function homeUtilityIcon(kind: "mail" | "social" | "settings"): string {
@@ -1474,12 +1572,15 @@ function cosmeticCollectionScreen(
       (shopping || cosmeticEntitled(item, currentAccount)) &&
       (selectedSlot !== "tile" || item.id !== DEFAULT_TILE_SKIN_ID) &&
       (selectedSlot !== "turret" ||
+        item.id === CYBERPUNK_LASER_TURRET_SKIN_ID ||
         item.id === SURFER_WATER_TURRET_SKIN_ID ||
         item.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID),
   );
   const displayCatalog =
     selectedSlot === "turret"
       ? [...catalog].sort((left, right) => {
+          if (left.id === CYBERPUNK_LASER_TURRET_SKIN_ID) return -1;
+          if (right.id === CYBERPUNK_LASER_TURRET_SKIN_ID) return 1;
           if (left.id === SURFER_WATER_TURRET_SKIN_ID) return -1;
           if (right.id === SURFER_WATER_TURRET_SKIN_ID) return 1;
           if (left.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID) return -1;
@@ -1488,7 +1589,12 @@ function cosmeticCollectionScreen(
         })
       : shopping && selectedSlot === "skin"
         ? [...catalog].sort((left, right) => {
-            const premiumOrder = [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID];
+            const premiumOrder = [
+              NEON_RIDER_LULU_SKIN_ID,
+              CYBER_DRIVER_KONG_SKIN_ID,
+              SURFER_MONG_SKIN_ID,
+              LIFEGUARD_RAON_SKIN_ID,
+            ];
             const leftOrder = premiumOrder.indexOf(left.id);
             const rightOrder = premiumOrder.indexOf(right.id);
             if (leftOrder < 0 && rightOrder < 0) return 0;
@@ -1509,14 +1615,20 @@ function cosmeticCollectionScreen(
               : false;
       const premiumSurfer = item.id === SURFER_MONG_SKIN_ID;
       const premiumLifeguard = item.id === LIFEGUARD_RAON_SKIN_ID;
-      const premiumSummer = premiumSurfer || premiumLifeguard;
+      const premiumNeonLulu = item.id === NEON_RIDER_LULU_SKIN_ID;
+      const premiumCyberKong = item.id === CYBER_DRIVER_KONG_SKIN_ID;
+      const premiumSkin =
+        premiumSurfer
+        || premiumLifeguard
+        || premiumNeonLulu
+        || premiumCyberKong;
       const initialCatalogPreviewId =
         selectedSlot === "skin"
-          ? (previewItemId ?? SURFER_MONG_SKIN_ID)
+          ? (previewItemId ?? NEON_RIDER_LULU_SKIN_ID)
           : selectedSlot === "tile"
-            ? (previewItemId ?? WAVE_TILE_SKIN_ID)
+            ? (previewItemId ?? CYBERPUNK_NEON_TILE_SKIN_ID)
             : selectedSlot === "turret"
-              ? (previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
+              ? (previewItemId ?? CYBERPUNK_LASER_TURRET_SKIN_ID)
               : previewItemId;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
@@ -1601,19 +1713,23 @@ function cosmeticCollectionScreen(
               ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
               : premiumLifeguard
                 ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                : premiumNeonLulu
+                  ? `<div class="catalog-art cosmetic-art neon-rider-lulu-card-art" style="--swatch:${item.swatch}"><span class="neon-rider-lulu-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 네온 스케이팅 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                  : premiumCyberKong
+                    ? `<div class="catalog-art cosmetic-art cyber-driver-kong-card-art" style="--swatch:${item.swatch}"><span class="cyber-driver-kong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 사이버 드라이빙 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSummer ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSummer ? '<span class="cosmetic-new-badge" aria-label="여름 한정 신규 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
   const initialTilePreviewId = shopping
-    ? (previewItemId ?? WAVE_TILE_SKIN_ID)
+    ? (previewItemId ?? CYBERPUNK_NEON_TILE_SKIN_ID)
     : (previewItemId ??
       displayCatalog.find((item) => item.id === appearance.tileSkin)?.id ??
       displayCatalog[0]?.id);
   const initialTurretPreviewId = shopping
-    ? (previewItemId ?? SURFER_WATER_TURRET_SKIN_ID)
+    ? (previewItemId ?? CYBERPUNK_LASER_TURRET_SKIN_ID)
     : (displayCatalog.find((item) => item.id === previewItemId)?.id ??
       displayCatalog.find(
         (item) =>
@@ -1624,7 +1740,7 @@ function cosmeticCollectionScreen(
   const initialPreviewItem =
     selectedSlot === "skin"
       ? shopping
-        ? cosmeticById(previewItemId ?? SURFER_MONG_SKIN_ID)
+        ? cosmeticById(previewItemId ?? NEON_RIDER_LULU_SKIN_ID)
         : undefined
       : selectedSlot === "tile"
         ? initialTilePreviewId

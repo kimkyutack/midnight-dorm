@@ -18,6 +18,8 @@ export interface SkinTraitOverride {
   unclaimedMoveSpeedMultiplier?: number;
   turretRangeBonus?: number;
   firstGuardianLevelBonus?: number;
+  /** Minimum level for every offensive turret installed while this skin is equipped. */
+  turretStartingLevel?: number;
   occupiedDoorLevelBonus?: number;
   doorShieldRatio?: number;
 }
@@ -66,6 +68,8 @@ const SKINS = [
   { id: 'skin-look-puppy-ward', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 1.5, label: '구조대 몽', description: '구조 조끼를 입은 완성형 스킨', symbol: '멍', swatch: '#d8aa78', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-puppy-surfer', slot: 'skin', characterId: 'character-puppy', traitMultiplier: 2, traitOverride: { label: '파도 위 행운', description: '침대를 점유한 동안 매초 골드 5를 추가로 얻습니다.', goldPerSecond: 5 }, assetDirectory: 'skin-surfer-mong', label: '서퍼 몽', description: '하늘빛 고글과 보드를 타고 물결 위를 미끄러지는 완성형 스킨', symbol: '파', swatch: '#72d9f4', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, traitOverride: { label: '해변 구조 지휘', description: '포탑 사거리가 2칸 늘고 공격속도가 20% 증가합니다.', turretRangeBonus: 2, turretRateMultiplier: 1 / 1.2 }, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-cat-neon-rider', slot: 'skin', characterId: 'character-cat', traitMultiplier: 2, traitOverride: { label: '네온 오버클럭', description: '모든 포탑의 공격속도가 2배가 됩니다.', turretRateMultiplier: 0.5 }, assetDirectory: 'skin-neon-rider-lulu', label: '네온 라이더 루루', description: '네온 고글과 인라인 스케이트로 사이버 시티를 질주하는 프리미엄 스킨', symbol: '네', swatch: '#b347ff', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-hamster-cyber-driver', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 2, traitOverride: { label: 'Lv.5 양산 설계', description: '설치하는 모든 공격 포탑이 Lv.5로 시작합니다.', turretStartingLevel: 5 }, assetDirectory: 'skin-cyber-driver-kong', label: '사이버 드라이버 콩', description: '보랏빛 스포츠카와 무지개 휠로 네온 도로를 달리는 프리미엄 스킨', symbol: '카', swatch: '#803cff', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
@@ -80,8 +84,10 @@ const SKINS = [
 export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';
 export const WAVE_TILE_SKIN_ID = 'tile-wave-surfer';
 export const BEACH_SAND_TILE_SKIN_ID = 'tile-beach-lifeguard';
+export const CYBERPUNK_NEON_TILE_SKIN_ID = 'tile-cyberpunk-neon';
 export const SURFER_WATER_TURRET_SKIN_ID = 'turret-basic-surfer-water';
 export const LIFEGUARD_PARASOL_TURRET_SKIN_ID = 'turret-basic-lifeguard-parasol';
+export const CYBERPUNK_LASER_TURRET_SKIN_ID = 'turret-basic-cyberpunk-laser';
 
 const TILE_SKINS = [
   {
@@ -113,6 +119,16 @@ const TILE_SKINS = [
     unlock: { kind: 'points', price: 1_000 },
     assetDirectory: 'skin-beach-sand/sand-tile.webp',
   },
+  {
+    id: CYBERPUNK_NEON_TILE_SKIN_ID,
+    slot: 'tile',
+    label: '네온 회로 타일',
+    description: '침대를 점유하면 네온 빌딩이 솟아올랐다 무너지며 회로 타일이 펼쳐집니다.',
+    symbol: '전',
+    swatch: '#b347ff',
+    unlock: { kind: 'points', price: 1_000 },
+    assetDirectory: 'skin-cyberpunk-neon/neon-circuit-tile.webp',
+  },
 ] as const satisfies readonly CosmeticDefinition[];
 
 const TURRET_SKINS = [
@@ -138,6 +154,17 @@ const TURRET_SKINS = [
     swatch: '#ef5548',
     unlock: { kind: 'points', price: 1_500 },
     assetDirectory: 'skin-lifeguard-parasol',
+  },
+  {
+    id: CYBERPUNK_LASER_TURRET_SKIN_ID,
+    slot: 'turret',
+    turretKind: 'basic-turret',
+    label: '네온 레이저포',
+    description: '권총부터 거대 레이저포까지 15단계 외형과 굵은 네온 레이저를 적용합니다.',
+    symbol: '광',
+    swatch: '#f24dff',
+    unlock: { kind: 'points', price: 1_500 },
+    assetDirectory: 'skin-cyberpunk-laser',
   },
   { id: 'turret-basic-toy', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 장난감', description: '둥근 별 장식과 크림색 포신', symbol: '별', swatch: '#f1b86b', unlock: { kind: 'points', price: 300 } },
   { id: 'turret-basic-pumpkin', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 호박등', description: '주황빛 눈이 반짝이는 호박 포대', symbol: '호', swatch: '#e87942', unlock: { kind: 'points', price: 520 } },

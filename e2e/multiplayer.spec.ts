@@ -47,6 +47,15 @@ interface TestState {
   resumeRendering: () => void;
 }
 
+async function dismissVisibleLaunchPromos(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const promo = page.locator(".surfer-mong-promo");
+    if (!(await promo.isVisible().catch(() => false))) return;
+    await promo.getByRole("button", { name: "다시 보지 않기" }).click();
+  }
+  await expect(page.locator(".surfer-mong-promo")).toHaveCount(0);
+}
+
 async function enter(
   page: Page,
   nickname: string,
@@ -65,12 +74,7 @@ async function enter(
   await page.getByRole("button", { name: "계정 만들고 시작" }).click();
   await expect(page.locator(".game-home")).toBeVisible();
   if (dismissLaunchPromo) {
-    await page
-      .getByRole("dialog", {
-        name: "썸머 특별 스킨 동시 출시",
-      })
-      .getByRole("button", { name: "다시 보지 않기" })
-      .click();
+    await dismissVisibleLaunchPromos(page);
   }
   return username;
 }
@@ -179,12 +183,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(passwordInput).toHaveValue(password);
     await page.getByRole("button", { name: "계정 만들고 시작" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
-    await page
-      .getByRole("dialog", {
-        name: "썸머 특별 스킨 동시 출시",
-      })
-      .getByRole("button", { name: "다시 보지 않기" })
-      .click();
+    await dismissVisibleLaunchPromos(page);
     await expect(page.locator(".home-account")).toContainText("새벽도망자");
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
     const mailboxButton = page.getByRole("button", { name: "우편함" });
@@ -341,7 +340,13 @@ test("portrait home separates shop, owned customization and stage start", async 
       "달고양이 루루",
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(14);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(16);
+    await expect(
+      page.locator('[data-cosmetic-preview="skin-look-cat-neon-rider"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-cosmetic-preview="skin-look-hamster-cyber-driver"]'),
+    ).toBeVisible();
     const bunnySkinCard = page.locator(".cosmetic-card", {
       hasText: "탐험가 모모",
     });
@@ -364,7 +369,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       "skin-look-cat-ward",
     );
     await page.getByRole("button", { name: "타일", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(2);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(3);
     await expect(
       page.locator(".cosmetic-card", { hasText: "기본 병동 타일" }),
     ).toHaveCount(0);
@@ -397,7 +402,37 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       sandTileCard.getByRole("button", { name: "1,000 P" }),
     ).toBeEnabled();
+    const neonTileCard = page.locator(".cosmetic-card", {
+      hasText: "네온 회로 타일",
+    });
+    await expect(neonTileCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/tiles\/skin-cyberpunk-neon\/neon-circuit-tile\.webp\?v=/,
+    );
+    await expect(neonTileCard.locator("img")).toBeVisible();
+    await expect(
+      neonTileCard.getByRole("button", { name: "1,000 P" }),
+    ).toBeEnabled();
     await page.getByRole("button", { name: "포탑", exact: true }).click();
+    const cyberTurretCard = page.locator(
+      `[data-cosmetic-preview="turret-basic-cyberpunk-laser"]`,
+    );
+    await expect(cyberTurretCard).toBeVisible();
+    await expect(cyberTurretCard.locator("img")).toHaveAttribute(
+      "src",
+      /\/assets\/turret-skins\/skin-cyberpunk-laser\/level-01\.png\?v=/,
+    );
+    await expect(
+      cyberTurretCard.getByRole("button", { name: "1,500 P" }),
+    ).toBeEnabled();
+    await cyberTurretCard.click();
+    await expect(page.locator("[data-custom-preview-title]")).toHaveText(
+      "네온 레이저포",
+    );
+    await expect(page.locator("[data-turret-preview]")).toHaveAttribute(
+      "src",
+      /\/assets\/turret-skins\/skin-cyberpunk-laser\/level-01\.png\?v=/,
+    );
     const surferTurretCard = page.locator(
       `[data-cosmetic-preview="turret-basic-surfer-water"]`,
     );
@@ -553,7 +588,7 @@ test("portrait home separates shop, owned customization and stage start", async 
   }
 });
 
-test("여름 특별 스킨 통합 팝업이 두 스킨 상점으로 연결되고 다시 보지 않기를 기억한다", async ({
+test("출시 팝업이 여름·사이버펑크 슬라이드를 독립적으로 숨기고 루루 스킨으로 연결한다", async ({
   browser,
 }) => {
   const shopContext = await mobileContext(browser);
@@ -570,7 +605,16 @@ test("여름 특별 스킨 통합 팝업이 두 스킨 상점으로 연결되고
       "src",
       /summer-special-skins-event\.webp/,
     );
-    await promo.getByRole("button", { name: "스킨 보러 가기" }).click();
+    await promo.getByRole("button", { name: "다음 이벤트" }).click();
+    const cyberPromo = shopPage.getByRole("dialog", {
+      name: "사이버펑크 프리미엄 스킨 동시 출시",
+    });
+    await expect(cyberPromo).toBeVisible();
+    await expect(cyberPromo.locator("img")).toHaveAttribute(
+      "src",
+      /cyberpunk-premium-skins-event\.webp/,
+    );
+    await cyberPromo.getByRole("button", { name: "스킨 보러 가기" }).click();
     await expect(
       shopPage.getByRole("heading", { name: "외형 상점" }),
     ).toBeVisible();
@@ -578,19 +622,19 @@ test("여름 특별 스킨 통합 팝업이 두 스킨 상점으로 연결되고
       shopPage.getByRole("button", { name: "스킨", exact: true }),
     ).toHaveClass(/active/);
     await expect(
-      shopPage.locator(`[data-cosmetic-preview="skin-look-tiger-lifeguard"]`),
+      shopPage.locator(`[data-cosmetic-preview="skin-look-cat-neon-rider"]`),
     ).toHaveClass(/previewing/);
     await expect(
-      shopPage.locator(`[data-cosmetic-preview="skin-look-tiger-lifeguard"]`),
-    ).toHaveClass(/lifeguard-raon-card/);
+      shopPage.locator(`[data-cosmetic-preview="skin-look-cat-neon-rider"]`),
+    ).toHaveClass(/neon-rider-lulu-card/);
     await expect(shopPage.locator(".custom-avatar-stage")).toHaveClass(
-      /lifeguard-raon-preview/,
+      /neon-rider-lulu-preview/,
     );
     await expect(shopPage.locator("[data-custom-preview-title]")).toHaveText(
-      "해변 구조대 라온",
+      "네온 라이더 루루",
     );
     await expect(
-      shopPage.locator(`[data-cosmetic-preview="skin-look-puppy-surfer"]`),
+      shopPage.locator(`[data-cosmetic-preview="skin-look-hamster-cyber-driver"]`),
     ).toBeVisible();
 
     await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
@@ -598,11 +642,27 @@ test("여름 특별 스킨 통합 팝업이 두 스킨 상점으로 연결되고
       name: "썸머 특별 스킨 동시 출시",
     });
     await dismissPromo.getByRole("button", { name: "다시 보지 않기" }).click();
+    await expect(
+      dismissPage.getByRole("dialog", {
+        name: "사이버펑크 프리미엄 스킨 동시 출시",
+      }),
+    ).toBeVisible();
+    await dismissPage
+      .getByRole("dialog", {
+        name: "사이버펑크 프리미엄 스킨 동시 출시",
+      })
+      .getByRole("button", { name: "다시 보지 않기" })
+      .click();
     await dismissPage.reload();
     await expect(dismissPage.locator(".game-home")).toBeVisible();
     await expect(
       dismissPage.getByRole("dialog", {
         name: "썸머 특별 스킨 동시 출시",
+      }),
+    ).toHaveCount(0);
+    await expect(
+      dismissPage.getByRole("dialog", {
+        name: "사이버펑크 프리미엄 스킨 동시 출시",
       }),
     ).toHaveCount(0);
   } finally {

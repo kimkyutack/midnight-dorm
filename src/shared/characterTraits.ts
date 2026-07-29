@@ -29,6 +29,8 @@ export interface CharacterTrait {
   turretRangeBonus: number;
   /** Added to Lv.1 for the first guardian turret the player constructs. */
   firstGuardianLevelBonus: number;
+  /** Minimum level applied to every offensive turret the player constructs. */
+  turretStartingLevel: number;
   /** Added to Lv.1 when the player first occupies a room. */
   occupiedDoorLevelBonus: number;
   /** Outer door shield as a ratio of the current maximum door HP. */
@@ -47,6 +49,7 @@ const NONE: CharacterTrait = {
   unclaimedMoveSpeedMultiplier: 1,
   turretRangeBonus: 0,
   firstGuardianLevelBonus: 0,
+  turretStartingLevel: 1,
   occupiedDoorLevelBonus: 0,
   doorShieldRatio: 0,
 };
@@ -160,6 +163,7 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     unclaimedMoveSpeedMultiplier: boostedMultiplier(base.unclaimedMoveSpeedMultiplier),
     turretRangeBonus: base.turretRangeBonus * multiplier,
     firstGuardianLevelBonus: Math.round(base.firstGuardianLevelBonus * multiplier),
+    turretStartingLevel: base.turretStartingLevel,
     occupiedDoorLevelBonus: Math.round(base.occupiedDoorLevelBonus * multiplier),
     doorShieldRatio: base.doorShieldRatio * multiplier,
   };
@@ -177,6 +181,7 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     unclaimedMoveSpeedMultiplier: special.unclaimedMoveSpeedMultiplier ?? boosted.unclaimedMoveSpeedMultiplier,
     turretRangeBonus: special.turretRangeBonus ?? boosted.turretRangeBonus,
     firstGuardianLevelBonus: special.firstGuardianLevelBonus ?? boosted.firstGuardianLevelBonus,
+    turretStartingLevel: special.turretStartingLevel ?? boosted.turretStartingLevel,
     occupiedDoorLevelBonus: special.occupiedDoorLevelBonus ?? boosted.occupiedDoorLevelBonus,
     doorShieldRatio: special.doorShieldRatio ?? boosted.doorShieldRatio,
   };

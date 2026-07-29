@@ -1408,12 +1408,21 @@ export class GameEngine {
       return { ok: false, error: "골드 또는 전력이 부족합니다." };
     const trait = characterTraitForAppearance(player.appearance);
     const isFirstGuardian = kind === 'basic-turret' && !player.firstGuardianBuilt;
-    const initialLevel = isFirstGuardian
-      ? Math.min(
-          maxBuildingLevel(kind, activeRank),
-          1 + trait.firstGuardianLevelBonus,
-        )
+    const isLevelledTurret =
+      kind === 'basic-turret'
+      || kind === 'rapid-turret'
+      || kind === 'arc-turret'
+      || kind === 'golden-turret';
+    const traitStartingLevel = isLevelledTurret
+      ? trait.turretStartingLevel
       : 1;
+    const firstGuardianLevel = isFirstGuardian
+      ? 1 + trait.firstGuardianLevelBonus
+      : 1;
+    const initialLevel = Math.min(
+      maxBuildingLevel(kind, activeRank),
+      Math.max(1, traitStartingLevel, firstGuardianLevel),
+    );
     player.gold -= buildCost.gold;
     player.power -= buildCost.power;
     let buildingId: string;

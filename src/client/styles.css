@@ -9332,6 +9332,93 @@ select {
     0 0 19px rgba(55, 210, 238, 0.28),
     inset 0 0 18px rgba(255, 107, 88, 0.11);
 }
+.neon-rider-lulu-card-art,
+.cyber-driver-kong-card-art {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(15, 2, 42, 0.02), rgba(18, 0, 49, 0.32)),
+    url("/assets/cinematic/cyberpunk-neon-city-backdrop.webp") center 62% /
+      cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(213, 146, 255, 0.48),
+    inset 0 -20px 30px rgba(19, 0, 55, 0.38);
+  animation: cyber-city-drift 5.8s ease-in-out infinite alternate;
+}
+.neon-rider-lulu-card-art::before,
+.cyber-driver-kong-card-art::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 5px,
+      rgba(135, 75, 255, 0.08) 6px,
+      transparent 7px
+    ),
+    radial-gradient(circle at 17% 23%, #ff59e9 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 18%, #69f5ff 0 1.2px, transparent 2.2px),
+    linear-gradient(
+      112deg,
+      transparent 34%,
+      rgba(233, 190, 255, 0.18),
+      transparent 60%
+    );
+  content: "";
+  opacity: 0.78;
+  pointer-events: none;
+  animation: cyber-scan-glow 1.7s ease-in-out infinite alternate;
+}
+.neon-rider-lulu-card-art::after,
+.cyber-driver-kong-card-art::after {
+  right: 6%;
+  bottom: 0;
+  left: 6%;
+  z-index: 1;
+  height: 20%;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 55, 224, 0.36),
+    rgba(80, 232, 255, 0.44)
+  );
+  filter: blur(8px);
+}
+.neon-rider-lulu-card-sprite,
+.cyber-driver-kong-card-sprite {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: min(100%, 114px);
+  height: min(100%, 114px);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 400% 300%;
+  filter:
+    drop-shadow(0 8px 5px rgba(10, 0, 32, 0.54))
+    drop-shadow(0 0 5px rgba(194, 70, 255, 0.82));
+  animation:
+    surfer-card-frames 0.78s steps(1, end) infinite,
+    cyber-card-glide 0.9s ease-in-out infinite alternate;
+}
+.neon-rider-lulu-card-sprite {
+  background-image: url("/assets/sprites/skins/skin-neon-rider-lulu/movement-sheet.png");
+}
+.cyber-driver-kong-card-sprite {
+  background-image: url("/assets/sprites/skins/skin-cyber-driver-kong/movement-sheet.png");
+}
+.neon-rider-lulu-card,
+.cyber-driver-kong-card {
+  background:
+    linear-gradient(155deg, rgba(30, 6, 57, 0.98), rgba(7, 4, 32, 0.99))
+      padding-box,
+    linear-gradient(125deg, #75f5ff 0%, #a13cff 30%, #ff4bd8 62%, #d8faff 100%)
+      border-box;
+  box-shadow:
+    0 0 0 1px rgba(204, 129, 255, 0.25),
+    0 0 23px rgba(154, 48, 255, 0.38),
+    inset 0 0 20px rgba(240, 65, 255, 0.12);
+}
 .cosmetic-new-badge {
   position: absolute !important;
   z-index: 8 !important;
@@ -9457,6 +9544,72 @@ select {
   filter: drop-shadow(0 16px 12px rgba(0, 58, 80, 0.4))
     drop-shadow(0 0 7px rgba(255, 239, 181, 0.58));
 }
+.custom-avatar-stage.neon-rider-lulu-preview,
+.custom-avatar-stage.cyber-driver-kong-preview {
+  background:
+    linear-gradient(180deg, rgba(20, 0, 54, 0.02), rgba(13, 0, 42, 0.24)),
+    url("/assets/cinematic/cyberpunk-neon-city-backdrop.webp") center 59% /
+      cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(213, 137, 255, 0.46),
+    inset 0 -34px 52px rgba(21, 0, 57, 0.38),
+    0 0 22px rgba(173, 61, 255, 0.3);
+  animation: cyber-city-drift 6.8s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.neon-rider-lulu-preview::before,
+.custom-avatar-stage.cyber-driver-kong-preview::before {
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 8px,
+      rgba(134, 70, 255, 0.07) 9px,
+      transparent 10px
+    ),
+    radial-gradient(circle at 12% 18%, #ff5bea 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 27%, #62f4ff 0 1.5px, transparent 2.5px),
+    linear-gradient(
+      113deg,
+      transparent 35%,
+      rgba(231, 173, 255, 0.17),
+      transparent 62%
+    );
+  box-shadow: none;
+  opacity: 0.82;
+  animation: cyber-scan-glow 1.9s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.neon-rider-lulu-preview::after,
+.custom-avatar-stage.cyber-driver-kong-preview::after {
+  position: absolute;
+  z-index: 0;
+  right: -7%;
+  bottom: -6%;
+  left: -7%;
+  height: 27%;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 55, 217, 0.32),
+    rgba(66, 235, 255, 0.36)
+  );
+  filter: blur(11px);
+  content: "";
+  pointer-events: none;
+}
+.custom-avatar-stage.neon-rider-lulu-preview .neon-rider-lulu-sprite-preview,
+.custom-avatar-stage.cyber-driver-kong-preview .cyber-driver-kong-sprite-preview {
+  z-index: 2;
+}
+.custom-avatar-stage.neon-rider-lulu-preview .skin-preview-canvas,
+.custom-avatar-stage.cyber-driver-kong-preview .skin-preview-canvas {
+  width: min(94%, 346px);
+  height: min(96%, 346px);
+  filter:
+    drop-shadow(0 16px 13px rgba(13, 0, 39, 0.58))
+    drop-shadow(0 0 8px rgba(196, 79, 255, 0.72));
+}
 
 @keyframes premium-card-sheen {
   0%,
@@ -9533,6 +9686,32 @@ select {
     background-position: center 57%;
   }
 }
+@keyframes cyber-city-drift {
+  from {
+    background-position: center 64%;
+  }
+  to {
+    background-position: center 56%;
+  }
+}
+@keyframes cyber-scan-glow {
+  from {
+    opacity: 0.42;
+    filter: hue-rotate(-8deg) brightness(0.9);
+  }
+  to {
+    opacity: 0.9;
+    filter: hue-rotate(8deg) brightness(1.28);
+  }
+}
+@keyframes cyber-card-glide {
+  from {
+    transform: translate(-1px, 1px) rotate(-0.5deg);
+  }
+  to {
+    transform: translate(1px, -1px) rotate(0.5deg);
+  }
+}
 
 @media (orientation: portrait) {
   .custom-layout {
@@ -9550,6 +9729,11 @@ select {
     width: min(100%, 104px);
     height: min(100%, 104px);
   }
+  .neon-rider-lulu-card-sprite,
+  .cyber-driver-kong-card-sprite {
+    width: min(100%, 106px);
+    height: min(100%, 106px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9563,7 +9747,17 @@ select {
   .lifeguard-raon-card-art::before,
   .lifeguard-raon-card-sprite,
   .custom-avatar-stage.lifeguard-raon-preview,
-  .custom-avatar-stage.lifeguard-raon-preview::before {
+  .custom-avatar-stage.lifeguard-raon-preview::before,
+  .neon-rider-lulu-card-art,
+  .neon-rider-lulu-card-art::before,
+  .neon-rider-lulu-card-sprite,
+  .cyber-driver-kong-card-art,
+  .cyber-driver-kong-card-art::before,
+  .cyber-driver-kong-card-sprite,
+  .custom-avatar-stage.neon-rider-lulu-preview,
+  .custom-avatar-stage.neon-rider-lulu-preview::before,
+  .custom-avatar-stage.cyber-driver-kong-preview,
+  .custom-avatar-stage.cyber-driver-kong-preview::before {
     animation: none;
   }
 }
@@ -9784,6 +9978,112 @@ select {
   box-shadow:
     inset 0 1px rgba(255, 255, 255, 0.82),
     0 7px 18px rgba(255, 94, 74, 0.28);
+}
+.cyberpunk-special-promo {
+  border-color: rgba(198, 101, 255, 0.96);
+  background: #0b0322;
+  box-shadow:
+    0 0 0 3px rgba(186, 65, 255, 0.18),
+    0 26px 72px rgba(0, 0, 0, 0.68),
+    0 0 42px rgba(178, 52, 255, 0.42);
+}
+.cyberpunk-special-promo .surfer-mong-promo-art {
+  background: #130534;
+}
+.cyberpunk-special-promo .surfer-mong-promo-art::before {
+  background:
+    linear-gradient(180deg, rgba(11, 1, 38, 0.5) 0%, transparent 35%),
+    linear-gradient(0deg, rgba(12, 0, 36, 0.5) 0%, transparent 24%);
+}
+.cyberpunk-special-promo .surfer-mong-promo-art::after {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 7px,
+      rgba(128, 69, 255, 0.08) 8px,
+      transparent 9px
+    ),
+    radial-gradient(circle at 14% 22%, #ff54e8 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 16%, #5ff7ff 0 1.5px, transparent 2.5px),
+    linear-gradient(
+      112deg,
+      transparent 35%,
+      rgba(230, 177, 255, 0.2),
+      transparent 58%
+    );
+}
+.cyberpunk-special-promo .surfer-mong-promo-art > img {
+  object-position: center 53%;
+}
+.cyberpunk-special-promo .surfer-mong-promo-copy {
+  top: clamp(18px, 3.7cqh, 30px);
+}
+.cyberpunk-special-promo .surfer-mong-promo-copy > span {
+  color: #f4dcff;
+  border-color: rgba(211, 127, 255, 0.66);
+  background: rgba(31, 4, 70, 0.7);
+}
+.cyberpunk-special-promo .surfer-mong-promo-copy h2 {
+  background: linear-gradient(110deg, #fff, #7df5ff 32%, #cf72ff 62%, #ff6cdb);
+  background-clip: text;
+  color: transparent;
+  text-shadow:
+    0 5px 22px rgba(15, 0, 39, 0.92),
+    0 0 16px rgba(182, 63, 255, 0.48);
+}
+.cyberpunk-special-promo .surfer-promo-shop {
+  border-color: rgba(239, 209, 255, 0.72);
+  color: #1c0633;
+  background: linear-gradient(135deg, #73f5ff, #b86bff 50%, #ff67d9);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.82),
+    0 7px 20px rgba(181, 63, 255, 0.38);
+}
+.skin-promo-carousel-nav {
+  position: absolute;
+  z-index: 8;
+  right: 50%;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: 32px auto 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 7px;
+  border: 1px solid rgba(218, 238, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(4, 9, 26, 0.64);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  transform: translateX(50%);
+}
+.skin-promo-carousel-nav > button {
+  width: 32px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  color: #effcff;
+  background: rgba(112, 185, 225, 0.14);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+.skin-promo-carousel-nav > div {
+  display: flex;
+  gap: 6px;
+}
+.skin-promo-carousel-nav > div > button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(220, 238, 246, 0.38);
+}
+.skin-promo-carousel-nav > div > button.active {
+  width: 18px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #65edff, #db65ff);
+  box-shadow: 0 0 9px rgba(160, 88, 255, 0.78);
 }
 
 @keyframes surfer-promo-arrive {

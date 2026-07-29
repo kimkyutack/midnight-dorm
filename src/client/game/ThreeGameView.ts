@@ -7,6 +7,8 @@ import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
+  CYBERPUNK_LASER_TURRET_SKIN_ID,
+  CYBERPUNK_NEON_TILE_SKIN_ID,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
 } from '../../shared/customization';
@@ -41,6 +43,7 @@ const MAX_RAPID_EFFECTS_PER_POOL = 32;
 const TURRET_VISUAL_INTERVAL_MS = 55;
 const INTERACTION_SCAN_INTERVAL_MS = 100;
 const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
+const CYBER_LASER_FORWARD = new THREE.Vector3(0, 0, 1);
 type EffectQuality = 'high' | 'balanced' | 'low';
 const ACTIVE_BUILDING_MOTION_KINDS = new Set<BuildingKind>([
   'generator',
@@ -227,7 +230,7 @@ interface BedView {
 
 interface RoomTileSkinView {
   skinId: string;
-  transition: 'wave' | 'sand-vortex';
+  transition: 'wave' | 'sand-vortex' | 'neon-collapse';
   root: THREE.Group;
   baseFloor: THREE.InstancedMesh;
   tiles: Array<{
@@ -1875,6 +1878,7 @@ export class ThreeGameView {
   private readonly normalProjectilePool: THREE.Mesh[] = [];
   private readonly waterProjectilePool: THREE.Group[] = [];
   private readonly waterSplashPool: THREE.Group[] = [];
+  private readonly cyberLaserPool: THREE.Group[] = [];
   private readonly beamPool: THREE.Line[] = [];
   private readonly impactRingPool: THREE.Mesh[] = [];
   private readonly dustPool: THREE.Group[] = [];
@@ -2161,6 +2165,7 @@ export class ThreeGameView {
       this.normalProjectilePool,
       this.waterProjectilePool,
       this.waterSplashPool,
+      this.cyberLaserPool,
       this.beamPool,
       this.impactRingPool,
       this.dustPool,
@@ -2550,7 +2555,9 @@ export class ThreeGameView {
       const transition =
         room.tileSkinId === BEACH_SAND_TILE_SKIN_ID
           ? 'sand-vortex'
-          : 'wave';
+          : room.tileSkinId === CYBERPUNK_NEON_TILE_SKIN_ID
+            ? 'neon-collapse'
+            : 'wave';
       const root = new THREE.Group();
       root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
       const tiles = mapRoom.floorTiles.map((tile) => {
@@ -2563,6 +2570,8 @@ export class ThreeGameView {
           delay:
             transition === 'sand-vortex'
               ? Math.hypot(tile.x - centerX, tile.y - centerY) * 105
+              : transition === 'neon-collapse'
+                ? 560 + Math.hypot(tile.x - centerX, tile.y - centerY) * 78
               : Math.max(0, tile.x - minX) * 115,
         };
       });
@@ -2605,7 +2614,7 @@ export class ThreeGameView {
           effect.add(foam);
         }
         effect.position.set(minX - 1.1, 0.23, centerY);
-      } else {
+      } else if (transition === 'sand-vortex') {
         const maxRadius = Math.max(1.25, Math.hypot(maxX - minX, maxY - minY) * 0.34);
         for (const [index, radiusScale] of [0.34, 0.63, 1].entries()) {
           const swirlMaterial = new THREE.MeshBasicMaterial({
@@ -2634,6 +2643,74 @@ export class ThreeGameView {
           effect.add(ring);
         }
         effect.position.set(centerX, 0.22, centerY);
+      } else {
+        const city = new THREE.Group();
+        city.name = 'neon-city';
+        const buildingMaterial = new THREE.MeshBasicMaterial({
+          color: 0x2a174e,
+          transparent: true,
+          opacity: 0.96,
+        });
+        const cyanMaterial = new THREE.MeshBasicMaterial({
+          color: 0x4eeaff,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const pinkMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff4fd8,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const towers: Array<[number, number, number, number]> = [
+          [0, 0, 0.72, 1.75],
+          [-0.48, 0.08, 0.42, 1.05],
+          [0.46, 0.12, 0.46, 1.28],
+          [-0.2, -0.42, 0.36, 0.84],
+          [0.25, -0.4, 0.34, 0.72],
+        ];
+        for (const [index, [x, z, width, height]] of towers.entries()) {
+          const tower = new THREE.Mesh(
+            new THREE.BoxGeometry(width, height, width),
+            buildingMaterial,
+          );
+          tower.position.set(x, height / 2, z);
+          city.add(tower);
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.76, 0.045, width * 0.76),
+            index % 2 === 0 ? cyanMaterial : pinkMaterial,
+          );
+          cap.position.set(x, height + 0.025, z);
+          city.add(cap);
+        }
+        city.scale.set(0.72, 0.001, 0.72);
+        effect.add(city);
+        for (const [index, color] of [0x50eaff, 0xff4fd8].entries()) {
+          const pulse = new THREE.Mesh(
+            new THREE.RingGeometry(
+              0.55 + index * 0.22,
+              0.61 + index * 0.22,
+              36,
+            ),
+            new THREE.MeshBasicMaterial({
+              color,
+              transparent: true,
+              opacity: 0.76 - index * 0.12,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+          );
+          pulse.name = 'neon-collapse-pulse';
+          pulse.rotation.x = -Math.PI / 2;
+          pulse.position.y = 0.025 + index * 0.012;
+          pulse.scale.setScalar(0.001);
+          effect.add(pulse);
+        }
+        effect.position.set(centerX, 0.22, centerY);
       }
       root.add(effect);
       this.scene.add(root);
@@ -2641,6 +2718,8 @@ export class ThreeGameView {
       const transitionDuration =
         transition === 'sand-vortex'
           ? 1_250 + Math.max(...tiles.map((tile) => tile.delay), 0)
+          : transition === 'neon-collapse'
+            ? 1_180 + Math.max(...tiles.map((tile) => tile.delay), 0)
           : 820 + Math.max(0, maxX - minX) * 115;
       const serverProgressMs = Math.max(
         0,
@@ -2673,10 +2752,14 @@ export class ThreeGameView {
           tile.mesh.rotation.z = 0;
           tile.mesh.rotation.y = 0;
         }
+        if (transition === 'neon-collapse') {
+          root.remove(effect);
+          disposeTransientObject(effect);
+        }
       } else {
         for (const tile of tiles) {
           tile.mesh.scale.x = 0.001;
-          if (transition === 'sand-vortex') tile.mesh.scale.z = 0.001;
+          if (transition !== 'wave') tile.mesh.scale.z = 0.001;
         }
       }
       this.roomTileSkinViews.set(room.id, view);
@@ -2699,16 +2782,41 @@ export class ThreeGameView {
       if (view.transition === 'wave') {
         view.effect.position.x =
           view.minX - 1.1 + (view.maxX - view.minX + 2.2) * easedSweep;
-      } else {
+      } else if (view.transition === 'sand-vortex') {
         view.effect.rotation.y = elapsed * 0.0045;
         const vortexScale = 0.68 + Math.sin(Math.PI * sweep) * 0.48;
         view.effect.scale.setScalar(vortexScale);
+      } else {
+        const city = view.effect.getObjectByName('neon-city');
+        const rise = clamp(sweep / 0.32, 0, 1);
+        const collapse = clamp((sweep - 0.34) / 0.28, 0, 1);
+        if (city) {
+          const riseEased = 1 - (1 - rise) ** 3;
+          city.scale.set(
+            0.72 + riseEased * 0.28 + collapse * 0.2,
+            Math.max(0.001, riseEased * (1 - collapse)),
+            0.72 + riseEased * 0.28 + collapse * 0.2,
+          );
+          city.rotation.z = collapse * 1.15;
+          city.position.y =
+            Math.sin(Math.PI * rise) * 0.12 - collapse * 0.12;
+        }
+        for (const pulse of view.effect.children.filter(
+          (child) => child.name === 'neon-collapse-pulse',
+        )) {
+          const pulseProgress = clamp((sweep - 0.38) / 0.42, 0, 1);
+          pulse.scale.setScalar(Math.max(0.001, pulseProgress * 4.2));
+          pulse.rotation.z += 0.025;
+        }
       }
       const effectOpacity =
         view.transition === 'sand-vortex'
           ? Math.sin(Math.PI * Math.min(1, sweep * 1.08))
+          : view.transition === 'neon-collapse'
+            ? Math.sin(Math.PI * Math.min(1, sweep / 0.82))
           : Math.sin(Math.PI * sweep);
-      view.effect.visible = sweep < 1;
+      view.effect.visible =
+        view.transition === 'neon-collapse' ? sweep < 0.86 : sweep < 1;
       view.effect.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const materials = Array.isArray(object.material)
@@ -2731,6 +2839,11 @@ export class ThreeGameView {
           tile.mesh.rotation.y = (1 - eased) * Math.PI * 0.72;
           tile.mesh.position.y =
             ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.24;
+        } else if (view.transition === 'neon-collapse') {
+          tile.mesh.scale.z = Math.max(0.001, eased);
+          tile.mesh.rotation.y = (1 - eased) * Math.PI;
+          tile.mesh.position.y =
+            ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.2;
         } else {
           tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
           tile.mesh.position.y =
@@ -2740,6 +2853,10 @@ export class ThreeGameView {
       if (sweep >= 1 && view.tiles.every((tile) => elapsed >= tile.delay + 520)) {
         view.complete = true;
         view.effect.visible = false;
+        if (view.transition === 'neon-collapse') {
+          view.root.remove(view.effect);
+          disposeTransientObject(view.effect);
+        }
         for (const tile of view.tiles) {
           tile.mesh.scale.x = 1;
           tile.mesh.scale.z = 1;
@@ -3862,6 +3979,47 @@ export class ThreeGameView {
     );
   }
 
+  private acquireCyberLaser(): THREE.Group | null {
+    const laser = this.acquirePooledObject(
+      'cyber-laser',
+      this.cyberLaserPool,
+      () => {
+        const beam = new THREE.Group();
+        const glow = effectMesh(
+          new THREE.CylinderGeometry(0.44, 0.44, 1, 8),
+          new THREE.MeshBasicMaterial({
+            color: 0xff4fd8,
+            transparent: true,
+            opacity: 0.28,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        glow.name = 'cyber-laser-glow';
+        glow.rotation.x = Math.PI / 2;
+        beam.add(glow);
+        const core = effectMesh(
+          new THREE.CylinderGeometry(0.17, 0.17, 1, 8),
+          new THREE.MeshBasicMaterial({
+            color: 0x9ff8ff,
+            transparent: true,
+            opacity: 0.98,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        core.rotation.x = Math.PI / 2;
+        beam.add(core);
+        beam.renderOrder = 8_220;
+        return beam;
+      },
+      16,
+    );
+    const glow = laser?.getObjectByName('cyber-laser-glow');
+    if (glow) glow.visible = this.effectQuality !== 'low';
+    return laser;
+  }
+
   private acquireBeam(color: number): THREE.Line | null {
     const line = this.acquirePooledObject(
       'turret-beam',
@@ -4107,7 +4265,39 @@ export class ThreeGameView {
       this.lastTurretVisualAt.set(sourceKey, born);
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
-      if (event.itemId === SURFER_WATER_TURRET_SKIN_ID) {
+      if (event.itemId === CYBERPUNK_LASER_TURRET_SKIN_ID) {
+        const direction = to.clone().sub(from);
+        const length = direction.length();
+        if (length > 0.001) {
+          direction.normalize();
+          const laser = this.acquireCyberLaser();
+          if (laser) {
+            laser.position.lerpVectors(from, to, 0.5);
+            laser.quaternion.setFromUnitVectors(
+              CYBER_LASER_FORWARD,
+              direction,
+            );
+            laser.scale.set(0.28, 0.28, length);
+            this.queuePooledEffect(laser, this.cyberLaserPool, {
+              born,
+              duration: 135,
+              baseScale: laser.scale.clone(),
+              scaleGrowth: 0,
+            });
+          }
+          const impact = this.acquireImpactRing(0xff4fd8);
+          if (impact) {
+            impact.position.copy(to);
+            impact.rotation.x = -Math.PI / 2;
+            this.queuePooledEffect(impact, this.impactRingPool, {
+              born,
+              duration: 180,
+              baseScale: impact.scale.clone(),
+              scaleGrowth: 0.72,
+            });
+          }
+        }
+      } else if (event.itemId === SURFER_WATER_TURRET_SKIN_ID) {
         const direction = to.clone().sub(from).normalize();
         const droplets = this.acquireWaterProjectile();
         if (droplets) {

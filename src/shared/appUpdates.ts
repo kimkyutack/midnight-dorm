@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.5";
+export const APP_RELEASE_VERSION = "2026.07.29.7";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "숨바꼭질 인형 전술 설비",
+  title: "사이버펑크 테마 확장",
   summary:
-    "• 한 게임에 한 번 설치해 귀신의 공격 목표를 바꾸는 숨바꼭질 인형이 추가되었습니다.\n• 다른 생존 방이 없으면 귀신은 3초 동안 복도를 헤매며, 사용 중에는 헤롱헤롱 아이콘이 표시됩니다.",
-  publishedAt: 1785344400000,
+    "• 보랏빛 회로와 네온 빌딩 전환 연출을 가진 네온 회로 타일을 추가했습니다.\n• 권총부터 거대 레이저포까지 15단계로 성장하는 네온 레이저포를 추가했습니다.\n• 네온 레이저포 공격에 성능 제한형 굵은 레이저 이펙트를 적용했습니다.",
+  publishedAt: 1785351600000,
 };
 
 /**
