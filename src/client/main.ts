@@ -4658,7 +4658,7 @@ function updateTestApi(): void {
     playerId,
     move: (dx, dy) => {
       inputVector = { x: dx, y: dy };
-      sendMovement();
+      sendMovement(Math.hypot(dx, dy) <= 0.001);
     },
     interact: () => network?.interact(),
     buildFirst: (kind) => {

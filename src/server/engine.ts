@@ -169,6 +169,13 @@ interface BotRuntime {
   lastMove: { x: number; y: number } | null;
 }
 
+interface BuildingTickIndex {
+  roomsById: Map<string, RoomState>;
+  ownersById: Map<string, PlayerState>;
+  buildingsByOwner: Map<string, BuildingState[]>;
+  adjacentEnhancersByTurret: Map<string, number>;
+}
+
 export interface PersistedEngine {
   snapshot: GameSnapshot;
   reconnect: ReconnectRecord[];
@@ -2022,9 +2029,10 @@ export class GameEngine {
         if (this.state.difficulty.timeAttackRemaining <= 0) this.beginOvertime();
       }
       if (this.state.status === 'OVERTIME') this.updateOvertime(dt);
-      this.syncDynamicTurretLevels();
+      const buildingIndex = this.createBuildingTickIndex();
+      this.syncDynamicTurretLevels(buildingIndex);
       this.updateEconomy(dt);
-      this.updateBuildings(dt);
+      this.updateBuildings(dt, buildingIndex);
       this.updateGhosts(dt);
       this.updateDoorRegeneration(dt);
       this.evaluateOutcome();
@@ -2032,17 +2040,42 @@ export class GameEngine {
     this.sanitizeResources();
   }
 
-  private syncDynamicTurretLevels(): void {
+  private createBuildingTickIndex(): BuildingTickIndex {
+    const roomsById = new Map(
+      this.state.rooms.map((room) => [room.id, room] as const),
+    );
+    const ownersById = new Map(
+      this.state.players.map((player) => [player.id, player] as const),
+    );
+    const buildingsByOwner = new Map<string, BuildingState[]>();
+    const adjacentEnhancersByTurret = new Map<string, number>();
+    for (const building of this.state.buildings) {
+      const owned = buildingsByOwner.get(building.ownerId);
+      if (owned) owned.push(building);
+      else buildingsByOwner.set(building.ownerId, [building]);
+      if (building.kind !== "turret-enhancer") continue;
+      for (const turretX of [building.tile.x - 1, building.tile.x + 1]) {
+        const key = `${building.ownerId}:${building.roomId}:${turretX}:${building.tile.y}`;
+        adjacentEnhancersByTurret.set(
+          key,
+          (adjacentEnhancersByTurret.get(key) ?? 0) + 1,
+        );
+      }
+    }
+    return {
+      roomsById,
+      ownersById,
+      buildingsByOwner,
+      adjacentEnhancersByTurret,
+    };
+  }
+
+  private syncDynamicTurretLevels(index: BuildingTickIndex): void {
     for (const turret of this.state.buildings) {
       if (turret.kind !== "basic-turret") continue;
-      const adjacentEnhancers = this.state.buildings.filter(
-        (candidate) =>
-          candidate.kind === "turret-enhancer" &&
-          candidate.ownerId === turret.ownerId &&
-          candidate.roomId === turret.roomId &&
-          candidate.tile.y === turret.tile.y &&
-          Math.abs(candidate.tile.x - turret.tile.x) === 1,
-      ).length;
+      const adjacentEnhancers = index.adjacentEnhancersByTurret.get(
+        `${turret.ownerId}:${turret.roomId}:${turret.tile.x}:${turret.tile.y}`,
+      ) ?? 0;
       turret.effectiveLevel = Math.min(
         maxBuildingLevel(turret.kind),
         turret.level + adjacentEnhancers,
@@ -2424,19 +2457,8 @@ export class GameEngine {
     }
   }
 
-  private updateBuildings(dt: number): void {
-    const roomsById = new Map(
-      this.state.rooms.map((room) => [room.id, room] as const),
-    );
-    const ownersById = new Map(
-      this.state.players.map((player) => [player.id, player] as const),
-    );
-    const buildingsByOwner = new Map<string, BuildingState[]>();
-    for (const building of this.state.buildings) {
-      const owned = buildingsByOwner.get(building.ownerId);
-      if (owned) owned.push(building);
-      else buildingsByOwner.set(building.ownerId, [building]);
-    }
+  private updateBuildings(dt: number, index: BuildingTickIndex): void {
+    const { roomsById, ownersById, buildingsByOwner } = index;
     const effectsByOwner = new Map(
       this.state.players.map((player) => {
         const placed = (buildingsByOwner.get(player.id) ?? [])
@@ -2505,15 +2527,21 @@ export class GameEngine {
     >();
     for (const ghost of this.state.ghosts) {
       if (ghost.hp <= 0 || ghost.healing) continue;
-      const sources = frostBuildings.filter(
-        (building) =>
-          distance(building.tile, ghost.position) <=
-          buildingStats(building.kind, building.level).range,
-      );
-      if (sources.length > 0) {
+      const ids = new Set<string>();
+      let firstId = '';
+      for (const building of frostBuildings) {
+        if (
+          distance(building.tile, ghost.position) >
+          buildingStats(building.kind, building.level).range
+        )
+          continue;
+        if (!firstId) firstId = building.id;
+        ids.add(building.id);
+      }
+      if (ids.size > 0) {
         frostSourcesByGhost.set(ghost.id, {
-          ids: new Set(sources.map((building) => building.id)),
-          firstId: (sources[0] as BuildingState).id,
+          ids,
+          firstId,
         });
       }
     }
@@ -2645,6 +2673,7 @@ export class GameEngine {
       }
       this.pendingEvents.push({
         kind: "turret-fire",
+        sourceId: building.id,
         position: building.tile,
         targetPosition: { ...nearest.position },
         targetId: nearest.id,
@@ -2653,13 +2682,6 @@ export class GameEngine {
         amount: appliedDamage,
         label: soulReady ? "영혼 충전 레이저" : undefined,
       });
-      if (appliedDamage > 0)
-        this.pendingEvents.push({
-          kind: "ghost-hit",
-          position: { ...nearest.position },
-          targetId: nearest.id,
-          amount: appliedDamage,
-        });
     }
     // 포탑 피해로 HP가 20% 아래로 내려가면 applyGhostDamage()가 같은 틱에
     // 퇴각 상태를 표시한다. 그물은 그 직후에도 아직 문을 공격하던 위치에

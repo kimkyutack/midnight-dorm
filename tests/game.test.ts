@@ -22,7 +22,7 @@ import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
-import { GameNetwork } from '../src/client/network';
+import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
@@ -174,6 +174,31 @@ describe('cold realtime connection failures', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('realtime snapshot frames', () => {
+  it('reuses unchanged buildings and accepts a later building revision', () => {
+    const full = setup().engine.snapshot();
+    const { buildings, ...frame } = full;
+    expect(mergeSnapshotFrame(null, frame)).toBeNull();
+
+    const first = mergeSnapshotFrame(full, {
+      ...frame,
+      serverSeq: frame.serverSeq + 1,
+      elapsed: frame.elapsed + 0.1,
+    });
+    expect(first?.buildings).toBe(full.buildings);
+    expect(first?.serverSeq).toBe(frame.serverSeq + 1);
+
+    const revisedBuildings = buildings.map((building, index) =>
+      index === 0 ? { ...building, level: building.level + 1 } : building
+    );
+    const revised = mergeSnapshotFrame(first, {
+      ...frame,
+      serverSeq: frame.serverSeq + 2,
+    }, revisedBuildings);
+    expect(revised?.buildings).toBe(revisedBuildings);
   });
 });
 

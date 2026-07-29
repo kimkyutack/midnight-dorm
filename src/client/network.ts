@@ -1,5 +1,5 @@
 import { BALANCE } from '../shared/balance';
-import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, MapDefinition, QuickChatPhrase, ServerMessage, Tile } from '../shared/types';
+import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, GameSnapshotFrame, MapDefinition, QuickChatPhrase, ServerMessage, Tile } from '../shared/types';
 
 export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
@@ -18,6 +18,16 @@ type ClientIntent = WithoutEnvelope<ClientMessage>;
 const MAX_RECONNECT_ATTEMPTS = 30;
 const RECONNECT_DELAY_CAP_MS = 5_000;
 
+export function mergeSnapshotFrame(
+  previous: GameSnapshot | null,
+  frame: GameSnapshotFrame,
+  buildings?: GameSnapshot['buildings'],
+): GameSnapshot | null {
+  const nextBuildings = buildings ?? previous?.buildings;
+  if (!nextBuildings) return null;
+  return { ...frame, buildings: nextBuildings };
+}
+
 export class GameNetwork {
   private socket: WebSocket | null = null;
   private sequence = 0;
@@ -27,6 +37,7 @@ export class GameNetwork {
   private stopped = false;
   private pingTimer: number | null = null;
   private lastBuildSentAt = -Infinity;
+  private lastSnapshot: GameSnapshot | null = null;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
   reconnectToken = '';
   playerId = '';
@@ -57,7 +68,11 @@ export class GameNetwork {
     this.stopped = false;
     this.emit('connection', { state: this.reconnectAttempts ? 'reconnecting' : 'connecting', attempt: this.reconnectAttempts });
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams({ nickname: this.nickname, deviceId: this.deviceId });
+    const params = new URLSearchParams({
+      nickname: this.nickname,
+      deviceId: this.deviceId,
+      snapshotFrames: '1',
+    });
     if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
     const socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
     let opened = false;
@@ -151,13 +166,27 @@ export class GameNetwork {
     let message: ServerMessage;
     try { message = JSON.parse(raw) as ServerMessage; }
     catch { this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' }); return; }
-    if (message.type === 'snapshot' && message.sequence < this.lastServerSequence) return;
-    if (message.type === 'welcome' || message.type === 'snapshot') this.lastServerSequence = message.sequence;
+    if ((message.type === 'snapshot' || message.type === 'snapshot-frame') && message.sequence < this.lastServerSequence) return;
+    if (message.type === 'welcome' || message.type === 'snapshot' || message.type === 'snapshot-frame') {
+      this.lastServerSequence = message.sequence;
+    }
     if (message.type === 'welcome') {
       this.playerId = message.playerId;
       this.reconnectToken = message.reconnectToken;
+      this.lastSnapshot = message.snapshot;
       this.emit('welcome', { playerId: message.playerId, map: message.map, snapshot: message.snapshot });
-    } else if (message.type === 'snapshot') this.emit('snapshot', { snapshot: message.snapshot, events: message.events });
+    } else if (message.type === 'snapshot') {
+      this.lastSnapshot = message.snapshot;
+      this.emit('snapshot', { snapshot: message.snapshot, events: message.events });
+    } else if (message.type === 'snapshot-frame') {
+      const snapshot = mergeSnapshotFrame(this.lastSnapshot, message.snapshot, message.buildings);
+      if (!snapshot) {
+        this.resync();
+        return;
+      }
+      this.lastSnapshot = snapshot;
+      this.emit('snapshot', { snapshot, events: message.events });
+    }
     else if (message.type === 'error') this.emit('error', { message: message.message });
     else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
     else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });

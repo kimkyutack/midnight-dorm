@@ -615,9 +615,13 @@ async function nearestSharedRoom(page: Page): Promise<{ roomId: string }> {
     }
     return (
       map.rooms
+        .filter((room) => room.beds.length >= 2)
         .map((room) => ({
           id: room.id,
-          distance: Math.min(
+          // Both real clients must reach a different bed in the same room.
+          // Choosing by only the nearest bed made the second route
+          // arbitrarily long on asymmetric procedural rooms.
+          distance: Math.max(
             ...room.beds.map(
               (bed) => distances.get(`${bed.x},${bed.y}`) ?? Infinity,
             ),
@@ -669,7 +673,13 @@ async function moveNearBed(
             );
             if (standingOnRoomFloor && distance <= 1.65) {
               game.move(0, 0);
-              return distance;
+              // Test matches run at 4x simulation speed. Wait until a server
+              // snapshot acknowledges the stop input before interacting;
+              // otherwise the authoritative actor can pass the bed during
+              // the snapshot-to-input round trip.
+              return Math.hypot(player.velocity.x, player.velocity.y) <= 0.001
+                ? distance
+                : Infinity;
             }
             const start = {
               x: Math.round(player.position.x),
@@ -714,7 +724,15 @@ async function moveNearBed(
             const dx = waypoint.x - player.position.x;
             const dy = waypoint.y - player.position.y;
             const magnitude = Math.hypot(dx, dy) || 1;
-            game.move(dx / magnitude, dy / magnitude);
+            // The test simulation advances at 4x speed, so full analogue
+            // input can jump past a one-tile waypoint between 100ms polls and
+            // oscillate forever. A steady partial input follows the same
+            // authoritative collision path without overshooting corners.
+            const inputMagnitude = 0.4;
+            game.move(
+              (dx / magnitude) * inputMagnitude,
+              (dy / magnitude) * inputMagnitude,
+            );
             return distance;
           },
           { targetRoomId: roomId, targetBedIndex: bedIndex },
@@ -1075,13 +1093,13 @@ test("two real browser contexts share a room, building, combat and reconnection"
           timeout: 15_000,
           intervals: [100],
         })
-        .toBe("PLAYING"),
+        .toBe("COUNTDOWN"),
       expect
         .poll(async () => (await state(second)).snapshot?.status, {
           timeout: 15_000,
           intervals: [100],
         })
-        .toBe("PLAYING"),
+        .toBe("COUNTDOWN"),
     ]);
     await Promise.all([
       expect(first.getByTestId("network")).toBeVisible(),
@@ -1120,6 +1138,12 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(roommates[0]?.bedIndex).not.toBeNull();
     expect(roommates[1]?.bedIndex).not.toBeNull();
     expect(roommates[0]?.bedIndex).not.toBe(roommates[1]?.bedIndex);
+    await expect
+      .poll(async () => (await state(first)).snapshot?.status, {
+        timeout: 15_000,
+        intervals: [100],
+      })
+      .toBe("PLAYING");
 
     const movingId = firstState.playerId;
     const goldBefore =

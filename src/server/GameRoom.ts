@@ -15,6 +15,7 @@ interface ConnectionAttachment {
   lastSequence: number;
   lastBuildAt: number;
   lastQuickChatAt?: number;
+  snapshotFrames?: boolean;
 }
 
 interface InitPayload {
@@ -58,6 +59,7 @@ export class GameRoom extends DurableObject<Env> {
   private recordedMatchId: string | null = null;
   private recordingMatchId: string | null = null;
   private rankedQueue: RankedQueueRoomConfig | null = null;
+  private lastBroadcastBuildingSignature = '';
   private readonly ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -218,6 +220,7 @@ export class GameRoom extends DurableObject<Env> {
       reconnectToken: result.reconnectToken,
       lastSequence: -1,
       lastBuildAt: 0,
+      snapshotFrames: url.searchParams.get('snapshotFrames') === '1',
     };
     server.serializeAttachment(attachment);
     const autoStarted = this.maybeStartRankedQueueMatch();
@@ -457,16 +460,37 @@ export class GameRoom extends DurableObject<Env> {
   private broadcastSnapshot(): void {
     if (!this.engine) return;
     const snapshot = this.networkSnapshot();
-    const message: ServerMessage = {
-      type: 'snapshot',
+    const buildingSignature = this.buildingSnapshotSignature(snapshot.buildings);
+    const buildingsChanged = buildingSignature !== this.lastBroadcastBuildingSignature;
+    if (buildingsChanged) this.lastBroadcastBuildingSignature = buildingSignature;
+    const { buildings, ...frame } = snapshot;
+    const events = this.engine.drainEvents();
+    const frameMessage: ServerMessage = {
+      type: 'snapshot-frame',
       sequence: snapshot.serverSeq,
       timestamp: Date.now(),
-      snapshot,
-      events: this.engine.drainEvents(),
+      snapshot: frame,
+      ...(buildingsChanged ? { buildings } : {}),
+      events,
     };
-    const encoded = encodeMessage(message);
+    const frameEncoded = encodeMessage(frameMessage);
+    let legacyEncoded = '';
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket.readyState === WebSocket.OPEN) socket.send(encoded);
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      const attachment =
+        socket.deserializeAttachment() as ConnectionAttachment | null;
+      if (attachment?.snapshotFrames) {
+        socket.send(frameEncoded);
+        continue;
+      }
+      legacyEncoded ||= encodeMessage({
+        type: 'snapshot',
+        sequence: snapshot.serverSeq,
+        timestamp: Date.now(),
+        snapshot,
+        events,
+      });
+      socket.send(legacyEncoded);
     }
   }
 
@@ -501,9 +525,42 @@ export class GameRoom extends DurableObject<Env> {
         : snapshot.ghost);
     return {
       ...snapshot,
+      // Cooldowns are simulation-only and otherwise make the large building
+      // array appear changed on every 10Hz network frame.
+      buildings: snapshot.buildings.map((building) =>
+        building.cooldown === 0 ? building : { ...building, cooldown: 0 }
+      ),
       ghost: leadGhost,
       ghosts,
     };
+  }
+
+  private buildingSnapshotSignature(buildings: GameSnapshot['buildings']): string {
+    return buildings.map((building) => [
+      building.id,
+      building.kind,
+      building.roomId,
+      building.ownerId,
+      building.skinId,
+      building.tile.x,
+      building.tile.y,
+      building.level,
+      building.hp,
+      building.itemId ?? '',
+      building.investedGold ?? 0,
+      building.investedPower ?? 0,
+      building.effectiveLevel ?? building.level,
+      building.overloadReadyAt ?? 0,
+      building.overloadUntil ?? 0,
+      building.storedSoulDamage ?? 0,
+      building.berserk ? 1 : 0,
+      building.soulChargeReadyAt ?? 0,
+      building.soulChargeDamage ?? 0,
+      building.powerPanelMode ?? '',
+      building.investmentByPlayer
+        ? JSON.stringify(building.investmentByPlayer)
+        : '',
+    ].join(':')).join('|');
   }
 
   private sendError(socket: WebSocket, code: string, message: string): void {

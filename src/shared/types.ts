@@ -407,6 +407,12 @@ export interface GameSnapshot {
   winner: 'survivors' | 'ghost' | null;
 }
 
+/**
+ * High-frequency realtime frame. Buildings are carried separately because
+ * their visual state changes far less often than actors and match timers.
+ */
+export type GameSnapshotFrame = Omit<GameSnapshot, 'buildings'>;
+
 export type GameEventKind =
   | 'gold'
   | 'power'
@@ -433,6 +439,8 @@ export type GameEventKind =
 
 export interface GameEvent {
   kind: GameEventKind;
+  /** Stable source identity lets clients coalesce visual-only rapid fire. */
+  sourceId?: string;
   position?: Vec2;
   /** World position of the actor that produced the event, when it matters for replay. */
   sourcePosition?: Vec2;
@@ -489,6 +497,13 @@ export type ServerMessage =
       snapshot: GameSnapshot;
     })
   | (BaseMessage & { type: 'snapshot'; snapshot: GameSnapshot; events: GameEvent[] })
+  | (BaseMessage & {
+      type: 'snapshot-frame';
+      snapshot: GameSnapshotFrame;
+      /** Omitted while the normalized building state has not changed. */
+      buildings?: BuildingState[];
+      events: GameEvent[];
+    })
   | (BaseMessage & { type: 'error'; code: string; message: string })
   | (BaseMessage & { type: 'pong'; clientTime: number; serverTime: number })
   | (BaseMessage & { type: 'quick-chat'; playerId: string; phrase: QuickChatPhrase })

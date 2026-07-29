@@ -8,7 +8,7 @@ import { characterTraitForAppearance } from '../../shared/characterTraits';
 import { SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl } from '../../shared/customization';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
-import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, Tile, TurretKind, Vec2 } from '../../shared/types';
+import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, RoomState, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
 import { facingDeltaForMotion } from './avatarMath';
 import { buildingAssetUrl } from './BuildingAssets';
@@ -32,6 +32,11 @@ const MAX_RECONCILE_STEP = 0.18;
 const FLOOR_TILE_HEIGHT = 0.08;
 const ROOM_FLOOR_OFFSET_Y = 0.003;
 const ROOM_FLOOR_CENTER_Y = ROOM_FLOOR_OFFSET_Y + FLOOR_TILE_HEIGHT / 2;
+const MAX_TRANSIENT_EFFECTS = 96;
+const MAX_RAPID_EFFECTS_PER_POOL = 32;
+const TURRET_VISUAL_INTERVAL_MS = 55;
+const INTERACTION_SCAN_INTERVAL_MS = 100;
+const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
 const buildingTextureLoader = new THREE.TextureLoader();
 const buildingTextureCache = new Map<string, THREE.Texture>();
 
@@ -249,6 +254,14 @@ interface TimedEffect {
   rise?: number;
   baseScale?: THREE.Vector3;
   scaleGrowth?: number;
+  fade?: boolean;
+  release?: (object: THREE.Object3D) => void;
+}
+
+interface TurretVisualProfile {
+  building: BuildingState;
+  range: number;
+  door?: Vec2;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -272,6 +285,17 @@ function mesh(
   result.position.set(...position);
   result.castShadow = true;
   result.receiveShadow = true;
+  return result;
+}
+
+function effectMesh(
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  position: [number, number, number] = [0, 0, 0],
+): THREE.Mesh {
+  const result = mesh(geometry, material, position);
+  result.castShadow = false;
+  result.receiveShadow = false;
   return result;
 }
 
@@ -522,6 +546,37 @@ function disposeBuildingRoot(object: THREE.Object3D): void {
       material.dispose();
     }
   });
+}
+
+function disposeTransientObject(object: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+  object.traverse((child) => {
+    if (
+      !(child instanceof THREE.Mesh) &&
+      !(child instanceof THREE.Line) &&
+      !(child instanceof THREE.Sprite)
+    )
+      return;
+    if (child.geometry) geometries.add(child.geometry);
+    const childMaterials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    for (const material of childMaterials) {
+      materials.add(material);
+      if (
+        (material instanceof THREE.SpriteMaterial ||
+          material instanceof THREE.MeshBasicMaterial ||
+          material instanceof THREE.MeshStandardMaterial) &&
+        material.map instanceof THREE.Texture
+      )
+        textures.add(material.map);
+    }
+  });
+  for (const texture of textures) texture.dispose();
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
 }
 
 export function createPlayerRig(
@@ -1773,6 +1828,20 @@ export class ThreeGameView {
   private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
   private readonly environmentTextures: THREE.Texture[] = [];
+  private readonly playerStateById = new Map<string, PlayerState>();
+  private readonly ghostStateById = new Map<string, GhostState>();
+  private readonly buildingStateById = new Map<string, BuildingState>();
+  private readonly roomStateById = new Map<string, RoomState>();
+  private readonly mapRoomById = new Map<string, MapDefinition['rooms'][number]>();
+  private readonly turretVisualProfiles = new Map<string, TurretVisualProfile>();
+  private activeGhostStates: GhostState[] = [];
+  private readonly normalProjectilePool: THREE.Mesh[] = [];
+  private readonly waterProjectilePool: THREE.Group[] = [];
+  private readonly waterSplashPool: THREE.Group[] = [];
+  private readonly beamPool: THREE.Line[] = [];
+  private readonly impactRingPool: THREE.Mesh[] = [];
+  private readonly effectPoolCreated = new Map<string, number>();
+  private readonly lastTurretVisualAt = new Map<string, number>();
   private roomSkinSyncInitialized = false;
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
@@ -1793,6 +1862,12 @@ export class ThreeGameView {
   private paused = false;
   private destroyed = false;
   private nearbyLootId: string | null = null;
+  private nextInteractionScanAt = 0;
+  private renderPixelRatio = 1;
+  private maxRenderPixelRatio = 2;
+  private frameTimeEma = 16.7;
+  private nextQualitySampleAt = 0;
+  private qualityHeadroomSamples = 0;
 
   constructor(host: HTMLElement, payload: ViewPayload) {
     this.host = host;
@@ -1802,6 +1877,7 @@ export class ThreeGameView {
     this.onSleep = payload.onSleep ?? (() => undefined);
     this.onPickupLoot = payload.onPickupLoot ?? (() => undefined);
     this.portraitLayout = host.clientHeight > host.clientWidth;
+    for (const room of this.mapData.rooms) this.mapRoomById.set(room.id, room);
     this.theme = stageThemeFor(payload.snapshot.stageId);
     this.scene.background = new THREE.Color(this.theme.background);
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
@@ -1809,7 +1885,9 @@ export class ThreeGameView {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     // 1.2x was being upscaled heavily on high-DPR Android screens, turning
     // tile textures and the building PNGs into a soft, low-resolution image.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.maxRenderPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    this.renderPixelRatio = this.maxRenderPixelRatio;
+    this.renderer.setPixelRatio(this.renderPixelRatio);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.16;
@@ -1819,6 +1897,7 @@ export class ThreeGameView {
     this.renderer.domElement.dataset.actorRenderer = 'atlas-sprites';
     this.renderer.domElement.dataset.surfaceRenderer = 'image-textures';
     this.renderer.domElement.dataset.theme = this.theme.id;
+    this.renderer.domElement.dataset.pixelRatio = this.renderPixelRatio.toFixed(2);
     this.renderer.domElement.style.touchAction = 'none';
     this.host.appendChild(this.renderer.domElement);
     this.sleepButton = document.createElement('button');
@@ -1939,6 +2018,7 @@ export class ThreeGameView {
 
   updateSnapshot(snapshot: GameSnapshot, events: GameEvent[]): void {
     this.snapshotData = snapshot;
+    this.rebuildSnapshotIndexes(snapshot);
     this.syncPlayers(snapshot.players);
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncBeds(snapshot);
@@ -1966,7 +2046,62 @@ export class ThreeGameView {
       }
       this.focusedRoomId = local.roomId;
     }
-    this.updateSleepPrompt();
+    this.updateSleepPrompt(true);
+  }
+
+  private rebuildSnapshotIndexes(snapshot: GameSnapshot): void {
+    this.playerStateById.clear();
+    for (const player of snapshot.players) this.playerStateById.set(player.id, player);
+    this.ghostStateById.clear();
+    this.activeGhostStates = [];
+    for (const ghost of snapshot.ghosts ?? [snapshot.ghost]) {
+      this.ghostStateById.set(ghost.id, ghost);
+      if (ghost.hp > 0 && !ghost.healing) this.activeGhostStates.push(ghost);
+    }
+    this.buildingStateById.clear();
+    const buildingsByOwner = new Map<string, BuildingState[]>();
+    const rangeBonusByOwner = new Map<string, number>();
+    for (const building of snapshot.buildings) {
+      this.buildingStateById.set(building.id, building);
+      const owned = buildingsByOwner.get(building.ownerId);
+      if (owned) owned.push(building);
+      else buildingsByOwner.set(building.ownerId, [building]);
+      if (building.kind === 'range-amplifier') {
+        rangeBonusByOwner.set(
+          building.ownerId,
+          Math.max(rangeBonusByOwner.get(building.ownerId) ?? 0, building.level),
+        );
+      }
+    }
+    this.roomStateById.clear();
+    for (const room of snapshot.rooms) this.roomStateById.set(room.id, room);
+
+    const rewardEffectsByOwner = new Map<string, ReturnType<typeof combinedItemEffects>>();
+    for (const player of snapshot.players) {
+      const placedRewards = (buildingsByOwner.get(player.id) ?? [])
+        .filter((building) => building.kind === 'random-item' && building.itemId)
+        .map((building) => ({ itemId: building.itemId as string, count: 1 }));
+      rewardEffectsByOwner.set(
+        player.id,
+        combinedItemEffects([...player.items, ...placedRewards]),
+      );
+    }
+    this.turretVisualProfiles.clear();
+    for (const building of snapshot.buildings) {
+      if (building.kind !== 'basic-turret' && building.kind !== 'golden-turret') continue;
+      const owner = this.playerStateById.get(building.ownerId);
+      const rewardEffects = rewardEffectsByOwner.get(building.ownerId);
+      const range =
+        buildingStats(building.kind, building.effectiveLevel ?? building.level).range +
+        (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus : 0) +
+        (rewardEffects?.turretRangeBonus ?? 0) +
+        (rangeBonusByOwner.get(building.ownerId) ?? 0);
+      this.turretVisualProfiles.set(building.id, {
+        building,
+        range,
+        door: this.mapRoomById.get(building.roomId)?.door,
+      });
+    }
   }
 
   destroy(): void {
@@ -1980,6 +2115,14 @@ export class ThreeGameView {
     for (const view of this.ghostViews.values()) view.actor.dispose();
     this.playerViews.clear();
     this.ghostViews.clear();
+    for (const pool of [
+      this.normalProjectilePool,
+      this.waterProjectilePool,
+      this.waterSplashPool,
+      this.beamPool,
+      this.impactRingPool,
+    ])
+      for (const object of pool) disposeTransientObject(object);
     this.scene.traverse((object) => {
       if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {
         object.geometry?.dispose();
@@ -1999,7 +2142,8 @@ export class ThreeGameView {
 
   private readonly animate = (time: number): void => {
     if (this.destroyed || this.paused) return;
-    const dt = Math.min(FRAME_DT_MAX, Math.max(0.001, (time - this.lastFrame) / 1_000));
+    const rawFrameMs = Math.max(1, time - this.lastFrame);
+    const dt = Math.min(FRAME_DT_MAX, Math.max(0.001, rawFrameMs / 1_000));
     this.lastFrame = time;
     this.animatePlayers(time, dt);
     this.animateGhosts(time, dt);
@@ -2012,10 +2156,46 @@ export class ThreeGameView {
     this.updateCamera(dt);
     this.updateSleepPrompt();
     this.renderer.render(this.scene, this.camera);
+    this.updateAdaptiveRendering(time, rawFrameMs);
   };
 
-  private updateSleepPrompt(): void {
-    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+  private updateAdaptiveRendering(time: number, frameMs: number): void {
+    this.frameTimeEma += (frameMs - this.frameTimeEma) * 0.08;
+    if (time < this.nextQualitySampleAt) return;
+    this.nextQualitySampleAt = time + QUALITY_SAMPLE_INTERVAL_MS;
+    this.renderer.domElement.dataset.frameMs = this.frameTimeEma.toFixed(1);
+    this.renderer.domElement.dataset.drawCalls = String(this.renderer.info.render.calls);
+    this.renderer.domElement.dataset.effects = String(this.effects.length);
+
+    let nextRatio = this.renderPixelRatio;
+    if (this.frameTimeEma > 21.5) {
+      nextRatio = Math.max(1, this.renderPixelRatio - 0.25);
+      this.qualityHeadroomSamples = 0;
+    } else if (this.frameTimeEma < 15.5) {
+      this.qualityHeadroomSamples += 1;
+      if (this.qualityHeadroomSamples >= 3) {
+        nextRatio = Math.min(this.maxRenderPixelRatio, this.renderPixelRatio + 0.25);
+        this.qualityHeadroomSamples = 0;
+      }
+    } else {
+      this.qualityHeadroomSamples = 0;
+    }
+    if (nextRatio === this.renderPixelRatio) return;
+    this.renderPixelRatio = nextRatio;
+    this.renderer.setPixelRatio(nextRatio);
+    this.renderer.setSize(
+      Math.max(1, this.host.clientWidth),
+      Math.max(1, this.host.clientHeight),
+      false,
+    );
+    this.renderer.domElement.dataset.pixelRatio = nextRatio.toFixed(2);
+  }
+
+  private updateSleepPrompt(force = false): void {
+    const now = performance.now();
+    if (!force && now < this.nextInteractionScanAt) return;
+    this.nextInteractionScanAt = now + INTERACTION_SCAN_INTERVAL_MS;
+    const local = this.playerStateById.get(this.playerId);
     if (
       !local?.alive ||
       local.roomId ||
@@ -2051,15 +2231,13 @@ export class ThreeGameView {
     const roomCapacity = this.snapshotData.playMode === 'multiplayer' ? 2 : 1;
     const nearest = this.mapData.rooms
       .flatMap((mapRoom) => {
-        const room = this.snapshotData.rooms.find((candidate) => candidate.id === mapRoom.id);
+        const room = this.roomStateById.get(mapRoom.id);
         if (!room || room.ownerIds.length >= roomCapacity) return [];
         return mapRoom.beds
           .map((bed, bedIndex) => ({ bed, bedIndex, room, mapRoom }))
           .filter(({ bedIndex, room }) =>
             !room.ownerIds.some((ownerId) =>
-              this.snapshotData.players.some(
-                (player) => player.id === ownerId && player.bedIndex === bedIndex,
-              ),
+              this.playerStateById.get(ownerId)?.bedIndex === bedIndex,
             ),
           );
       })
@@ -2963,14 +3141,14 @@ export class ThreeGameView {
   }
 
   private animatePlayers(time: number, dt: number): void {
-    const local = this.snapshotData.players.find((player) => player.id === this.playerId);
+    const local = this.playerStateById.get(this.playerId);
     const localRank = this.snapshotData.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const localSpeed = BALANCE.player.speed
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
       * characterTraitForAppearance(local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' }).unclaimedMoveSpeedMultiplier
       * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
     for (const [id, view] of this.playerViews) {
-      const player = this.snapshotData.players.find((candidate) => candidate.id === id);
+      const player = this.playerStateById.get(id);
       if (!player) continue;
       const lying = Boolean(player.alive && player.roomId);
       const defeated = !player.alive;
@@ -3081,7 +3259,7 @@ export class ThreeGameView {
 
   private animateGhosts(time: number, dt: number): void {
     for (const [id, view] of this.ghostViews) {
-      const ghost = this.snapshotData.ghosts.find((candidate) => candidate.id === id);
+      const ghost = this.ghostStateById.get(id);
       if (!ghost) continue;
       const beforeX = view.root.position.x;
       const beforeZ = view.root.position.z;
@@ -3131,27 +3309,24 @@ export class ThreeGameView {
   private animateTurrets(dt: number): void {
     for (const [id, view] of this.buildingViews) {
       if (!view.barrel) continue;
-      const building = this.snapshotData.buildings.find((candidate) => candidate.id === id);
-      if (!building) continue;
-      const owner = this.snapshotData.players.find((player) => player.id === building.ownerId);
-      const rangeBonus = this.snapshotData.buildings.find((candidate) =>
-        candidate.ownerId === building.ownerId && candidate.kind === 'range-amplifier'
-      )?.level ?? 0;
-      const placedRewards = this.snapshotData.buildings
-        .filter((candidate) => candidate.ownerId === building.ownerId && candidate.kind === 'random-item' && candidate.itemId)
-        .map((candidate) => ({ itemId: candidate.itemId as string, count: 1 }));
-      const rewardEffects = owner
-        ? combinedItemEffects([...owner.items, ...placedRewards])
-        : null;
-      const range = buildingStats('basic-turret', building.effectiveLevel ?? building.level).range
-        + (owner ? characterTraitForAppearance(owner.appearance).turretRangeBonus + (rewardEffects?.turretRangeBonus ?? 0) : 0)
-        + rangeBonus;
-      const nearest = this.snapshotData.ghosts.filter((ghost) =>
-        ghost.hp > 0 && !ghost.healing
-          && Math.hypot(ghost.position.x - building.tile.x, ghost.position.y - building.tile.y) <= range,
-      )
-        .sort((a, b) => Math.hypot(a.position.x - building.tile.x, a.position.y - building.tile.y) - Math.hypot(b.position.x - building.tile.x, b.position.y - building.tile.y))[0];
-      const door = this.mapData.rooms.find((room) => room.id === building.roomId)?.door;
+      const profile = this.turretVisualProfiles.get(id);
+      if (!profile) continue;
+      const { building, range, door } = profile;
+      const rangeSquared = range * range;
+      let nearest: GhostState | undefined;
+      let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+      for (const ghost of this.activeGhostStates) {
+        const dx = ghost.position.x - building.tile.x;
+        const dy = ghost.position.y - building.tile.y;
+        const candidateDistanceSquared = dx * dx + dy * dy;
+        if (
+          candidateDistanceSquared > rangeSquared ||
+          candidateDistanceSquared >= nearestDistanceSquared
+        )
+          continue;
+        nearest = ghost;
+        nearestDistanceSquared = candidateDistanceSquared;
+      }
       const target = nearest?.position ?? door;
       if (!target) continue;
       const desired = Math.atan2(target.x - building.tile.x, target.y - building.tile.y);
@@ -3170,11 +3345,196 @@ export class ThreeGameView {
       } else {
         effect.object.scale.setScalar(1 + progress * 1.4);
       }
-      setObjectOpacity(effect.object, 1 - progress);
+      if (effect.fade !== false) setObjectOpacity(effect.object, 1 - progress);
       if (progress < 1) continue;
       this.scene.remove(effect.object);
+      if (effect.release) effect.release(effect.object);
+      else disposeTransientObject(effect.object);
       this.effects.splice(index, 1);
     }
+  }
+
+  private acquirePooledObject<T extends THREE.Object3D>(
+    key: string,
+    pool: T[],
+    factory: () => T,
+    maximum = MAX_RAPID_EFFECTS_PER_POOL,
+  ): T | null {
+    const pooled = pool.pop();
+    if (pooled) {
+      pooled.visible = true;
+      pooled.scale.setScalar(1);
+      pooled.rotation.set(0, 0, 0);
+      return pooled;
+    }
+    const created = this.effectPoolCreated.get(key) ?? 0;
+    if (created >= maximum) return null;
+    const object = factory();
+    this.effectPoolCreated.set(key, created + 1);
+    return object;
+  }
+
+  private queuePooledEffect<T extends THREE.Object3D>(
+    object: T,
+    pool: T[],
+    effect: Omit<TimedEffect, 'object' | 'release'>,
+  ): void {
+    this.scene.add(object);
+    this.effects.push({
+      ...effect,
+      object,
+      fade: false,
+      release: (released) => {
+        released.visible = false;
+        pool.push(released as T);
+      },
+    });
+  }
+
+  private acquireNormalProjectile(kind?: BuildingKind): THREE.Mesh | null {
+    const projectile = this.acquirePooledObject(
+      'normal-projectile',
+      this.normalProjectilePool,
+      () => effectMesh(
+        new THREE.SphereGeometry(0.1, 8, 6),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd36f,
+          transparent: true,
+          opacity: 0.96,
+          depthWrite: false,
+        }),
+      ),
+    );
+    if (!projectile) return null;
+    const rapid = kind === 'rapid-turret';
+    const material = projectile.material as THREE.MeshBasicMaterial;
+    material.color.setHex(rapid ? 0x75e8ff : 0xffd36f);
+    projectile.scale.setScalar(rapid ? 0.62 : 1);
+    return projectile;
+  }
+
+  private acquireWaterProjectile(): THREE.Group | null {
+    return this.acquirePooledObject(
+      'water-projectile',
+      this.waterProjectilePool,
+      () => {
+        const droplets = new THREE.Group();
+        const material = new THREE.MeshBasicMaterial({
+          color: 0x62ddff,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        });
+        for (let index = 0; index < 5; index += 1) {
+          const droplet = effectMesh(
+            new THREE.SphereGeometry(index === 0 ? 0.13 : 0.065, 10, 7),
+            material,
+            [
+              (index % 2 === 0 ? 1 : -1) * index * 0.035,
+              (index % 3) * 0.025,
+              index * 0.1,
+            ],
+          );
+          droplet.scale.set(1, 0.8, 1.35);
+          droplets.add(droplet);
+        }
+        droplets.renderOrder = 8_200;
+        return droplets;
+      },
+      24,
+    );
+  }
+
+  private acquireWaterSplash(): THREE.Group | null {
+    return this.acquirePooledObject(
+      'water-splash',
+      this.waterSplashPool,
+      () => {
+        const splash = new THREE.Group();
+        const ring = effectMesh(
+          new THREE.RingGeometry(0.12, 0.27, 20),
+          new THREE.MeshBasicMaterial({
+            color: 0xd8fbff,
+            transparent: true,
+            opacity: 0.88,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        splash.add(ring);
+        const cyan = new THREE.MeshBasicMaterial({
+          color: 0x82e9ff,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        });
+        const white = cyan.clone();
+        white.color.setHex(0xffffff);
+        for (let index = 0; index < 6; index += 1) {
+          const angle = (index / 6) * Math.PI * 2;
+          splash.add(effectMesh(
+            new THREE.SphereGeometry(0.045, 8, 6),
+            index % 2 === 0 ? cyan : white,
+            [
+              Math.cos(angle) * 0.3,
+              0.04 + (index % 2) * 0.04,
+              Math.sin(angle) * 0.3,
+            ],
+          ));
+        }
+        splash.renderOrder = 8_210;
+        return splash;
+      },
+      24,
+    );
+  }
+
+  private acquireBeam(color: number): THREE.Line | null {
+    const line = this.acquirePooledObject(
+      'turret-beam',
+      this.beamPool,
+      () => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          'position',
+          new THREE.BufferAttribute(new Float32Array(6), 3),
+        );
+        const created = new THREE.Line(
+          geometry,
+          new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.95,
+          }),
+        );
+        created.castShadow = false;
+        created.receiveShadow = false;
+        return created;
+      },
+      24,
+    );
+    if (line) (line.material as THREE.LineBasicMaterial).color.setHex(color);
+    return line;
+  }
+
+  private acquireImpactRing(color: number): THREE.Mesh | null {
+    const ring = this.acquirePooledObject(
+      'impact-ring',
+      this.impactRingPool,
+      () => effectMesh(
+        new THREE.RingGeometry(0.14, 0.22, 24),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
+      ),
+    );
+    if (ring) (ring.material as THREE.MeshBasicMaterial).color.setHex(color);
+    return ring;
   }
 
   private playEvent(event: GameEvent): void {
@@ -3192,7 +3552,7 @@ export class ThreeGameView {
       attacker.attackStartedAt = performance.now() - 70;
     }
     if (event.kind === 'ghost-net' && event.position) {
-      const net = mesh(
+      const net = effectMesh(
         new THREE.RingGeometry(0.28, 0.72, 12),
         new THREE.MeshBasicMaterial({ color: 0xffdf65, transparent: true, opacity: 0.92, side: THREE.DoubleSide, depthTest: false }),
         [event.position.x, 0.82, event.position.y],
@@ -3248,7 +3608,7 @@ export class ThreeGameView {
         : event.itemId === 'quick-mortar' || event.itemId === 'repair-window'
           ? 0x76f0b0
           : 0x74ecf2;
-      const ring = mesh(
+      const ring = effectMesh(
         new THREE.RingGeometry(0.2, event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 1.25 : 0.48, 32),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
         [event.position.x, 0.06, event.position.y],
@@ -3276,101 +3636,89 @@ export class ThreeGameView {
       return;
     }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
+      const born = performance.now();
+      const sourceKey = event.sourceId ??
+        `${event.position.x}:${event.position.y}:${event.buildingKind ?? ''}`;
+      const lastVisualAt = this.lastTurretVisualAt.get(sourceKey) ?? -Infinity;
+      if (
+        born - lastVisualAt < TURRET_VISUAL_INTERVAL_MS ||
+        this.effects.length >= MAX_TRANSIENT_EFFECTS
+      )
+        return;
+      this.lastTurretVisualAt.set(sourceKey, born);
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
       if (event.itemId === SURFER_WATER_TURRET_SKIN_ID) {
-        const born = performance.now();
         const direction = to.clone().sub(from).normalize();
-        const sideways = new THREE.Vector3(-direction.z, 0, direction.x);
-        const droplets = new THREE.Group();
-        const waterMaterial = new THREE.MeshBasicMaterial({
-          color: 0x62ddff,
-          transparent: true,
-          opacity: 0.9,
-          depthWrite: false,
-        });
-        for (let index = 0; index < 5; index += 1) {
-          const droplet = mesh(
-            new THREE.SphereGeometry(index === 0 ? 0.13 : 0.065, 10, 7),
-            waterMaterial.clone(),
-            [
-              sideways.x * ((index % 2 === 0 ? 1 : -1) * index * 0.035),
-              (index % 3) * 0.025,
-              sideways.z * ((index % 2 === 0 ? 1 : -1) * index * 0.035)
-                + index * 0.1,
-            ],
-          );
-          droplet.scale.set(1, 0.8, 1.35);
-          droplets.add(droplet);
+        const droplets = this.acquireWaterProjectile();
+        if (droplets) {
+          droplets.position.copy(from);
+          droplets.rotation.y = Math.atan2(direction.x, direction.z);
+          this.queuePooledEffect(droplets, this.waterProjectilePool, {
+            born,
+            duration: 235,
+            from,
+            to,
+            baseScale: droplets.scale.clone(),
+            scaleGrowth: 0.08,
+          });
         }
-        droplets.position.copy(from);
-        droplets.renderOrder = 8_200;
-        this.scene.add(droplets);
-        this.effects.push({
-          object: droplets,
-          born,
-          duration: 235,
-          from,
-          to,
-          baseScale: droplets.scale.clone(),
-          scaleGrowth: 0.08,
-        });
 
-        const splash = new THREE.Group();
-        const ring = mesh(
-          new THREE.RingGeometry(0.12, 0.27, 20),
-          new THREE.MeshBasicMaterial({
-            color: 0xd8fbff,
-            transparent: true,
-            opacity: 0.88,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          }),
-        );
-        ring.rotation.x = -Math.PI / 2;
-        splash.add(ring);
-        for (let index = 0; index < 6; index += 1) {
-          const angle = (index / 6) * Math.PI * 2;
-          splash.add(mesh(
-            new THREE.SphereGeometry(0.045, 8, 6),
-            new THREE.MeshBasicMaterial({
-              color: index % 2 === 0 ? 0x82e9ff : 0xffffff,
-              transparent: true,
-              opacity: 0.9,
-              depthWrite: false,
-            }),
-            [Math.cos(angle) * 0.3, 0.04 + (index % 2) * 0.04, Math.sin(angle) * 0.3],
-          ));
+        const splash = this.acquireWaterSplash();
+        if (splash) {
+          splash.position.copy(to);
+          this.queuePooledEffect(splash, this.waterSplashPool, {
+            born,
+            duration: 310,
+            baseScale: splash.scale.clone(),
+            scaleGrowth: 0.9,
+          });
         }
-        splash.position.copy(to);
-        splash.renderOrder = 8_210;
-        this.scene.add(splash);
-        this.effects.push({
-          object: splash,
-          born,
-          duration: 310,
-          baseScale: splash.scale.clone(),
-          scaleGrowth: 0.9,
-        });
       } else if (event.buildingKind === 'frost-turret' || event.buildingKind === 'arc-turret' || event.buildingKind === 'electric-coil') {
-        const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
         const color = event.buildingKind === 'frost-turret' ? 0x91efff : 0xcf79ff;
-        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
-        this.scene.add(line);
-        this.effects.push({ object: line, born: performance.now(), duration: 190 });
+        const line = this.acquireBeam(color);
+        if (line) {
+          const positions = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+          positions.setXYZ(0, from.x, from.y, from.z);
+          positions.setXYZ(1, to.x, to.y, to.z);
+          positions.needsUpdate = true;
+          line.geometry.computeBoundingSphere();
+          this.queuePooledEffect(line, this.beamPool, {
+            born,
+            duration: 190,
+            baseScale: line.scale.clone(),
+            scaleGrowth: 0,
+          });
+        }
       } else {
-        const projectile = mesh(new THREE.SphereGeometry(event.buildingKind === 'rapid-turret' ? 0.06 : 0.1, 8, 6), standardMaterial(event.buildingKind === 'rapid-turret' ? 0x75e8ff : 0xffd36f, { emissive: event.buildingKind === 'rapid-turret' ? 0x75e8ff : 0xff8c35, emissiveIntensity: 3 }), [from.x, from.y, from.z]);
-        this.scene.add(projectile);
-        this.effects.push({ object: projectile, born: performance.now(), duration: event.buildingKind === 'rapid-turret' ? 120 : 210, from, to });
+        const projectile = this.acquireNormalProjectile(event.buildingKind);
+        if (projectile) {
+          projectile.position.copy(from);
+          this.queuePooledEffect(projectile, this.normalProjectilePool, {
+            born,
+            duration: event.buildingKind === 'rapid-turret' ? 120 : 210,
+            from,
+            to,
+            baseScale: projectile.scale.clone(),
+            scaleGrowth: 0.08,
+          });
+        }
       }
       return;
     }
     if (!event.position || !['ghost-hit', 'door-hit', 'player-hit', 'death', 'build', 'building-remove', 'ghost-level-up', 'ghost-skill'].includes(event.kind)) return;
     const color = event.kind === 'build' ? 0x68efa4 : event.kind === 'building-remove' ? 0xffa067 : event.kind === 'ghost-skill' ? 0xc27bff : 0xff5578;
-    const ring = mesh(new THREE.RingGeometry(0.14, 0.22, 24), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), [event.position.x, 0.7, event.position.y]);
+    if (this.effects.length >= MAX_TRANSIENT_EFFECTS) return;
+    const ring = this.acquireImpactRing(color);
+    if (!ring) return;
+    ring.position.set(event.position.x, 0.7, event.position.y);
     ring.lookAt(this.camera.position);
-    this.scene.add(ring);
-    this.effects.push({ object: ring, born: performance.now(), duration: 340 });
+    this.queuePooledEffect(ring, this.impactRingPool, {
+      born: performance.now(),
+      duration: 340,
+      baseScale: ring.scale.clone(),
+      scaleGrowth: 1.4,
+    });
   }
 
   private updateCamera(dt: number): void {
