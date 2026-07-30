@@ -3085,6 +3085,50 @@ describe('requested progression and event rules', () => {
     expect(engine.build(playerId, roomId, nextTile, 'frost-turret').ok).toBe(true);
   });
 
+  it('unlocks one golden turret installation for each golden ticket', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const state = engine.serialize();
+    const player = state.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing golden ticket owner');
+    player.items.push({
+      itemId: 'golden-ticket',
+      label: '황금 티켓',
+      rarity: 'legendary',
+      count: 1,
+    });
+    engine.restore(state);
+
+    expect(engine.build(playerId, roomId, tile, 'golden-turret').ok).toBe(true);
+  });
+
+  it('converts a lucky-machine golden ticket in place instead of unlocking the install catalog', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    expect(engine.build(playerId, roomId, tile, 'lucky-machine').ok).toBe(true);
+    const prepared = engine.serialize();
+    const ticket = prepared.snapshot.buildings.find((building) => building.kind === 'lucky-machine');
+    const player = prepared.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!ticket || !player) throw new Error('missing placed golden ticket');
+    ticket.kind = 'random-item';
+    ticket.itemId = 'golden-ticket';
+    player.items = [];
+    engine.restore(prepared);
+
+    expect(engine.handle(playerId, envelope({
+      type: 'activate-building',
+      buildingId: ticket.id,
+      action: 'install-golden-turret',
+    }, 902)).ok).toBe(true);
+    const converted = engine.snapshot().buildings.find((building) => building.id === ticket.id);
+    expect(converted).toMatchObject({ kind: 'golden-turret' });
+    expect(converted).not.toHaveProperty('itemId');
+  });
+
   it('authoritatively prevents base turret fire beyond four tiles', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
@@ -3761,10 +3805,9 @@ describe('requested progression and event rules', () => {
       const engine = new GameEngine('LOOTDROP', map, false);
       const joined = engine.join({ nickname: '보상 운반자', deviceId: 'device-loot-drop' });
       expect(engine.start(joined.player.id).ok).toBe(true);
-    // Non-ranked matches begin directly in the bright countdown. Loot is
-    // released immediately so it can complete its visible fall during those
-    // same 30 seconds.
-    expect(engine.snapshot().lootDrops.length).toBeGreaterThan(0);
+      // All modes keep the frozen ghost poster. The cargo starts falling only
+      // after that card clears and the bright non-ranked countdown begins.
+      expect(engine.snapshot().lootDrops).toHaveLength(0);
       advanceFrozenIntros(engine);
       const firstDrop = engine.snapshot().lootDrops[0];
       expect(firstDrop).toBeDefined();

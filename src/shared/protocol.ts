@@ -71,7 +71,7 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
       break;
     case 'activate-building':
       if (typeof value.buildingId !== 'string'
-        || !['use', 'attack', 'defense', 'production', 'berserk', 'soul-arm', 'soul-cancel', 'soul-fire', 'hide-and-seek'].includes(String(value.action))
+        || !['use', 'attack', 'defense', 'production', 'berserk', 'soul-arm', 'soul-cancel', 'soul-fire', 'hide-and-seek', 'install-golden-turret'].includes(String(value.action))
         || (value.targetId !== undefined && typeof value.targetId !== 'string')) {
         return { ok: false, error: 'invalid building activation' };
       }

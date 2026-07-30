@@ -1095,15 +1095,13 @@ export class GameEngine {
     );
     if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    // The dark opening hunt is a ranked-only pressure mechanic. Solo and
-    // friend matches keep the original bright preparation flow: survivors
-    // can move and claim beds while the ghost stays completely still.
-    const rankedOpeningHunt = Boolean(this.state.ranked);
-    this.state.status = rankedOpeningHunt
-      ? this.state.difficulty.modifier === 'time-attack'
+    // Every match shows the ghost warning poster. The dark opening hunt that
+    // follows it is ranked-only; solo and friend matches continue into a
+    // bright, stationary-ghost countdown instead.
+    this.state.status =
+      this.state.difficulty.modifier === 'time-attack'
         ? 'EVENT_INTRO'
-        : 'GHOST_INTRO'
-      : 'COUNTDOWN';
+        : 'GHOST_INTRO';
     this.state.countdown = this.countdownSecondsForMatch();
     this.state.difficulty.introRemaining =
       this.state.status === 'EVENT_INTRO'
@@ -1114,7 +1112,6 @@ export class GameEngine {
     // Countdown cargo is a short, optional opening event.  It is absent from
     // deterministic test matches so existing simulation fixtures stay stable.
     this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
-    if (!rankedOpeningHunt) this.releaseCountdownLoot();
     return { ok: true };
   }
 
@@ -1484,7 +1481,9 @@ export class GameEngine {
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
     if (kind === "golden-turret") {
-      const ticketCount = this.itemEffectsFor(player).goldenTurretTickets;
+      // Only persistent tickets unlock the catalog card. A ticket placed by a
+      // lucky machine converts itself in place through activateBuilding().
+      const ticketCount = combinedItemEffects(player.items).goldenTurretTickets;
       const installedCount = this.state.buildings.filter(
         (building) =>
           building.ownerId === playerId && building.kind === "golden-turret",
@@ -1579,6 +1578,41 @@ export class GameEngine {
       : undefined;
     if (!player || !player.alive || !building || !room || player.roomId !== room.id || building.ownerId !== playerId)
       return { ok: false, error: "같은 방의 내 설비만 사용할 수 있습니다." };
+
+    if (building.kind === "random-item" && building.itemId === "golden-ticket" && message.action === "install-golden-turret") {
+      if (this.state.ranked?.goldenTurretPolicy === "disabled")
+        return { ok: false, error: "이 랭크 계약에서는 황금 심판 포탑을 사용할 수 없습니다." };
+      const activeRank = this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
+      const trait = characterTraitForAppearance(player.appearance);
+      building.kind = "golden-turret";
+      building.skinId = "";
+      building.level = Math.min(
+        maxBuildingLevel("golden-turret", activeRank),
+        Math.max(1, trait.turretStartingLevel),
+      );
+      building.effectiveLevel = building.level;
+      building.cooldown = 0;
+      building.hp = 100;
+      building.investedGold = 0;
+      building.investedPower = 0;
+      building.investmentByPlayer = {};
+      building.overloadReadyAt = 0;
+      building.overloadUntil = 0;
+      building.storedSoulDamage = 0;
+      building.berserk = false;
+      building.soulChargeReadyAt = 0;
+      building.soulChargeDamage = 0;
+      delete building.itemId;
+      this.pendingEvents.push({
+        kind: "build",
+        roomId: room.id,
+        playerId,
+        position: { ...building.tile },
+        buildingKind: "golden-turret",
+        label: "황금 티켓 · 심판 포탑 설치",
+      });
+      return { ok: true };
+    }
 
     if (building.kind === "overload-capacitor" && message.action === "use") {
       if (this.state.elapsed < (building.overloadReadyAt ?? 0))

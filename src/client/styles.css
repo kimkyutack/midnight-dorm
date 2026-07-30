@@ -1151,6 +1151,7 @@
   gap: 5px;
 }
 .home-update-notice,
+.home-hard-refresh,
 .home-ad-free,
 .home-ranking-shortcut,
 .home-guide {
@@ -1176,6 +1177,8 @@
 }
 .home-update-notice:hover,
 .home-update-notice:focus-visible,
+.home-hard-refresh:hover,
+.home-hard-refresh:focus-visible,
 .home-ad-free:hover,
 .home-ad-free:focus-visible,
 .home-ranking-shortcut:hover,
@@ -1194,6 +1197,43 @@
   height: 29px;
   object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.52));
+}
+.home-hard-refresh {
+  border-color: rgba(124, 232, 255, 0.62);
+  background: linear-gradient(145deg, rgba(15, 66, 88, 0.94), rgba(20, 35, 76, 0.9));
+}
+.home-hard-refresh span {
+  display: block;
+  color: #b4f5ff;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 9px rgba(77, 221, 255, 0.76);
+}
+.force-refresh-sheet {
+  width: min(86vw, 380px);
+}
+.force-refresh-sheet h2 {
+  margin-bottom: 10px;
+}
+.force-refresh-sheet .subtitle {
+  margin: 0;
+  line-height: 1.6;
+}
+.force-refresh-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-top: 22px;
+}
+.force-refresh-actions .btn {
+  display: grid;
+  width: 100%;
+  min-height: 50px;
+  padding: 10px 8px;
+  place-items: center;
+  white-space: nowrap;
 }
 .home-ad-free {
   border-color: rgba(255, 121, 142, 0.48);
@@ -8350,6 +8390,7 @@ select {
     content: none;
   }
   .home-update-notice,
+  .home-hard-refresh,
   .home-ad-free,
   .home-ranking-shortcut {
     width: 34px;

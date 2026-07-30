@@ -514,7 +514,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })
   | (BaseMessage & { type: 'upgrade'; targetId: string })
   | (BaseMessage & { type: 'remove-building'; buildingId: string })
-  | (BaseMessage & { type: 'activate-building'; buildingId: string; action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire' | 'hide-and-seek'; targetId?: string })
+  | (BaseMessage & { type: 'activate-building'; buildingId: string; action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire' | 'hide-and-seek' | 'install-golden-turret'; targetId?: string })
   | (BaseMessage & { type: 'draw-item'; machineId: string })
   | (BaseMessage & { type: 'pickup-loot'; lootId: string })
   | (BaseMessage & { type: 'set-consumable-loadout'; itemIds: ConsumableId[] })

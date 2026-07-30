@@ -169,7 +169,7 @@ export class GameNetwork {
   removeBuilding(buildingId: string): void { this.send({ type: 'remove-building', buildingId }); }
   activateBuilding(
     buildingId: string,
-    action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire' | 'hide-and-seek',
+    action: 'use' | 'attack' | 'defense' | 'production' | 'berserk' | 'soul-arm' | 'soul-cancel' | 'soul-fire' | 'hide-and-seek' | 'install-golden-turret',
     targetId?: string,
   ): void { this.send({ type: 'activate-building', buildingId, action, targetId }); }
   drawItem(machineId: string): void { this.send({ type: 'draw-item', machineId }); }

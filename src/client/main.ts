@@ -5,7 +5,11 @@ import {
   upgradeCost,
   upgradeRequirement,
 } from "../shared/balance";
-import { DRAW_COSTS, getRandomItem } from "../shared/randomItems";
+import {
+  DRAW_COSTS,
+  combinedItemEffects,
+  getRandomItem,
+} from "../shared/randomItems";
 import {
   SHOP_CONSUMABLES,
   shopConsumableById,
@@ -236,6 +240,7 @@ const GOLD_BUILD_ORDER: BuildingKind[] = [
   "generator",
   "repair-drone",
   "lucky-machine",
+  "golden-turret",
   "hide-and-seek-doll",
   "power-panel",
   "soul-vial",
@@ -836,7 +841,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-hard-refresh" data-force-refresh aria-haspopup="dialog" aria-label="강력 새로고침" title="강력 새로고침"><span aria-hidden="true">↻</span></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -904,6 +909,10 @@ function homeScreen(): void {
   app.querySelector("[data-app-updates]")?.addEventListener("click", () => {
     audio.play("button");
     void showAppUpdateHistory();
+  });
+  app.querySelector("[data-force-refresh]")?.addEventListener("click", () => {
+    audio.play("button");
+    showForceRefreshPrompt();
   });
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
@@ -3159,10 +3168,20 @@ function renderBuildPanel(tile: Tile): void {
   const modeRank =
     gameState.playMode === "solo" ? me.soloRank : me.multiplayerRank;
   const availableKinds: BuildingKind[] = [...BUILD_KINDS];
+  const ownedBuildings = gameState.buildings.filter(
+    (building) => building.ownerId === me.id,
+  );
+  const installedGoldenTurrets = ownedBuildings.filter(
+    (building) => building.kind === "golden-turret",
+  ).length;
+  const goldenTurretSlots =
+    gameState.ranked?.goldenTurretPolicy === "loaned"
+      ? 1
+      : combinedItemEffects(me.items).goldenTurretTickets;
+  const canInstallGoldenTurret =
+    gameState.ranked?.goldenTurretPolicy !== "disabled" &&
+    installedGoldenTurrets < goldenTurretSlots;
   const buildLimitReason = (kind: BuildingKind): string | null => {
-    const ownedBuildings = gameState.buildings.filter(
-      (building) => building.ownerId === me.id,
-    );
     if (
       [
         "lucky-machine",
@@ -3196,18 +3215,21 @@ function renderBuildPanel(tile: Tile): void {
   const buildCard = (kind: BuildingKind): string => {
     const definition = BALANCE.buildings[kind];
     const cost = upgradeCost(kind, 1, modeRank);
+    const ticketBuild = kind === "golden-turret";
     const powerOnly = cost.gold === 0 && cost.power > 0;
     const affordable = canAffordResources(me, cost.gold, cost.power);
     const limitReason = buildLimitReason(kind);
     const enabled = affordable && !limitReason;
-    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${limitReason ? ' data-build-limit="true"' : ""} ${enabled ? "" : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${resourceCostMarkup(cost)}</span></button>`;
+    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${limitReason ? ' data-build-limit="true"' : ""} ${enabled ? "" : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${ticketBuild ? '<span class="resource-cost gold">🎟 <b>티켓 1장</b></span>' : resourceCostMarkup(cost)}</span></button>`;
   };
   const goldCards = GOLD_BUILD_ORDER
     // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
     // 아니라 골드/아이템 설비이므로 골드 탭에 항상 남겨 둔다.
     .filter(
       (kind) =>
-        upgradeCost(kind, 1, modeRank).gold > 0 || kind === "lucky-machine",
+        upgradeCost(kind, 1, modeRank).gold > 0 ||
+        kind === "lucky-machine" ||
+        (kind === "golden-turret" && canInstallGoldenTurret),
     )
     .map(buildCard)
     .join("");
@@ -3527,9 +3549,21 @@ function renderTargetPanel(selection: SceneSelection): void {
   }
   if (kind === "random-item" && building) {
     const item = getRandomItem(building.itemId ?? "");
-    panel.innerHTML = `${panelHeadingMarkup("REWARD", `${buildingIconMarkup(kind)} ${escapeHtml(item?.label ?? "랜덤 보상")}`)}<p class="panel-description reward-description">${escapeHtml(item?.description ?? definition.description)}</p><p class="reward-source-note">철거할 때까지 이 위치에서 효과가 계속 적용됩니다.</p>${removalMarkup}`;
+    const goldenTicket = building.itemId === "golden-ticket";
+    const ticketAction = goldenTicket
+      ? `<p class="reward-source-note">이 티켓을 사용하면 현재 타일에 황금 심판 포탑을 설치합니다.</p><button class="upgrade-cta" type="button" data-install-golden-ticket>황금 포탑 설치</button>`
+      : `<p class="reward-source-note">철거할 때까지 이 위치에서 효과가 계속 적용됩니다.</p>`;
+    panel.innerHTML = `${panelHeadingMarkup("REWARD", `${buildingIconMarkup(kind)} ${escapeHtml(item?.label ?? "랜덤 보상")}`)}<p class="panel-description reward-description">${escapeHtml(item?.description ?? definition.description)}</p>${ticketAction}${removalMarkup}`;
     panel.classList.remove("hidden");
     wireBuildPanelClose(panel);
+    const installGoldenTicket = panel.querySelector<HTMLButtonElement>("[data-install-golden-ticket]");
+    if (installGoldenTicket)
+      wirePanelAction(installGoldenTicket, () => {
+        if (installGoldenTicket.disabled) return;
+        installGoldenTicket.disabled = true;
+        installGoldenTicket.setAttribute("aria-disabled", "true");
+        network?.activateBuilding(building.id, "install-golden-turret");
+      });
     wireBuildingRemoval(panel, building.id);
     return;
   }
@@ -4880,19 +4914,42 @@ async function showSocialHub(
   }
 }
 
-async function forceRefreshForUpdate(version: string): Promise<void> {
+function showForceRefreshPrompt(): void {
+  const modal = dismissibleModal(
+    `<section class="panel compact force-refresh-sheet" role="dialog" aria-modal="true" aria-labelledby="force-refresh-title"><h2 id="force-refresh-title">강력 새로고침</h2><p class="subtitle">저장된 앱 캐시와 서비스 워커를 새로 설정한 뒤 최신 버전으로 다시 엽니다.</p><div class="force-refresh-actions"><button class="btn ghost" data-force-refresh-cancel>취소</button><button class="btn primary" data-force-refresh-confirm>새로고침</button></div></section>`,
+    "force-refresh-modal",
+  );
+  modal
+    .querySelector<HTMLButtonElement>("[data-force-refresh-confirm]")
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "최신 버전 불러오는 중…";
+      void forceRefreshForUpdate(APP_RELEASE_VERSION, { resetWorker: true });
+    });
+  modal
+    .querySelector<HTMLButtonElement>("[data-force-refresh-cancel]")
+    ?.addEventListener("click", () => modal.remove());
+}
+
+async function forceRefreshForUpdate(
+  version: string,
+  options: { resetWorker?: boolean } = {},
+): Promise<void> {
   const tasks: Promise<unknown>[] = [];
   if ("serviceWorker" in navigator) {
     tasks.push(
       navigator.serviceWorker
         .getRegistrations()
-        .then((registrations) =>
-          Promise.all(
-            registrations.map((registration) =>
-              registration.update().catch(() => undefined),
-            ),
-          ),
-        ),
+        .then(async (registrations) => {
+          await Promise.all(
+            registrations.map((registration) => registration.update().catch(() => undefined)),
+          );
+          if (options.resetWorker)
+            await Promise.all(
+              registrations.map((registration) => registration.unregister().catch(() => false)),
+            );
+        }),
     );
   }
   if ("caches" in window) {
@@ -4905,6 +4962,8 @@ async function forceRefreshForUpdate(version: string): Promise<void> {
   await Promise.allSettled(tasks);
   const next = new URL(location.href);
   next.searchParams.set("app-update", version);
+  if (options.resetWorker)
+    next.searchParams.set("force-refresh", `${Date.now()}`);
   location.replace(next.toString());
 }
 
