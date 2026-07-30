@@ -19,7 +19,11 @@ import {
   drawLimitForAppearance,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
-import { isBuildTile, moveInWalkableArea } from "../shared/map";
+import {
+  isBuildTile,
+  isPositionOnRoomFloor,
+  moveInWalkableArea,
+} from "../shared/map";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -34,6 +38,7 @@ import {
   isEliteRank,
   rankBenefits,
   rankLabel,
+  recommendedRankForStage,
   TIME_ATTACK_EXPIRED_MESSAGE,
   timeAttackChanceForStage,
   type StageDefinition,
@@ -64,10 +69,12 @@ import type {
 import { shopConsumableById } from "../shared/shopConsumables";
 import {
   BOT_REACTION_SECONDS,
+  botStrategyFor,
   decideBotIntent,
   type BotBedTarget,
   type BotDifficulty,
   type BotIntent,
+  type BotStrategy,
 } from "./bots";
 
 const COLORS = [
@@ -76,6 +83,8 @@ const COLORS = [
 // Human survivors are intentionally faster, but bots retain the original
 // baseline so their established pacing and difficulty do not change.
 const BOT_BASE_SPEED = 4.8;
+const BLACKOUT_REVEAL_RADIUS_TILES = 2;
+const BLACKOUT_GHOST_SPEED_MULTIPLIER = 1.01;
 const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
 const normalizeProfileDisplayMode = (value: unknown): ProfileDisplayMode =>
   value === 'multiplayer' || value === 'ranked' ? value : 'solo';
@@ -117,6 +126,19 @@ const OFFENSIVE_BUILD_KINDS = new Set<BuildingKind>([
   'basic-turret',
   'golden-turret',
   'electric-coil',
+]);
+const BOT_SUPPORT_BUILD_KINDS = new Set<BuildingKind>([
+  'repair-drone',
+  'frost-turret',
+  'ghost-net',
+  'turret-enhancer',
+  'shield-device',
+  'overload-capacitor',
+  'door-anchor',
+  'reflect-mirror',
+  'power-panel',
+  'soul-vial',
+  'hide-and-seek-doll',
 ]);
 
 const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
@@ -169,6 +191,24 @@ interface BotRuntime {
   bedTarget: BotBedTarget | null;
   /** Keeps a newly calculated route from visibly snapping 180 degrees. */
   lastMove: { x: number; y: number } | null;
+  diagnostic: BotMatchDiagnostic;
+  lastFailedIntent: string | null;
+  repeatedFailureCount: number;
+  idleWithResourcesSince: number | null;
+  idleWarningRecorded: boolean;
+}
+
+export interface BotMatchDiagnostic {
+  botId: string;
+  strategy: BotStrategy;
+  rank: RankId;
+  claimedAt: number | null;
+  firstTurretAt: number | null;
+  firstDoorUpgradeAt: number | null;
+  supportBuildingActions: number;
+  diedAt: number | null;
+  idleWithResourcesWarnings: number;
+  repeatedFailureWarnings: number;
 }
 
 interface BuildingTickIndex {
@@ -226,9 +266,12 @@ export class GameEngine {
   readonly map: MapDefinition;
   readonly roomCode: string;
   readonly testMode: boolean;
+  private readonly blackoutNavigationMap: MapDefinition;
   private readonly rng: SeededRandom;
   private readonly reconnect = new Map<string, ReconnectRecord>();
   private readonly botRuntime = new Map<string, BotRuntime>();
+  /** Cached collision masks used after a survivor is sealed inside a room. */
+  private readonly roomExitBlockTiles = new Map<string, ReadonlySet<string>>();
   private pendingEvents: GameEvent[] = [];
   private readonly retreatGuardUntil = new Map<string, number>();
   private serverSeq = 0;
@@ -252,6 +295,13 @@ export class GameEngine {
   ) {
     this.roomCode = roomCode;
     this.map = map;
+    // The opening hunt is restricted to corridors. Keeping a dedicated
+    // navigation map prevents a shortest path from cutting through a room
+    // while a survivor is hiding inside it.
+    this.blackoutNavigationMap = {
+      ...map,
+      walkable: map.corridorTiles.map((tile) => ({ ...tile })),
+    };
     this.testMode = testMode;
     this.stage = getStage(config.stageId);
     this.playMode = config.playMode ?? map.playMode;
@@ -408,10 +458,7 @@ export class GameEngine {
     };
     return {
       id: `nightmare-${variant}-${index + 1}`,
-      position: {
-        x: this.map.ghostSpawn.x + index * 0.8,
-        y: this.map.ghostSpawn.y,
-      },
+      position: this.initialGhostPosition(index),
       hp: BALANCE.ghost.baseHp,
       maxHp: BALANCE.ghost.baseHp,
       level: 1,
@@ -457,6 +504,32 @@ export class GameEngine {
       wanderUntil: -1,
       wanderTarget: null,
     };
+  }
+
+  /**
+   * Every ghost must start on the centre of a real corridor tile. Offsetting
+   * the second twin by a fractional x value could round it into the boundary
+   * wall beside a respawn opening; pathfinding then had no valid first node,
+   * leaving that twin frozen during both blackout and normal play.
+   */
+  private initialGhostPosition(index: number): Vec2 {
+    if (index <= 0) return { ...this.map.ghostSpawn };
+    const candidates = this.map.corridorTiles
+      .filter(
+        (tile) =>
+          distance(tile, this.map.ghostSpawn) >= 0.9,
+      )
+      .sort((left, right) => {
+        const distanceDelta =
+          distance(left, this.map.ghostSpawn) -
+          distance(right, this.map.ghostSpawn);
+        if (Math.abs(distanceDelta) > 1e-9) return distanceDelta;
+        return left.y - right.y || left.x - right.x;
+      });
+    const selected =
+      candidates[(index - 1) % Math.max(1, candidates.length)] ??
+      this.map.ghostSpawn;
+    return { ...selected };
   }
 
   /** The first growth accelerates by stage, then each later ghost level needs more door pressure. */
@@ -545,6 +618,7 @@ export class GameEngine {
       player.appearance = normalizeAppearance(player.appearance);
       player.turretSkins = normalizeTurretSkins(player.turretSkins);
       player.bedIndex ??= null;
+      player.lockedRoomId ??= null;
       player.goldIncomeElapsed = Math.max(0, finite(player.goldIncomeElapsed, 0));
       player.powerIncomeElapsed = Math.max(0, finite(player.powerIncomeElapsed, 0));
       player.drawCount ??= 0;
@@ -645,6 +719,15 @@ export class GameEngine {
         ...runtime,
         bedTarget: runtime.bedTarget ?? null,
         lastMove: runtime.lastMove ?? null,
+        diagnostic:
+          runtime.diagnostic ??
+          this.makeBotDiagnostic(
+            this.state.players.find((player) => player.id === id),
+          ),
+        lastFailedIntent: runtime.lastFailedIntent ?? null,
+        repeatedFailureCount: runtime.repeatedFailureCount ?? 0,
+        idleWithResourcesSince: runtime.idleWithResourcesSince ?? null,
+        idleWarningRecorded: runtime.idleWarningRecorded ?? false,
       });
   }
 
@@ -661,6 +744,12 @@ export class GameEngine {
 
   snapshot(): GameSnapshot {
     return structuredClone({ ...this.state, serverSeq: this.serverSeq });
+  }
+
+  botMatchDiagnostics(): BotMatchDiagnostic[] {
+    return [...this.botRuntime.values()].map((runtime) =>
+      structuredClone(runtime.diagnostic),
+    );
   }
 
   shouldCleanup(now = Date.now()): boolean {
@@ -810,17 +899,21 @@ export class GameEngine {
       return { ok: false, error: "생존자는 최대 4명입니다." };
     const id = `bot-${crypto.randomUUID()}`;
     const botIndex = this.state.players.filter((player) => player.isBot).length;
+    const recommendedRank = recommendedRankForStage(this.stage);
     const bot = this.makePlayer(
       id,
       `새벽봇 ${botIndex + 1}`,
       true,
       null,
-      "beginner",
-      "beginner",
+      recommendedRank,
+      recommendedRank,
       botAppearance(botIndex),
     );
+    bot.profileDisplayMode = this.playMode === "multiplayer" ? "multiplayer" : "solo";
     bot.ready = true;
     this.state.players.push(bot);
+    // Elite arrival presentation is reserved for real players. Bots can carry
+    // a high recommended rank without flooding the lobby with join notices.
     // Let a newly spawned bot choose a bed immediately; random first-think
     // delays made the whole survivor line freeze at the beginning of a match.
     this.botRuntime.set(id, {
@@ -828,6 +921,11 @@ export class GameEngine {
       reaction: 0,
       bedTarget: null,
       lastMove: null,
+      diagnostic: this.makeBotDiagnostic(bot),
+      lastFailedIntent: null,
+      repeatedFailureCount: 0,
+      idleWithResourcesSince: null,
+      idleWarningRecorded: false,
     });
     return { ok: true };
   }
@@ -1228,7 +1326,7 @@ export class GameEngine {
           // A bed is interactable only from its actual room floor.  Distance
           // alone allowed a survivor standing in the outside corner beside a
           // wall to claim the bed through that wall.
-          mapRoom.floorTiles.some((floor) => distance(player.position, floor) <= 0.68) &&
+          isPositionOnRoomFloor(mapRoom, player.position) &&
           distance(player.position, bed) <=
           (this.state.elapsed < player.bedrollUntil
             ? 1.5
@@ -2175,6 +2273,7 @@ export class GameEngine {
       }
     } else if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);
+      this.updateBlackoutGhosts(dt);
       this.state.countdown = Math.max(0, this.state.countdown - dt);
       if (this.state.countdown <= 0) this.beginPlaying();
     } else if (this.state.status === "PLAYING" || this.state.status === 'OVERTIME') {
@@ -2243,25 +2342,23 @@ export class GameEngine {
 
   private beginPlaying(): void {
     this.state.status = "PLAYING";
+    for (const player of this.state.players) {
+      if (!player.alive) continue;
+      const enteredRoom = this.map.rooms.find((room) =>
+        isPositionOnRoomFloor(room, player.position),
+      );
+      // The countdown ending closes the door only for survivors who already
+      // reached a room. Survivors still in a corridor retain the existing
+      // last-chance route to an unoccupied bed.
+      player.lockedRoomId = player.roomId ?? enteredRoom?.id ?? null;
+    }
     const combatants = Math.max(
       1,
       this.state.players.filter((player) => player.alive).length,
     );
     const maxHp =
       BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * (combatants - 1));
-    const rankPressure = Math.max(
-      1,
-      ...this.state.players
-        .filter((player) => player.alive)
-        .map(
-          (player) =>
-            rankBenefits(
-              this.playMode === "solo"
-                ? player.soloRank
-                : player.multiplayerRank,
-            ).ghostDifficultyMultiplier,
-        ),
-    );
+    const rankPressure = this.humanRankPressure();
     for (const ghost of this.state.ghosts) {
       const variantHp =
         ghost.variant === "brute"
@@ -2277,11 +2374,21 @@ export class GameEngine {
         this.stage.hpMultiplier *
         rankPressure;
       ghost.hp = ghost.maxHp;
-      ghost.position = { ...this.map.ghostSpawn };
+      // Keep the position reached during the blackout hunt. Reset only the
+      // scouting target so the normal room/door combat selector takes over.
+      ghost.targetPlayerId = null;
+      ghost.targetRoomId = null;
+      ghost.wanderTarget = null;
+      ghost.wanderUntil = -1;
+      ghost.path = [];
     }
     // 점유는 interact()만 허용한다. 준비 시간이 끝났다고 빈 침대를
     // 강제 배정하지 않아, 미점유 생존자는 복도에서 빈 방을 직접 찾아야 한다.
     this.syncPrimaryGhost();
+    this.pendingEvents.push({
+      kind: "lights-on",
+      label: "복도 불이 켜졌습니다. 귀신의 공격이 시작됩니다!",
+    });
   }
 
   private beginOvertime(): void {
@@ -2326,6 +2433,9 @@ export class GameEngine {
         continue;
       }
       const speed = this.unclaimedPlayerSpeed(player);
+      const lockedRoom = player.lockedRoomId
+        ? this.map.rooms.find((room) => room.id === player.lockedRoomId)
+        : undefined;
       player.position = moveInWalkableArea(
         this.map,
         player.position,
@@ -2335,8 +2445,29 @@ export class GameEngine {
         },
         BALANCE.player.collisionRadius,
         0.12,
+        lockedRoom ? this.roomExitBlockTilesFor(lockedRoom.id) : undefined,
       );
     }
+  }
+
+  /**
+   * The countdown door lock must be authoritative. Blocking every walkable
+   * tile outside the entered room keeps the shared movement solver from
+   * leaking a survivor through the doorway on a large or delayed input.
+   */
+  private roomExitBlockTilesFor(roomId: string): ReadonlySet<string> {
+    const cached = this.roomExitBlockTiles.get(roomId);
+    if (cached) return cached;
+    const room = this.map.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) return new Set<string>();
+    const inside = new Set(room.floorTiles.map((tile) => `${tile.x},${tile.y}`));
+    const blocked = new Set(
+      this.map.walkable
+        .filter((tile) => !inside.has(`${tile.x},${tile.y}`))
+        .map((tile) => `${tile.x},${tile.y}`),
+    );
+    this.roomExitBlockTiles.set(roomId, blocked);
+    return blocked;
   }
 
   private unclaimedPlayerSpeed(player: PlayerState): number {
@@ -2416,6 +2547,29 @@ export class GameEngine {
     return base;
   }
 
+  private makeBotDiagnostic(player?: PlayerState): BotMatchDiagnostic {
+    const identity = player ?? {
+      id: 'unknown-bot',
+      nickname: '새벽봇',
+    };
+    return {
+      botId: identity.id,
+      strategy: botStrategyFor(identity),
+      rank: player
+        ? this.playMode === 'solo'
+          ? player.soloRank
+          : player.multiplayerRank
+        : 'beginner',
+      claimedAt: player?.roomId ? this.state.elapsed : null,
+      firstTurretAt: null,
+      firstDoorUpgradeAt: null,
+      supportBuildingActions: 0,
+      diedAt: player && !player.alive ? this.state.elapsed : null,
+      idleWithResourcesWarnings: 0,
+      repeatedFailureWarnings: 0,
+    };
+  }
+
   private isAvailableBotBedTarget(target: BotBedTarget | null): target is BotBedTarget {
     if (!target) return false;
     const mapRoom = this.map.rooms.find((room) => room.id === target.roomId);
@@ -2451,6 +2605,9 @@ export class GameEngine {
 
   private applyBotIntent(botId: string, intent: BotIntent): void {
     const runtime = this.botRuntime.get(botId);
+    const botBefore = this.state.players.find((player) => player.id === botId);
+    const roomBefore = botBefore?.roomId ?? null;
+    let result: ActionResult | null = null;
     if (intent.type === "move") {
       let dx = intent.dx;
       let dy = intent.dy;
@@ -2467,20 +2624,114 @@ export class GameEngine {
           dy = easedY / magnitude;
         }
       }
-      this.setMovement(botId, dx, dy, this.serverSeq);
+      result = this.setMovement(botId, dx, dy, this.serverSeq);
       if (runtime) runtime.lastMove = { x: dx, y: dy };
     }
     else {
       const bot = this.state.players.find((player) => player.id === botId);
       if (bot) bot.velocity = { x: 0, y: 0 };
       if (runtime) runtime.lastMove = null;
-      if (intent.type === "interact") this.interact(botId);
+      if (intent.type === "interact") result = this.interact(botId);
       else if (intent.type === "build")
-        this.build(botId, intent.roomId, intent.tile, intent.kind);
+        result = this.build(botId, intent.roomId, intent.tile, intent.kind);
       else if (intent.type === "move-building")
-        this.moveBuilding(botId, intent.buildingId, intent.tile);
-      else if (intent.type === "upgrade") this.upgrade(botId, intent.targetId);
+        result = this.moveBuilding(botId, intent.buildingId, intent.tile);
+      else if (intent.type === "upgrade")
+        result = this.upgrade(botId, intent.targetId);
+      else if (intent.type === "activate-building")
+        result = this.activateBuilding(botId, {
+          type: "activate-building",
+          buildingId: intent.buildingId,
+          action: intent.action,
+          sequence: this.serverSeq,
+          timestamp: Date.now(),
+        });
     }
+    this.recordBotIntentOutcome(botId, intent, result, roomBefore);
+  }
+
+  private recordBotIntentOutcome(
+    botId: string,
+    intent: BotIntent,
+    result: ActionResult | null,
+    roomBefore: string | null,
+  ): void {
+    const runtime = this.botRuntime.get(botId);
+    const bot = this.state.players.find((player) => player.id === botId);
+    if (!runtime || !bot) return;
+    const diagnostic = runtime.diagnostic;
+    if (intent.type === 'interact' && result?.ok && !roomBefore && bot.roomId)
+      diagnostic.claimedAt ??= this.state.elapsed;
+    if (
+      intent.type === 'build' &&
+      result?.ok &&
+      (intent.kind === 'basic-turret' || intent.kind === 'golden-turret')
+    )
+      diagnostic.firstTurretAt ??= this.state.elapsed;
+    if (
+      intent.type === 'upgrade' &&
+      result?.ok &&
+      intent.targetId.startsWith('door:')
+    )
+      diagnostic.firstDoorUpgradeAt ??= this.state.elapsed;
+    if (
+      (intent.type === 'build' &&
+        result?.ok &&
+        BOT_SUPPORT_BUILD_KINDS.has(intent.kind)) ||
+      (intent.type === 'activate-building' && result?.ok)
+    )
+      diagnostic.supportBuildingActions += 1;
+
+    const hasSpendableResources =
+      Boolean(bot.roomId) && (bot.gold >= 10 || bot.power >= 32);
+    if (intent.type === 'idle' && hasSpendableResources) {
+      runtime.idleWithResourcesSince ??= this.state.elapsed;
+      if (
+        !runtime.idleWarningRecorded &&
+        this.state.elapsed - runtime.idleWithResourcesSince >= 5
+      ) {
+        diagnostic.idleWithResourcesWarnings += 1;
+        runtime.idleWarningRecorded = true;
+      }
+    } else {
+      runtime.idleWithResourcesSince = null;
+      runtime.idleWarningRecorded = false;
+    }
+
+    if (result && !result.ok) {
+      const signature = JSON.stringify(intent);
+      runtime.repeatedFailureCount =
+        runtime.lastFailedIntent === signature
+          ? runtime.repeatedFailureCount + 1
+          : 1;
+      runtime.lastFailedIntent = signature;
+      if (runtime.repeatedFailureCount === 3)
+        diagnostic.repeatedFailureWarnings += 1;
+    } else if (result?.ok) {
+      runtime.lastFailedIntent = null;
+      runtime.repeatedFailureCount = 0;
+    }
+  }
+
+  /**
+   * Recommended-rank bots receive their own rank economy, but they must not
+   * silently raise enemy stats for the human party. Only living humans define
+   * the rank-pressure multiplier.
+   */
+  private humanRankPressure(): number {
+    return Math.max(
+      1,
+      ...this.state.players
+        .filter((player) => player.alive && !player.isBot)
+        .map(
+          (player) =>
+            rankBenefits(
+              this.playMode === "solo"
+                ? player.soloRank
+                : player.multiplayerRank,
+            ).ghostDifficultyMultiplier,
+        ),
+    );
   }
 
   private updateEconomy(dt: number): void {
@@ -3154,6 +3405,243 @@ export class GameEngine {
     this.syncPrimaryGhost();
   }
 
+  private isPlayerHiddenInRoom(player: PlayerState): boolean {
+    return this.map.rooms.some((room) =>
+      isPositionOnRoomFloor(room, player.position),
+    );
+  }
+
+  private ghostPlayerContactRadius(ghost: GhostState): number {
+    const ghostRadius =
+      ghost.variant === "giant"
+        ? 0.38
+        : ghost.variant === "minion"
+          ? 0.16
+          : BALANCE.ghost.collisionRadius;
+    return BALANCE.player.collisionRadius + ghostRadius;
+  }
+
+  /**
+   * An unclaimed survivor dies on physical contact. This is independent from
+   * the door-attack cooldown: tying contact to that timer left overlapping
+   * sprites alive for several seconds. A survivor standing on a room floor is
+   * excluded because entering the room is the opening hunt's safe boundary.
+   */
+  private eliminateContactingOutsidePlayer(ghost: GhostState): boolean {
+    const contactRadius = this.ghostPlayerContactRadius(ghost);
+    const target = this.state.players
+      .filter(
+        (player) =>
+          player.alive &&
+          (player.connected || player.isBot) &&
+          !player.roomId &&
+          !this.isPlayerHiddenInRoom(player) &&
+          distance(ghost.position, player.position) <= contactRadius,
+      )
+      .sort(
+        (left, right) =>
+          distance(ghost.position, left.position) -
+          distance(ghost.position, right.position),
+      )[0];
+    if (!target) return false;
+    this.eliminatePlayer(ghost, target);
+    return true;
+  }
+
+  private blackoutGhostSpeed(): number {
+    const survivorSpeeds = this.state.players
+      .filter((player) => player.alive)
+      .map((player) => this.unclaimedPlayerSpeed(player));
+    const slowestSpeed =
+      survivorSpeeds.length > 0
+        ? Math.min(...survivorSpeeds)
+        : BALANCE.player.speed;
+    return slowestSpeed * BLACKOUT_GHOST_SPEED_MULTIPLIER;
+  }
+
+  private randomBlackoutCorridorTile(ghost: GhostState): Tile | null {
+    const candidates = this.map.corridorTiles;
+    if (candidates.length === 0) return null;
+    if (!ghost.variant.startsWith("twin")) {
+      const tile = candidates[this.rng.int(0, candidates.length - 1)];
+      return tile ? { ...tile } : null;
+    }
+    const otherTwinTargets = this.state.ghosts
+      .filter(
+        (candidate) =>
+          candidate.id !== ghost.id &&
+          candidate.variant.startsWith("twin") &&
+          candidate.wanderTarget,
+      )
+      .map((candidate) => candidate.wanderTarget as Tile);
+    const separated = candidates.filter((tile) =>
+      otherTwinTargets.every(
+        (target) =>
+          distance(tile, target) >= BLACKOUT_REVEAL_RADIUS_TILES * 2,
+      ),
+    );
+    const pool = separated.length > 0 ? separated : candidates;
+    const tile = pool[this.rng.int(0, pool.length - 1)];
+    return tile ? { ...tile } : null;
+  }
+
+  private moveBlackoutGhostToward(
+    ghost: GhostState,
+    destination: Vec2,
+    dt: number,
+    speed: number,
+  ): void {
+    if (ghost.path.length === 0 || this.serverSeq % 20 === 0) {
+      ghost.path = findPath(
+        this.blackoutNavigationMap,
+        ghost.position,
+        destination,
+      );
+      const start = ghost.path[0];
+      if (
+        start &&
+        start.x === Math.round(ghost.position.x) &&
+        start.y === Math.round(ghost.position.y)
+      )
+        ghost.path.shift();
+    }
+    while (
+      ghost.path.length > 0 &&
+      distance(ghost.position, ghost.path[0] as Tile) < 0.3
+    )
+      ghost.path.shift();
+    const next = ghost.path[0] ?? destination;
+    const direction = normalize({
+      x: next.x - ghost.position.x,
+      y: next.y - ghost.position.y,
+    });
+    ghost.position = moveInWalkableArea(
+      this.blackoutNavigationMap,
+      ghost.position,
+      {
+        x: direction.x * speed * dt,
+        y: direction.y * speed * dt,
+      },
+      BALANCE.ghost.collisionRadius,
+      0.12,
+    );
+  }
+
+  /**
+   * Opening hunt: ghosts patrol only corridors and can detect only a survivor
+   * whose two-tile light currently contains them. Entering any room floor
+   * immediately breaks pursuit; doors and occupants cannot be attacked before
+   * the preparation timer ends.
+   */
+  private updateBlackoutGhosts(dt: number): void {
+    const speed = this.blackoutGhostSpeed();
+    for (const ghost of this.state.ghosts) {
+      if (ghost.hp <= 0) continue;
+      ghost.targetRoomId = null;
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.25);
+      if (this.eliminateContactingOutsidePlayer(ghost)) continue;
+
+      const currentTarget = ghost.targetPlayerId
+        ? this.state.players.find(
+            (player) =>
+              player.id === ghost.targetPlayerId &&
+              player.alive &&
+              (player.connected || player.isBot) &&
+              !player.roomId &&
+              !this.isPlayerHiddenInRoom(player),
+          )
+        : undefined;
+      const targetStillVisible = Boolean(
+        currentTarget &&
+          distance(ghost.position, currentTarget.position) <=
+            BLACKOUT_REVEAL_RADIUS_TILES,
+      );
+
+      if (!targetStillVisible) {
+        ghost.targetPlayerId = null;
+        ghost.path = [];
+      }
+
+      if (!ghost.targetPlayerId) {
+        const visiblePlayers = this.state.players
+          .filter(
+            (player) =>
+              player.alive &&
+              (player.connected || player.isBot) &&
+              !player.roomId &&
+              !this.isPlayerHiddenInRoom(player) &&
+              distance(ghost.position, player.position) <=
+                BLACKOUT_REVEAL_RADIUS_TILES,
+          )
+          .sort(
+            (left, right) =>
+              distance(ghost.position, left.position) -
+              distance(ghost.position, right.position),
+          );
+        const otherTwinPlayerTargets = ghost.variant.startsWith("twin")
+          ? new Set(
+              this.state.ghosts
+                .filter(
+                  (candidate) =>
+                    candidate.id !== ghost.id &&
+                    candidate.variant.startsWith("twin"),
+                )
+                .map((candidate) => candidate.targetPlayerId)
+                .filter((id): id is string => Boolean(id)),
+            )
+          : new Set<string>();
+        const diversified =
+          visiblePlayers.length > 1
+            ? visiblePlayers.filter(
+                (player) => !otherTwinPlayerTargets.has(player.id),
+              )
+            : visiblePlayers;
+        const spotted = (diversified.length > 0
+          ? diversified
+          : visiblePlayers)[0];
+        if (spotted) {
+          ghost.targetPlayerId = spotted.id;
+          ghost.wanderTarget = null;
+          ghost.path = [];
+        }
+      }
+
+      const chaseTarget = ghost.targetPlayerId
+        ? this.state.players.find(
+            (player) => player.id === ghost.targetPlayerId,
+          )
+        : undefined;
+      if (chaseTarget) {
+        this.moveBlackoutGhostToward(
+          ghost,
+          chaseTarget.position,
+          dt,
+          speed,
+        );
+        this.eliminateContactingOutsidePlayer(ghost);
+        continue;
+      }
+
+      if (
+        !ghost.wanderTarget ||
+        distance(ghost.position, ghost.wanderTarget) < 0.42
+      ) {
+        ghost.wanderTarget = this.randomBlackoutCorridorTile(ghost);
+        ghost.path = [];
+      }
+      if (ghost.wanderTarget) {
+        this.moveBlackoutGhostToward(
+          ghost,
+          ghost.wanderTarget,
+          dt,
+          speed,
+        );
+        this.eliminateContactingOutsidePlayer(ghost);
+      }
+    }
+    this.syncPrimaryGhost();
+  }
+
   private demolisherManaPerDoorHit(level: number): number {
     // The first cast takes roughly eighty successful door strikes at Lv.1.
     // Level growth matters, but the cap prevents late-game cast spam.
@@ -3521,6 +4009,8 @@ export class GameEngine {
       return;
     }
 
+    if (this.eliminateContactingOutsidePlayer(ghost)) return;
+
     if (this.updateDemolisherAbility(ghost)) return;
     if (this.updateWallpaperAbility(ghost)) return;
 
@@ -3532,7 +4022,10 @@ export class GameEngine {
         ghost.wanderTarget = this.randomCorridorTile();
         ghost.path = [];
       }
-      if (ghost.wanderTarget) this.moveGhostToward(ghost, ghost.wanderTarget, dt, 0.82);
+      if (ghost.wanderTarget) {
+        this.moveGhostToward(ghost, ghost.wanderTarget, dt, 0.82);
+        this.eliminateContactingOutsidePlayer(ghost);
+      }
       return;
     }
     if (ghost.wanderUntil >= 0) {
@@ -3567,9 +4060,13 @@ export class GameEngine {
       if (ghost.targetPlayerId !== outsideTarget.id) {
         ghost.targetPlayerId = outsideTarget.id;
         ghost.targetRoomId = null;
+        ghost.wanderTarget = null;
         ghost.path = [];
       }
-      if (distance(ghost.position, outsideTarget.position) > 0.52) {
+      if (
+        distance(ghost.position, outsideTarget.position) >
+        this.ghostPlayerContactRadius(ghost)
+      ) {
         this.moveGhostToward(
           ghost,
           outsideTarget.position,
@@ -3578,14 +4075,9 @@ export class GameEngine {
           this.unclaimedPlayerSpeed(outsideTarget) *
             BALANCE.ghost.outsideTargetMinimumPlayerMultiplier,
         );
+        this.eliminateContactingOutsidePlayer(ghost);
         return;
       }
-      ghost.attackCooldown -= dt;
-      if (ghost.attackCooldown > 0) return;
-      const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
-      ghost.attackCooldown =
-        Math.max(0.2, BALANCE.ghost.attackInterval /
-        (attackSpeed * (ghost.rage ? 1.5 : 1) * 2 ** this.state.difficulty.overtimeStacks));
       this.eliminatePlayer(ghost, outsideTarget);
       return;
     }
@@ -3602,6 +4094,17 @@ export class GameEngine {
     );
     if (!room || !mapRoom) {
       ghost.targetRoomId = null;
+      if (
+        !ghost.wanderTarget ||
+        distance(ghost.position, ghost.wanderTarget) < 0.45
+      ) {
+        ghost.wanderTarget = this.randomCorridorTile();
+        ghost.path = [];
+      }
+      if (ghost.wanderTarget) {
+        this.moveGhostToward(ghost, ghost.wanderTarget, dt, 0.72);
+        this.eliminateContactingOutsidePlayer(ghost);
+      }
       return;
     }
     const targetPlayer = room.ownerIds
@@ -3652,19 +4155,7 @@ export class GameEngine {
       1,
       this.state.players.filter((player) => player.alive).length,
     );
-    const rankPressure = Math.max(
-      1,
-      ...this.state.players
-        .filter((player) => player.alive)
-        .map(
-          (player) =>
-            rankBenefits(
-              this.playMode === "solo"
-                ? player.soloRank
-                : player.multiplayerRank,
-            ).ghostDifficultyMultiplier,
-        ),
-    );
+    const rankPressure = this.humanRankPressure();
     // 쌍둥이 둘의 합산 문 피해가 일반 귀신 한 마리와 같도록 정확히 절반씩 나눈다.
     const variantDamage =
       ghost.variant === "giant"
@@ -3942,6 +4433,8 @@ export class GameEngine {
     player.alive = false;
     player.spectator = true;
     player.velocity = { x: 0, y: 0 };
+    const botDiagnostic = this.botRuntime.get(player.id)?.diagnostic;
+    if (botDiagnostic) botDiagnostic.diedAt ??= this.state.elapsed;
     this.pendingEvents.push({
       kind: "death",
       position: player.position,
@@ -4220,8 +4713,9 @@ export class GameEngine {
         .filter(
           (player) =>
             player.alive &&
-            player.connected &&
+            (player.connected || player.isBot) &&
             !player.roomId &&
+            !this.isPlayerHiddenInRoom(player) &&
             player.stealthUntil <= this.state.elapsed,
         )
         .sort((first, second) => {
@@ -4397,6 +4891,7 @@ export class GameEngine {
       goldIncomeElapsed: 0,
       powerIncomeElapsed: 0,
       roomId: null,
+      lockedRoomId: null,
       bedIndex: null,
       lastInputSeq: 0,
       reconnectUntil: 0,

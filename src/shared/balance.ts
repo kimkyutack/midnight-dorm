@@ -165,19 +165,19 @@ export const BALANCE = {
       label: '문 수리대',
       description: '매초 문 HP를 회복합니다.',
       maxLevel: 3,
-      levels: [level(70, 0, 6, 1, 0), level(140, 0, 18, 1, 0), level(280, 0, 45, 1, 0)],
+      levels: [level(70, 0, 15, 1, 0), level(140, 0, 30, 1, 0), level(280, 0, 45, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',
       description: '가까운 귀신에게 계속 피해를 줍니다.',
       maxLevel: 3,
-      levels: [level(0, 12, 7, 0.75, 4.5), level(0, 18, 14, 0.65, 5), level(0, 27, 28, 0.52, 5.5)],
+      levels: [level(0, 25, 7, 0.75, 4.5), level(0, 50, 14, 0.65, 5), level(0, 75, 28, 0.52, 5.5)],
     },
     'shield-device': {
       label: '새벽 보호막',
       description: '문이 받는 피해를 잠시 줄여줍니다.',
       maxLevel: 3,
-      levels: [level(0, 9, 0.3, 5, 0), level(0, 14, 0.45, 7, 0), level(0, 20, 0.6, 9, 0)],
+      levels: [level(0, 30, 0.3, 5, 0), level(0, 40, 0.45, 7, 0), level(0, 50, 0.6, 9, 0)],
     },
     'lucky-machine': {
       label: '심야 랜덤 상자',

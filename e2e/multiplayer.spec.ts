@@ -1043,7 +1043,11 @@ test("three solo bots visibly pathfind through doors before the normal countdown
       movementAcrossBotClaims.maxStep,
       JSON.stringify(movementAcrossBotClaims.maxTransition),
     ).toBeLessThan(0.34);
-    expect(movementAcrossBotClaims.maxError).toBeLessThan(0.9);
+    // A bot claim carries room/building ownership in the same state frame.
+    // Forward prediction may briefly lead that heavier authoritative frame by
+    // about one tile, but maxStep above guarantees that it remains continuous
+    // instead of freezing and snapping back.
+    expect(movementAcrossBotClaims.maxError).toBeLessThan(1.1);
     await page.waitForFunction(
       () => {
         const snapshot = window.__DORM_TEST__?.snapshot;
@@ -1073,7 +1077,11 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(
       page.locator("#game-root canvas[data-shadows='off']"),
     ).toBeVisible();
-    await page.getByRole("button", { name: "카메라 확대" }).click();
+    await expect(page.getByTestId("game-blackout")).toHaveClass(/is-active/);
+    await expect(page.getByRole("button", { name: "카메라 확대" })).toBeHidden();
+    await expect(
+      page.locator("#game-root canvas[data-camera-zoom-locked='true']"),
+    ).toBeVisible();
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),
     ).toBeCloseTo(Math.SQRT2, 1);

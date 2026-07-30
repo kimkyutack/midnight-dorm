@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
-import { moveInWalkableArea } from '../../shared/map';
+import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
 import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
@@ -45,6 +45,7 @@ const INTERACTION_SCAN_INTERVAL_MS = 100;
 const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
 const MAX_IDLE_BUILDING_TEXTURES = 12;
 const MAX_HUD_MESSAGES = 24;
+const BLACKOUT_REVEAL_RADIUS_TILES = 2;
 const CYBER_LASER_FORWARD = new THREE.Vector3(0, 0, 1);
 type EffectQuality = 'high' | 'balanced' | 'low';
 const ACTIVE_BUILDING_MOTION_KINDS = new Set<BuildingKind>([
@@ -88,7 +89,13 @@ export function limitLocalPredictionLead(
   const offsetY = authoritative.y - predicted.y;
   const predictedError = Math.hypot(offsetX, offsetY);
   const targetTrailsInput = offsetX * input.x + offsetY * input.y < -0.025;
-  if (!targetTrailsInput || predictedError <= maximumLead) return predicted;
+  // A held drag is continuous input, while lastInputSeq only acknowledges the
+  // latest direction packet. It does not mean the old authoritative position
+  // has caught up with every rendered frame. Bot room claims include a larger
+  // state frame and used to make this branch freeze the survivor at the lead
+  // cap until the server caught up. Shared collision remains authoritative, so
+  // keep moving forward and reconcile after the drag stops.
+  if (targetTrailsInput || predictedError <= maximumLead) return predicted;
 
   const currentError = Math.hypot(
     authoritative.x - current.x,
@@ -1979,7 +1986,19 @@ export class ThreeGameView {
   private readonly hudMessages: HudMessage[] = [];
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraTarget = new THREE.Vector3();
+  private readonly blackoutProjectionA = new THREE.Vector3();
+  private readonly blackoutProjectionB = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
+  private readonly blackoutLayer: HTMLDivElement;
+  private readonly blackoutSvg: SVGSVGElement;
+  private readonly blackoutMaskBase: SVGRectElement;
+  private readonly blackoutCover: SVGRectElement;
+  private readonly blackoutMaskCircle: SVGCircleElement;
+  private readonly blackoutLightMask: SVGGElement;
+  private blackoutExtraLightCircles: SVGCircleElement[] = [];
+  private readonly blackoutRoomMask: SVGGElement;
+  private blackoutRoomRects: SVGRectElement[] = [];
+  private blackoutRoomId: string | null = null;
   private readonly selectionMarker: THREE.Mesh;
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
   private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
@@ -1997,6 +2016,7 @@ export class ThreeGameView {
   >();
   private readonly roomStateById = new Map<string, RoomState>();
   private readonly mapRoomById = new Map<string, MapDefinition['rooms'][number]>();
+  private readonly roomExitBlockTiles = new Map<string, ReadonlySet<string>>();
   private readonly turretVisualProfiles = new Map<string, TurretVisualProfile>();
   private activeGhostStates: GhostState[] = [];
   private readonly normalProjectilePool: THREE.Mesh[] = [];
@@ -2026,7 +2046,9 @@ export class ThreeGameView {
   private buildingDragTimer: number | null = null;
   private followingPlayer = true;
   private focusedRoomId: string | null = null;
-  private cameraDistanceScale = 1;
+  // One zoom step closer than the historical default. The opening hunt starts
+  // focused on the survivor and unlocks manual zoom only after claim/death.
+  private cameraDistanceScale = 1 / Math.SQRT2;
   private portraitLayout = false;
   private lastFrame = performance.now();
   private lastSelectionAt = 0;
@@ -2100,6 +2122,69 @@ export class ThreeGameView {
     if (!hudContext) throw new Error('Canvas 2D context is unavailable');
     this.hudContext = hudContext;
     this.host.appendChild(this.hudCanvas);
+    const blackoutId = `game-blackout-${crypto.randomUUID().replaceAll('-', '')}`;
+    this.blackoutLayer = document.createElement('div');
+    this.blackoutLayer.className = 'game-blackout';
+    this.blackoutLayer.setAttribute('aria-hidden', 'true');
+    this.blackoutLayer.setAttribute('data-testid', 'game-blackout');
+    this.blackoutLayer.innerHTML = `
+      <svg aria-hidden="true" preserveAspectRatio="none">
+        <defs>
+          <radialGradient id="${blackoutId}-spot">
+            <stop offset="0%" stop-color="#000"/>
+            <stop offset="72%" stop-color="#000"/>
+            <stop offset="90%" stop-color="#555"/>
+            <stop offset="100%" stop-color="#fff"/>
+          </radialGradient>
+          <radialGradient id="${blackoutId}-cover" cx="50%" cy="46%" r="78%">
+            <stop offset="0%" stop-color="#07101a"/>
+            <stop offset="64%" stop-color="#02060d"/>
+            <stop offset="100%" stop-color="#000105"/>
+          </radialGradient>
+          <mask id="${blackoutId}-mask" maskUnits="userSpaceOnUse" mask-type="luminance">
+            <rect data-blackout-mask-base fill="#fff"/>
+            <g data-blackout-light-mask>
+              <circle data-blackout-mask-circle data-blackout-light-source fill="url(#${blackoutId}-spot)"/>
+            </g>
+            <g data-blackout-room-mask></g>
+          </mask>
+        </defs>
+        <rect data-blackout-cover fill="url(#${blackoutId}-cover)" fill-opacity=".86" mask="url(#${blackoutId}-mask)"/>
+      </svg>
+      <div class="game-blackout-vignette"></div>
+    `;
+    const blackoutSvg = this.blackoutLayer.querySelector('svg');
+    const blackoutMaskCircle = this.blackoutLayer.querySelector(
+      '[data-blackout-mask-circle]',
+    );
+    const blackoutMaskBase = this.blackoutLayer.querySelector(
+      '[data-blackout-mask-base]',
+    );
+    const blackoutCover = this.blackoutLayer.querySelector(
+      '[data-blackout-cover]',
+    );
+    const blackoutLightMask = this.blackoutLayer.querySelector(
+      '[data-blackout-light-mask]',
+    );
+    const blackoutRoomMask = this.blackoutLayer.querySelector(
+      '[data-blackout-room-mask]',
+    );
+    if (
+      !(blackoutSvg instanceof SVGSVGElement) ||
+      !(blackoutMaskBase instanceof SVGRectElement) ||
+      !(blackoutCover instanceof SVGRectElement) ||
+      !(blackoutMaskCircle instanceof SVGCircleElement) ||
+      !(blackoutLightMask instanceof SVGGElement) ||
+      !(blackoutRoomMask instanceof SVGGElement)
+    )
+      throw new Error('Blackout mask could not be created');
+    this.blackoutSvg = blackoutSvg;
+    this.blackoutMaskBase = blackoutMaskBase;
+    this.blackoutCover = blackoutCover;
+    this.blackoutMaskCircle = blackoutMaskCircle;
+    this.blackoutLightMask = blackoutLightMask;
+    this.blackoutRoomMask = blackoutRoomMask;
+    this.host.appendChild(this.blackoutLayer);
     this.sleepButton = document.createElement('button');
     this.sleepButton.type = 'button';
     this.sleepButton.className = 'sleep-nearby';
@@ -2159,6 +2244,13 @@ export class ThreeGameView {
   getCameraMode(): 'follow' | 'free' { return this.followingPlayer ? 'follow' : 'free'; }
 
   getCameraZoom(): number { return Math.round((1 / this.cameraDistanceScale) * 100) / 100; }
+
+  isCameraZoomLocked(): boolean {
+    const local = this.snapshotData?.players.find(
+      (player) => player.id === this.playerId,
+    );
+    return Boolean(local?.alive && !local.roomId);
+  }
 
   getPerformanceStats(): GamePerformanceStats {
     let roomSkinDrawables = 0;
@@ -2224,6 +2316,7 @@ export class ThreeGameView {
   }
 
   zoomBy(magnificationFactor: number): void {
+    if (this.isCameraZoomLocked()) return;
     if (!Number.isFinite(magnificationFactor) || magnificationFactor <= 0) return;
     this.cameraDistanceScale = clamp(
       this.cameraDistanceScale / magnificationFactor,
@@ -2276,6 +2369,7 @@ export class ThreeGameView {
       }
       this.focusedRoomId = local.roomId;
     }
+    this.updateBlackoutMask();
     this.updateSleepPrompt(true);
   }
 
@@ -2405,6 +2499,7 @@ export class ThreeGameView {
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.hudCanvas.remove();
+    this.blackoutLayer.remove();
     this.sleepButton.remove();
   }
 
@@ -2424,6 +2519,7 @@ export class ThreeGameView {
     this.animateRoomTileSkins(time);
     this.animateBuildableTiles(time);
     this.updateCamera(dt);
+    this.updateBlackoutMask();
     this.updateSleepPrompt();
     this.renderer.render(this.scene, this.camera);
     this.renderHudMessages(time);
@@ -2515,9 +2611,7 @@ export class ThreeGameView {
       }))
       .filter((candidate) =>
         candidate.distance <= BALANCE.player.interactionRange &&
-        candidate.mapRoom.floorTiles.some((tile) =>
-          Math.hypot(tile.x - local.position.x, tile.y - local.position.y) <= 0.68,
-        ),
+        isPositionOnRoomFloor(candidate.mapRoom, local.position),
       )
       .sort((a, b) => a.distance - b.distance)[0];
     if (!nearest) {
@@ -3683,6 +3777,21 @@ export class ThreeGameView {
     for (const state of snapshot.rooms) {
       const room = this.mapData.rooms.find((candidate) => candidate.id === state.id);
       if (!room) continue;
+      const exploringPlayers = snapshot.players.filter(
+        (player) =>
+          player.alive &&
+          !player.roomId &&
+          isPositionOnRoomFloor(room, player.position),
+      );
+      const explorerAtInsideHandle = exploringPlayers.some(
+        (player) =>
+          Math.hypot(
+            player.position.x - room.door.x,
+            player.position.y - room.door.y,
+          ) <= 1.35,
+      );
+      const shouldCloseForSearch =
+        exploringPlayers.length > 0 && !explorerAtInsideHandle;
       let view = this.doorViews.get(room.id);
       if (!view) {
         const root = new THREE.Group();
@@ -3737,7 +3846,8 @@ export class ThreeGameView {
         hud.add(hp, shield, label, upgrade);
         root.add(hud);
         this.scene.add(root);
-        const closed = state.ownerIds.length > 0 ? 1 : 0;
+        const closed =
+          state.ownerIds.length > 0 || shouldCloseForSearch ? 1 : 0;
         panel.scale.x = 0.18 + closed * 0.82;
         view = {
           root,
@@ -3759,7 +3869,8 @@ export class ThreeGameView {
       }
       const intact = state.doorHp > 0;
       const ratio = state.doorHp / Math.max(1, state.doorMaxHp);
-      view.closedTarget = state.ownerIds.length > 0 ? 1 : 0;
+      view.closedTarget =
+        intact && (state.ownerIds.length > 0 || shouldCloseForSearch) ? 1 : 0;
       view.panel.visible = intact;
       if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
       updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff', 'rgba(5,8,17,.86)', null, false, 54);
@@ -3820,6 +3931,9 @@ export class ThreeGameView {
       const defeated = !player.alive;
       const isLocal = id === this.playerId;
       const hasLocalInput = isLocal && !lying && Boolean(this.localInput.x || this.localInput.y);
+      const lockedRoomBlocks = player.lockedRoomId
+        ? this.roomExitBlockTilesFor(player.lockedRoomId)
+        : undefined;
       if (hasLocalInput) {
         const currentPosition = {
           x: view.root.position.x,
@@ -3828,7 +3942,7 @@ export class ThreeGameView {
         const rawPredicted = moveInWalkableArea(this.mapData, currentPosition, {
           x: this.localInput.x * localSpeed * dt,
           y: this.localInput.y * localSpeed * dt,
-        }, BALANCE.player.collisionRadius, 0.12);
+        }, BALANCE.player.collisionRadius, 0.12, lockedRoomBlocks);
         const predicted = limitLocalPredictionLead(
           currentPosition,
           rawPredicted,
@@ -3850,15 +3964,16 @@ export class ThreeGameView {
         const targetTrailsInput =
           targetOffsetX * this.localInput.x + targetOffsetZ * this.localInput.y < -0.025;
         if (serverError > LOCAL_HARD_RECONCILE_DISTANCE && !targetTrailsInput) {
-          this.reconcilePlayerPosition(view, 16, dt);
+          this.reconcilePlayerPosition(view, 16, dt, lockedRoomBlocks);
         } else if (serverError > LOCAL_SOFT_RECONCILE_DISTANCE && !targetTrailsInput) {
-          this.reconcilePlayerPosition(view, 1.4, dt);
+          this.reconcilePlayerPosition(view, 1.4, dt, lockedRoomBlocks);
         }
       } else {
         this.reconcilePlayerPosition(
           view,
           isLocal ? 13 : 10.5,
           dt,
+          lockedRoomBlocks,
         );
       }
       const dx = view.root.position.x - view.lastPosition.x;
@@ -3924,6 +4039,21 @@ export class ThreeGameView {
     }, BALANCE.player.collisionRadius, 0.12, blockedTileKeys);
     view.root.position.x = corrected.x;
     view.root.position.z = corrected.y;
+  }
+
+  private roomExitBlockTilesFor(roomId: string): ReadonlySet<string> | undefined {
+    const cached = this.roomExitBlockTiles.get(roomId);
+    if (cached) return cached;
+    const room = this.mapRoomById.get(roomId);
+    if (!room) return undefined;
+    const inside = new Set(room.floorTiles.map((tile) => `${tile.x},${tile.y}`));
+    const blocked = new Set(
+      this.mapData.walkable
+        .filter((tile) => !inside.has(`${tile.x},${tile.y}`))
+        .map((tile) => `${tile.x},${tile.y}`),
+    );
+    this.roomExitBlockTiles.set(roomId, blocked);
+    return blocked;
   }
 
   private animateGhosts(time: number, dt: number): void {
@@ -4824,6 +4954,180 @@ export class ThreeGameView {
     }
   }
 
+  private projectBlackoutPoint(
+    worldX: number,
+    worldY: number,
+    width: number,
+    height: number,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
+    target.set(worldX, 0.12, worldY).project(this.camera);
+    target.x = (target.x * 0.5 + 0.5) * width;
+    target.y = (-target.y * 0.5 + 0.5) * height;
+    return target;
+  }
+
+  private syncBlackoutRoomRects(roomId: string | null): void {
+    if (this.blackoutRoomId === roomId) return;
+    this.blackoutRoomId = roomId;
+    this.blackoutRoomMask.replaceChildren();
+    this.blackoutRoomRects = [];
+    if (!roomId) return;
+    const room = this.mapRoomById.get(roomId);
+    if (!room) return;
+    const namespace = 'http://www.w3.org/2000/svg';
+    for (const _tile of [...room.floorTiles, room.door]) {
+      const rect = document.createElementNS(namespace, 'rect');
+      // Keep a small amount of atmospheric tint over the claimed room so it
+      // brightens gently instead of becoming a harsh cut-out in a black map.
+      rect.setAttribute('fill', '#222');
+      rect.setAttribute('rx', '2');
+      this.blackoutRoomMask.appendChild(rect);
+      this.blackoutRoomRects.push(rect);
+    }
+  }
+
+  private syncBlackoutLightCircles(count: number): SVGCircleElement[] {
+    const neededExtras = Math.max(0, count - 1);
+    while (this.blackoutExtraLightCircles.length < neededExtras) {
+      const circle = this.blackoutMaskCircle.cloneNode(false);
+      if (!(circle instanceof SVGCircleElement)) break;
+      circle.removeAttribute('data-blackout-mask-circle');
+      circle.setAttribute('data-blackout-light-source', '');
+      this.blackoutLightMask.appendChild(circle);
+      this.blackoutExtraLightCircles.push(circle);
+    }
+    while (this.blackoutExtraLightCircles.length > neededExtras) {
+      this.blackoutExtraLightCircles.pop()?.remove();
+    }
+    const circles = [
+      this.blackoutMaskCircle,
+      ...this.blackoutExtraLightCircles,
+    ];
+    for (let index = count; index < circles.length; index += 1)
+      circles[index]?.setAttribute('r', '0');
+    return circles.slice(0, count);
+  }
+
+  private updateBlackoutMask(): void {
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+    const local = this.playerStateById.get(this.playerId);
+    const active = Boolean(
+      (
+        this.snapshotData.status === 'EVENT_INTRO' ||
+        this.snapshotData.status === 'GHOST_INTRO' ||
+        this.snapshotData.status === 'COUNTDOWN'
+      ) && local?.alive,
+    );
+    const zoomLocked = this.isCameraZoomLocked();
+    this.blackoutLayer.classList.toggle('is-active', active);
+    this.blackoutLayer.classList.toggle(
+      'is-room-lit',
+      active && Boolean(local?.roomId),
+    );
+    this.renderer.domElement.dataset.blackout = active ? 'on' : 'off';
+    this.renderer.domElement.dataset.cameraZoomLocked = zoomLocked
+      ? 'true'
+      : 'false';
+    if (!active || !local) {
+      this.syncBlackoutRoomRects(null);
+      this.syncBlackoutLightCircles(0);
+      return;
+    }
+
+    this.blackoutSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    for (const rect of [this.blackoutMaskBase, this.blackoutCover]) {
+      rect.setAttribute('x', '0');
+      rect.setAttribute('y', '0');
+      rect.setAttribute('width', String(width));
+      rect.setAttribute('height', String(height));
+    }
+
+    if (!local.roomId) {
+      this.syncBlackoutRoomRects(null);
+      const lightPlayers = this.snapshotData.players
+        .filter(
+          (player) =>
+            player.alive &&
+            (player.connected || player.isBot) &&
+            !player.roomId,
+        )
+        .sort((left, right) => {
+          if (left.id === this.playerId) return -1;
+          if (right.id === this.playerId) return 1;
+          return left.id.localeCompare(right.id);
+        });
+      const circles = this.syncBlackoutLightCircles(lightPlayers.length);
+      lightPlayers.forEach((player, index) => {
+        const circle = circles[index];
+        if (!circle) return;
+        const rendered = this.playerViews.get(player.id)?.root.position;
+        const x = rendered?.x ?? player.position.x;
+        const y = rendered?.z ?? player.position.y;
+        const center = this.projectBlackoutPoint(
+          x,
+          y,
+          width,
+          height,
+          this.blackoutProjectionA,
+        );
+        const edge = this.projectBlackoutPoint(
+          x + BLACKOUT_REVEAL_RADIUS_TILES,
+          y,
+          width,
+          height,
+          this.blackoutProjectionB,
+        );
+        circle.setAttribute('cx', center.x.toFixed(2));
+        circle.setAttribute('cy', center.y.toFixed(2));
+        circle.setAttribute(
+          'r',
+          Math.max(
+            24,
+            Math.hypot(edge.x - center.x, edge.y - center.y),
+          ).toFixed(2),
+        );
+      });
+      return;
+    }
+
+    this.syncBlackoutLightCircles(0);
+    this.syncBlackoutRoomRects(local.roomId);
+    const room = this.mapRoomById.get(local.roomId);
+    if (!room) return;
+    [...room.floorTiles, room.door].forEach((tile, index) => {
+      const rect = this.blackoutRoomRects[index];
+      if (!rect) return;
+      const topLeft = this.projectBlackoutPoint(
+        tile.x - 0.54,
+        tile.y - 0.54,
+        width,
+        height,
+        this.blackoutProjectionA,
+      );
+      const bottomRight = this.projectBlackoutPoint(
+        tile.x + 0.54,
+        tile.y + 0.54,
+        width,
+        height,
+        this.blackoutProjectionB,
+      );
+      const left = Math.min(topLeft.x, bottomRight.x);
+      const top = Math.min(topLeft.y, bottomRight.y);
+      rect.setAttribute('x', left.toFixed(2));
+      rect.setAttribute('y', top.toFixed(2));
+      rect.setAttribute(
+        'width',
+        Math.abs(bottomRight.x - topLeft.x).toFixed(2),
+      );
+      rect.setAttribute(
+        'height',
+        Math.abs(bottomRight.y - topLeft.y).toFixed(2),
+      );
+    });
+  }
+
   private resize(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
@@ -4834,6 +5138,7 @@ export class ThreeGameView {
     this.hudCanvas.width = Math.max(1, Math.round(width * hudRatio));
     this.hudCanvas.height = Math.max(1, Math.round(height * hudRatio));
     this.hudContext.setTransform(hudRatio, 0, 0, hudRatio, 0, 0);
+    this.updateBlackoutMask();
   }
 
   private updateCameraProjection(

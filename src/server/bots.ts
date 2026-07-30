@@ -5,10 +5,12 @@ import {
   upgradeCost,
   upgradeRequirement,
 } from '../shared/balance';
+import { isPositionOnRoomFloor } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
 import type { BuildingKind, GameSnapshot, MapDefinition, PlayerState, Tile } from '../shared/types';
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
+export type BotStrategy = 'guardian' | 'gunner' | 'controller';
 
 /** A stable bed reservation prevents unclaimed bots from changing course. */
 export interface BotBedTarget {
@@ -22,6 +24,11 @@ export type BotIntent =
   | { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind }
   | { type: 'move-building'; buildingId: string; tile: Tile }
   | { type: 'upgrade'; targetId: string }
+  | {
+      type: 'activate-building';
+      buildingId: string;
+      action: 'use' | 'attack' | 'defense' | 'production' | 'hide-and-seek';
+    }
   | { type: 'idle' };
 
 export const BOT_REACTION_SECONDS: Record<BotDifficulty, number> = {
@@ -31,6 +38,15 @@ export const BOT_REACTION_SECONDS: Record<BotDifficulty, number> = {
 };
 
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
+
+/** Stable roles make a bot team combine defence, firepower and control. */
+export function botStrategyFor(bot: Pick<PlayerState, 'id' | 'nickname'>): BotStrategy {
+  const nicknameIndex = Number(bot.nickname.match(/(\d+)$/)?.[1] ?? Number.NaN);
+  const stableIndex = Number.isFinite(nicknameIndex)
+    ? Math.max(0, nicknameIndex - 1)
+    : [...bot.id].reduce((total, character) => total + character.charCodeAt(0), 0);
+  return (['guardian', 'gunner', 'controller'] as const)[stableIndex % 3] ?? 'guardian';
+}
 
 function movementToward(player: PlayerState, target: { x: number; y: number }): BotIntent {
   const dx = target.x - player.position.x;
@@ -88,8 +104,9 @@ export function decideBotIntent(
     if (!availableTarget) return { type: 'idle' };
     // Match the server-side bed interaction rule. Otherwise a bot can stop
     // at an outside wall corner and repeatedly try to sleep through it.
-    const standingOnTargetFloor = availableTarget.room.floorTiles.some(
-      (tile) => distance(bot.position, tile) <= 0.68,
+    const standingOnTargetFloor = isPositionOnRoomFloor(
+      availableTarget.room,
+      bot.position,
     );
     if (standingOnTargetFloor && distance(bot.position, availableTarget.bed) <= BALANCE.player.interactionRange)
       return { type: 'interact' };
@@ -100,12 +117,10 @@ export function decideBotIntent(
   const mapRoom = map.rooms.find((candidate) => candidate.id === bot.roomId);
   if (!room || !mapRoom) return { type: 'idle' };
 
-  const imperfectDelay = difficulty === 'easy' && Math.floor(snapshot.elapsed) % 7 < 2;
-  if (imperfectDelay) return { type: 'idle' };
-
   const bedLevel = room.bedLevels[bot.bedIndex ?? 0] ?? 1;
   const owned = snapshot.buildings.filter((building) => building.roomId === room.id);
   const activeRank = snapshot.playMode === 'solo' ? bot.soloRank : bot.multiplayerRank;
+  const strategy = botStrategyFor(bot);
   const pressure = snapshot.ghosts.some(
     (ghost) =>
       ghost.targetRoomId === room.id &&
@@ -117,7 +132,9 @@ export function decideBotIntent(
   const stagePressure = Math.floor(snapshot.stageIndex / 40);
   const doorGoal = Math.min(
     maxBuildingLevel('reinforced-door'),
-    (difficulty === 'easy' ? 2 : difficulty === 'normal' ? 4 : 6) + stagePressure,
+    (difficulty === 'easy' ? 2 : difficulty === 'normal' ? 4 : 6) +
+      stagePressure +
+      (strategy === 'guardian' ? 1 : 0),
   );
   const bedGoal = Math.min(
     maxBuildingLevel('bed'),
@@ -127,20 +144,70 @@ export function decideBotIntent(
   const turretGoal = Math.min(
     maxBuildingLevel('basic-turret'),
     (difficulty === 'easy' ? 2 : difficulty === 'normal' ? 4 : 6) +
-      Math.floor(snapshot.stageIndex / 35),
+      Math.floor(snapshot.stageIndex / 35) +
+      (strategy === 'gunner' ? 1 : 0),
   );
   const guardianTurrets = owned
     .filter((building) => building.kind === 'basic-turret')
     .sort((left, right) => right.level - left.level);
   const turret = guardianTurrets[0];
   const turretCountGoal = Math.min(
-    difficulty === 'easy' ? 1 : difficulty === 'normal' ? 2 : 4,
-    1 + Math.floor(snapshot.stageIndex / (difficulty === 'hard' ? 35 : 60)),
+    difficulty === 'easy' ? 1 : difficulty === 'normal' ? 3 : 5,
+    1 +
+      Math.floor(snapshot.stageIndex / (difficulty === 'hard' ? 35 : 60)) +
+      (strategy === 'gunner' ? 1 : 0),
   );
   const repair = owned.find((building) => building.kind === 'repair-drone');
   const generator = owned.find(
     (building) => building.kind === 'generator' && building.ownerId === bot.id,
   );
+  const overload = owned.find(
+    (building) => building.kind === 'overload-capacitor' && building.ownerId === bot.id,
+  );
+  const hideAndSeek = owned.find(
+    (building) => building.kind === 'hide-and-seek-doll' && building.ownerId === bot.id,
+  );
+  const powerPanel = owned.find(
+    (building) => building.kind === 'power-panel' && building.ownerId === bot.id,
+  );
+
+  if (
+    pressure &&
+    hideAndSeek &&
+    doorRatio <= 0.24
+  ) {
+    return {
+      type: 'activate-building',
+      buildingId: hideAndSeek.id,
+      action: 'hide-and-seek',
+    };
+  }
+  if (
+    pressure &&
+    overload &&
+    snapshot.elapsed >= (overload.overloadReadyAt ?? Number.POSITIVE_INFINITY)
+  ) {
+    return {
+      type: 'activate-building',
+      buildingId: overload.id,
+      action: 'use',
+    };
+  }
+  if (powerPanel) {
+    const desiredMode =
+      strategy === 'guardian' || (pressure && doorRatio < 0.55)
+        ? 'defense'
+        : strategy === 'controller' && !pressure
+          ? 'production'
+          : 'attack';
+    if (powerPanel.powerPanelMode !== desiredMode) {
+      return {
+        type: 'activate-building',
+        buildingId: powerPanel.id,
+        action: desiredMode,
+      };
+    }
+  }
 
   // A starter turret is useful only when it can cover the door. Skilled bots
   // move it once, rather than wasting gold on a duplicate in the back row.
@@ -203,16 +270,47 @@ export function decideBotIntent(
       const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
       if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
     }
+    const emergencySupport: BuildingKind[] =
+      strategy === 'controller'
+        ? ['frost-turret', 'ghost-net', 'electric-coil']
+        : strategy === 'guardian'
+          ? ['shield-device', 'reflect-mirror']
+          : ['turret-enhancer', 'electric-coil'];
+    for (const kind of emergencySupport) {
+      if (owned.some((building) => building.kind === kind)) continue;
+      if (!canBuild(bot, kind)) continue;
+      const tile = kind === 'turret-enhancer' && turret
+        ? freeTileAdjacentTo(snapshot, mapRoom.buildTiles, turret.tile)
+        : freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+      if (tile) return { type: 'build', roomId: room.id, tile, kind };
+    }
     if (turret && turret.level < turretGoal && canUpgradeBuilding(turret))
       return { type: 'upgrade', targetId: turret.id };
   }
 
-  // Normal and hard bots establish at least one firing lane before spending a
-  // large lump of gold on economy. This prevents a pressured bot from sitting
-  // on 150 gold with no turret while saving for a generator.
+  // Every bot establishes a firing lane before spending on economy. The old
+  // easy policy deliberately idled and upgraded the bed first, which made the
+  // whole team collapse before it participated in combat.
+  if (
+    guardianTurrets.length < 1 &&
+    canBuild(bot, 'basic-turret')
+  ) {
+    const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+    if (tile) return { type: 'build', roomId: room.id, tile, kind: 'basic-turret' };
+  }
+  const openingDoorGoal = Math.min(
+    doorGoal,
+    (difficulty === 'easy' ? 2 : difficulty === 'normal' ? 3 : 4) +
+      (strategy === 'guardian' ? 1 : 0),
+  );
+  if (
+    room.doorLevel < openingDoorGoal &&
+    canUpgradeRoomTarget('reinforced-door', room.doorLevel)
+  )
+    return { type: 'upgrade', targetId: `door:${room.id}` };
   if (
     difficulty !== 'easy' &&
-    guardianTurrets.length < 1 &&
+    guardianTurrets.length < Math.min(2, turretCountGoal) &&
     canBuild(bot, 'basic-turret')
   ) {
     const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
@@ -236,17 +334,30 @@ export function decideBotIntent(
   if (turret && turret.level < turretGoal && canUpgradeBuilding(turret))
     return { type: 'upgrade', targetId: turret.id };
 
+  const strategicPriority: Record<BotStrategy, BuildingKind[]> = {
+    guardian: ['repair-drone', 'shield-device', 'reflect-mirror', 'door-anchor', 'power-panel', 'gem-core'],
+    gunner: ['turret-enhancer', 'electric-coil', 'overload-capacitor', 'power-panel', 'gem-core'],
+    controller: ['frost-turret', 'ghost-net', 'electric-coil', 'hide-and-seek-doll', 'power-panel', 'gem-core'],
+  };
   const utilityPriority: BuildingKind[] =
-    difficulty === 'hard'
-      ? ['repair-drone', 'frost-turret', 'ghost-net', 'turret-enhancer', 'electric-coil', 'shield-device', 'gem-core']
-      : difficulty === 'normal'
-        ? ['frost-turret', 'repair-drone', 'electric-coil', 'shield-device', 'gem-core']
-        : ['gem-core'];
+    difficulty === 'easy'
+      ? strategy === 'guardian'
+        ? ['repair-drone', 'gem-core']
+        : strategy === 'gunner'
+          ? ['turret-enhancer', 'gem-core']
+          : ['frost-turret', 'gem-core']
+      : strategicPriority[strategy];
   for (const kind of utilityPriority) {
     if (owned.some((building) => building.kind === kind)) continue;
     if (!canBuild(bot, kind)) continue;
-    const tile =
-      kind === 'repair-drone' || kind === 'frost-turret' || kind === 'ghost-net'
+    const tile = kind === 'turret-enhancer' && turret
+      ? freeTileAdjacentTo(snapshot, mapRoom.buildTiles, turret.tile)
+      : kind === 'repair-drone' ||
+          kind === 'frost-turret' ||
+          kind === 'ghost-net' ||
+          kind === 'shield-device' ||
+          kind === 'reflect-mirror' ||
+          kind === 'door-anchor'
         ? freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door)
         : freeTile(snapshot, mapRoom.buildTiles);
     if (tile) return { type: 'build', roomId: room.id, tile, kind };
@@ -296,4 +407,21 @@ function freeTileFarthest(
       (building) => building.tile.x === tile.x && building.tile.y === tile.y,
     ))
     .sort((left, right) => distance(right, target) - distance(left, target))[0];
+}
+
+function freeTileAdjacentTo(
+  snapshot: GameSnapshot,
+  tiles: Tile[],
+  target: Tile,
+): Tile | undefined {
+  return [...tiles]
+    .filter(
+      (tile) =>
+        Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y) === 1 &&
+        !snapshot.buildings.some(
+          (building) =>
+            building.tile.x === tile.x && building.tile.y === tile.y,
+        ),
+    )
+    .sort((left, right) => distance(left, target) - distance(right, target))[0];
 }

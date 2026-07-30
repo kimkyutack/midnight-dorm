@@ -184,6 +184,8 @@ export interface PlayerState {
   goldIncomeElapsed: number;
   powerIncomeElapsed: number;
   roomId: string | null;
+  /** Room entered when the preparation countdown ended; its door is locked. */
+  lockedRoomId?: string | null;
   bedIndex: number | null;
   turretSkins: TurretSkinLoadout;
   lastInputSeq: number;
@@ -468,6 +470,7 @@ export type GameEventKind =
   | 'item-pickup'
   | 'consumable-use'
   | 'elite-join'
+  | 'lights-on'
   | 'victory'
   | 'defeat';
 

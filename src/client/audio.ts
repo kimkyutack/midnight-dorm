@@ -97,6 +97,7 @@ export class SynthAudio {
       'item-drop': [760, 320, 'sine', .2], 'item-pickup': [440, 1120, 'triangle', .18],
       'consumable-use': [640, 1160, 'sine', .18],
       'elite-join': [260, 1380, 'triangle', .65],
+      'lights-on': [180, 760, 'sine', .32],
       victory: [440, 990, 'triangle', .55], defeat: [180, 48, 'sawtooth', .65],
     };
     const [from, to, type, duration] = presets[name];

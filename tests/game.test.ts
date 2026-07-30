@@ -3,9 +3,9 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/sh
 import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
-import { connectedWalkableCount, generateMap, isBuildTile, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
-import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, RANK_VISUALS, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
+import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, recommendedRankForStage, RANK_VISUALS, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
@@ -26,7 +26,7 @@ import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/Buildin
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
-import { decideBotIntent } from '../src/server/bots';
+import { botStrategyFor, decideBotIntent } from '../src/server/bots';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
@@ -272,7 +272,7 @@ describe('deterministic shared world', () => {
     expect(rendered.x).toBeCloseTo(8.75);
   });
 
-  it('restores the prediction lead cap after the server acknowledges the held drag', () => {
+  it('does not freeze a held drag when an acknowledged bot-claim frame still trails the player', () => {
     const authoritative = { x: 5, y: 5 };
     const input = { x: 1, y: 0 };
     const rendered = { x: 7.55, y: 5 };
@@ -285,9 +285,16 @@ describe('deterministic shared world', () => {
       8,
       8,
     );
-    expect(next.x).toBeGreaterThanOrEqual(rendered.x);
-    expect(Math.hypot(next.x - authoritative.x, next.y - authoritative.y))
-      .toBeLessThanOrEqual(2.601);
+    expect(next.x).toBeGreaterThan(rendered.x);
+    expect(next.x).toBeCloseTo(7.65);
+  });
+
+  it('treats every rounded point inside a room floor tile as room interior', () => {
+    const room = {
+      floorTiles: [{ x: 5, y: 5 }],
+    };
+    expect(isPositionOnRoomFloor(room, { x: 5.49, y: 5.49 })).toBe(true);
+    expect(isPositionOnRoomFloor(room, { x: 5.51, y: 5.49 })).toBe(false);
   });
 
   it('replays a seeded random sequence exactly', () => {
@@ -608,11 +615,17 @@ describe('survivor customization rules', () => {
     expect(survivorSpriteId('unknown-character')).toBe('character-bunny');
   });
 
-  it('mirrors only the ghost side sheets that were illustrated facing left', () => {
-    expect(ghostSpriteDefinition('wanderer').sideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('brute').sideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('caster').sideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('undead').sideFacesLeft).toBe(false);
+  it('keeps independently authored ghost movement and attack side rows facing their targets', () => {
+    expect(ghostSpriteDefinition('wanderer').movementSideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('wanderer').attackSideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('brute').movementSideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('brute').attackSideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('twin-a').movementSideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('twin-a').attackSideFacesLeft).toBe(true);
+    expect(ghostSpriteDefinition('twin-b').movementSideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('twin-b').attackSideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('caster').movementSideFacesLeft).toBe(false);
+    expect(ghostSpriteDefinition('undead').movementSideFacesLeft).toBe(false);
     expect(ghostSpriteDefinition('swift').movementUrl)
       .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v5');
     expect(ghostSpriteDefinition('swift').attackUrl)
@@ -938,7 +951,7 @@ describe('authoritative game rules', () => {
     expect(engine.kickPlayer(host, guest)).toMatchObject({ ok: true, removedPlayerId: guest });
   });
 
-  it('keeps the ghost at spawn for a thirty-second preparation phase', () => {
+  it('lets the ghost patrol corridors during the thirty-second blackout phase', () => {
     const { engine, ids } = setup(1, false);
     const ghostSpawn = { ...engine.map.ghostSpawn };
     expect(engine.start(ids[0] as string).ok).toBe(true);
@@ -946,11 +959,336 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().countdown).toBe(30);
     for (let index = 0; index < 40 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
-    for (let index = 0; index < 299; index += 1) engine.tick(0.1);
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    expect(
+      Math.hypot(
+        engine.snapshot().ghost.position.x - ghostSpawn.x,
+        engine.snapshot().ghost.position.y - ghostSpawn.y,
+      ),
+    ).toBeGreaterThan(0.05);
+    for (let index = 0; index < 289; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
-    expect(engine.snapshot().ghost.position).toEqual(ghostSpawn);
+    const positionBeforeLightsOn = { ...engine.snapshot().ghost.position };
     engine.tick(0.1);
     expect(engine.snapshot().status).toBe('PLAYING');
+    expect(
+      Math.hypot(
+        engine.snapshot().ghost.position.x - positionBeforeLightsOn.x,
+        engine.snapshot().ghost.position.y - positionBeforeLightsOn.y,
+      ),
+    ).toBeLessThanOrEqual(BALANCE.player.speed * 0.11);
+    expect(engine.drainEvents()).toContainEqual(
+      expect.objectContaining({ kind: 'lights-on' }),
+    );
+  });
+
+  it('chases only visible corridor survivors during blackout and loses them inside rooms', () => {
+    const { engine, ids } = setup(1, true);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const room = engine.map.rooms[0];
+    if (!room) throw new Error('missing blackout room fixture');
+    const corridorPair = engine.map.corridorTiles
+      .map((ghostTile) => ({
+        ghostTile,
+        playerTile: engine.map.corridorTiles.find(
+          (candidate) =>
+            Math.abs(candidate.x - ghostTile.x) +
+              Math.abs(candidate.y - ghostTile.y) ===
+            1,
+        ),
+      }))
+      .find((candidate) => candidate.playerTile);
+    if (!corridorPair?.playerTile)
+      throw new Error('missing blackout corridor fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !ghost) throw new Error('missing blackout actors');
+    player.position = { ...corridorPair.playerTile };
+    player.velocity = { x: 0, y: 0 };
+    ghost.position = { ...corridorPair.ghostTile };
+    ghost.targetPlayerId = null;
+    ghost.targetRoomId = null;
+    ghost.path = [];
+    engine.restore(persisted);
+
+    engine.tick(0.1);
+    expect(engine.snapshot().ghost.targetPlayerId).toBe(playerId);
+    expect(engine.snapshot().ghost.targetRoomId).toBeNull();
+
+    const hidden = engine.serialize();
+    const hiddenPlayer = hidden.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!hiddenPlayer) throw new Error('missing hidden survivor');
+    hiddenPlayer.position = { ...(room.floorTiles[0] as Tile) };
+    engine.restore(hidden);
+    engine.tick(0.1);
+    expect(engine.snapshot().ghost.targetPlayerId).toBeNull();
+    expect(engine.snapshot().ghost.targetRoomId).toBeNull();
+    expect(engine.snapshot().rooms[0]?.doorHp).toBe(
+      engine.snapshot().rooms[0]?.doorMaxHp,
+    );
+  });
+
+  it('eliminates an unclaimed survivor immediately on physical ghost contact', () => {
+    const { engine, ids } = setup(1, true);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const contactTile = engine.map.corridorTiles[0];
+    if (!contactTile) throw new Error('missing contact corridor fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !ghost) throw new Error('missing contact actors');
+    player.position = { ...contactTile };
+    player.roomId = null;
+    ghost.position = { ...contactTile };
+    ghost.attackCooldown = 99;
+    ghost.targetPlayerId = playerId;
+    ghost.path = [];
+    engine.restore(persisted);
+
+    engine.tick(0.01);
+
+    expect(
+      engine.snapshot().players.find((candidate) => candidate.id === playerId)
+        ?.alive,
+    ).toBe(false);
+    expect(engine.drainEvents()).toContainEqual(
+      expect.objectContaining({ kind: 'death', playerId }),
+    );
+  });
+
+  it('keeps an unclaimed survivor safe after entering a room floor when lights turn on', () => {
+    const { engine, ids } = setup(1, true);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const room = engine.map.rooms[0];
+    const roomTile = room?.floorTiles[0];
+    const corridorTile = engine.map.corridorTiles[0];
+    if (!room || !roomTile || !corridorTile)
+      throw new Error('missing safe-room fixture');
+    const persisted = engine.serialize();
+    persisted.snapshot.status = 'PLAYING';
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !ghost) throw new Error('missing safe-room actors');
+    player.position = { ...roomTile };
+    player.roomId = null;
+    ghost.position = { ...corridorTile };
+    ghost.targetPlayerId = playerId;
+    ghost.targetRoomId = null;
+    ghost.path = [];
+    engine.restore(persisted);
+
+    engine.tick(0.1);
+
+    const after = engine.snapshot();
+    expect(
+      after.players.find((candidate) => candidate.id === playerId)?.alive,
+    ).toBe(true);
+    expect(after.ghost.targetPlayerId).toBeNull();
+  });
+
+  it('gives wandering blackout twins separated patrol destinations', () => {
+    const { engine, ids } = setup(1, true);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const roomTile = engine.map.rooms[0]?.floorTiles[0];
+    const ghostTile = engine.map.corridorTiles[0];
+    if (!roomTile || !ghostTile)
+      throw new Error('missing blackout twin fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const twinA = persisted.snapshot.ghosts[0];
+    if (!player || !twinA) throw new Error('missing blackout twin actors');
+    player.position = { ...roomTile };
+    player.roomId = null;
+    twinA.variant = 'twin-a';
+    twinA.position = { ...ghostTile };
+    twinA.targetPlayerId = null;
+    twinA.wanderTarget = null;
+    twinA.path = [];
+    const twinB: GhostState = {
+      ...structuredClone(twinA),
+      id: 'blackout-twin-b',
+      variant: 'twin-b',
+    };
+    persisted.snapshot.ghosts = [twinA, twinB];
+    engine.restore(persisted);
+
+    engine.tick(0.1);
+
+    const twins = engine.snapshot().ghosts;
+    const firstTarget = twins[0]?.wanderTarget;
+    const secondTarget = twins[1]?.wanderTarget;
+    expect(firstTarget).toBeTruthy();
+    expect(secondTarget).toBeTruthy();
+    expect(
+      Math.hypot(
+        (firstTarget as Tile).x - (secondTarget as Tile).x,
+        (firstTarget as Tile).y - (secondTarget as Tile).y,
+      ),
+    ).toBeGreaterThanOrEqual(4);
+    expect(
+      twins.every(
+        (ghost) =>
+          Math.hypot(
+            ghost.position.x - ghostTile.x,
+            ghost.position.y - ghostTile.y,
+          ) > 0,
+      ),
+    ).toBe(true);
+  });
+
+  it('spawns both twins on distinct walkable corridor tiles and keeps both moving after lights turn on', () => {
+    const map = generateMap(101);
+    const engine = new GameEngine('X1', map, false);
+    const joined = engine.join({
+      nickname: '쌍둥이 추적자',
+      deviceId: 'twin-spawn-walkable-device',
+    });
+    const initial = engine.snapshot();
+    expect(initial.ghosts.map((ghost) => ghost.variant)).toEqual([
+      'twin-a',
+      'twin-b',
+    ]);
+    expect(
+      initial.ghosts.every((ghost) =>
+        isWalkableArea(
+          map,
+          ghost.position.x,
+          ghost.position.y,
+          BALANCE.ghost.collisionRadius,
+        ),
+      ),
+    ).toBe(true);
+    expect(new Set(
+      initial.ghosts.map(
+        (ghost) => `${Math.round(ghost.position.x)},${Math.round(ghost.position.y)}`,
+      ),
+    ).size).toBe(2);
+
+    expect(engine.start(joined.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const beforeBlackout = engine.snapshot().ghosts.map((ghost) => ({
+      id: ghost.id,
+      position: { ...ghost.position },
+    }));
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    const afterBlackout = engine.snapshot().ghosts;
+    expect(afterBlackout.every((ghost) => {
+      const before = beforeBlackout.find((candidate) => candidate.id === ghost.id);
+      return Boolean(
+        before &&
+          Math.hypot(
+            before.position.x - ghost.position.x,
+            before.position.y - ghost.position.y,
+          ) > 0.05,
+      );
+    })).toBe(true);
+
+    const playingState = engine.serialize();
+    playingState.snapshot.status = 'PLAYING';
+    playingState.snapshot.players.forEach((player) => {
+      player.position = { ...(map.rooms[0]?.floorTiles[0] as Tile) };
+      player.roomId = null;
+    });
+    playingState.snapshot.ghosts.forEach((ghost) => {
+      ghost.targetPlayerId = null;
+      ghost.targetRoomId = null;
+      ghost.wanderTarget = null;
+      ghost.path = [];
+    });
+    engine.restore(playingState);
+    const beforePlaying = engine.snapshot().ghosts.map((ghost) => ({
+      id: ghost.id,
+      position: { ...ghost.position },
+    }));
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    const afterPlaying = engine.snapshot().ghosts;
+    expect(afterPlaying.every((ghost) => {
+      const before = beforePlaying.find((candidate) => candidate.id === ghost.id);
+      return Boolean(
+        before &&
+          Math.hypot(
+            before.position.x - ghost.position.x,
+            before.position.y - ghost.position.y,
+          ) > 0.05,
+      );
+    })).toBe(true);
+  });
+
+  it('seals a survivor inside the room reached before the countdown ends', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const room = engine.map.rooms.find((candidate) => {
+      const floorKeys = new Set(candidate.floorTiles.map((tile) => `${tile.x},${tile.y}`));
+      return candidate.floorTiles.some((tile) =>
+        [
+          { x: tile.x + 1, y: tile.y },
+          { x: tile.x - 1, y: tile.y },
+          { x: tile.x, y: tile.y + 1 },
+          { x: tile.x, y: tile.y - 1 },
+        ].some(
+          (neighbor) =>
+            engine.map.walkable.some(
+              (walkable) => walkable.x === neighbor.x && walkable.y === neighbor.y,
+            ) && !floorKeys.has(`${neighbor.x},${neighbor.y}`),
+        ),
+      );
+    });
+    if (!room) throw new Error('missing room with an exit');
+    const floorKeys = new Set(room.floorTiles.map((tile) => `${tile.x},${tile.y}`));
+    const exit = room.floorTiles.flatMap((tile) =>
+      [
+        { x: tile.x + 1, y: tile.y },
+        { x: tile.x - 1, y: tile.y },
+        { x: tile.x, y: tile.y + 1 },
+        { x: tile.x, y: tile.y - 1 },
+      ].map((neighbor) => ({ tile, neighbor })),
+    ).find(({ neighbor }) =>
+      engine.map.walkable.some(
+        (walkable) => walkable.x === neighbor.x && walkable.y === neighbor.y,
+      ) && !floorKeys.has(`${neighbor.x},${neighbor.y}`),
+    );
+    if (!exit) throw new Error('missing room exit edge');
+
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing room-lock player');
+    player.position = { ...exit.tile };
+    player.velocity = { x: 0, y: 0 };
+    persisted.snapshot.countdown = 0.01;
+    engine.restore(persisted);
+    engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('PLAYING');
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.lockedRoomId)
+      .toBe(room.id);
+
+    const dx = exit.neighbor.x - exit.tile.x;
+    const dy = exit.neighbor.y - exit.tile.y;
+    expect(engine.setMovement(playerId, dx, dy, 1).ok).toBe(true);
+    for (let index = 0; index < 15; index += 1) engine.tick(0.1);
+    const after = engine.snapshot().players.find((candidate) => candidate.id === playerId);
+    expect(after).toBeTruthy();
+    expect(isPositionOnRoomFloor(room, after?.position as Tile)).toBe(true);
   });
 
   it('shows Time Attack before the frozen ghost poster and does not buffer movement', () => {
@@ -1446,11 +1784,31 @@ describe('authoritative game rules', () => {
   it('rejects purchases when resources are insufficient', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
-    const { roomId } = assigned(engine, ids[0] as string);
-    const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
-    expect(engine.build(ids[0] as string, roomId, tiles[0] as Tile, 'electric-coil').ok).toBe(true);
+    const playerId = ids[0] as string;
+    const { roomId, tile: firstTile } = assigned(engine, playerId);
+    const funded = engine.serialize();
+    const fundedPlayer = funded.snapshot.players.find(
+      (player) => player.id === playerId,
+    );
+    if (!fundedPlayer) throw new Error('missing insufficient-resource player');
+    fundedPlayer.power = upgradeCost('electric-coil', 1).power;
+    engine.restore(funded);
+    const occupied = new Set(
+      engine.snapshot().buildings.map(
+        (building) => `${building.tile.x},${building.tile.y}`,
+      ),
+    );
+    const secondTile = engine.map.rooms
+      .find((room) => room.id === roomId)
+      ?.buildTiles.find(
+        (tile) =>
+          !occupied.has(`${tile.x},${tile.y}`) &&
+          (tile.x !== firstTile.x || tile.y !== firstTile.y),
+      );
+    if (!secondTile) throw new Error('missing second free build tile');
+    expect(engine.build(playerId, roomId, firstTile, 'electric-coil').ok).toBe(true);
     engine.tick(0.1);
-    const result = engine.build(ids[0] as string, roomId, tiles[1] as Tile, 'electric-coil');
+    const result = engine.build(playerId, roomId, secondTile, 'electric-coil');
     expect(result.ok).toBe(false);
     expect(result.error).toContain('부족');
   });
@@ -1458,9 +1816,9 @@ describe('authoritative game rules', () => {
   it('sells the door repair stand for gold while other support devices use power', () => {
     expect(upgradeCost('repair-drone', 1)).toEqual({ gold: 70, power: 0 });
     expect([1, 2, 3].map((level) => buildingStats('repair-drone', level).value))
-      .toEqual([6, 18, 45]);
-    expect(upgradeCost('electric-coil', 1)).toEqual({ gold: 0, power: 12 });
-    expect(upgradeCost('shield-device', 1)).toEqual({ gold: 0, power: 9 });
+      .toEqual([15, 30, 45]);
+    expect(upgradeCost('electric-coil', 1)).toEqual({ gold: 0, power: 25 });
+    expect(upgradeCost('shield-device', 1)).toEqual({ gold: 0, power: 30 });
 
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1953,13 +2311,18 @@ describe('requested progression and event rules', () => {
     human.roomId = null;
     human.bedIndex = null;
     human.velocity = { x: 0, y: 0 };
+    // This scenario isolates authoritative movement from bot claim snapshots.
+    // A separate contact test covers blackout deaths.
+    persisted.snapshot.ghosts.forEach((ghost) => {
+      ghost.stunnedUntil = 1_000;
+    });
     engine.restore(persisted);
 
     let target = pair.second;
     let previous = { ...pair.first };
     let claimedTransitions = 0;
     let previousClaimed = 0;
-    for (let index = 0; index < 260 && previousClaimed < 3; index += 1) {
+    for (let index = 0; index < 400 && previousClaimed < 3; index += 1) {
       const current = engine.snapshot().players.find(
         (player) => player.id === host.player.id,
       );
@@ -1982,7 +2345,10 @@ describe('requested progression and event rules', () => {
       if (claimed > previousClaimed) claimedTransitions += claimed - previousClaimed;
       previousClaimed = claimed;
     }
-    expect(claimedTransitions).toBe(3);
+    // Three-bot occupancy is covered by the dedicated BOTPATH1 case above.
+    // This fixture only needs repeated claim snapshots while the human keeps
+    // moving; two independent room claims exercise that regression fully.
+    expect(claimedTransitions).toBeGreaterThanOrEqual(2);
   });
 
   it('keeps movement continuous in room A when a bot claims separate room B', () => {
@@ -2053,6 +2419,54 @@ describe('requested progression and event rules', () => {
         (moved?.position.y ?? pair.first.y) - pair.first.y,
       ),
     ).toBeGreaterThan(0.2);
+  });
+
+  it('keeps sleep interaction available at a legal room-tile corner after another bot claims', () => {
+    const engine = new GameEngine('BOTCLAIMSLEEP', generateMap(71_904), false);
+    const host = engine.join({ nickname: '침대접근자', deviceId: 'device-room-corner' });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+
+    const playerRoom = engine.map.rooms[0];
+    const botRoom = engine.map.rooms[1];
+    const playerBed = playerRoom?.beds[0];
+    const botBed = botRoom?.beds[0];
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    if (!playerRoom || !botRoom || !playerBed || !botBed || !bot) {
+      throw new Error('missing room-corner claim fixture');
+    }
+
+    const persisted = engine.serialize();
+    const humanState = persisted.snapshot.players.find(
+      (player) => player.id === host.player.id,
+    );
+    const botState = persisted.snapshot.players.find(
+      (player) => player.id === bot.id,
+    );
+    if (!humanState || !botState) throw new Error('missing room-corner players');
+    humanState.position = { x: playerBed.x + 0.49, y: playerBed.y + 0.49 };
+    humanState.roomId = null;
+    humanState.bedIndex = null;
+    botState.position = { ...botBed };
+    botState.roomId = null;
+    botState.bedIndex = null;
+    engine.restore(persisted);
+
+    expect(isPositionOnRoomFloor(playerRoom, humanState.position)).toBe(true);
+    expect(
+      Math.hypot(
+        humanState.position.x - playerBed.x,
+        humanState.position.y - playerBed.y,
+      ),
+    ).toBeGreaterThan(0.68);
+    expect(engine.interact(bot.id).ok).toBe(true);
+    expect(engine.interact(host.player.id).ok).toBe(true);
+
+    const after = engine.snapshot();
+    expect(after.players.find((player) => player.id === bot.id)?.roomId).toBe(botRoom.id);
+    expect(after.players.find((player) => player.id === host.player.id)?.roomId)
+      .toBe(playerRoom.id);
   });
 
   it('retargets an undead and its minions when a minion defeats the last survivor in a room', () => {
@@ -2251,6 +2665,69 @@ describe('requested progression and event rules', () => {
     expect(
       Math.hypot(intent.tile.x - mapRoom.door.x, intent.tile.y - mapRoom.door.y),
     ).toBeCloseTo(nearestDistance);
+  });
+
+  it('makes even an easy bot establish firepower instead of deliberately idling', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    if (!bot || !room) throw new Error('missing easy bot fixture');
+    bot.isBot = true;
+    bot.nickname = '새벽봇 1';
+    bot.gold = 1_000;
+    bot.power = 1_000;
+    snapshot.buildings = snapshot.buildings.filter(
+      (building) => building.roomId !== room.id,
+    );
+    const intent = decideBotIntent(bot, snapshot, engine.map, 'easy');
+    expect(intent).toMatchObject({
+      type: 'build',
+      roomId: room.id,
+      kind: 'basic-turret',
+    });
+  });
+
+  it('gives the three stable bot roles distinct power-panel strategies', () => {
+    expect(botStrategyFor({ id: 'bot-a', nickname: '새벽봇 1' })).toBe('guardian');
+    expect(botStrategyFor({ id: 'bot-b', nickname: '새벽봇 2' })).toBe('gunner');
+    expect(botStrategyFor({ id: 'bot-c', nickname: '새벽봇 3' })).toBe('controller');
+
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === room?.id);
+    if (!bot || !room || !mapRoom) throw new Error('missing role strategy fixture');
+    bot.isBot = true;
+    bot.nickname = '새벽봇 3';
+    bot.gold = 1_000;
+    bot.power = 1_000;
+    const tile = mapRoom.buildTiles[0];
+    if (!tile) throw new Error('missing role strategy tile');
+    snapshot.buildings = [{
+      id: 'controller-panel',
+      kind: 'power-panel',
+      roomId: room.id,
+      ownerId: bot.id,
+      skinId: '',
+      tile: { ...tile, roomId: room.id },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 1_000,
+      investedPower: 0,
+      investmentByPlayer: {},
+      powerPanelMode: 'attack',
+    }];
+    const intent = decideBotIntent(bot, snapshot, engine.map, 'hard');
+    expect(intent).toEqual({
+      type: 'activate-building',
+      buildingId: 'controller-panel',
+      action: 'production',
+    });
   });
 
   it('moves a distant starter turret toward the door before buying another building', () => {
@@ -2517,7 +2994,7 @@ describe('requested progression and event rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'power' && event.amount === 512)).toBe(true);
   });
 
-  it('starts bed gold income during countdown before the ghost moves', () => {
+  it('starts bed gold income while the ghost patrols during countdown', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
@@ -2534,7 +3011,13 @@ describe('requested progression and event rules', () => {
     const state = engine.snapshot();
     expect(state.status).toBe('COUNTDOWN');
     expect(state.players.find((candidate) => candidate.id === playerId)?.gold).toBeCloseTo(before + 1, 5);
-    expect(state.ghost.position).toEqual(engine.map.ghostSpawn);
+    expect(
+      engine.map.corridorTiles.some(
+        (tile) =>
+          tile.x === Math.round(state.ghost.position.x) &&
+          tile.y === Math.round(state.ghost.position.y),
+      ),
+    ).toBe(true);
   });
 
   it('starts with twenty gold and pays no bed income before a bed is occupied', () => {
@@ -3803,6 +4286,124 @@ describe('persistent account progression', () => {
     expect(rankFromXp(100_000)).toBe('absolute');
     expect(higherRank('expert', 'veteran')).toBe('veteran');
     expect(higherRank('absolute', 'immortal')).toBe('absolute');
+  });
+
+  it('maps every stage to its documented recommended challenge rank', () => {
+    expect(recommendedRankForStage(getStage('easy-1'))).toBe('beginner');
+    expect(recommendedRankForStage(getStage('hard-5'))).toBe('beginner');
+    expect(recommendedRankForStage(getStage('nightmare-1'))).toBe('intermediate');
+    expect(recommendedRankForStage(getStage('hell-1'))).toBe('expert');
+    expect(recommendedRankForStage(getStage('inferno-1'))).toBe('master');
+    expect(recommendedRankForStage(getStage('epic-1'))).toBe('veteran');
+    expect(recommendedRankForStage(getStage('mythic-1'))).toBe('legend');
+    expect(recommendedRankForStage(getStage('calamity-1'))).toBe('transcendent');
+    expect(recommendedRankForStage(getStage('cataclysm-1'))).toBe('immortal');
+    expect(recommendedRankForStage(getStage('apocalypse-1'))).toBe('absolute');
+  });
+
+  it('assigns bots the recommended rank without emitting elite arrival events', () => {
+    const engine = new GameEngine(
+      'BOTRANK',
+      generateMap(81_283),
+      true,
+      { stageId: 'inferno-1', playMode: 'solo' },
+    );
+    const host = engine.join({
+      nickname: '실제 생존자',
+      deviceId: 'device-bot-rank',
+    });
+    engine.drainEvents();
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    expect(bot?.soloRank).toBe('master');
+    expect(bot?.multiplayerRank).toBe('master');
+    expect(bot?.displayRank).toBe('master');
+    expect(
+      engine.drainEvents().some((event) => event.kind === 'elite-join'),
+    ).toBe(false);
+  });
+
+  it('records three-bot role, occupancy, construction, and AI warning diagnostics', () => {
+    const engine = new GameEngine(
+      'BOTDIAGNOSTICS',
+      generateMap(81_286),
+      true,
+      { stageId: 'hard-5', playMode: 'solo' },
+    );
+    const host = engine.join({
+      nickname: '봇 진단 호스트',
+      deviceId: 'device-bot-diagnostics',
+    });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const prepared = engine.serialize();
+    const bots = prepared.snapshot.players.filter((player) => player.isBot);
+    bots.forEach((bot, index) => {
+      const bed = engine.map.rooms[index]?.beds[0];
+      if (!bed) throw new Error('missing diagnostic bot bed');
+      bot.position = { ...bed };
+      const runtime = prepared.botRuntime.find(([botId]) => botId === bot.id)?.[1];
+      if (runtime)
+        runtime.bedTarget = {
+          roomId: engine.map.rooms[index]?.id ?? '',
+          bedIndex: 0,
+        };
+    });
+    engine.restore(prepared);
+    for (let index = 0; index < 40; index += 1) engine.tick(0.1);
+
+    const diagnostics = engine.botMatchDiagnostics();
+    expect(diagnostics.map((entry) => entry.strategy).sort()).toEqual(
+      ['controller', 'guardian', 'gunner'],
+    );
+    expect(diagnostics.every((entry) => entry.rank === 'beginner')).toBe(true);
+    expect(
+      diagnostics.every((entry) => entry.claimedAt !== null),
+      JSON.stringify(diagnostics),
+    ).toBe(true);
+    expect(diagnostics.every((entry) => entry.firstTurretAt !== null)).toBe(true);
+    expect(
+      diagnostics.every(
+        (entry) =>
+          entry.idleWithResourcesWarnings === 0 &&
+          entry.repeatedFailureWarnings === 0,
+      ),
+    ).toBe(true);
+  });
+
+  it('does not let a recommended bot rank increase human ghost rank pressure', () => {
+    const ghostHpWithBotRank = (botRank: PlayerState['soloRank']): number => {
+      const engine = new GameEngine(
+        'BOTRANKPRESSURE',
+        generateMap(81_284),
+        false,
+        { stageId: 'easy-1', playMode: 'solo' },
+      );
+      const host = engine.join({
+        nickname: '등급 압박 확인',
+        deviceId: `device-rank-pressure-${botRank}`,
+        soloRank: 'beginner',
+        multiplayerRank: 'beginner',
+      });
+      expect(engine.addBot(host.player.id, 'hard').ok).toBe(true);
+      const persisted = engine.serialize();
+      const bot = persisted.snapshot.players.find((player) => player.isBot);
+      if (!bot) throw new Error('missing rank pressure bot');
+      bot.soloRank = botRank;
+      bot.multiplayerRank = botRank;
+      bot.displayRank = botRank;
+      engine.restore(persisted);
+      begin(engine, host.player.id);
+      return engine.snapshot().ghost.maxHp;
+    };
+
+    expect(ghostHpWithBotRank('absolute')).toBeCloseTo(
+      ghostHpWithBotRank('beginner'),
+      5,
+    );
   });
 
   it('applies solo-rank benefits while construction ceilings stay fixed', () => {

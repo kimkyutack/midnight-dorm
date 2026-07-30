@@ -195,6 +195,26 @@ export const higherRank = (solo: RankId, multiplayer: RankId): RankId => rankInd
 export const isEliteRank = (rank: RankId): boolean => rankIndex(rank) >= rankIndex('master');
 export const rankBenefits = (rank: RankId): RankBenefits => BENEFITS[rank];
 
+/**
+ * Returns the progression rank whose documented challenge range contains the
+ * selected stage. Survivor bots use this rank so their economy and profile
+ * communicate the actual encounter level instead of always showing 하수.
+ */
+export function recommendedRankForStage(
+  stage: StageDefinition | number,
+): RankId {
+  const index = typeof stage === 'number' ? stage : stage.index;
+  if (index >= 246) return 'absolute';
+  if (index >= 156) return 'immortal';
+  if (index >= 121) return 'transcendent';
+  if (index >= 66) return 'legend';
+  if (index >= 46) return 'veteran';
+  if (index >= 31) return 'master';
+  if (index >= 21) return 'expert';
+  if (index >= 11) return 'intermediate';
+  return 'beginner';
+}
+
 export function getStage(id: StageId | string | undefined): StageDefinition {
   return STAGES.find((stage) => stage.id === id) ?? STAGES[0] as StageDefinition;
 }

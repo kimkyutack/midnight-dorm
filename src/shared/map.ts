@@ -3,6 +3,14 @@ import type { MapDefinition, MapRoom, PlayMode, Tile, Vec2 } from './types';
 
 export const tileKey = (x: number, y: number): string => `${x},${y}`;
 
+export const isPositionOnRoomFloor = (
+  room: Pick<MapRoom, 'floorTiles'>,
+  position: Vec2,
+): boolean => {
+  const positionKey = tileKey(Math.round(position.x), Math.round(position.y));
+  return room.floorTiles.some((tile) => tileKey(tile.x, tile.y) === positionKey);
+};
+
 // Keep eight distinct rooms, but avoid the long empty-looking hallways of
 // the 49×31 ward. The compact 4×2 layout removes a further strip of unused
 // corridor while retaining enough room for eight distinct room shapes.

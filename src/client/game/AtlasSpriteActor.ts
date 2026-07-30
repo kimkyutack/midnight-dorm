@@ -28,7 +28,10 @@ export interface AtlasSpriteDefinition extends AtlasLayerDefinition {
   size: number;
   renderOrder: number;
   name: string;
-  sideFacesLeft?: boolean;
+  /** Direction authored into the side row of the four-frame walk sheet. */
+  movementSideFacesLeft?: boolean;
+  /** Direction authored into the side row of the three-frame attack/skill sheet. */
+  attackSideFacesLeft?: boolean;
   /** Some early concept sheets exported front/back rows in reverse order. */
   frontBackSwapped?: boolean;
 }
@@ -234,7 +237,7 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
     // The old puppy-only swap made 몽 visibly walk backwards.
     frontBackSwapped: false,
     // 몽's source side artwork faces left, unlike the other survivor sheets.
-    sideFacesLeft: appearance.character === 'character-puppy',
+    movementSideFacesLeft: appearance.character === 'character-puppy',
   };
 }
 
@@ -254,7 +257,20 @@ export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinit
     size: ghostSizes[variant],
     renderOrder: 5_100,
     name: variant,
-    sideFacesLeft: variant === 'wanderer' || variant === 'swift' || variant === 'brute',
+    // Movement and attack atlases were authored independently. In particular,
+    // twin-a walks to the right in its movement row but strikes to the left in
+    // its attack row. One shared flag made the walk face backwards whenever
+    // the horizontal attack was corrected.
+    movementSideFacesLeft:
+      variant === 'wanderer' ||
+      variant === 'swift' ||
+      variant === 'brute' ||
+      // 오염 도배귀의 이동 시트는 좌측을 바라보는 측면 원본이다.
+      // 이 플래그가 없으면 왼쪽 이동에서 한 번 더 반전되어 뒤로 걷는다.
+      variant === 'wallpaper',
+    attackSideFacesLeft:
+      variant === 'wanderer' ||
+      variant === 'twin-a',
   };
 }
 
@@ -267,13 +283,15 @@ export class AtlasSpriteActor {
   readonly size: number;
   private readonly layers: AtlasLayer[] = [];
   private facing: SpriteFacing = { direction: 'front', mirrored: false };
-  private readonly sideFacesLeft: boolean;
+  private readonly movementSideFacesLeft: boolean;
+  private readonly attackSideFacesLeft: boolean;
   private readonly frontBackSwapped: boolean;
   private disposed = false;
 
   constructor(definition: AtlasSpriteDefinition) {
     this.size = definition.size;
-    this.sideFacesLeft = Boolean(definition.sideFacesLeft);
+    this.movementSideFacesLeft = Boolean(definition.movementSideFacesLeft);
+    this.attackSideFacesLeft = Boolean(definition.attackSideFacesLeft);
     this.frontBackSwapped = Boolean(definition.frontBackSwapped);
     this.object.name = `${definition.name}-sprite-actor`;
     this.object.userData.renderMode = 'atlas-2d';
@@ -460,7 +478,15 @@ export class AtlasSpriteActor {
       const usesThreeColumns = useAttack || useSkillPrepare || useSkillCast;
       const activeColumns = useSleep ? 1 : usesThreeColumns ? 3 : 4;
       const activeFrame = useSleep ? 0 : usesThreeColumns ? safeFrame : Math.min(3, safeFrame);
-      const mirrored = this.facing.mirrored !== (this.facing.direction === 'side' && this.sideFacesLeft && !useSleep);
+      const authoredSideFacesLeft =
+        useAttack || useSkillPrepare || useSkillCast
+          ? this.attackSideFacesLeft
+          : this.movementSideFacesLeft;
+      const mirrored =
+        this.facing.mirrored !==
+        (this.facing.direction === 'side' &&
+          authoredSideFacesLeft &&
+          !useSleep);
       layer.mapUniform.value = useSleep
         ? layer.sleepTexture as THREE.Texture
         : useSkillPrepare

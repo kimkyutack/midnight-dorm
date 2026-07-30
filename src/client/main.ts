@@ -132,6 +132,8 @@ let customAvatarPreview: AvatarPreview2D | AvatarPreview3D | null = null;
 let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
 let playerId = "";
+let previousGameStatus: GameStatus | null = null;
+let countdownWarningTimer = 0;
 let account: AccountProfile | null = null;
 interface MailboxMessage {
   id: string;
@@ -537,13 +539,19 @@ const TUTORIALS: Record<TutorialTopic, TutorialDefinition> = {
     eyebrow: "IN-GAME BASICS",
     title: "내 방을 끝까지 지키세요",
     intro:
-      "문이 무너지면 귀신이 방으로 들어옵니다. 건물의 역할을 나눠 쓰고, 필요한 타일에 알맞게 배치하세요.",
+      "불이 꺼진 복도에서 먼저 빈 방을 찾으세요. 방을 점유한 뒤에는 문과 건물을 강화해 귀신을 막아야 합니다.",
     image: "/assets/tutorial/room-defense-guide.webp",
     imageAlt: "문과 포탑으로 구성된 익명 방어실",
     steps: [
       {
-        title: "이동",
-        description: "화면의 누른 채 드래그하면 그 방향으로 이동합니다.",
+        title: "암전 속 방 찾기",
+        description:
+          "귀신 소개가 끝나면 내 주변 두 칸만 보입니다. 귀신이 빛 안에 들어오면 추격하므로, 빈 방 안으로 들어가 시야를 끊고 침대 가까이에서 잠자기를 누르세요.",
+      },
+      {
+        title: "문과 복도 조명",
+        description:
+          "방에 들어가면 문이 닫히고 안쪽 문 앞으로 가면 다시 열립니다. 침대를 점유하면 내 방이 밝아지며, 30초 뒤에는 복도 조명이 모두 켜집니다.",
       },
       {
         title: "설치와 강화",
@@ -2519,7 +2527,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
@@ -2611,6 +2619,7 @@ function gameScreen(state: GameSnapshot): void {
       audio.play("button");
     }),
   );
+  refreshCameraZoom();
   updateHud();
 }
 
@@ -2632,6 +2641,33 @@ function renderForSnapshot(state: GameSnapshot, force: boolean): void {
   }
 }
 
+function updateCountdownStartWarning(isCountdown: boolean): void {
+  const warning = app.querySelector<HTMLElement>("[data-countdown-warning]");
+  if (!warning) return;
+  const enteringCountdown = isCountdown && previousGameStatus !== "COUNTDOWN";
+
+  if (enteringCountdown) {
+    if (countdownWarningTimer) window.clearTimeout(countdownWarningTimer);
+    warning.hidden = false;
+    warning.classList.remove("hidden", "is-visible");
+    // Restart the entrance/fade animation when a new preparation phase begins.
+    void warning.offsetWidth;
+    warning.classList.add("is-visible");
+    countdownWarningTimer = window.setTimeout(() => {
+      warning.classList.remove("is-visible");
+      warning.classList.add("hidden");
+      countdownWarningTimer = 0;
+    }, 2_500);
+  } else if (!isCountdown) {
+    if (countdownWarningTimer) window.clearTimeout(countdownWarningTimer);
+    countdownWarningTimer = 0;
+    warning.classList.remove("is-visible");
+    warning.classList.add("hidden");
+  }
+
+  previousGameStatus = snapshot?.status ?? null;
+}
+
 function updateHud(): void {
   if (!snapshot || currentView !== "game") return;
   const movementIntroLocked =
@@ -2641,6 +2677,15 @@ function updateHud(): void {
     ?.classList.toggle("intro-movement-locked", movementIntroLocked);
   if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
+  const cameraZoomLocked = Boolean(me?.alive && !me.roomId);
+  app
+    .querySelector("#game-shell")
+    ?.classList.toggle("camera-zoom-locked", cameraZoomLocked);
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-camera]")
+    .forEach((button) => {
+      button.disabled = cameraZoomLocked;
+    });
   const room = snapshot.rooms.find((candidate) => candidate.id === me?.roomId);
   const localDanger = Boolean(
     me &&
@@ -2748,6 +2793,7 @@ function updateHud(): void {
         : phase.textContent,
     );
   }
+  updateCountdownStartWarning(isCountdown);
   const timeAttack = app.querySelector<HTMLElement>("[data-time-attack]");
   if (timeAttack) {
     const remaining = snapshot.difficulty.timeAttackRemaining;
@@ -3803,6 +3849,7 @@ function playEvents(events: GameEvent[]): void {
       "item-pickup",
       "consumable-use",
       "elite-join",
+      "lights-on",
       "victory",
       "defeat",
     ].includes(event.kind),
@@ -3843,6 +3890,8 @@ function playEvents(events: GameEvent[]): void {
   );
   if (controlResistance?.label)
     toast(`귀신의 ${controlResistance.label}이 올랐습니다.`);
+  const lightsOn = events.find((event) => event.kind === "lights-on");
+  if (lightsOn?.label) toast(lightsOn.label);
   if (
     events.some(
       (event) =>
@@ -4945,7 +4994,10 @@ function destroyGame(): void {
     onPortraitMove as EventListener,
   );
   if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+  if (countdownWarningTimer) window.clearTimeout(countdownWarningTimer);
   pendingMovementTimer = 0;
+  countdownWarningTimer = 0;
+  previousGameStatus = null;
   inputVector = { x: 0, y: 0 };
   syncMovementKeepalive();
   game?.destroy();
