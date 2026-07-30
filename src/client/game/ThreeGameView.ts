@@ -425,6 +425,14 @@ function makeBillboard(width = 512, height = 128): THREE.Sprite {
   return sprite;
 }
 
+function makeDoorLabelBillboard(): THREE.Sprite {
+  return makeBillboard(768, 160);
+}
+
+function makeDoorBarBillboard(): THREE.Sprite {
+  return makeBillboard(768, 160);
+}
+
 const rankBadgeTextures = new Map<RankId, THREE.Texture>();
 const rankedBadgeTextures = new Map<RankedTier, THREE.Texture>();
 
@@ -485,7 +493,7 @@ function makeProfileBadge(player: PlayerState): THREE.Sprite {
     depthTest: false,
     depthWrite: false,
   }));
-  sprite.scale.set(0.38, 0.38, 1);
+  sprite.scale.set(0.46, 0.46, 1);
   sprite.renderOrder = 10_030;
   return sprite;
 }
@@ -508,6 +516,7 @@ function updateTextBillboard(
   background = 'rgba(5,8,17,.78)',
   gradient: readonly [string, string, string] | null = null,
   fitToText = false,
+  fontSize = 42,
 ): void {
   const data = sprite.userData.billboard as BillboardData;
   if (data.key === key) return;
@@ -515,8 +524,8 @@ function updateTextBillboard(
   const { canvas } = data;
   let context = data.context;
   if (fitToText) {
-    context.font = '800 42px sans-serif';
-    const requiredWidth = Math.min(960, Math.max(512, Math.ceil(context.measureText(text).width + 104)));
+    context.font = `900 ${fontSize}px sans-serif`;
+    const requiredWidth = Math.min(960, Math.max(512, Math.ceil(context.measureText(text).width + 112)));
     if (canvas.width !== requiredWidth) {
       canvas.width = requiredWidth;
       const nextContext = canvas.getContext('2d');
@@ -528,7 +537,7 @@ function updateTextBillboard(
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = background;
   context.beginPath();
-  context.roundRect(10, 18, canvas.width - 20, canvas.height - 36, 38);
+  context.roundRect(10, 18, canvas.width - 20, canvas.height - 36, Math.min(42, canvas.height / 3));
   context.fill();
   context.strokeStyle = 'rgba(210,232,255,.34)';
   context.lineWidth = 4;
@@ -542,16 +551,23 @@ function updateTextBillboard(
       return fill;
     })()
     : color;
-  context.font = '800 42px sans-serif';
+  context.font = `900 ${fontSize}px sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.shadowColor = 'rgba(0,0,0,.8)';
   context.shadowBlur = 10;
-  context.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  context.fillText(text, canvas.width / 2, canvas.height / 2 + 2, canvas.width - 44);
   data.texture.needsUpdate = true;
 }
 
-function updateBarBillboard(sprite: THREE.Sprite, key: string, ratio: number, label: string, color: string): void {
+function updateBarBillboard(
+  sprite: THREE.Sprite,
+  key: string,
+  ratio: number,
+  label: string,
+  color: string,
+  fontSize = 34,
+): void {
   const data = sprite.userData.billboard as BillboardData;
   if (data.key === key) return;
   data.key = key;
@@ -566,12 +582,12 @@ function updateBarBillboard(sprite: THREE.Sprite, key: string, ratio: number, la
   context.roundRect(20, 36, (canvas.width - 40) * clamp(ratio, 0, 1), 56, 24);
   context.fill();
   context.fillStyle = '#fff';
-  context.font = '900 34px sans-serif';
+  context.font = `900 ${fontSize}px sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.shadowColor = '#000';
   context.shadowBlur = 8;
-  context.fillText(label, canvas.width / 2, 65);
+  context.fillText(label, canvas.width / 2, 65, canvas.width - 44);
   data.texture.needsUpdate = true;
 }
 
@@ -3287,11 +3303,11 @@ export class ThreeGameView {
         const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
         const label = makeBillboard();
-        label.scale.set(2.16, 0.59, 1);
-        label.position.set(0.1, PLAYER_HEIGHT + 0.36, -0.72);
+        label.scale.set(2.48, 0.66, 1);
+        label.position.set(0.1, PLAYER_HEIGHT + 0.42, -0.72);
         const profileDisplay = playerProfileDisplay(player);
         const badge = makeProfileBadge(player);
-        badge.position.set(-1.02, PLAYER_HEIGHT + 0.36, -0.75);
+        badge.position.set(-1.1, PLAYER_HEIGHT + 0.42, -0.75);
         root.add(label, badge);
         this.scene.add(root);
         view = {
@@ -3335,11 +3351,11 @@ export class ThreeGameView {
         true,
       );
       const labelWidth = (view.label.userData.billboard as BillboardData).canvas.width;
-      const labelScaleX = 2.16 * (labelWidth / 512);
-      view.label.scale.set(labelScaleX, 0.59, 1);
+      const labelScaleX = 2.48 * (labelWidth / 512);
+      view.label.scale.set(labelScaleX, 0.66, 1);
       // Preserve an extra 2px-equivalent clear gap between the badge and the
       // dynamically sized nameplate.
-      view.badge.position.x = 0.1 - labelScaleX / 2 - 0.0485;
+      view.badge.position.x = 0.1 - labelScaleX / 2 - 0.065;
       setObjectOpacity(view.root, player.alive ? (player.connected ? 1 : 0.52) : 0.2);
     }
     for (const [id, view] of this.playerViews) {
@@ -3700,18 +3716,18 @@ export class ThreeGameView {
         // aligned gives horizontal and vertical doors the same label/HP order.
         const hud = new THREE.Group();
         hud.rotation.y = -root.rotation.y;
-        const hp = makeBillboard();
-        hp.scale.set(1.72, 0.42, 1);
-        hp.position.set(0, 0.82, -0.62);
+        const hp = makeDoorBarBillboard();
+        hp.scale.set(2.08, 0.48, 1);
+        hp.position.set(0, 0.84, -0.62);
         hp.renderOrder = 11_100;
-        const shield = makeBillboard();
-        shield.scale.set(1.72, 0.34, 1);
+        const shield = makeDoorBarBillboard();
+        shield.scale.set(2.08, 0.42, 1);
         shield.position.set(0, 0.8, -0.2);
         shield.renderOrder = 11_105;
         shield.visible = false;
-        const label = makeBillboard();
-        label.scale.set(1.4, 0.38, 1);
-        label.position.set(0, 0.92, -1.16);
+        const label = makeDoorLabelBillboard();
+        label.scale.set(2.36, 0.52, 1);
+        label.position.set(0, 0.98, -1.16);
         label.renderOrder = 11_110;
         const upgrade = makeBillboard(192, 192);
         upgrade.scale.set(0.42, 0.42, 1);
@@ -3746,8 +3762,8 @@ export class ThreeGameView {
       view.closedTarget = state.ownerIds.length > 0 ? 1 : 0;
       view.panel.visible = intact;
       if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
-      updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff');
-      updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578');
+      updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff', 'rgba(5,8,17,.86)', null, false, 54);
+      updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578', 44);
       view.shield.visible = state.doorShieldMaxHp > 0;
       if (view.shield.visible) {
         const shieldRatio =
@@ -3758,6 +3774,7 @@ export class ThreeGameView {
           shieldRatio,
           `방어막 ${Math.ceil(state.doorShieldHp)} / ${Math.ceil(state.doorShieldMaxHp)}`,
           shieldRatio > 0 ? '#72dfff' : '#566173',
+          38,
         );
       }
       const local = snapshot.players.find((player) => player.id === this.playerId);
