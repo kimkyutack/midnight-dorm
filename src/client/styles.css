@@ -5889,10 +5889,13 @@ select {
 }
 .first-match-guide {
   position: fixed;
-  top: max(112px, calc(env(safe-area-inset-top) + 104px));
+  bottom: max(104px, calc(env(safe-area-inset-bottom) + 92px));
   left: 50%;
   z-index: 82;
-  width: min(calc(100dvw - 28px), 430px);
+  box-sizing: border-box;
+  width: min(calc(100dvw - 24px), 430px);
+  max-width: calc(100dvw - 24px);
+  max-height: calc(100svh - 128px);
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -5912,6 +5915,50 @@ select {
   box-shadow:
     0 12px 34px rgba(0, 0, 0, 0.5),
     inset 0 0 22px rgba(79, 205, 240, 0.06);
+}
+.tutorial-bed-waypoint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 217, 79, 0.4);
+  border-radius: 12px;
+  background: rgba(4, 12, 24, 0.66);
+}
+.tutorial-bed-waypoint > i {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  color: #0b1720;
+  background: linear-gradient(145deg, #fff2a0, #ffd249);
+  box-shadow: 0 0 18px rgba(255, 210, 73, 0.38);
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 950;
+  transform: rotate(var(--tutorial-direction, 0deg));
+}
+.tutorial-bed-waypoint > span {
+  min-width: 0;
+}
+.tutorial-bed-waypoint b,
+.tutorial-bed-waypoint small {
+  display: block;
+}
+.tutorial-bed-waypoint b {
+  color: #fff2a0;
+  font-size: 11px;
+  font-weight: 950;
+}
+.tutorial-bed-waypoint small {
+  margin-top: 2px;
+  color: #dceaf0;
+  font-size: 10px;
+  font-weight: 800;
 }
 .tutorial-guide-card > b {
   display: grid;
@@ -5947,6 +5994,7 @@ select {
 }
 .first-match-guide.retreat-lesson {
   top: 50%;
+  bottom: auto;
   z-index: 216;
   transform: translate(-50%, -50%);
 }

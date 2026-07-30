@@ -1572,9 +1572,11 @@ describe('authoritative game rules', () => {
     advanceFrozenIntros(engine);
     const bot = engine.snapshot().players.find((player) => player.isBot);
     const mapRoom = engine.map.rooms[0];
+    const waitingRoom = engine.map.rooms[1];
     const firstBed = mapRoom?.beds[0];
     const secondBed = mapRoom?.beds[1] ?? firstBed;
-    if (!bot || !mapRoom || !firstBed || !secondBed)
+    const waitingBed = waitingRoom?.beds[0];
+    if (!bot || !mapRoom || !firstBed || !secondBed || !waitingBed)
       throw new Error('missing bot occupancy fixture');
 
     const persisted = engine.serialize();
@@ -1582,7 +1584,7 @@ describe('authoritative game rules', () => {
     const savedBot = persisted.snapshot.players.find((player) => player.id === bot.id);
     if (!host || !savedBot) throw new Error('missing players');
     savedBot.position = { ...firstBed };
-    host.position = { ...secondBed };
+    host.position = { ...waitingBed };
     engine.restore(persisted);
 
     expect(engine.interact(bot.id).ok).toBe(true);
@@ -1590,10 +1592,70 @@ describe('authoritative game rules', () => {
     expect(occupiedBot?.roomId).toBe(mapRoom.id);
     expect(occupiedBot?.bedIndex).toBe(0);
     expect(occupiedBot?.position).toEqual(firstBed);
+    const afterBotClaim = engine.serialize();
+    const waitingHost = afterBotClaim.snapshot.players.find(
+      (player) => player.id === hostId,
+    );
+    if (!waitingHost) throw new Error('missing waiting host');
+    waitingHost.position = { ...secondBed };
+    engine.restore(afterBotClaim);
     const result = engine.interact(hostId);
     expect(result.ok).toBe(false);
     expect(result.error).toContain('다른 생존자가 점유하지 않은 방');
     expect(engine.snapshot().players.find((player) => player.id === hostId)?.roomId).toBeNull();
+  });
+
+  it('makes a bot yield a room that an unclaimed human has already entered', () => {
+    const { engine, ids } = setup(1, false);
+    const hostId = ids[0] as string;
+    expect(engine.addBot(hostId, 'normal').ok).toBe(true);
+    expect(engine.start(hostId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+
+    const humanRoom = engine.map.rooms[0];
+    const fallbackRoom = engine.map.rooms[1];
+    const humanBed = humanRoom?.beds[0];
+    const fallbackBed = fallbackRoom?.beds[0];
+    const bot = engine.snapshot().players.find((player) => player.isBot);
+    if (!humanRoom || !fallbackRoom || !humanBed || !fallbackBed || !bot) {
+      throw new Error('missing human-room protection fixture');
+    }
+
+    const persisted = engine.serialize();
+    const humanState = persisted.snapshot.players.find(
+      (player) => player.id === hostId,
+    );
+    const botState = persisted.snapshot.players.find(
+      (player) => player.id === bot.id,
+    );
+    if (!humanState || !botState) throw new Error('missing protected-room players');
+    humanState.position = { ...humanBed };
+    humanState.roomId = null;
+    humanState.bedIndex = null;
+    botState.position = { ...humanBed };
+    botState.roomId = null;
+    botState.bedIndex = null;
+    engine.restore(persisted);
+
+    expect(engine.interact(bot.id)).toMatchObject({
+      ok: false,
+    });
+    const intent = decideBotIntent(
+      engine.snapshot().players.find((player) => player.id === bot.id) as PlayerState,
+      engine.snapshot(),
+      engine.map,
+      'normal',
+    );
+    expect(intent.type).toBe('move');
+
+    const moved = engine.serialize();
+    const movedBot = moved.snapshot.players.find((player) => player.id === bot.id);
+    if (!movedBot) throw new Error('missing moved protected-room bot');
+    movedBot.position = { ...fallbackBed };
+    engine.restore(moved);
+    expect(engine.interact(bot.id).ok).toBe(true);
+    expect(engine.snapshot().players.find((player) => player.id === bot.id)?.roomId)
+      .toBe(fallbackRoom.id);
   });
 
   it('never auto-occupies a bed and pursues an unoccupied survivor at accelerated speed', () => {

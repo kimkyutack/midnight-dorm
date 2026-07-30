@@ -65,6 +65,19 @@ function movementAlongPath(player: PlayerState, target: { x: number; y: number }
   return movementToward(player, waypoint);
 }
 
+function roomContainsUnclaimedHuman(
+  room: MapDefinition['rooms'][number],
+  snapshot: GameSnapshot,
+): boolean {
+  return snapshot.players.some(
+    (player) =>
+      player.alive &&
+      !player.isBot &&
+      !player.roomId &&
+      isPositionOnRoomFloor(room, player.position),
+  );
+}
+
 export function decideBotIntent(
   bot: PlayerState,
   snapshot: GameSnapshot,
@@ -81,10 +94,16 @@ export function decideBotIntent(
 
   if (!bot.roomId) {
     const roomCapacity = snapshot.playMode === 'multiplayer' ? 2 : 1;
-    const eligibleRooms = map.rooms.filter(
-      (room) => room.id !== snapshot.tutorial?.reservedRoomId,
+    const roomsWithoutHuman = map.rooms.filter(
+      (room) => !roomContainsUnclaimedHuman(room, snapshot),
     );
-    const available = (eligibleRooms.length ? eligibleRooms : map.rooms).flatMap((room) => {
+    const eligibleRooms = roomsWithoutHuman.filter(
+      (room) =>
+        room.id !== snapshot.tutorial?.reservedRoomId,
+    );
+    const candidateRooms =
+      eligibleRooms.length > 0 ? eligibleRooms : roomsWithoutHuman;
+    const available = candidateRooms.flatMap((room) => {
       const roomState = snapshot.rooms.find((state) => state.id === room.id);
       return room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex }))
         .filter(({ bedIndex }) =>

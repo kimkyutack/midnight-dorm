@@ -340,6 +340,10 @@ test("portrait home separates shop, owned customization and stage start", async 
       ).status(),
     ).toBe(403);
     await expect(page.locator("#orientation-lock")).toHaveCount(0);
+    const mobileManifest = (await (
+      await page.request.get("/manifest.webmanifest")
+    ).json()) as { orientation?: string };
+    expect(mobileManifest.orientation).toBeUndefined();
     await page.getByRole("button", { name: /상점/ }).click();
     await expect(
       page.getByRole("heading", { name: "외형 상점" }),
@@ -568,6 +572,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     expect(lobbyLayout.legacyDots).toBe(0);
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-shell")).toBeVisible();
+    await expect(page.locator(".stage-chip")).toContainText("생존 훈련");
     await expect(page.locator("[data-ghost-intro]")).toBeVisible();
     await expect
       .poll(async () => (await state(page)).snapshot?.status, {
@@ -575,6 +580,24 @@ test("portrait home separates shop, owned customization and stage start", async 
         intervals: [100],
       })
       .not.toBe("GHOST_INTRO");
+    const firstMatchGuide = page.locator("[data-first-match-guide]");
+    await expect(firstMatchGuide).toBeVisible();
+    await expect(firstMatchGuide).toContainText("안내 침대");
+    const guideLayout = await firstMatchGuide.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+        bottom: bounds.bottom,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    expect(guideLayout.left).toBeGreaterThanOrEqual(0);
+    expect(guideLayout.right).toBeLessThanOrEqual(guideLayout.viewportWidth);
+    expect(guideLayout.top).toBeGreaterThanOrEqual(0);
+    expect(guideLayout.bottom).toBeLessThanOrEqual(guideLayout.viewportHeight);
     await expect(
       page.getByRole("button", { name: "내 캐릭터 위치로 카메라 이동" }),
     ).toBeVisible();
@@ -608,7 +631,7 @@ test("portrait home separates shop, owned customization and stage start", async 
   }
 });
 
-test("튜토리얼 전에는 출시 팝업을 숨기고 완료 계정에서는 이벤트를 독립적으로 관리한다", async ({
+test("신규 계정에서도 출시 이벤트를 독립적으로 관리한다", async ({
   browser,
 }) => {
   const shopContext = await mobileContext(browser);
@@ -617,17 +640,6 @@ test("튜토리얼 전에는 출시 팝업을 숨기고 완료 계정에서는 �
   const dismissPage = await dismissContext.newPage();
   try {
     await enter(shopPage, "여름몽", "surfshop", true, false);
-    await expect(shopPage.locator(".surfer-mong-promo")).toHaveCount(0);
-    await shopPage.route("**/api/auth/me", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as {
-        profile: { tutorialCompleted: boolean };
-      };
-      body.profile.tutorialCompleted = true;
-      await route.fulfill({ response, json: body });
-    });
-    await shopPage.reload();
-    await expect(shopPage.locator(".game-home")).toBeVisible();
     const promo = shopPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });
@@ -669,16 +681,6 @@ test("튜토리얼 전에는 출시 팝업을 숨기고 완료 계정에서는 �
     ).toBeVisible();
 
     await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
-    await expect(dismissPage.locator(".surfer-mong-promo")).toHaveCount(0);
-    await dismissPage.route("**/api/auth/me", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as {
-        profile: { tutorialCompleted: boolean };
-      };
-      body.profile.tutorialCompleted = true;
-      await route.fulfill({ response, json: body });
-    });
-    await dismissPage.reload();
     const dismissPromo = dismissPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });

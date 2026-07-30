@@ -25,6 +25,16 @@ export function setupMobileViewportCompatibility(): void {
   const portraitQuery = window.matchMedia("(orientation: portrait)");
   const coarsePointerQuery = window.matchMedia("(pointer: coarse)");
 
+  // Do not impose an app-level orientation preference. Installed PWAs should
+  // follow the phone's current rotation setting, including the OS rotation
+  // lock, instead of keeping a stale fullscreen orientation request.
+  try {
+    window.screen.orientation?.unlock();
+  } catch {
+    // Some browsers expose unlock() only in fullscreen. There is no active
+    // lock to release in those browsers, so the viewport remains authoritative.
+  }
+
   const sync = (): void => {
     const scale = mobileViewportCompatibilityScale({
       width: window.innerWidth,

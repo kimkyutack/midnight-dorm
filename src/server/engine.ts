@@ -1350,8 +1350,10 @@ export class GameEngine {
         return mapRoom.beds
           .map((bed, bedIndex) => ({ mapRoom, room, bed, bedIndex }))
           .filter(
-            ({ room: roomState, bedIndex }) =>
+            ({ mapRoom: candidateMapRoom, room: roomState, bedIndex }) =>
               roomState.ownerIds.length < roomCapacity &&
+              (!player.isBot ||
+                !this.roomContainsUnclaimedHuman(candidateMapRoom)) &&
               !roomState.ownerIds.some((ownerId) => {
                 const owner = this.state.players.find(
                   (candidatePlayer) => candidatePlayer.id === ownerId,
@@ -2837,10 +2839,26 @@ export class GameEngine {
     const mapRoom = this.map.rooms.find((room) => room.id === target.roomId);
     const room = this.state.rooms.find((candidate) => candidate.id === target.roomId);
     if (!mapRoom || !room || !mapRoom.beds[target.bedIndex]) return false;
+    // Entering a room is the human's claim intent. A bot that reserved the bed
+    // a moment earlier must yield instead of closing that room around the
+    // survivor and making the sleep prompt disappear.
+    if (this.roomContainsUnclaimedHuman(mapRoom)) return false;
     const roomCapacity = this.playMode === 'multiplayer' ? 2 : 1;
     if (room.ownerIds.length >= roomCapacity) return false;
     return !room.ownerIds.some((ownerId) =>
       this.state.players.find((player) => player.id === ownerId)?.bedIndex === target.bedIndex,
+    );
+  }
+
+  private roomContainsUnclaimedHuman(
+    room: MapDefinition['rooms'][number],
+  ): boolean {
+    return this.state.players.some(
+      (player) =>
+        player.alive &&
+        !player.isBot &&
+        !player.roomId &&
+        isPositionOnRoomFloor(room, player.position),
     );
   }
 

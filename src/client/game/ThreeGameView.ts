@@ -245,6 +245,7 @@ interface GhostView {
 interface BuildingView {
   root: THREE.Group;
   barrel: THREE.Group | null;
+  upgrade: THREE.Sprite;
   modelLevel: number;
   skinId: string;
   kind: BuildingKind;
@@ -2003,6 +2004,8 @@ export class ThreeGameView {
   private readonly blackoutUiMask: SVGGElement;
   private blackoutUiRects: SVGRectElement[] = [];
   private readonly selectionMarker: THREE.Mesh;
+  private readonly tutorialBedMarker: THREE.Group;
+  private readonly tutorialBedMarkerLabel: THREE.Sprite;
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
   private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
@@ -2241,6 +2244,40 @@ export class ThreeGameView {
     this.selectionMarker.renderOrder = 9_000;
     this.scene.add(this.selectionMarker);
 
+    this.tutorialBedMarker = new THREE.Group();
+    const tutorialBedRing = mesh(
+      new THREE.RingGeometry(0.32, 0.48, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x79e8ff,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    tutorialBedRing.rotation.x = -Math.PI / 2;
+    tutorialBedRing.renderOrder = 11_250;
+    this.tutorialBedMarkerLabel = makeBillboard(256, 96);
+    this.tutorialBedMarkerLabel.scale.set(1.38, 0.52, 1);
+    this.tutorialBedMarkerLabel.position.set(0, 0.66, 0);
+    this.tutorialBedMarkerLabel.renderOrder = 11_260;
+    updateTextBillboard(
+      this.tutorialBedMarkerLabel,
+      "tutorial-bed-target",
+      "안내 침대",
+      "#dffcff",
+      "rgba(4,20,35,.94)",
+      null,
+      false,
+      42,
+    );
+    this.tutorialBedMarker.add(
+      tutorialBedRing,
+      this.tutorialBedMarkerLabel,
+    );
+    this.tutorialBedMarker.visible = false;
+    this.scene.add(this.tutorialBedMarker);
+
     this.createLighting();
     this.createWorld();
     this.bindInput();
@@ -2439,6 +2476,7 @@ export class ThreeGameView {
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncContamination(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncBeds(snapshot);
+    this.syncTutorialBedMarker(snapshot);
     this.syncBuildings(snapshot);
     this.syncLootDrops(snapshot);
     this.syncDoors(snapshot);
@@ -2619,6 +2657,7 @@ export class ThreeGameView {
     this.animateEffects(time);
     this.animateRoomTileSkins(time);
     this.animateBuildableTiles(time);
+    this.animateTutorialBedMarker(time);
     this.updateCamera(dt);
     this.updateBlackoutMask();
     this.updateSleepPrompt();
@@ -3493,6 +3532,35 @@ export class ThreeGameView {
     }
   }
 
+  private syncTutorialBedMarker(snapshot: GameSnapshot): void {
+    const tutorial = snapshot.tutorial;
+    const local = snapshot.players.find(
+      (player) => player.id === this.playerId,
+    );
+    const room = tutorial?.reservedRoomId
+      ? this.mapRoomById.get(tutorial.reservedRoomId)
+      : undefined;
+    const visible = Boolean(
+      tutorial?.active &&
+        tutorial.step === "claim-bed" &&
+        local?.alive &&
+        !local.roomId &&
+        room,
+    );
+    this.tutorialBedMarker.visible = visible;
+    if (!visible || !room) return;
+    this.tutorialBedMarker.position.copy(worldPoint(room.bed));
+    this.tutorialBedMarker.position.y = 0.075;
+  }
+
+  private animateTutorialBedMarker(time: number): void {
+    if (!this.tutorialBedMarker.visible) return;
+    const pulse = 1 + Math.sin(time * 0.006) * 0.08;
+    this.tutorialBedMarker.scale.set(pulse, pulse, pulse);
+    this.tutorialBedMarkerLabel.position.y =
+      0.66 + Math.sin(time * 0.0045) * 0.06;
+  }
+
   private syncPlayers(players: PlayerState[]): void {
     const active = new Set(players.map((player) => player.id));
     for (const player of players) {
@@ -3806,10 +3874,17 @@ export class ThreeGameView {
       if (!view && structureChanged) {
         const model = createBuildingModel(building);
         model.root.position.copy(worldPoint(building.tile));
+        const upgrade = makeBillboard(192, 192);
+        upgrade.scale.set(0.42, 0.42, 1);
+        upgrade.position.set(0, 0.48, 0);
+        upgrade.renderOrder = 11_200;
+        upgrade.visible = false;
+        model.root.add(upgrade);
         this.scene.add(model.root);
         view = {
           root: model.root,
           barrel: model.barrel,
+          upgrade,
           modelLevel: visualLevel,
           skinId: building.skinId,
           kind: building.kind,
@@ -3881,6 +3956,14 @@ export class ThreeGameView {
             !requirement &&
             local.gold >= nextCost.gold &&
             local.power >= nextCost.power,
+        );
+      }
+      view.upgrade.visible = view.upgradeVisible;
+      if (view.upgradeVisible) {
+        updateUpgradeBillboard(
+          view.upgrade,
+          `building:${building.id}:${building.level}`,
+          true,
         );
       }
     }
@@ -4772,29 +4855,6 @@ export class ThreeGameView {
         );
         context.restore();
       }
-      if (!view.upgradeVisible) continue;
-      const upgradePoint = project(
-        view.root.position.x,
-        0.48,
-        view.root.position.z,
-      );
-      if (!upgradePoint) continue;
-      context.save();
-      context.shadowColor = 'rgba(255,211,78,.72)';
-      context.shadowBlur = 7;
-      context.fillStyle = 'rgba(21,23,30,.94)';
-      context.strokeStyle = '#f5cb53';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.arc(upgradePoint[0], upgradePoint[1], 9, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
-      context.shadowBlur = 0;
-      context.fillStyle = '#ffe77d';
-      context.font =
-        '950 14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
-      context.fillText('↑', upgradePoint[0], upgradePoint[1] - 0.5);
-      context.restore();
     }
   }
 

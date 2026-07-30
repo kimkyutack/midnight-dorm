@@ -989,7 +989,6 @@ function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
 function showSkinLaunchPromoCarousel(): void {
   if (
     !account ||
-    !account.tutorialCompleted ||
     skinLaunchPromoShownThisSession
   ) return;
   const currentAccount = account;
@@ -2724,16 +2723,6 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
     onSleep: () => {
-      // WebSocket messages are ordered. Flush a zero movement intent before
-      // interact so a held touch cannot advance the authoritative position
-      // after the client exposed the sleep prompt.
-      inputVector = { x: 0, y: 0 };
-      if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
-      pendingMovementTimer = 0;
-      if (movementKeepaliveTimer)
-        window.clearInterval(movementKeepaliveTimer);
-      movementKeepaliveTimer = 0;
-      sendMovement(true);
       network?.interact();
       audio.play("button");
     },
@@ -2887,9 +2876,13 @@ function updateFirstMatchGuide(current: GameSnapshot): void {
     (room) => room.id === tutorial.reservedRoomId,
   );
   let direction = "";
+  let directionAngle = 0;
+  let distance = 0;
   if (tutorial.step === "claim-bed" && me && reservedRoom) {
     const dx = reservedRoom.bed.x - me.position.x;
     const dy = reservedRoom.bed.y - me.position.y;
+    directionAngle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    distance = Math.max(1, Math.ceil(Math.hypot(dx, dy)));
     direction =
       Math.abs(dx) > Math.abs(dy)
         ? dx >= 0
@@ -2902,9 +2895,13 @@ function updateFirstMatchGuide(current: GameSnapshot): void {
   const paused = tutorial.pauseRemaining > 0;
   guide.classList.remove("hidden");
   guide.classList.toggle("retreat-lesson", paused);
+  const bedWaypoint =
+    tutorial.step === "claim-bed" && direction
+      ? `<div class="tutorial-bed-waypoint" data-tutorial-bed-waypoint><i style="--tutorial-direction:${directionAngle.toFixed(1)}deg" aria-hidden="true">↑</i><span><b>안내 침대</b><small>${direction} · 약 ${distance}칸</small></span></div>`
+      : "";
   guide.innerHTML = paused
     ? `<div class="tutorial-retreat-card"><span>GHOST RETREAT</span><strong>귀신이 회복하러 후퇴합니다</strong><div class="tutorial-ghost-hp"><i style="width:30%"></i><b></b></div><p>회색으로 남은 HP는 퇴각 구간입니다.<br/>귀신은 리스폰 구역에서 회복한 뒤 다시 돌아옵니다.</p></div>`
-    : `<div class="tutorial-guide-card"><b>${copy.index}/10</b><div><span>첫 생존 훈련${direction ? ` · ${direction} 방` : ""}</span><strong>${escapeHtml(copy.title)}</strong><p>${escapeHtml(copy.description)}</p></div></div>`;
+    : `<div class="tutorial-guide-card"><b>${copy.index}/10</b><div><span>첫 생존 훈련</span><strong>${escapeHtml(copy.title)}</strong><p>${escapeHtml(copy.description)}</p></div>${bedWaypoint}</div>`;
 }
 
 function updateHud(): void {
