@@ -268,9 +268,12 @@ export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinit
       // 오염 도배귀의 이동 시트는 좌측을 바라보는 측면 원본이다.
       // 이 플래그가 없으면 왼쪽 이동에서 한 번 더 반전되어 뒤로 걷는다.
       variant === 'wallpaper',
+    // Every side attack source was visually audited against its weapon, arms,
+    // hair trail and forward foot. Twin-a and undead are the only current
+    // attack sheets authored facing left; the movement direction can differ.
     attackSideFacesLeft:
-      variant === 'wanderer' ||
-      variant === 'twin-a',
+      variant === 'twin-a' ||
+      variant === 'undead',
   };
 }
 

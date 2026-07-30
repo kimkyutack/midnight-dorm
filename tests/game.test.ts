@@ -764,16 +764,31 @@ describe('survivor customization rules', () => {
   });
 
   it('keeps independently authored ghost movement and attack side rows facing their targets', () => {
-    expect(ghostSpriteDefinition('wanderer').movementSideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('wanderer').attackSideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('brute').movementSideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('brute').attackSideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('twin-a').movementSideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('twin-a').attackSideFacesLeft).toBe(true);
-    expect(ghostSpriteDefinition('twin-b').movementSideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('twin-b').attackSideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('caster').movementSideFacesLeft).toBe(false);
-    expect(ghostSpriteDefinition('undead').movementSideFacesLeft).toBe(false);
+    const authoredSideDirections = {
+      wanderer: { movement: true, attack: false },
+      swift: { movement: true, attack: false },
+      brute: { movement: true, attack: false },
+      caster: { movement: false, attack: false },
+      'twin-a': { movement: false, attack: true },
+      'twin-b': { movement: false, attack: false },
+      teleporter: { movement: false, attack: false },
+      undead: { movement: false, attack: true },
+      giant: { movement: false, attack: false },
+      demolisher: { movement: false, attack: false },
+      wallpaper: { movement: true, attack: false },
+    } as const;
+    for (const [variant, directions] of Object.entries(authoredSideDirections)) {
+      const definition = ghostSpriteDefinition(
+        variant as keyof typeof authoredSideDirections,
+      );
+      expect(definition.movementSideFacesLeft, `${variant} movement`).toBe(
+        directions.movement,
+      );
+      expect(definition.attackSideFacesLeft, `${variant} attack`).toBe(
+        directions.attack,
+      );
+      expect(definition.frontBackSwapped, `${variant} front/back`).toBeFalsy();
+    }
     expect(ghostSpriteDefinition('swift').movementUrl)
       .toBe('/assets/sprites/ghosts/swift/movement-sheet.png?v=ghost-atlas-v5');
     expect(ghostSpriteDefinition('swift').attackUrl)
