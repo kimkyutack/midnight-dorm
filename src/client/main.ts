@@ -2660,7 +2660,10 @@ function renderForSnapshot(state: GameSnapshot, force: boolean): void {
 function updateCountdownStartWarning(isCountdown: boolean): void {
   const warning = app.querySelector<HTMLElement>("[data-countdown-warning]");
   if (!warning) return;
-  const enteringCountdown = isCountdown && previousGameStatus !== "COUNTDOWN";
+  const enteringCountdown =
+    isCountdown &&
+    Boolean(snapshot?.ranked) &&
+    previousGameStatus !== "COUNTDOWN";
 
   if (enteringCountdown) {
     if (countdownWarningTimer) window.clearTimeout(countdownWarningTimer);
@@ -2693,7 +2696,7 @@ function updateHud(): void {
     ?.classList.toggle("intro-movement-locked", movementIntroLocked);
   if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
-  const cameraZoomLocked = Boolean(me?.alive && !me.roomId);
+  const cameraZoomLocked = Boolean(snapshot.ranked && me?.alive && !me.roomId);
   app
     .querySelector("#game-shell")
     ?.classList.toggle("camera-zoom-locked", cameraZoomLocked);

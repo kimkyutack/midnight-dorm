@@ -2259,7 +2259,7 @@ export class ThreeGameView {
     const local = this.snapshotData?.players.find(
       (player) => player.id === this.playerId,
     );
-    return Boolean(local?.alive && !local.roomId);
+    return Boolean(this.snapshotData?.ranked && local?.alive && !local.roomId);
   }
 
   getPerformanceStats(): GamePerformanceStats {
@@ -4200,6 +4200,7 @@ export class ThreeGameView {
   private isEffectVisible(position: Vec2, margin = 2.5): boolean {
     const local = this.playerStateById.get(this.playerId);
     const blackoutActive =
+      Boolean(this.snapshotData.ranked) &&
       (this.snapshotData.status === 'EVENT_INTRO' ||
         this.snapshotData.status === 'GHOST_INTRO' ||
         this.snapshotData.status === 'COUNTDOWN') &&
@@ -5141,6 +5142,7 @@ export class ThreeGameView {
     const height = Math.max(1, this.host.clientHeight);
     const local = this.playerStateById.get(this.playerId);
     const active = Boolean(
+      this.snapshotData.ranked &&
       (
         this.snapshotData.status === 'EVENT_INTRO' ||
         this.snapshotData.status === 'GHOST_INTRO' ||

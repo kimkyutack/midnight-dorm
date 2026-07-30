@@ -1095,20 +1095,26 @@ export class GameEngine {
     );
     if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    // Time Attack is the only modifier announced before the selected ghost.
-    // Both cards are frozen phases; the preparation timer starts afterwards.
-    this.state.status =
-      this.state.difficulty.modifier === 'time-attack'
+    // The dark opening hunt is a ranked-only pressure mechanic. Solo and
+    // friend matches keep the original bright preparation flow: survivors
+    // can move and claim beds while the ghost stays completely still.
+    const rankedOpeningHunt = Boolean(this.state.ranked);
+    this.state.status = rankedOpeningHunt
+      ? this.state.difficulty.modifier === 'time-attack'
         ? 'EVENT_INTRO'
-        : 'GHOST_INTRO';
+        : 'GHOST_INTRO'
+      : 'COUNTDOWN';
     this.state.countdown = this.countdownSecondsForMatch();
     this.state.difficulty.introRemaining =
       this.state.status === 'EVENT_INTRO'
         ? BALANCE.timeAttackIntroSeconds
-        : BALANCE.ghostIntroSeconds;
+        : this.state.status === 'GHOST_INTRO'
+          ? BALANCE.ghostIntroSeconds
+          : 0;
     // Countdown cargo is a short, optional opening event.  It is absent from
     // deterministic test matches so existing simulation fixtures stay stable.
     this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
+    if (!rankedOpeningHunt) this.releaseCountdownLoot();
     return { ok: true };
   }
 
@@ -2273,7 +2279,9 @@ export class GameEngine {
       }
     } else if (this.state.status === "COUNTDOWN") {
       this.updateEconomy(dt);
-      this.updateBlackoutGhosts(dt);
+      // Only ranked matches use the blackout pursuit. In normal modes the
+      // ghost remains idle until the countdown reaches zero.
+      if (this.state.ranked) this.updateBlackoutGhosts(dt);
       this.state.countdown = Math.max(0, this.state.countdown - dt);
       if (this.state.countdown <= 0) this.beginPlaying();
     } else if (this.state.status === "PLAYING" || this.state.status === 'OVERTIME') {

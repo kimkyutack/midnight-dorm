@@ -13,7 +13,7 @@ import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, GhostState, PlayerState, Tile } from '../src/shared/types';
-import { GameEngine } from '../src/server/engine';
+import { GameEngine, type MatchConfig } from '../src/server/engine';
 import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
@@ -29,9 +29,22 @@ import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../s
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 
-function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
+const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
+  seasonId: 'S-test',
+  contractId: 'opening-hunt',
+  contractNumber: 1,
+  modifier: 'none',
+  goldenTurretPolicy: 'disabled',
+  supplyPolicy: 'disabled',
+};
+
+function setup(
+  players = 1,
+  testMode = true,
+  config: MatchConfig = {},
+): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
-  const engine = new GameEngine('TESTROOM', map, testMode);
+  const engine = new GameEngine('TESTROOM', map, testMode, config);
   const ids: string[] = [];
   const tokens: string[] = [];
   for (let index = 0; index < players; index += 1) {
@@ -952,7 +965,7 @@ describe('authoritative game rules', () => {
   });
 
   it('lets the ghost patrol corridors during the thirty-second blackout phase', () => {
-    const { engine, ids } = setup(1, false);
+    const { engine, ids } = setup(1, false, { ranked: RANKED_OPENING });
     const ghostSpawn = { ...engine.map.ghostSpawn };
     expect(engine.start(ids[0] as string).ok).toBe(true);
     expect(engine.snapshot().status).toBe('GHOST_INTRO');
@@ -983,7 +996,7 @@ describe('authoritative game rules', () => {
   });
 
   it('chases only visible corridor survivors during blackout and loses them inside rooms', () => {
-    const { engine, ids } = setup(1, true);
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
@@ -1036,7 +1049,7 @@ describe('authoritative game rules', () => {
   });
 
   it('eliminates an unclaimed survivor immediately on physical ghost contact', () => {
-    const { engine, ids } = setup(1, true);
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
@@ -1068,7 +1081,7 @@ describe('authoritative game rules', () => {
   });
 
   it('keeps an unclaimed survivor safe after entering a room floor when lights turn on', () => {
-    const { engine, ids } = setup(1, true);
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
@@ -1102,7 +1115,7 @@ describe('authoritative game rules', () => {
   });
 
   it('gives wandering blackout twins separated patrol destinations', () => {
-    const { engine, ids } = setup(1, true);
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
@@ -1156,8 +1169,10 @@ describe('authoritative game rules', () => {
   });
 
   it('spawns both twins on distinct walkable corridor tiles and keeps both moving after lights turn on', () => {
-    const map = generateMap(101);
-    const engine = new GameEngine('X1', map, false);
+    // Ranked setup does not consume the normal-mode Time Attack RNG roll, so
+    // use a seed whose first ghost-variant roll is the twin pair.
+    const map = generateMap(1);
+    const engine = new GameEngine('X1', map, false, { ranked: RANKED_OPENING });
     const joined = engine.join({
       nickname: '쌍둥이 추적자',
       deviceId: 'twin-spawn-walkable-device',
@@ -1292,7 +1307,9 @@ describe('authoritative game rules', () => {
   });
 
   it('shows Time Attack before the frozen ghost poster and does not buffer movement', () => {
-    const { engine, ids } = setup();
+    const { engine, ids } = setup(1, true, {
+      ranked: { ...RANKED_OPENING, modifier: 'time-attack' },
+    });
     const playerId = ids[0] as string;
     const prepared = engine.serialize();
     prepared.snapshot.difficulty.modifier = 'time-attack';
@@ -3744,7 +3761,10 @@ describe('requested progression and event rules', () => {
       const engine = new GameEngine('LOOTDROP', map, false);
       const joined = engine.join({ nickname: '보상 운반자', deviceId: 'device-loot-drop' });
       expect(engine.start(joined.player.id).ok).toBe(true);
-      expect(engine.snapshot().lootDrops).toHaveLength(0);
+    // Non-ranked matches begin directly in the bright countdown. Loot is
+    // released immediately so it can complete its visible fall during those
+    // same 30 seconds.
+    expect(engine.snapshot().lootDrops.length).toBeGreaterThan(0);
       advanceFrozenIntros(engine);
       const firstDrop = engine.snapshot().lootDrops[0];
       expect(firstDrop).toBeDefined();
