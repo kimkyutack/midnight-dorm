@@ -27,6 +27,7 @@ import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
 import { decideBotIntent } from '../src/server/bots';
+import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 
 function setup(players = 1, testMode = true): { engine: GameEngine; ids: string[]; tokens: string[] } {
   const map = generateMap(734_901);
@@ -202,6 +203,20 @@ describe('realtime snapshot frames', () => {
       serverSeq: frame.serverSeq + 2,
     }, revisedBuildings);
     expect(revised?.buildings).toBe(revisedBuildings);
+  });
+
+  it('keeps only the latest visual shot from each turret per network frame', () => {
+    const compacted = compactRealtimeEvents([
+      { kind: 'turret-fire', sourceId: 'turret-a', amount: 1 },
+      { kind: 'door-hit', amount: 7 },
+      { kind: 'turret-fire', sourceId: 'turret-b', amount: 2 },
+      { kind: 'turret-fire', sourceId: 'turret-a', amount: 3 },
+    ]);
+    expect(compacted).toEqual([
+      { kind: 'door-hit', amount: 7 },
+      { kind: 'turret-fire', sourceId: 'turret-b', amount: 2 },
+      { kind: 'turret-fire', sourceId: 'turret-a', amount: 3 },
+    ]);
   });
 });
 

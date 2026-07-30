@@ -112,6 +112,7 @@ declare global {
       cameraZoom: () => number;
       cameraYaw: () => number;
       renderedPosition: () => Vec2 | null;
+      performanceStats: () => ReturnType<ThreeGameView["getPerformanceStats"]> | null;
       resumeRendering: () => void;
     };
   }
@@ -4984,6 +4985,7 @@ function updateTestApi(): void {
     cameraZoom: () => game?.getCameraZoom() ?? 1,
     cameraYaw: () => game?.getCameraYaw() ?? 0,
     renderedPosition: () => game?.getLocalRenderedPosition() ?? null,
+    performanceStats: () => game?.getPerformanceStats() ?? null,
     resumeRendering: () => game?.resume(),
   };
 }

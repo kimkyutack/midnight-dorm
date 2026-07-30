@@ -44,6 +44,17 @@ interface TestState {
   cameraZoom: () => number;
   cameraYaw: () => number;
   renderedPosition: () => { x: number; y: number } | null;
+  performanceStats: () => {
+    pixelRatio: number;
+    minimumPixelRatio: number;
+    frameMs: number;
+    drawCalls: number;
+    transientEffects: number;
+    hudMessages: number;
+    cachedBuildingTextures: number;
+    effectQuality: "high" | "balanced" | "low";
+    roomSkinDrawables: number;
+  } | null;
   resumeRendering: () => void;
 }
 
@@ -1052,6 +1063,16 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "follow",
     );
+    const performanceStats = await page.evaluate(() =>
+      window.__DORM_TEST__?.performanceStats(),
+    );
+    expect(performanceStats?.minimumPixelRatio).toBeGreaterThanOrEqual(1.5);
+    expect(performanceStats?.pixelRatio).toBe(
+      performanceStats?.minimumPixelRatio,
+    );
+    await expect(
+      page.locator("#game-root canvas[data-shadows='off']"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "카메라 확대" }).click();
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),

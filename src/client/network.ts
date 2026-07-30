@@ -18,6 +18,11 @@ type ClientIntent = WithoutEnvelope<ClientMessage>;
 
 const MAX_RECONNECT_ATTEMPTS = 30;
 const RECONNECT_DELAY_CAP_MS = 5_000;
+const MAX_CLIENT_MOVE_BUFFER_BYTES = 64 * 1_024;
+
+type ParserWorkerResponse =
+  | { id: number; generation: number; ok: true; message: ServerMessage }
+  | { id: number; generation: number; ok: false };
 
 export function mergeSnapshotFrame(
   previous: GameSnapshot | null,
@@ -39,6 +44,9 @@ export class GameNetwork {
   private pingTimer: number | null = null;
   private lastBuildSentAt = -Infinity;
   private lastSnapshot: GameSnapshot | null = null;
+  private parserWorker: Worker | null = null;
+  private parserRequestId = 0;
+  private socketGeneration = 0;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
   reconnectToken = '';
   playerId = '';
@@ -76,6 +84,9 @@ export class GameNetwork {
     });
     if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
     const socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
+    socket.binaryType = 'arraybuffer';
+    const generation = ++this.socketGeneration;
+    this.ensureParserWorker();
     let opened = false;
     this.socket = socket;
     socket.addEventListener('open', () => {
@@ -86,7 +97,8 @@ export class GameNetwork {
       this.startHeartbeat();
     });
     socket.addEventListener('message', (event) => {
-      if (this.socket === socket) this.receive(String(event.data));
+      if (this.socket !== socket) return;
+      this.parseIncoming(event.data as string | ArrayBuffer, generation);
     });
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return;
@@ -124,10 +136,17 @@ export class GameNetwork {
     this.stopHeartbeat();
     this.socket?.close(1000, 'client left');
     this.socket = null;
+    this.parserWorker?.terminate();
+    this.parserWorker = null;
   }
 
   send(message: ClientIntent): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
+    if (
+      message.type === 'move' &&
+      this.socket.bufferedAmount > MAX_CLIENT_MOVE_BUFFER_BYTES
+    )
+      return;
     this.socket.send(JSON.stringify({ ...message, sequence: ++this.sequence, timestamp: Date.now() }));
   }
 
@@ -164,10 +183,56 @@ export class GameNetwork {
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 
-  private receive(raw: string): void {
-    let message: ServerMessage;
-    try { message = JSON.parse(raw) as ServerMessage; }
-    catch { this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' }); return; }
+  private ensureParserWorker(): void {
+    if (this.parserWorker || typeof Worker === 'undefined') return;
+    try {
+      const worker = new Worker(
+        new URL('./network.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+      worker.addEventListener(
+        'message',
+        (event: MessageEvent<ParserWorkerResponse>) => {
+          const response = event.data;
+          if (response.generation !== this.socketGeneration) return;
+          if (!response.ok) {
+            this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' });
+            return;
+          }
+          this.receive(response.message);
+        },
+      );
+      this.parserWorker = worker;
+    } catch {
+      this.parserWorker = null;
+    }
+  }
+
+  private parseIncoming(
+    raw: string | ArrayBuffer,
+    generation: number,
+  ): void {
+    if (this.parserWorker) {
+      const request = {
+        id: ++this.parserRequestId,
+        generation,
+        raw,
+      };
+      if (raw instanceof ArrayBuffer)
+        this.parserWorker.postMessage(request, [raw]);
+      else this.parserWorker.postMessage(request);
+      return;
+    }
+    try {
+      const text =
+        typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
+      this.receive(JSON.parse(text) as ServerMessage);
+    } catch {
+      this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' });
+    }
+  }
+
+  private receive(message: ServerMessage): void {
     if ((message.type === 'snapshot' || message.type === 'snapshot-frame') && message.sequence < this.lastServerSequence) return;
     if (message.type === 'welcome' || message.type === 'snapshot' || message.type === 'snapshot-frame') {
       this.lastServerSequence = message.sequence;

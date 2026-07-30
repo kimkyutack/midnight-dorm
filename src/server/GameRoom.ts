@@ -3,6 +3,7 @@ import { BALANCE } from '../shared/balance';
 import { normalizeAppearance, normalizeTurretSkins } from '../shared/customization';
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
+import { compactRealtimeEvents } from '../shared/realtimeEvents';
 import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
 import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
 import { shopConsumableById } from '../shared/shopConsumables';
@@ -39,6 +40,7 @@ const RANKED_LOANED_SUPPLIES: readonly ConsumableId[] = [
   'quick-mortar',
   'toolbelt-voucher',
 ];
+const MAX_SNAPSHOT_BUFFER_BYTES = 192 * 1_024;
 
 const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
 
@@ -488,7 +490,7 @@ export class GameRoom extends DurableObject<Env> {
     const buildingsChanged = buildingSignature !== this.lastBroadcastBuildingSignature;
     if (buildingsChanged) this.lastBroadcastBuildingSignature = buildingSignature;
     const { buildings, ...frame } = snapshot;
-    const events = this.engine.drainEvents();
+    const events = compactRealtimeEvents(this.engine.drainEvents());
     const frameMessage: ServerMessage = {
       type: 'snapshot-frame',
       sequence: snapshot.serverSeq,
@@ -503,6 +505,10 @@ export class GameRoom extends DurableObject<Env> {
       if (socket.readyState !== WebSocket.OPEN) continue;
       const attachment =
         socket.deserializeAttachment() as ConnectionAttachment | null;
+      // Snapshot frames are replaceable state. If a mobile connection stalls,
+      // dropping an old frame prevents an ever-growing WebSocket queue; the
+      // next 10 Hz frame contains the newest authoritative state.
+      if (socket.bufferedAmount > MAX_SNAPSHOT_BUFFER_BYTES) continue;
       if (attachment?.snapshotFrames) {
         socket.send(frameEncoded);
         continue;
@@ -547,13 +553,20 @@ export class GameRoom extends DurableObject<Env> {
       (snapshot.ghost.path.length > 0
         ? { ...snapshot.ghost, path: [] }
         : snapshot.ghost);
+    const buildings = snapshot.buildings.some(
+      (building) => building.cooldown !== 0,
+    )
+      ? snapshot.buildings.map((building) =>
+          building.cooldown === 0
+            ? building
+            : { ...building, cooldown: 0 },
+        )
+      : snapshot.buildings;
     return {
       ...snapshot,
       // Cooldowns are simulation-only and otherwise make the large building
       // array appear changed on every 10Hz network frame.
-      buildings: snapshot.buildings.map((building) =>
-        building.cooldown === 0 ? building : { ...building, cooldown: 0 }
-      ),
+      buildings,
       ghost: leadGhost,
       ghosts,
     };

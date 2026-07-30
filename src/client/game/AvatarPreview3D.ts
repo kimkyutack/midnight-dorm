@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { AvatarAppearance, RankId, TurretKind } from '../../shared/types';
-import { createGhostPreviewModel, createPlayerRig, createTurretPreviewModel } from './ThreeGameView';
+import { createGhostPreviewModel, createPlayerRig, createTurretPreviewModel, releaseBuildingModelTextures } from './ThreeGameView';
 
 export type AvatarView = 'front' | 'side' | 'back';
 
@@ -11,12 +11,18 @@ const VIEW_YAW: Record<AvatarView, number> = {
 };
 
 function disposeObject(object: THREE.Object3D): void {
+  releaseBuildingModelTextures(object);
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.Line) && !(child instanceof THREE.Sprite)) return;
     child.geometry?.dispose();
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     for (const material of materials) {
-      if ('map' in material && material.map instanceof THREE.Texture) material.map.dispose();
+      if (
+        material.userData.sharedBuildingTexture !== true &&
+        'map' in material &&
+        material.map instanceof THREE.Texture
+      )
+        material.map.dispose();
       material.dispose();
     }
   });

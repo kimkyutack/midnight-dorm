@@ -12,7 +12,7 @@ import type {
 } from '../../shared/types';
 import { cosmeticProductUrl } from './CosmeticAssets';
 import { baseConceptUrl } from './SkinAssets';
-import { createBuildingModel, createTurretPreviewModel } from './ThreeGameView';
+import { createBuildingModel, createTurretPreviewModel, releaseBuildingModelTextures } from './ThreeGameView';
 import { buildingAssetUrl } from './BuildingAssets';
 
 const WIDTH = 256;
@@ -20,12 +20,18 @@ const HEIGHT = 210;
 const thumbnailCache = new Map<string, string>();
 
 function disposeObject(object: THREE.Object3D): void {
+  releaseBuildingModelTextures(object);
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.Line) && !(child instanceof THREE.Sprite)) return;
     child.geometry?.dispose();
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     for (const material of materials) {
-      if ('map' in material && material.map instanceof THREE.Texture) material.map.dispose();
+      if (
+        material.userData.sharedBuildingTexture !== true &&
+        'map' in material &&
+        material.map instanceof THREE.Texture
+      )
+        material.map.dispose();
       material.dispose();
     }
   });

@@ -2851,8 +2851,10 @@
   top: 50%;
   left: 50%;
   z-index: 40;
-  width: min(88vw, 440px);
-  padding: 28px 22px;
+  box-sizing: border-box;
+  width: min(92dvw, 440px);
+  max-width: calc(100dvw - 20px);
+  padding: clamp(18px, 4.4dvw, 28px) clamp(14px, 4dvw, 22px);
   border-color: rgba(255, 74, 86, 0.85);
   color: #ff4b5d;
   background: rgba(8, 3, 7, 0.92);
@@ -2870,9 +2872,9 @@
 .phase-banner.time-attack-intro strong {
   margin-bottom: 12px;
   color: #ff354d;
-  font-size: clamp(42px, 13vw, 68px);
+  font-size: clamp(34px, 10.5dvw, 64px);
   font-weight: 1000;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   line-height: 0.92;
   text-shadow:
     0 0 18px rgba(255, 32, 62, 0.84),
@@ -2880,7 +2882,7 @@
 }
 .phase-banner.time-attack-intro span {
   color: #fff0f2;
-  font-size: clamp(13px, 3.9vw, 17px);
+  font-size: clamp(12px, 3.45dvw, 17px);
   font-weight: 800;
 }
 @keyframes time-attack-pulse {
@@ -5234,13 +5236,19 @@ select {
     0 8px 18px rgba(20, 0, 5, 0.84);
 }
 .ghost-threat-poster {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 39;
   display: grid;
+  box-sizing: border-box;
+  width: 100dvw;
+  height: 100svh;
   place-items: center;
-  padding: max(84px, env(safe-area-inset-top)) 22px
-    max(96px, env(safe-area-inset-bottom));
+  padding:
+    max(82px, calc(env(safe-area-inset-top) + 72px))
+    max(12px, env(safe-area-inset-right))
+    max(86px, calc(env(safe-area-inset-bottom) + 72px))
+    max(12px, env(safe-area-inset-left));
   pointer-events: none;
   opacity: 1;
   transform: scale(1);
@@ -5257,7 +5265,10 @@ select {
 }
 .ghost-threat-paper {
   position: relative;
-  width: min(82vw, 370px);
+  box-sizing: border-box;
+  width: min(88dvw, 370px, calc((100svh - 178px) * 0.6667));
+  max-width: calc(100dvw - 24px);
+  max-height: calc(100svh - 178px);
   aspect-ratio: 2 / 3;
   filter: drop-shadow(0 20px 34px rgba(0, 0, 0, 0.72));
 }
@@ -8032,9 +8043,10 @@ select {
     top: 50%;
     left: 50%;
     z-index: 40;
-    width: min(88vw, 440px);
-    max-width: min(88vw, 440px);
-    padding: 28px 22px;
+    box-sizing: border-box;
+    width: min(92dvw, 440px);
+    max-width: calc(100dvw - 20px);
+    padding: clamp(18px, 4.4dvw, 28px) clamp(14px, 4dvw, 22px);
     overflow: visible;
     transform: translate(-50%, -50%);
     font-size: 14px;

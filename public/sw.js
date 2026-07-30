@@ -1,4 +1,5 @@
-const CACHE = "midnight-dorm-shell-v9";
+const CACHE = "midnight-dorm-shell-v10";
+const ASSET_CACHE = "midnight-dorm-assets-v10";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -27,7 +28,9 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)),
+          keys
+            .filter((key) => key !== CACHE && key !== ASSET_CACHE)
+            .map((key) => caches.delete(key)),
         ),
       )
       .then(() => self.clients.claim()),
@@ -41,6 +44,29 @@ self.addEventListener("fetch", (event) => {
     new URL(request.url).pathname.startsWith("/api/")
   )
     return;
+  const url = new URL(request.url);
+  const isStaticAsset =
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith("/assets/") ||
+      url.pathname.startsWith("/icons/") ||
+      url.pathname === "/manifest.webmanifest");
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.open(ASSET_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        const refresh = fetch(request).then((response) => {
+          if (response.ok) void cache.put(request, response.clone());
+          return response;
+        });
+        if (cached) {
+          event.waitUntil(refresh.catch(() => undefined));
+          return cached;
+        }
+        return refresh;
+      }),
+    );
+    return;
+  }
   event.respondWith(
     fetch(request)
       .then((response) => {
