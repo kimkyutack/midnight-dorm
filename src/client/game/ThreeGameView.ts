@@ -34,6 +34,8 @@ const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
 const LOCAL_MAX_PREDICTION_LEAD = 2.6;
+const LOCAL_INPUT_RELEASE_RECONCILE_GRACE_MS = 180;
+const LOCAL_INPUT_RELEASE_ACK_TIMEOUT_MS = 1_500;
 const MAX_RECONCILE_STEP = 0.18;
 const FLOOR_TILE_HEIGHT = 0.08;
 const ROOM_FLOOR_OFFSET_Y = 0.003;
@@ -119,6 +121,16 @@ export function limitLocalPredictionLead(
     x: current.x + (predicted.x - current.x) * low,
     y: current.y + (predicted.y - current.y) * low,
   };
+}
+
+export function shouldWaitForReleaseAcknowledgement(
+  releaseInputSequence: number | null,
+  authoritativeInputSequence: number | undefined,
+  now: number,
+  timeoutAt: number,
+): boolean {
+  if (releaseInputSequence === null || now >= timeoutAt) return false;
+  return (authoritativeInputSequence ?? 0) < releaseInputSequence;
 }
 
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
@@ -2044,6 +2056,10 @@ export class ThreeGameView {
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private localInputSequence = 0;
+  private lastNonZeroLocalInput: Vec2 = { x: 0, y: 0 };
+  private localInputReleaseGraceUntil = 0;
+  private localInputReleaseSequence: number | null = null;
+  private localInputReleaseAckTimeoutAt = 0;
   private drag: PointerDrag | null = null;
   private gesture: MultiTouchGesture | null = null;
   private portraitMovementDrag: PortraitMovementDrag | null = null;
@@ -2295,12 +2311,30 @@ export class ThreeGameView {
   }
 
   setLocalInput(input: Vec2, inputSequence?: number): void {
+    const wasMoving = Math.hypot(this.localInput.x, this.localInput.y) > 0.001;
+    const isMoving = Math.hypot(input.x, input.y) > 0.001;
+    if (isMoving) {
+      this.lastNonZeroLocalInput = input;
+      this.localInputReleaseSequence = null;
+      this.localInputReleaseAckTimeoutAt = 0;
+    } else if (wasMoving) {
+      this.localInputReleaseGraceUntil =
+        performance.now() + LOCAL_INPUT_RELEASE_RECONCILE_GRACE_MS;
+    }
     this.localInput = input;
     if (inputSequence !== undefined) {
       this.localInputSequence = Math.max(
         this.localInputSequence,
         inputSequence,
       );
+      // sendMovement() updates the visual input once before assigning the
+      // packet sequence, so the sequenced zero can arrive here after
+      // `wasMoving` already became false. Record every sequenced release.
+      if (!isMoving) {
+        this.localInputReleaseSequence = inputSequence;
+        this.localInputReleaseAckTimeoutAt =
+          performance.now() + LOCAL_INPUT_RELEASE_ACK_TIMEOUT_MS;
+      }
     }
   }
 
@@ -4173,12 +4207,47 @@ export class ThreeGameView {
           this.reconcilePlayerPosition(view, 1.4, dt, lockedRoomBlocks);
         }
       } else {
-        this.reconcilePlayerPosition(
-          view,
-          isLocal ? 13 : 10.5,
-          dt,
-          lockedRoomBlocks,
-        );
+        const now = performance.now();
+        const waitingForReleaseAcknowledgement =
+          isLocal &&
+          !lying &&
+          shouldWaitForReleaseAcknowledgement(
+            this.localInputReleaseSequence,
+            player.lastInputSeq,
+            now,
+            this.localInputReleaseAckTimeoutAt,
+          );
+        if (
+          isLocal &&
+          this.localInputReleaseSequence !== null &&
+          (player.lastInputSeq ?? 0) >= this.localInputReleaseSequence
+        ) {
+          this.localInputReleaseSequence = null;
+          this.localInputReleaseAckTimeoutAt = 0;
+        }
+        let skipTrailingReleaseReconcile = waitingForReleaseAcknowledgement;
+        if (
+          !skipTrailingReleaseReconcile &&
+          isLocal &&
+          !lying &&
+          now < this.localInputReleaseGraceUntil
+        ) {
+          const targetOffsetX = view.target.x - view.root.position.x;
+          const targetOffsetZ = view.target.z - view.root.position.z;
+          const targetTrailsLastInput =
+            targetOffsetX * this.lastNonZeroLocalInput.x +
+              targetOffsetZ * this.lastNonZeroLocalInput.y <
+            -0.025;
+          skipTrailingReleaseReconcile = targetTrailsLastInput;
+        }
+        if (!skipTrailingReleaseReconcile) {
+          this.reconcilePlayerPosition(
+            view,
+            isLocal ? 13 : 10.5,
+            dt,
+            lockedRoomBlocks,
+          );
+        }
       }
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;

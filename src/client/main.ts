@@ -52,6 +52,7 @@ import {
   isUpdateAvailable,
   type AppUpdate,
 } from "../shared/appUpdates";
+import { buildForceRefreshUrl } from "./pwaRefresh";
 import type {
   AccountProfile,
   AvatarAppearance,
@@ -178,6 +179,10 @@ const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let soulVialTargetingId: string | null = null;
+const optimisticPowerPanelModes = new Map<
+  string,
+  "attack" | "defense" | "production"
+>();
 // The arm request and the following turret click can happen before the next
 // authoritative snapshot returns. Keep this short-lived optimistic state so a
 // stale frame cannot swallow the player's first turret selection.
@@ -202,6 +207,9 @@ let toastTimer = 0;
 let timeAttackExpiredTimer = 0;
 let deathNoticeTimer = 0;
 let rankedQueuePollTimer = 0;
+let rankedQueueClockTimer = 0;
+let rankedQueueElapsedAnchor = 0;
+let rankedQueueElapsedAnchorAt = 0;
 const e2eMode = new URLSearchParams(location.search).get("e2e") === "1";
 const automationMode =
   new URLSearchParams(location.search).get("automation") === "1";
@@ -737,9 +745,8 @@ function showTutorial(initialTopic: TutorialTopic = "battle"): void {
 }
 
 function setContent(view: string, html: string): void {
-  if (view !== "ranked-queue" && rankedQueuePollTimer) {
-    window.clearTimeout(rankedQueuePollTimer);
-    rankedQueuePollTimer = 0;
+  if (view !== "ranked-queue") {
+    stopRankedQueueTimers();
   }
   customAvatarPreview?.destroy();
   customAvatarPreview = null;
@@ -2262,6 +2269,52 @@ function stopRankedQueuePolling(): void {
   rankedQueuePollTimer = 0;
 }
 
+function stopRankedQueueClock(): void {
+  if (rankedQueueClockTimer) window.clearInterval(rankedQueueClockTimer);
+  rankedQueueClockTimer = 0;
+  rankedQueueElapsedAnchor = 0;
+  rankedQueueElapsedAnchorAt = 0;
+}
+
+function stopRankedQueueTimers(): void {
+  stopRankedQueuePolling();
+  stopRankedQueueClock();
+}
+
+function currentRankedQueueElapsed(now = performance.now()): number {
+  if (!rankedQueueElapsedAnchorAt) return rankedQueueElapsedAnchor;
+  return Math.max(
+    0,
+    rankedQueueElapsedAnchor +
+      (now - rankedQueueElapsedAnchorAt) / 1_000,
+  );
+}
+
+function syncRankedQueueClock(serverElapsedSeconds: number): void {
+  const now = performance.now();
+  rankedQueueElapsedAnchor = Math.max(
+    serverElapsedSeconds,
+    currentRankedQueueElapsed(now),
+  );
+  rankedQueueElapsedAnchorAt = now;
+  const renderClock = (): void => {
+    const clock = app.querySelector<HTMLElement>(
+      "[data-ranked-queue-elapsed]",
+    );
+    if (!clock || currentView !== "ranked-queue") return;
+    clock.textContent = formatTime(
+      Math.floor(currentRankedQueueElapsed()),
+    );
+  };
+  renderClock();
+  if (!rankedQueueClockTimer) {
+    // The display advances from a monotonic local clock. Network polling only
+    // corrects the anchor, so a 60~90ms response cannot freeze one second and
+    // then make the next response appear to jump by two.
+    rankedQueueClockTimer = window.setInterval(renderClock, 200);
+  }
+}
+
 async function rankedQueueRequest(
   action: "join" | "status" | "leave",
 ): Promise<RankedQueueResponse | { left: boolean }> {
@@ -2283,6 +2336,7 @@ async function rankedQueueRequest(
 
 async function joinRankedQueue(): Promise<void> {
   try {
+    stopRankedQueueTimers();
     const queue = (await rankedQueueRequest("join")) as RankedQueueResponse;
     renderRankedQueue(queue);
   } catch (error) {
@@ -2329,7 +2383,13 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
     toast("랭크 대기열이 만료되었습니다. 다시 참여해주세요.");
     return;
   }
-  const elapsed = formatTime(queue.elapsedSeconds);
+  const elapsed = formatTime(
+    Math.floor(
+      rankedQueueElapsedAnchorAt
+        ? Math.max(queue.elapsedSeconds, currentRankedQueueElapsed())
+        : queue.elapsedSeconds,
+    ),
+  );
   const slots = Array.from({ length: queue.requiredPlayers }, (_, index) => {
     const player = queue.players[index];
     if (player) {
@@ -2349,12 +2409,13 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
   }).join("");
   setContent(
     "ranked-queue",
-    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
+    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong data-ranked-queue-elapsed>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
   );
+  syncRankedQueueClock(queue.elapsedSeconds);
   app
     .querySelector<HTMLButtonElement>("[data-ranked-queue-cancel]")
     ?.addEventListener("click", () => {
-      stopRankedQueuePolling();
+      stopRankedQueueTimers();
       void rankedQueueRequest("leave")
         .catch(() => undefined)
         .finally(() => homeScreen());
@@ -2723,6 +2784,13 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
     onSleep: () => {
+      inputVector = { x: 0, y: 0 };
+      game?.setLocalInput(inputVector);
+      if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+      pendingMovementTimer = 0;
+      if (movementKeepaliveTimer)
+        window.clearInterval(movementKeepaliveTimer);
+      movementKeepaliveTimer = 0;
       network?.interact();
       audio.play("button");
     },
@@ -3126,9 +3194,12 @@ function resultScreen(state: GameSnapshot): void {
   audio.play(victory ? "victory" : "defeat");
   const reward = customizationReward(state.stageIndex);
   const tutorialVictory = victory && state.stageId === "tutorial-1";
+  const rankedResult = Boolean(state.ranked);
   const resultActions = tutorialVictory
     ? '<div class="result-actions tutorial-result-actions"><button class="btn ghost" data-tutorial-supplies>전술 보급 둘러보기</button><button class="btn primary" data-tutorial-easy>쉬움 1 시작</button></div>'
-    : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
+    : rankedResult
+      ? '<div class="result-actions ranked-result-actions"><button class="btn primary" data-leave>홈으로 이동</button></div>'
+      : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
   setContent(
     "result",
     `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "첫 생존 훈련 완료" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "문 방어의 기본을 익혔습니다. 이제 실전에 도전할 수 있습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "보급품을 준비하거나 바로 쉬움 1에 도전하세요." : "커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
@@ -3687,7 +3758,10 @@ function renderTargetPanel(selection: SceneSelection): void {
     return;
   }
   if (building && kind === "power-panel") {
-    const mode = building.powerPanelMode ?? "attack";
+    const mode =
+      optimisticPowerPanelModes.get(building.id) ??
+      building.powerPanelMode ??
+      "attack";
     const modes: Array<{
       id: "attack" | "defense" | "production";
       label: string;
@@ -3727,10 +3801,12 @@ function renderTargetPanel(selection: SceneSelection): void {
                 candidate === button,
               ),
             );
-          network?.activateBuilding(
-            building.id,
-            button.dataset.panelMode as "attack" | "defense" | "production",
-          );
+          const selectedMode = button.dataset.panelMode as
+            | "attack"
+            | "defense"
+            | "production";
+          optimisticPowerPanelModes.set(building.id, selectedMode);
+          network?.activateBuilding(building.id, selectedMode);
         }),
       );
     wireBuildingRemoval(panel, building.id);
@@ -5202,37 +5278,69 @@ function showForceRefreshPrompt(): void {
 
 async function forceRefreshForUpdate(
   version: string,
-  options: { resetWorker?: boolean } = {},
+  options: { resetWorker?: boolean } = { resetWorker: true },
 ): Promise<void> {
-  const tasks: Promise<unknown>[] = [];
+  const resetWorker = options.resetWorker ?? true;
+  let registrations: readonly ServiceWorkerRegistration[] = [];
   if ("serviceWorker" in navigator) {
-    tasks.push(
-      navigator.serviceWorker
-        .getRegistrations()
-        .then(async (registrations) => {
-          await Promise.all(
-            registrations.map((registration) => registration.update().catch(() => undefined)),
-          );
-          if (options.resetWorker)
-            await Promise.all(
-              registrations.map((registration) => registration.unregister().catch(() => false)),
-            );
+    registrations = await navigator.serviceWorker
+      .getRegistrations()
+      .catch(() => []);
+    await Promise.allSettled(
+      registrations.map((registration) => registration.update()),
+    );
+  }
+
+  const workers = new Set<ServiceWorker>();
+  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+    workers.add(navigator.serviceWorker.controller);
+  }
+  registrations.forEach((registration) => {
+    if (registration.installing) workers.add(registration.installing);
+    if (registration.waiting) workers.add(registration.waiting);
+    if (registration.active) workers.add(registration.active);
+  });
+  await Promise.allSettled(
+    [...workers].map(
+      (worker) =>
+        new Promise<void>((resolve) => {
+          const channel = new MessageChannel();
+          const timeout = window.setTimeout(resolve, 1_500);
+          channel.port1.onmessage = () => {
+            window.clearTimeout(timeout);
+            resolve();
+          };
+          try {
+            worker.postMessage({ type: "PURGE_APP_CACHES" }, [channel.port2]);
+          } catch {
+            window.clearTimeout(timeout);
+            resolve();
+          }
         }),
-    );
-  }
+    ),
+  );
+
   if ("caches" in window) {
-    tasks.push(
-      caches
-        .keys()
-        .then((keys) => Promise.all(keys.map((key) => caches.delete(key)))),
+    const keys = await caches.keys().catch(() => []);
+    await Promise.allSettled(keys.map((key) => caches.delete(key)));
+  }
+  if (resetWorker) {
+    await Promise.allSettled(
+      registrations.map((registration) => registration.unregister()),
     );
   }
-  await Promise.allSettled(tasks);
-  const next = new URL(location.href);
-  next.searchParams.set("app-update", version);
-  if (options.resetWorker)
-    next.searchParams.set("force-refresh", `${Date.now()}`);
-  location.replace(next.toString());
+
+  const nonce = `${Date.now()}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  const nextUrl = buildForceRefreshUrl(location.href, version, nonce);
+  // Warm the exact one-use URL from the network before navigating. The old
+  // controller may remain attached until this document closes, but the unique
+  // URL plus reload cache mode prevents it and WebKit from returning old HTML.
+  await fetch(nextUrl, {
+    cache: "reload",
+    credentials: "same-origin",
+    headers: { "cache-control": "no-cache" },
+  }).catch(() => undefined);
+  location.replace(nextUrl);
 }
 
 async function checkForAppUpdate(): Promise<void> {
@@ -5425,7 +5533,13 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator && !devMode)
   window.addEventListener(
     "load",
-    () => void navigator.serviceWorker.register("/sw.js"),
+    () =>
+      void navigator.serviceWorker
+        .register(`/sw.js?v=${encodeURIComponent(APP_RELEASE_VERSION)}`, {
+          updateViaCache: "none",
+        })
+        .then((registration) => registration.update())
+        .catch(() => undefined),
   );
 
 loading();

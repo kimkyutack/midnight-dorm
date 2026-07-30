@@ -77,6 +77,7 @@ import {
   type BotIntent,
   type BotStrategy,
 } from "./bots";
+import { rankedBotNickname } from "./botNames";
 
 const COLORS = [
   0x72e6ff, 0xffca62, 0xc68cff, 0x73ec9e, 0xff7597, 0x89a7ff,
@@ -468,7 +469,7 @@ export class GameEngine {
       displayName: labels[variant],
       variant,
       attackCount: 0,
-      attacksToNextLevel: this.attacksForNextGhostLevel(1),
+      attacksToNextLevel: this.attacksForNextGhostLevel(1, variant),
       retreating: false,
       healing: false,
       healingElapsed: 0,
@@ -532,13 +533,32 @@ export class GameEngine {
     return Math.max(15, BALANCE.ghost.firstLevelAttacks - this.stage.index);
   }
 
-  private attacksForNextGhostLevel(currentLevel: number): number {
+  private ghostAttackSpeedMultiplier(variant: GhostVariant): number {
+    return variant === "giant" ? 0.3 : 1;
+  }
+
+  private attacksForNextGhostLevel(
+    currentLevel: number,
+    variant: GhostVariant = "wanderer",
+  ): number {
     const first = this.firstGhostLevelAttacks();
-    if (currentLevel <= 1) return first;
-    if (currentLevel === 2) return first + BALANCE.ghost.firstLevelFollowupAttacks;
-    return first
-      + BALANCE.ghost.firstLevelFollowupAttacks
-      + (currentLevel - 2) * BALANCE.ghost.attacksAddedPerLevel;
+    const baseAttacks =
+      currentLevel <= 1
+        ? first
+        : currentLevel === 2
+          ? first + BALANCE.ghost.firstLevelFollowupAttacks
+          : first +
+            BALANCE.ghost.firstLevelFollowupAttacks +
+            (currentLevel - 2) * BALANCE.ghost.attacksAddedPerLevel;
+    // Slow attackers otherwise need several times longer real-world combat
+    // time to grow. Scale hit counts by their base attack-speed multiplier so
+    // every variant reaches the next level after comparable door pressure.
+    return Math.max(
+      1,
+      Math.ceil(
+        baseAttacks * this.ghostAttackSpeedMultiplier(variant),
+      ),
+    );
   }
 
   restore(data: PersistedEngine): void {
@@ -564,7 +584,17 @@ export class GameEngine {
       ghost.slowMultiplier ??= 1;
       ghost.stunnedUntil ??= 0;
       ghost.attackCount ??= 0;
-      ghost.attacksToNextLevel ??= this.attacksForNextGhostLevel(ghost.level ?? 1);
+      const scaledAttacksToNextLevel = this.attacksForNextGhostLevel(
+        ghost.level ?? 1,
+        ghost.variant,
+      );
+      ghost.attacksToNextLevel ??= scaledAttacksToNextLevel;
+      if (
+        this.ghostAttackSpeedMultiplier(ghost.variant) < 1 &&
+        ghost.attacksToNextLevel > scaledAttacksToNextLevel
+      ) {
+        ghost.attacksToNextLevel = scaledAttacksToNextLevel;
+      }
       ghost.retreating ??= false;
       ghost.healing ??= false;
       ghost.healingElapsed ??= 0;
@@ -910,9 +940,15 @@ export class GameEngine {
     const id = `bot-${crypto.randomUUID()}`;
     const botIndex = this.state.players.filter((player) => player.isBot).length;
     const recommendedRank = recommendedRankForStage(this.stage);
+    const nickname = this.state.ranked
+      ? rankedBotNickname(
+          this.rng,
+          this.state.players.map((player) => player.nickname),
+        )
+      : `새벽봇 ${botIndex + 1}`;
     const bot = this.makePlayer(
       id,
-      `새벽봇 ${botIndex + 1}`,
+      nickname,
       true,
       null,
       recommendedRank,
@@ -4495,7 +4531,7 @@ export class GameEngine {
       this.stage.damageMultiplier *
       rankPressure *
       2 ** this.state.difficulty.overtimeStacks;
-    const attackSpeed = ghost.variant === "giant" ? 0.3 : 1;
+    const attackSpeed = this.ghostAttackSpeedMultiplier(ghost.variant);
     ghost.attackCooldown =
       Math.max(0.2, BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1) * 2 ** this.state.difficulty.overtimeStacks));
     if (room.doorHp > 0 && canStrikeDoor) {
@@ -4802,7 +4838,10 @@ export class GameEngine {
     ghost.level += 1;
     ghost.phase = ghost.level;
     ghost.attackCount = 0;
-    ghost.attacksToNextLevel = this.attacksForNextGhostLevel(ghost.level);
+    ghost.attacksToNextLevel = this.attacksForNextGhostLevel(
+      ghost.level,
+      ghost.variant,
+    );
     ghost.maxHp = Math.round(ghost.maxHp * (1 + this.stage.levelHpGrowth));
     ghost.hp += ghost.maxHp - previousMax;
     this.pendingEvents.push({

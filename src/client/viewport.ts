@@ -45,8 +45,21 @@ export function setupMobileViewportCompatibility(): void {
       maxTouchPoints: navigator.maxTouchPoints,
     });
     root.classList.toggle("mobile-viewport-compat", scale !== null);
-    if (scale === null) root.style.removeProperty("--app-viewport-zoom");
-    else root.style.setProperty("--app-viewport-zoom", String(scale));
+    if (scale === null) {
+      root.style.removeProperty("--app-viewport-zoom");
+      root.style.removeProperty("--app-visible-width");
+      root.style.removeProperty("--app-visible-height");
+    } else {
+      root.style.setProperty("--app-viewport-zoom", String(scale));
+      root.style.setProperty(
+        "--app-visible-width",
+        `${MOBILE_PORTRAIT_LAYOUT_WIDTH}px`,
+      );
+      root.style.setProperty(
+        "--app-visible-height",
+        `${Math.max(1, window.innerHeight / scale)}px`,
+      );
+    }
   };
 
   sync();

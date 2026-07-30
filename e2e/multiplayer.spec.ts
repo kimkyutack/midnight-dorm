@@ -1172,6 +1172,7 @@ test("three bots visibly pathfind through doors before the normal countdown ends
         rendered: { x: number; y: number };
         server: { x: number; y: number };
         claimed: number;
+        at: number;
       }> = [];
       const teammateList = document.querySelector("[data-hud-players]");
       const teammateCards = teammateList
@@ -1196,6 +1197,7 @@ test("three bots visibly pathfind through doors before the normal countdown ends
             rendered: visual,
             server: { ...local.position },
             claimed,
+            at: performance.now(),
           });
           errors.push(
             Math.hypot(
@@ -1208,7 +1210,34 @@ test("three bots visibly pathfind through doors before the normal countdown ends
         if (claimed >= 3) break;
       }
       game?.move(0, 0);
+      // A claim snapshot can arrive immediately before the finger-release
+      // packet. Keep sampling after release: the rendered survivor must wait
+      // for that release acknowledgement instead of snapping back to the
+      // position carried by the older claim frame.
+      const releaseDeadline = performance.now() + 900;
+      while (performance.now() < releaseDeadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        const current = window.__DORM_TEST__;
+        const local = current?.snapshot?.players.find(
+          (player) => player.id === current.playerId,
+        );
+        const visual = current?.renderedPosition();
+        const claimed =
+          current?.snapshot?.players.filter(
+            (player) => player.isBot && player.roomId,
+          ).length ?? 0;
+        if (local && visual) {
+          samples.push({
+            rendered: visual,
+            server: { ...local.position },
+            claimed,
+            at: performance.now(),
+          });
+        }
+      }
       let maxStep = 0;
+      let maxVisualSpeed = 0;
+      let maxBackwardStep = 0;
       let maxTransition: typeof samples | null = null;
       for (let index = 1; index < samples.length; index += 1) {
         const previous = samples[index - 1] as (typeof samples)[number];
@@ -1217,6 +1246,12 @@ test("three bots visibly pathfind through doors before the normal countdown ends
           current.rendered.x - previous.rendered.x,
           current.rendered.y - previous.rendered.y,
         );
+        const elapsedSeconds = Math.max(0.001, (current.at - previous.at) / 1_000);
+        maxVisualSpeed = Math.max(maxVisualSpeed, step / elapsedSeconds);
+        maxBackwardStep = Math.max(
+          maxBackwardStep,
+          previous.rendered.x - current.rendered.x,
+        );
         if (step > maxStep) {
           maxStep = step;
           maxTransition = [previous, current];
@@ -1224,6 +1259,8 @@ test("three bots visibly pathfind through doors before the normal countdown ends
       }
       return {
         maxStep,
+        maxVisualSpeed,
+        maxBackwardStep,
         maxTransition,
         maxError: Math.max(0, ...errors),
         highestClaimed: Math.max(0, ...claimedCounts),
@@ -1236,10 +1273,17 @@ test("three bots visibly pathfind through doors before the normal countdown ends
     });
     expect(movementAcrossBotClaims.highestClaimed).toBe(3);
     expect(movementAcrossBotClaims.teammateCardsStable).toBe(true);
+    // Browser timers can be delayed under CI load, so compare distance with
+    // the measured sample interval instead of assuming every callback is
+    // exactly 50ms apart. A one-tile occupancy snap still exceeds this bound.
     expect(
-      movementAcrossBotClaims.maxStep,
+      movementAcrossBotClaims.maxVisualSpeed,
       JSON.stringify(movementAcrossBotClaims.maxTransition),
-    ).toBeLessThan(0.34);
+    ).toBeLessThan(13.5);
+    expect(movementAcrossBotClaims.maxStep).toBeLessThan(0.75);
+    // The held direction is positive X. A bot claiming a different room must
+    // never pull the local survivor back toward the entrance.
+    expect(movementAcrossBotClaims.maxBackwardStep).toBeLessThan(0.2);
     // A bot claim carries room/building ownership in the same state frame.
     // Forward prediction may briefly lead that heavier authoritative frame by
     // about one tile, but maxStep above guarantees that it remains continuous

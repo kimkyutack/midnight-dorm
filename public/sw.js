@@ -1,5 +1,5 @@
-const CACHE = "midnight-dorm-shell-v11";
-const ASSET_CACHE = "midnight-dorm-assets-v11";
+const CACHE = "midnight-dorm-shell-v12";
+const ASSET_CACHE = "midnight-dorm-assets-v12";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -34,6 +34,19 @@ self.addEventListener("activate", (event) => {
         ),
       )
       .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "PURGE_APP_CACHES") return;
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() => self.skipWaiting())
+      .then(() => {
+        event.ports[0]?.postMessage({ type: "APP_CACHES_PURGED" });
+      }),
   );
 });
 

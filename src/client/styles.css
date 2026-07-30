@@ -2167,6 +2167,13 @@
   object-fit: contain;
   filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.52));
 }
+.queue-tier {
+  width: 31px;
+  overflow: hidden;
+}
+.queue-tier small {
+  display: none;
+}
 .vacant .queue-avatar {
   color: #8ba7b2;
   background: rgba(100, 133, 148, 0.2);
@@ -5541,6 +5548,10 @@ select {
 }
 .ghost-threat-poster[hidden] {
   display: none;
+}
+html.mobile-viewport-compat .ghost-threat-poster {
+  width: var(--app-visible-width, 390px);
+  height: var(--app-visible-height, 100svh);
 }
 .ghost-threat-poster.is-fading {
   opacity: 0;

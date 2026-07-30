@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.29.8";
+export const APP_RELEASE_VERSION = "2026.07.30.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "외형 상점 문구 정리",
+  title: "실시간 동기화와 랭크전 새로고침 개선",
   summary:
-    "• 포탑 스킨 목록 설명에서 레벨 수 표기를 제거했습니다.\n• 타일 스킨 설명을 카드 안에서 잘리지 않도록 짧게 정리했습니다.",
-  publishedAt: 1785387600000,
+    "• 이동 종료와 대기열 시간을 네트워크 지연에도 부드럽게 동기화했습니다.\n• iOS PWA에서도 최신 앱 셸을 확실히 받도록 강력 새로고침을 보강했습니다.\n• 랭크전 봇은 매 경기 새로운 닉네임을 사용하며 결과 화면에서는 홈으로만 이동합니다.",
+  publishedAt: 1785421519000,
 };
 
 /**

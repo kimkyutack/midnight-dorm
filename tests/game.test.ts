@@ -18,7 +18,7 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { limitLocalPredictionLead } from '../src/client/game/ThreeGameView';
+import { limitLocalPredictionLead, shouldWaitForReleaseAcknowledgement } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
@@ -26,7 +26,9 @@ import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/Buildin
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
+import { buildForceRefreshUrl } from '../src/client/pwaRefresh';
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
+import { RANKED_BOT_NICKNAMES } from '../src/server/botNames';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 
 const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
@@ -141,10 +143,21 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.29.9')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.30.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
+  });
+
+  it('uses a one-use navigation URL so an iOS PWA cannot reopen cached HTML', () => {
+    const refreshed = new URL(buildForceRefreshUrl(
+      'https://example.com/?app-update=old#home',
+      APP_RELEASE_VERSION,
+      'nonce-123',
+    ));
+    expect(refreshed.searchParams.get('app-update')).toBe(APP_RELEASE_VERSION);
+    expect(refreshed.searchParams.get('force-refresh')).toBe('nonce-123');
+    expect(refreshed.hash).toBe('#home');
   });
 });
 
@@ -408,6 +421,12 @@ describe('deterministic shared world', () => {
     );
     expect(next.x).toBeGreaterThan(rendered.x);
     expect(next.x).toBeCloseTo(7.65);
+  });
+
+  it('does not reconcile a released drag to a bot-claim frame before the release is acknowledged', () => {
+    expect(shouldWaitForReleaseAcknowledgement(9, 8, 500, 2_000)).toBe(true);
+    expect(shouldWaitForReleaseAcknowledgement(9, 9, 500, 2_000)).toBe(false);
+    expect(shouldWaitForReleaseAcknowledgement(9, 8, 2_000, 2_000)).toBe(false);
   });
 
   it('treats every rounded point inside a room floor tile as room interior', () => {
@@ -2479,6 +2498,7 @@ describe('nine primary ghost variants', () => {
     ghost.abilityCooldown = 20;
     state.snapshot.ghost = ghost;
     engine.restore(state);
+    expect(engine.snapshot().ghost.attacksToNextLevel).toBe(7);
     engine.tick(0.1);
     const hit = engine.drainEvents().find((event) => event.kind === 'door-hit' && event.targetId === ghost.id);
     expect(hit?.amount).toBeCloseTo(BALANCE.ghost.baseDamage * 2.5, 5);
@@ -2531,6 +2551,24 @@ describe('requested progression and event rules', () => {
     ]);
     expect(rankedMatchmakingTier('silver', false)).toBe('bronze');
     expect(rankedMatchmakingTier('silver', true)).toBe('silver');
+  });
+
+  it('gives ranked fill-in bots unique player-like names', () => {
+    const { engine, ids } = setup(1, true, {
+      playMode: 'multiplayer',
+      ranked: RANKED_OPENING,
+    });
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    const names = engine.snapshot().players
+      .filter((player) => player.isBot)
+      .map((player) => player.nickname);
+    expect(new Set(names).size).toBe(3);
+    expect(names.every((name) => RANKED_BOT_NICKNAMES.includes(
+      name as (typeof RANKED_BOT_NICKNAMES)[number],
+    ))).toBe(true);
+    expect(names.every((name) => !name.includes('봇'))).toBe(true);
   });
 
   it('routes three bots through doorways and claims distinct beds before countdown ends', () => {
