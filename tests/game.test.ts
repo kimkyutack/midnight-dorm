@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
+import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
@@ -534,6 +534,14 @@ describe('generated mobile game art', () => {
   it('maps every moonlight generator level to its own crisp tile-safe image', () => {
     const assets = Array.from({ length: 10 }, (_, index) =>
       buildingAssetUrl('generator', index + 1),
+    );
+    expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
+    expect(new Set(assets).size).toBe(10);
+  });
+
+  it('maps every golden judgment turret level to its own in-world image', () => {
+    const assets = Array.from({ length: 10 }, (_, index) =>
+      buildingAssetUrl('golden-turret', index + 1),
     );
     expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
     expect(new Set(assets).size).toBe(10);
@@ -3127,6 +3135,46 @@ describe('requested progression and event rules', () => {
     const converted = engine.snapshot().buildings.find((building) => building.id === ticket.id);
     expect(converted).toMatchObject({ kind: 'golden-turret' });
     expect(converted).not.toHaveProperty('itemId');
+  });
+
+  it('makes the golden turret fire twice as fast and pay a doubling gold bounty per hit', () => {
+    for (let level = 1; level <= 10; level += 1) {
+      expect(buildingStats('golden-turret', level).rate).toBeCloseTo(
+        buildingStats('basic-turret', level).rate / 2,
+        2,
+      );
+    }
+    expect([1, 2, 3, 10].map(goldenTurretGoldPerShot)).toEqual([8, 16, 32, 4096]);
+
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const prepared = engine.serialize();
+    const player = prepared.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing golden bounty owner');
+    player.items.push({ itemId: 'golden-ticket', label: '황금 티켓', rarity: 'legendary', count: 1 });
+    engine.restore(prepared);
+    expect(engine.build(playerId, roomId, tile, 'golden-turret').ok).toBe(true);
+
+    const armed = engine.serialize();
+    const owner = armed.snapshot.players.find((candidate) => candidate.id === playerId);
+    const ghost = armed.snapshot.ghosts[0];
+    const turret = armed.snapshot.buildings.find((building) => building.kind === 'golden-turret');
+    if (!owner || !ghost || !turret) throw new Error('missing golden bounty fixture');
+    const goldBefore = owner.gold;
+    ghost.position = { ...turret.tile };
+    ghost.hp = ghost.maxHp = 10_000;
+    ghost.retreating = false;
+    ghost.healing = false;
+    turret.cooldown = 0;
+    engine.restore(armed);
+    engine.drainEvents();
+    engine.tick(0.01);
+    expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.gold).toBe(goldBefore + 8);
+    expect(engine.drainEvents()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gold', amount: 8, position: turret.tile }),
+    ]));
   });
 
   it('authoritatively prevents base turret fire beyond four tiles', () => {

@@ -1,6 +1,7 @@
 import {
   BALANCE,
   buildingStats,
+  goldenTurretGoldPerShot,
   maxBuildingLevel,
   upgradeCost,
   upgradeRequirement,
@@ -3160,6 +3161,16 @@ export class GameEngine {
       }
       const appliedDamage = this.applyGhostDamage(nearest, damage, building.roomId, building.kind);
       if (appliedDamage > 0) {
+        if (building.kind === 'golden-turret') {
+          const goldReward = goldenTurretGoldPerShot(building.level);
+          owner.gold += goldReward;
+          this.pendingEvents.push({
+            kind: 'gold',
+            playerId: owner.id,
+            amount: goldReward,
+            position: { ...building.tile },
+          });
+        }
         for (const vial of soulVialsByOwner.get(building.ownerId) ?? []) {
           vial.storedSoulDamage = Math.min(1_000_000, (vial.storedSoulDamage ?? 0) + appliedDamage);
         }

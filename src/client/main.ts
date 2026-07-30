@@ -2256,7 +2256,7 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
   }).join("");
   setContent(
     "ranked-queue",
-    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가 · 40초 뒤 빈 자리는 봇으로 보충</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
+    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
   );
   app
     .querySelector<HTMLButtonElement>("[data-ranked-queue-cancel]")

@@ -151,9 +151,9 @@ export const BALANCE = {
     },
     'golden-turret': {
       label: '황금 심판 포탑',
-      description: '황금 티켓 1장당 한 대만 설치할 수 있는 10단계 신화 포탑입니다.',
+      description: '공격마다 골드를 얻는 10단계 신화 포탑입니다.',
       maxLevel: 10,
-      levels: [level(0, 0, 170, 0.25, 5.5)],
+      levels: [level(0, 0, 170, 0.5, 5.5)],
     },
     generator: {
       label: '달빛 발전기',
@@ -353,13 +353,17 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
   const base = definition.levels[0] as BuildingLevelStats;
   if (kind === 'golden-turret') {
     const scale = 1 + (safeLevel - 1) * 0.5;
-    const rateScale = Math.max(0.1, 1 - (safeLevel - 1) * 0.065);
+    // Golden turret fires exactly twice as fast as a guardian turret at the
+    // same level. Character, skin, and item attack-speed modifiers apply
+    // afterwards in the engine and therefore remain independent bonuses.
+    const rateScale = Math.max(0.42, 1 - (safeLevel - 1) * 0.035);
+    const guardianRate = Math.round(rateScale * 100) / 100;
     const cost = upgradeCostWithoutStats(kind, safeLevel);
     return {
       gold: cost.gold,
       power: cost.power,
       value: Math.round(base.value * scale),
-      rate: Math.round(base.rate * rateScale * 100) / 100,
+      rate: guardianRate / 2,
       range: base.range,
     };
   }
@@ -379,6 +383,15 @@ export function buildingStats(kind: BuildingKind, requestedLevel: number): Build
     // not the ability to shoot through an entire room.
     range: base.range,
   };
+}
+
+/** Golden judgment turret earns a doubling bounty whenever a shot hits. */
+export function goldenTurretGoldPerShot(requestedLevel: number): number {
+  const level = Math.min(
+    BALANCE.buildings['golden-turret'].maxLevel,
+    Math.max(1, Math.floor(requestedLevel)),
+  );
+  return 8 * 2 ** (level - 1);
 }
 
 function upgradeCostWithoutStats(kind: BuildingKind, safeLevel: number): { gold: number; power: number } {
