@@ -1,4 +1,4 @@
-export type GameStatus = 'LOBBY' | 'GHOST_INTRO' | 'EVENT_INTRO' | 'COUNTDOWN' | 'PLAYING' | 'OVERTIME' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
+export type GameStatus = 'LOBBY' | 'RANKED_INTRO' | 'GHOST_INTRO' | 'EVENT_INTRO' | 'COUNTDOWN' | 'PLAYING' | 'OVERTIME' | 'VICTORY' | 'DEFEAT' | 'CLOSED';
 
 /** Server-authoritative match modifier.  The client only renders this state. */
 export type MatchModifier = 'none' | 'time-attack';
@@ -36,6 +36,8 @@ export interface RankedMatchState {
   modifier: MatchModifier;
   goldenTurretPolicy: 'disabled' | 'loaned' | 'objective' | 'penalized';
   supplyPolicy: 'disabled' | 'loaned' | 'penalized';
+  /** True only when every human entrant is playing a ranked match for the first time. */
+  firstRankedMatch: boolean;
 }
 
 export interface Vec2 {
@@ -241,6 +243,10 @@ export interface RoomState {
   doorAnchorUntil: number;
   /** Applied by a one-time cursed contract and retained through door upgrades. */
   doorMaxHpMultiplier: number;
+  /** Tactical supplies can briefly turn one room into a focused firing lane. */
+  supplyTurretDamageUntil: number;
+  supplyTurretRateUntil: number;
+  supplyTurretLevelUntil: number;
 }
 
 export interface BuildingState {
@@ -274,6 +280,10 @@ export interface BuildingState {
   soulChargeDamage?: number;
   /** Current selectable mode for the unique power panel. */
   powerPanelMode?: 'attack' | 'defense' | 'production';
+  /** One armed shot and short-lived tuning effects supplied during a match. */
+  supplyNextShotMultiplier?: number;
+  supplyRateUntil?: number;
+  supplyRangeUntil?: number;
 }
 
 /** A reward falling into a corridor during the preparation countdown. */
@@ -343,6 +353,8 @@ export interface GhostState {
   /** When there is no alternative target, the ghost wanders corridors until this time. */
   wanderUntil: number;
   wanderTarget: Tile | null;
+  /** Direct-combat supplies may expose a ghost to amplified turret damage. */
+  vulnerableUntil: number;
   summonerId?: string;
 }
 
@@ -411,7 +423,32 @@ export interface AccountProfile {
   appearance: AvatarAppearance;
   turretSkins: TurretSkinLoadout;
   consumables: OwnedConsumable[];
+  /** The first-match survival training remains active until its first victory. */
+  tutorialCompleted: boolean;
   createdAt: number;
+}
+
+export type TutorialStep =
+  | 'claim-bed'
+  | 'build-turret'
+  | 'upgrade-bed'
+  | 'upgrade-door'
+  | 'upgrade-turret'
+  | 'retreat'
+  | 'build-generator'
+  | 'build-frost'
+  | 'build-net'
+  | 'finish';
+
+export interface TutorialState {
+  active: boolean;
+  step: TutorialStep;
+  /** Bots never reserve this room, so the player always has a clear route. */
+  reservedRoomId: string | null;
+  /** During the recovery lesson the whole simulation is deliberately paused. */
+  pauseRemaining: number;
+  retreatExplained: boolean;
+  powerGranted: boolean;
 }
 
 export interface GameSnapshot {
@@ -438,6 +475,8 @@ export interface GameSnapshot {
   /** A cursed contract is a match-wide, non-refundable one-time decision. */
   contractUsed: boolean;
   ranked: RankedMatchState | null;
+  /** Present only in the mandatory first-victory training match. */
+  tutorial: TutorialState | null;
   goldSuppressedUntil: number;
   repairSuppressedUntil: number;
   winner: 'survivors' | 'ghost' | null;

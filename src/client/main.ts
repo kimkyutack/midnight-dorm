@@ -70,6 +70,7 @@ import type {
   QuickChatPhrase,
   StageId,
   Tile,
+  TutorialStep,
   Vec2,
 } from "../shared/types";
 import type {
@@ -117,6 +118,7 @@ declare global {
       cameraYaw: () => number;
       renderedPosition: () => Vec2 | null;
       performanceStats: () => ReturnType<ThreeGameView["getPerformanceStats"]> | null;
+      stressVisuals: () => number;
       resumeRendering: () => void;
     };
   }
@@ -301,6 +303,7 @@ interface RankedQueueResponse {
 
 const isResumableRoom = (status: GameStatus): boolean =>
   status === "LOBBY" ||
+  status === "RANKED_INTRO" ||
   status === "GHOST_INTRO" ||
   status === "EVENT_INTRO" ||
   status === "COUNTDOWN" ||
@@ -984,7 +987,11 @@ function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
 }
 
 function showSkinLaunchPromoCarousel(): void {
-  if (!account || skinLaunchPromoShownThisSession) return;
+  if (
+    !account ||
+    !account.tutorialCompleted ||
+    skinLaunchPromoShownThisSession
+  ) return;
   const currentAccount = account;
   const campaigns = SKIN_LAUNCH_CAMPAIGNS.filter(
     (campaign) =>
@@ -1483,6 +1490,66 @@ function modelPreviewHtml(
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
 }
 
+function showLiveCosmeticPreview(
+  itemId: string,
+  fallbackAppearance: AvatarAppearance,
+  rank: RankId,
+): void {
+  const item = cosmeticById(itemId);
+  if (!item) return;
+  const modal = dismissibleModal(
+    `<section class="live-cosmetic-sheet" role="dialog" aria-modal="true" aria-labelledby="live-preview-title"><header><div><small>IN-GAME PREVIEW</small><h2 id="live-preview-title">${escapeHtml(item.label)}</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="live-cosmetic-stage" data-live-preview-stage></div><p>${escapeHtml(item.description)}</p></section>`,
+    "live-cosmetic-modal",
+  );
+  const stage = modal.querySelector<HTMLElement>("[data-live-preview-stage]");
+  if (!stage) return;
+  let avatarPreview: AvatarPreview2D | null = null;
+  if (item.slot === "tile") {
+    stage.classList.add("tile");
+    stage.innerHTML = `<div class="live-tile-room"><img src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 인게임 타일"/><span></span></div>`;
+  } else if (item.slot === "turret") {
+    stage.classList.add("turret");
+    const art =
+      turretSkinAssetUrl(item.id, 1) ??
+      "/assets/buildings/cute-basic-turret-1.png";
+    stage.innerHTML = `<div class="live-turret-room"><img src="${art}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 인게임 포탑"/><i></i><b></b></div>`;
+  } else {
+    stage.classList.add("avatar");
+    const previewAppearance: AvatarAppearance =
+      item.slot === "character"
+        ? {
+            character: item.id,
+            skin: defaultSkinForCharacter(item.id),
+            tileSkin: fallbackAppearance.tileSkin,
+          }
+        : {
+            character: item.characterId ?? fallbackAppearance.character,
+            skin: item.id,
+            tileSkin: fallbackAppearance.tileSkin,
+          };
+    avatarPreview = new AvatarPreview2D(stage, previewAppearance, rank);
+  }
+  const cleanup = (): void => {
+    avatarPreview?.destroy();
+    avatarPreview = null;
+  };
+  const removalObserver = new MutationObserver(() => {
+    if (modal.isConnected) return;
+    cleanup();
+    removalObserver.disconnect();
+  });
+  removalObserver.observe(app, { childList: true });
+  modal.querySelector("[data-modal-close]")?.addEventListener("click", cleanup, {
+    once: true,
+  });
+  modal.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.target === modal) cleanup();
+    },
+  );
+}
+
 function cosmeticEntitled(
   item: NonNullable<ReturnType<typeof cosmeticById>>,
   currentAccount: AccountProfile,
@@ -1515,7 +1582,13 @@ function supplyShopScreen(): void {
     const quantity =
       currentAccount.consumables.find((owned) => owned.itemId === item.id)
         ?.quantity ?? 0;
-    return `<article class="supply-card catalog-card supply-${item.category}"><div class="catalog-art supply-art"><img data-supply-art="${item.id}" alt="${escapeHtml(item.label)} 3D 상품 이미지" /></div><div class="supply-copy"><span>${item.category === "scout" ? "정찰" : item.category === "survival" ? "생존" : "건설"}</span><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.description)}</p></div><div class="supply-actions"><small>보유 ${quantity}개</small><div><button data-supply-buy="${item.id}" data-supply-quantity="1">${item.price.toLocaleString()} P</button><button data-supply-buy="${item.id}" data-supply-quantity="5">5개</button></div></div></article>`;
+    const categoryLabel =
+      item.category === "assault"
+        ? "공격"
+        : item.category === "defense"
+          ? "문 방어"
+          : "포탑 강화";
+    return `<article class="supply-card catalog-card supply-${item.category}"><div class="catalog-art supply-art"><img data-supply-art="${item.id}" alt="${escapeHtml(item.label)} 3D 상품 이미지" /></div><div class="supply-copy"><span>${categoryLabel}</span><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.description)}</p></div><div class="supply-actions"><small>보유 ${quantity}개</small><div><button data-supply-buy="${item.id}" data-supply-quantity="1">${item.price.toLocaleString()} P</button><button data-supply-buy="${item.id}" data-supply-quantity="5">5개</button></div></div></article>`;
   }).join("");
   setContent(
     "shop",
@@ -1788,9 +1861,29 @@ function cosmeticCollectionScreen(
   const initialTurretTrait = initialTurret?.turretKind
     ? turretSkinTrait(initialTurret.id, initialTurret.turretKind)
     : null;
+  let livePreviewItemId =
+    initialPreviewItem?.id ??
+    (selectedSlot === "skin" ? activeSkin?.id : character?.id) ??
+    appearance.character;
   setContent(
     screen,
     `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
+  );
+  const livePreviewButton = document.createElement("button");
+  livePreviewButton.className = "custom-live-preview";
+  livePreviewButton.type = "button";
+  livePreviewButton.dataset.liveCosmeticPreview = "";
+  livePreviewButton.setAttribute("aria-label", "인게임 연출 미리보기");
+  livePreviewButton.innerHTML =
+    '<span aria-hidden="true">▶</span><small>인게임</small>';
+  const customPreview = app.querySelector(".custom-preview");
+  customPreview?.insertBefore(livePreviewButton, customPreview.firstChild);
+  livePreviewButton.addEventListener("click", () =>
+    showLiveCosmeticPreview(
+      livePreviewItemId,
+      appearance,
+      currentAccount.displayRank,
+    ),
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1823,6 +1916,7 @@ function cosmeticCollectionScreen(
   const showPreview = (itemId: string): void => {
     const item = cosmeticById(itemId);
     if (!item) return;
+    livePreviewItemId = item.id;
     if (item.slot === "tile") {
       const tilePreview = app.querySelector<HTMLImageElement>(
         "[data-tile-preview]",
@@ -2379,6 +2473,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       soulVialTargetingId = null;
       soulVialArmPendingId = null;
     }
+    game?.resetSleepInteraction();
     toast(message);
     refreshSelectionPanel(null);
   });
@@ -2552,8 +2647,22 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 왼쪽 회전">↶</button><button data-camera="zoom-out" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button><button data-camera="rotate-right" aria-label="카메라 오른쪽 회전">↷</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
+  const cameraZoomOut = app.querySelector<HTMLButtonElement>(
+    '[data-camera="rotate-left"]',
+  );
+  if (cameraZoomOut) {
+    cameraZoomOut.dataset.camera = "zoom-out";
+    cameraZoomOut.setAttribute("aria-label", "카메라 축소");
+  }
+  const rankedIntro = document.createElement("aside");
+  rankedIntro.className = "ranked-blackout-intro hidden";
+  rankedIntro.dataset.rankedIntro = "";
+  rankedIntro.setAttribute("aria-live", "polite");
+  rankedIntro.innerHTML =
+    '<div class="ranked-blackout-card"><img src="/assets/tutorial/ranked-blackout-intro.webp" alt="암전된 병동에서 빛을 밝히며 방을 찾는 생존자들"/><div><span>RANKED SURVIVAL</span><strong>어둠 속에서 먼저 방을 찾으세요</strong><p>랭크전 준비 시간에는 내 주변 2칸만 보입니다. 귀신의 시야를 피해 방 안으로 들어가 침대를 점유하세요.</p></div></div>';
+  app.querySelector("#game-shell")?.appendChild(rankedIntro);
   const renderMode = app.querySelector<HTMLElement>(".render-mode");
   if (renderMode)
     renderMode.textContent = `TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}`;
@@ -2615,6 +2724,16 @@ function gameScreen(state: GameSnapshot): void {
     playerId,
     snapshot: state,
     onSleep: () => {
+      // WebSocket messages are ordered. Flush a zero movement intent before
+      // interact so a held touch cannot advance the authoritative position
+      // after the client exposed the sleep prompt.
+      inputVector = { x: 0, y: 0 };
+      if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+      pendingMovementTimer = 0;
+      if (movementKeepaliveTimer)
+        window.clearInterval(movementKeepaliveTimer);
+      movementKeepaliveTimer = 0;
+      sendMovement(true);
       network?.interact();
       audio.play("button");
     },
@@ -2653,6 +2772,7 @@ function renderForSnapshot(state: GameSnapshot, force: boolean): void {
     if (force || currentView !== "lobby") lobbyScreen(state);
     else updateLobby(state);
   } else if (
+    state.status === "RANKED_INTRO" ||
     state.status === "GHOST_INTRO" ||
     state.status === "EVENT_INTRO" ||
     state.status === "COUNTDOWN" ||
@@ -2696,10 +2816,103 @@ function updateCountdownStartWarning(isCountdown: boolean): void {
   previousGameStatus = snapshot?.status ?? null;
 }
 
+const FIRST_MATCH_GUIDE_COPY: Record<
+  TutorialStep,
+  { index: number; title: string; description: string }
+> = {
+  "claim-bed": {
+    index: 1,
+    title: "안내된 빈 방에서 침대를 점유하세요",
+    description: "침대 가까이 가면 나타나는 잠자기 버튼을 누르세요.",
+  },
+  "build-turret": {
+    index: 2,
+    title: "수호 포탑을 설치하세요",
+    description: "빈 타일의 +를 누르면 지금 필요한 설비만 표시됩니다.",
+  },
+  "upgrade-bed": {
+    index: 3,
+    title: "침대를 Lv.2로 강화하세요",
+    description: "침대가 매초 생산하는 골드가 늘어납니다.",
+  },
+  "upgrade-door": {
+    index: 4,
+    title: "문을 Lv.2로 강화하세요",
+    description: "문이 버티는 동안 포탑이 귀신을 공격합니다.",
+  },
+  "upgrade-turret": {
+    index: 5,
+    title: "포탑을 Lv.2로 강화하세요",
+    description: "훈련 귀신은 강화한 포탑 7발로 처치할 수 있습니다.",
+  },
+  retreat: {
+    index: 6,
+    title: "귀신의 후퇴와 회복을 확인하세요",
+    description: "회색 HP는 후퇴 중인 체력입니다. 회복 전에 화력을 준비하세요.",
+  },
+  "build-generator": {
+    index: 7,
+    title: "달빛 발전기를 설치하세요",
+    description: "지원 전력 450이 지급됐습니다. 전력 설비의 기반입니다.",
+  },
+  "build-frost": {
+    index: 8,
+    title: "서리 스프레이를 설치하세요",
+    description: "귀신의 이동속도를 낮춰 포탑이 공격할 시간을 만드세요.",
+  },
+  "build-net": {
+    index: 9,
+    title: "그물 발사기를 설치하세요",
+    description: "HP가 낮아진 귀신을 묶어 마지막 공격을 확정하세요.",
+  },
+  finish: {
+    index: 10,
+    title: "방어 준비 완료",
+    description: "Lv.2 포탑의 다음 공격으로 훈련 귀신을 마무리하세요.",
+  },
+};
+
+function updateFirstMatchGuide(current: GameSnapshot): void {
+  const guide = app.querySelector<HTMLElement>("[data-first-match-guide]");
+  if (!guide) return;
+  const tutorial = current.tutorial;
+  if (!tutorial?.active) {
+    guide.classList.add("hidden");
+    guide.innerHTML = "";
+    return;
+  }
+  const copy = FIRST_MATCH_GUIDE_COPY[tutorial.step];
+  const me = current.players.find((player) => player.id === playerId);
+  const reservedRoom = mapData?.rooms.find(
+    (room) => room.id === tutorial.reservedRoomId,
+  );
+  let direction = "";
+  if (tutorial.step === "claim-bed" && me && reservedRoom) {
+    const dx = reservedRoom.bed.x - me.position.x;
+    const dy = reservedRoom.bed.y - me.position.y;
+    direction =
+      Math.abs(dx) > Math.abs(dy)
+        ? dx >= 0
+          ? "오른쪽"
+          : "왼쪽"
+        : dy >= 0
+          ? "아래쪽"
+          : "위쪽";
+  }
+  const paused = tutorial.pauseRemaining > 0;
+  guide.classList.remove("hidden");
+  guide.classList.toggle("retreat-lesson", paused);
+  guide.innerHTML = paused
+    ? `<div class="tutorial-retreat-card"><span>GHOST RETREAT</span><strong>귀신이 회복하러 후퇴합니다</strong><div class="tutorial-ghost-hp"><i style="width:30%"></i><b></b></div><p>회색으로 남은 HP는 퇴각 구간입니다.<br/>귀신은 리스폰 구역에서 회복한 뒤 다시 돌아옵니다.</p></div>`
+    : `<div class="tutorial-guide-card"><b>${copy.index}/10</b><div><span>첫 생존 훈련${direction ? ` · ${direction} 방` : ""}</span><strong>${escapeHtml(copy.title)}</strong><p>${escapeHtml(copy.description)}</p></div></div>`;
+}
+
 function updateHud(): void {
   if (!snapshot || currentView !== "game") return;
   const movementIntroLocked =
-    snapshot.status === "GHOST_INTRO" || snapshot.status === "EVENT_INTRO";
+    snapshot.status === "RANKED_INTRO" ||
+    snapshot.status === "GHOST_INTRO" ||
+    snapshot.status === "EVENT_INTRO";
   app
     .querySelector("#game-shell")
     ?.classList.toggle("intro-movement-locked", movementIntroLocked);
@@ -2776,12 +2989,18 @@ function updateHud(): void {
       : null;
   const phase = app.querySelector<HTMLElement>("[data-phase]");
   const isCountdown = snapshot.status === "COUNTDOWN";
+  const isRankedIntro = snapshot.status === "RANKED_INTRO";
   const isGhostIntro = snapshot.status === "GHOST_INTRO";
   const isEventIntro = snapshot.status === "EVENT_INTRO";
+  const rankedIntro = app.querySelector<HTMLElement>("[data-ranked-intro]");
+  if (rankedIntro) {
+    rankedIntro.hidden = !isRankedIntro;
+    rankedIntro.classList.toggle("hidden", !isRankedIntro);
+  }
   const ghostPoster = app.querySelector<HTMLElement>("[data-ghost-intro]");
   // The server holds this state for two seconds of a full card and two more
   // seconds of fade. Only after it clears does the 30-second timer begin.
-  const showGhostPoster = isGhostIntro;
+  const showGhostPoster = isGhostIntro && !snapshot.ranked;
   if (ghostPoster) {
     ghostPoster.hidden = !showGhostPoster;
     ghostPoster.classList.toggle("hidden", !showGhostPoster);
@@ -2800,7 +3019,7 @@ function updateHud(): void {
     }
   }
   if (phase) {
-    phase.hidden = showGhostPoster;
+    phase.hidden = showGhostPoster || isRankedIntro;
     phase.classList.toggle("countdown", isCountdown);
     phase.classList.toggle("time-attack-intro", isEventIntro);
     if (isEventIntro) {
@@ -2840,6 +3059,7 @@ function updateHud(): void {
   }
   const net = app.querySelector<HTMLElement>("[data-network]");
   if (net) net.textContent = `연결됨 · ${Math.round(ping)}ms`;
+  updateFirstMatchGuide(snapshot);
   refreshOpenPanelAffordability();
 }
 
@@ -2908,9 +3128,13 @@ function resultScreen(state: GameSnapshot): void {
   }
   audio.play(victory ? "victory" : "defeat");
   const reward = customizationReward(state.stageIndex);
+  const tutorialVictory = victory && state.stageId === "tutorial-1";
+  const resultActions = tutorialVictory
+    ? '<div class="result-actions tutorial-result-actions"><button class="btn ghost" data-tutorial-supplies>전술 보급 둘러보기</button><button class="btn primary" data-tutorial-easy>쉬움 1 시작</button></div>'
+    : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
   setContent(
     "result",
-    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${victory ? "새벽 생존" : "작전 실패"}</h1><p>${victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${reward} P</strong><small>커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다.</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div></section></main>`,
+    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "첫 생존 훈련 완료" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "문 방어의 기본을 익혔습니다. 이제 실전에 도전할 수 있습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "보급품을 준비하거나 바로 쉬움 1에 도전하세요." : "커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
@@ -2946,6 +3170,36 @@ function resultScreen(state: GameSnapshot): void {
       homeScreen();
     })().catch(() => authScreen());
   });
+  const finishTutorialResult = async (
+    destination: "supplies" | "easy",
+  ): Promise<void> => {
+    const code = network?.code;
+    network?.close();
+    network = null;
+    if (code) forgetRoom(code);
+    loading();
+    let next = await getAccount();
+    for (let attempt = 0; attempt < 4 && !next.tutorialCompleted; attempt += 1) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 360));
+      next = await getAccount();
+    }
+    account = next;
+    homePlayMode = next.selectedPlayMode;
+    if (destination === "supplies") supplyShopScreen();
+    else await createRoom(true, "easy-1");
+  };
+  app
+    .querySelector("[data-tutorial-supplies]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      void finishTutorialResult("supplies").catch(() => authScreen());
+    });
+  app
+    .querySelector("[data-tutorial-easy]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      void finishTutorialResult("easy").catch(() => authScreen());
+    });
 }
 
 function claimAction(key: string, cooldown = ACTION_DEBOUNCE_MS): boolean {
@@ -3167,7 +3421,20 @@ function renderBuildPanel(tile: Tile): void {
   const gameState = snapshot;
   const modeRank =
     gameState.playMode === "solo" ? me.soloRank : me.multiplayerRank;
-  const availableKinds: BuildingKind[] = [...BUILD_KINDS];
+  const tutorialGuidedKinds: Partial<Record<TutorialStep, BuildingKind>> = {
+    "build-turret": "basic-turret",
+    "build-generator": "generator",
+    "build-frost": "frost-turret",
+    "build-net": "ghost-net",
+  };
+  const guidedKind = gameState.tutorial?.active
+    ? tutorialGuidedKinds[gameState.tutorial.step]
+    : undefined;
+  const availableKinds: BuildingKind[] = guidedKind
+    ? [guidedKind]
+    : gameState.tutorial?.active
+      ? []
+      : [...BUILD_KINDS];
   const ownedBuildings = gameState.buildings.filter(
     (building) => building.ownerId === me.id,
   );
@@ -3227,9 +3494,11 @@ function renderBuildPanel(tile: Tile): void {
     // 아니라 골드/아이템 설비이므로 골드 탭에 항상 남겨 둔다.
     .filter(
       (kind) =>
+        availableKinds.includes(kind) &&
         upgradeCost(kind, 1, modeRank).gold > 0 ||
-        kind === "lucky-machine" ||
-        (kind === "golden-turret" && canInstallGoldenTurret),
+        (availableKinds.includes(kind) &&
+          (kind === "lucky-machine" ||
+            (kind === "golden-turret" && canInstallGoldenTurret))),
     )
     .map(buildCard)
     .join("");
@@ -3768,7 +4037,9 @@ function closeBuildPanel(): void {
 
 function movementLockedByIntro(): boolean {
   return (
-    snapshot?.status === "GHOST_INTRO" || snapshot?.status === "EVENT_INTRO"
+    snapshot?.status === "RANKED_INTRO" ||
+    snapshot?.status === "GHOST_INTRO" ||
+    snapshot?.status === "EVENT_INTRO"
   );
 }
 
@@ -4099,7 +4370,7 @@ function showInventory(): void {
         item.target === "tile"
           ? "먼저 복도 타일을 선택하세요"
           : item.target === "building"
-            ? "먼저 설비를 선택하세요"
+            ? "먼저 강화할 포탑을 선택하세요"
             : item.target === "door"
               ? "현재 방의 문에 사용"
               : item.target === "room"
@@ -4129,7 +4400,7 @@ function showInventory(): void {
           target = { tile: selectedTile };
         } else if (item.target === "building") {
           if (!selectedTarget || selectedTarget.type !== "building") {
-            toast("할인할 설비를 먼저 선택하세요.");
+            toast("강화할 포탑을 먼저 선택하세요.");
             return;
           }
           target = { targetId: selectedTarget.targetId };
@@ -5105,7 +5376,11 @@ function updateTestApi(): void {
       inputVector = { x: dx, y: dy };
       sendMovement(Math.hypot(dx, dy) <= 0.001);
     },
-    interact: () => network?.interact(),
+    interact: () => {
+      inputVector = { x: 0, y: 0 };
+      sendMovement(true);
+      network?.interact();
+    },
     buildFirst: (kind) => {
       if (!snapshot || !mapData || !network) return false;
       const me = snapshot.players.find((player) => player.id === playerId);
@@ -5130,6 +5405,12 @@ function updateTestApi(): void {
     cameraYaw: () => game?.getCameraYaw() ?? 0,
     renderedPosition: () => game?.getLocalRenderedPosition() ?? null,
     performanceStats: () => game?.getPerformanceStats() ?? null,
+    stressVisuals: () => {
+      // Freeze the live stream before injecting a deterministic visual-only
+      // load. The hook is exposed only by the dev/automation test API.
+      network?.close();
+      return game?.injectVisualStressScenario() ?? 0;
+    },
     resumeRendering: () => game?.resume(),
   };
 }

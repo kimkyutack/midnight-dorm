@@ -1,0 +1,2 @@
+ALTER TABLE accounts
+ADD COLUMN tutorial_completed INTEGER NOT NULL DEFAULT 0;

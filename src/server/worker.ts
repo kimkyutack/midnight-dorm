@@ -89,8 +89,15 @@ async function createRoom(request: Request, env: Env, profile: AccountProfile): 
       return Response.json({ error: '랭크전은 랭크 대기열에서만 시작할 수 있습니다.' }, { status: 409 });
     }
     playMode = body.playMode === 'solo' ? 'solo' : 'multiplayer';
-    const requestedStage = getStage(body.stageId);
-    if (requestedStage.index > unlockedStageIndex(profile, playMode)) {
+    const tutorialRequired =
+      playMode === 'solo' && !profile.tutorialCompleted;
+    const requestedStage = tutorialRequired
+      ? getStage('tutorial-1')
+      : getStage(body.stageId);
+    if (
+      !tutorialRequired &&
+      requestedStage.index > unlockedStageIndex(profile, playMode)
+    ) {
       return Response.json({ error: '아직 잠긴 스테이지입니다.' }, { status: 403 });
     }
     stageId = requestedStage.id;

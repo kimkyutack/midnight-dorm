@@ -142,43 +142,21 @@ const BOT_SUPPORT_BUILD_KINDS = new Set<BuildingKind>([
   'hide-and-seek-doll',
 ]);
 
-const SUPPLY_SPEED_SECONDS: Partial<Record<ConsumableId, number>> = {
-  'adrenal-shot': 4,
-  'sprint-candy': 6,
-};
-const SUPPLY_STEALTH_SECONDS: Partial<Record<ConsumableId, number>> = {
-  'quiet-slippers': 6,
-  'mist-cape': 8,
-};
-const SUPPLY_BEDROLL_SECONDS: Partial<Record<ConsumableId, number>> = {
-  'emergency-bedroll': 8,
-  'rescue-whistle': 12,
-};
 const SUPPLY_DOOR_HEAL: Partial<Record<ConsumableId, number>> = {
-  'quick-mortar': 70,
-  'patch-paste': 120,
+  'quick-mortar': 160,
 };
 const SUPPLY_DOOR_BRACE_SECONDS: Partial<Record<ConsumableId, number>> = {
   'hinge-brace': 15,
-  'steel-rivet': 20,
 };
 const SUPPLY_DOOR_WARD_SECONDS: Partial<Record<ConsumableId, number>> = {
-  'ward-seal': 3,
-  'ice-seal': 5,
+  'ward-seal': 4,
 };
-const SUPPLY_REGEN_RESET = new Set<ConsumableId>(['repair-window', 'rewind-clock']);
-const SUPPLY_BUILD_DISCOUNT: Partial<Record<ConsumableId, number>> = {
-  'toolbelt-voucher': 0.35,
-  'calibrator-key': 0.15,
-  'turret-grease': 0.25,
-  'pulse-solder': 0.3,
-  'spare-gears': 0.32,
-  'copper-coil': 0.38,
-  'lens-kit': 0.4,
-  'welding-gel': 0.45,
-  'blueprint-chip': 0.5,
-  'field-crane': 0.6,
-};
+const SUPPLY_TARGET_RADIUS = 4;
+const SUPPLY_TURRET_KINDS = new Set<BuildingKind>([
+  'basic-turret',
+  'golden-turret',
+  'electric-coil',
+]);
 
 interface ReconnectRecord {
   playerId: string;
@@ -335,13 +313,18 @@ export class GameEngine {
       doorRegenAccumulator: -1,
       doorAnchorUntil: 0,
       doorMaxHpMultiplier: 1,
+      supplyTurretDamageUntil: 0,
+      supplyTurretRateUntil: 0,
+      supplyTurretLevelUntil: 0,
     }));
     const timeAttack = this.ranked
       ? this.ranked.modifier === 'time-attack'
       : !this.testMode && this.rng.next() < timeAttackChanceForStage(this.stage);
     const difficulty = difficultyRuleForStage(this.stage, timeAttack);
     const eventRoll = this.testMode ? 0 : this.rng.next();
-    const variants: GhostVariant[] = this.testMode
+    const variants: GhostVariant[] = this.stage.id === 'tutorial-1'
+      ? ['wanderer']
+      : this.testMode
       ? ["wanderer"]
       : eventRoll < 0.13
         ? ["twin-a", "twin-b"]
@@ -375,7 +358,7 @@ export class GameEngine {
     ];
     // 시뮬레이션 회귀 테스트는 기존 빈 방 전제를 유지한다. 실제 매치에서는
     // 각 방에 하나씩 휴면 설비를 배치하고 첫 점유 전까지 작동시키지 않는다.
-    const starterBuildings: BuildingState[] = this.testMode
+    const starterBuildings: BuildingState[] = this.testMode || this.stage.id === 'tutorial-1'
       ? []
       : this.map.rooms.flatMap((room, index) => {
           const tile = [...room.buildTiles].sort(
@@ -436,6 +419,16 @@ export class GameEngine {
       difficulty,
       contractUsed: false,
       ranked: this.ranked,
+      tutorial: this.stage.id === 'tutorial-1'
+        ? {
+            active: true,
+            step: 'claim-bed',
+            reservedRoomId: null,
+            pauseRemaining: 0,
+            retreatExplained: false,
+            powerGranted: false,
+          }
+        : null,
       goldSuppressedUntil: 0,
       repairSuppressedUntil: 0,
       winner: null,
@@ -504,6 +497,7 @@ export class GameEngine {
       confusedUntil: -1,
       wanderUntil: -1,
       wanderTarget: null,
+      vulnerableUntil: -1,
     };
   }
 
@@ -603,6 +597,7 @@ export class GameEngine {
       ghost.confusedUntil ??= -1;
       ghost.wanderUntil ??= -1;
       ghost.wanderTarget ??= null;
+      ghost.vulnerableUntil ??= -1;
     }
     for (const player of this.state.players) {
       player.accountId ??= null;
@@ -653,6 +648,9 @@ export class GameEngine {
       room.beaconUntil ??= 0;
       room.doorBraceUntil ??= 0;
       room.doorWardUntil ??= 0;
+      room.supplyTurretDamageUntil ??= 0;
+      room.supplyTurretRateUntil ??= 0;
+      room.supplyTurretLevelUntil ??= 0;
       room.lastLatchArmedBy ??= null;
       room.lastLatchUntil ??= 0;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
@@ -668,6 +666,9 @@ export class GameEngine {
         DEFAULT_TURRET_SKINS[
           building.kind as keyof typeof DEFAULT_TURRET_SKINS
         ] ?? "";
+      building.supplyNextShotMultiplier ??= 1;
+      building.supplyRateUntil ??= 0;
+      building.supplyRangeUntil ??= 0;
       const owner = this.state.players.find(
         (player) => player.id === building.ownerId,
       );
@@ -842,6 +843,14 @@ export class GameEngine {
       identity.profileRankedSeasonId,
     );
     this.state.players.push(player);
+    if (this.state.tutorial?.active && !player.isBot && !this.state.tutorial.reservedRoomId) {
+      const reserved = this.map.rooms
+        .flatMap((room) => room.beds.map((bed) => ({ room, bed })))
+        .sort((left, right) =>
+          distance(player.position, left.bed) - distance(player.position, right.bed),
+        )[0]?.room;
+      this.state.tutorial.reservedRoomId = reserved?.id ?? this.map.rooms[0]?.id ?? null;
+    }
     if (isEliteRank(player.displayRank)) {
       this.pendingEvents.push({
         kind: "elite-join",
@@ -1096,39 +1105,40 @@ export class GameEngine {
     );
     if (unreadyHuman && !bypassReadyCheck)
       return { ok: false, error: "모든 참가자가 준비해야 합니다." };
-    // Every match shows the ghost warning poster. The dark opening hunt that
-    // follows it is ranked-only; solo and friend matches continue into a
-    // bright, stationary-ghost countdown instead.
-    this.state.status =
-      this.state.difficulty.modifier === 'time-attack'
+    // Ranked contracts never reveal the selected ghost. First-time ranked
+    // entrants receive a dedicated blackout rules card before the shared
+    // event/countdown sequence.
+    this.state.status = this.state.ranked?.firstRankedMatch
+      ? 'RANKED_INTRO'
+      : this.state.difficulty.modifier === 'time-attack'
         ? 'EVENT_INTRO'
-        : 'GHOST_INTRO';
+        : this.state.ranked
+          ? 'COUNTDOWN'
+          : 'GHOST_INTRO';
     this.state.countdown = this.countdownSecondsForMatch();
     this.state.difficulty.introRemaining =
-      this.state.status === 'EVENT_INTRO'
-        ? BALANCE.timeAttackIntroSeconds
+      this.state.status === 'RANKED_INTRO'
+        ? 5
+        : this.state.status === 'EVENT_INTRO'
+          ? BALANCE.timeAttackIntroSeconds
         : this.state.status === 'GHOST_INTRO'
           ? BALANCE.ghostIntroSeconds
           : 0;
     // Countdown cargo is a short, optional opening event.  It is absent from
     // deterministic test matches so existing simulation fixtures stay stable.
     this.countdownLootPending = !this.testMode && this.rng.next() < 0.5;
+    if (this.state.status === 'COUNTDOWN') this.releaseCountdownLoot();
     return { ok: true };
   }
 
   /**
-   * Browser E2E matches normally compress a no-bot preparation phase so the
-   * suite can reach combat quickly.  A solo match is different: the bots must
-   * visibly traverse the same corridors and claim beds before combat starts.
-   * Keep its simulated 30-second preparation phase while preserving the
-   * accelerated no-bot fixture used by the rest of the test suite. Twelve
-   * simulated seconds keeps tests fast while giving two browser clients enough
-   * time to traverse the randomized map before combat starts.
+   * Browser automation advances simulation time at 4× speed. Give every
+   * automated match a deterministic 30-second wall-clock preparation window
+   * so multi-client routing and bot-claim races are exercised before combat
+   * can kill a test survivor. Production matches keep the authored countdown.
    */
   private countdownSecondsForMatch(): number {
-    return this.testMode && this.botRuntime.size === 0
-      ? 12
-      : BALANCE.countdownSeconds;
+    return this.testMode ? 120 : BALANCE.countdownSeconds;
   }
 
   setConsumableLoadout(playerId: string, itemIds: ConsumableId[]): ActionResult {
@@ -1160,17 +1170,6 @@ export class GameEngine {
     const ownedRoom = player.roomId
       ? this.state.rooms.find((room) => room.id === player.roomId)
       : undefined;
-    if (item.target === 'self') {
-      const outsideOnly = Boolean(
-        SUPPLY_SPEED_SECONDS[item.id] ||
-        SUPPLY_STEALTH_SECONDS[item.id] ||
-        SUPPLY_BEDROLL_SECONDS[item.id],
-      );
-      if (outsideOnly && player.roomId) {
-        return { ok: false, error: '복도에 있을 때만 사용할 수 있습니다.' };
-      }
-      return { ok: true };
-    }
     if (item.target === 'tile') {
       const tile = message.tile;
       const corridor = tile && this.map.corridorTiles.some((candidate) => candidate.x === tile.x && candidate.y === tile.y);
@@ -1186,6 +1185,9 @@ export class GameEngine {
     }
     const building = this.state.buildings.find((candidate) => candidate.id === message.targetId);
     if (!building || building.roomId !== ownedRoom.id) return { ok: false, error: '같은 방의 설비를 선택하세요.' };
+    if (!SUPPLY_TURRET_KINDS.has(building.kind)) {
+      return { ok: false, error: '같은 방의 포탑을 선택하세요.' };
+    }
     return { ok: true };
   }
 
@@ -1200,39 +1202,67 @@ export class GameEngine {
     const owned = player.consumables.find((candidate) => candidate.itemId === item.id)!;
     const room = player.roomId ? this.state.rooms.find((candidate) => candidate.id === player.roomId) : undefined;
 
-    if (item.id === 'scout-flare' || item.id === 'echo-lens') {
-      // 귀신 위치는 서버 스냅샷으로 이미 동기화한다. 효과 시간은 클라이언트가
-      // 이 이벤트를 받아 강조 링과 이동 경로 힌트를 그리는 데 사용한다.
-    } else if (item.id === 'path-chalk' || item.id === 'moon-compass') {
-      // 현재 맵·빈 침대 정보는 스냅샷에 있으므로 클라이언트가 즉시 경로를 표시한다.
-    } else if (SUPPLY_SPEED_SECONDS[item.id]) {
-      if (player.roomId) return { ok: false, error: '침대를 점유한 뒤에는 사용할 수 없습니다.' };
-      player.speedBoostUntil = this.state.elapsed + (SUPPLY_SPEED_SECONDS[item.id] as number);
-    } else if (SUPPLY_STEALTH_SECONDS[item.id]) {
-      if (player.roomId) return { ok: false, error: '복도에 있을 때만 사용할 수 있습니다.' };
-      player.stealthUntil = this.state.elapsed + (SUPPLY_STEALTH_SECONDS[item.id] as number);
+    if (item.id === 'scout-flare' && message.tile) {
+      for (const ghost of this.state.ghosts) {
+        if (
+          ghost.hp <= 0 ||
+          ghost.healing ||
+          distance(ghost.position, message.tile) > SUPPLY_TARGET_RADIUS
+        ) continue;
+        this.applyGhostDamage(
+          ghost,
+          180,
+          room?.id ?? ghost.targetRoomId ?? undefined,
+          'basic-turret',
+        );
+        ghost.stunnedUntil = Math.max(
+          ghost.stunnedUntil,
+          this.state.elapsed + 1.5,
+        );
+        ghost.path = [];
+      }
+    } else if (item.id === 'path-chalk' && message.tile) {
+      for (const ghost of this.state.ghosts) {
+        if (
+          ghost.hp <= 0 ||
+          ghost.healing ||
+          distance(ghost.position, message.tile) > SUPPLY_TARGET_RADIUS
+        ) continue;
+        ghost.vulnerableUntil = Math.max(
+          ghost.vulnerableUntil,
+          this.state.elapsed + 8,
+        );
+      }
+    } else if (item.id === 'adrenal-shot' && room) {
+      room.supplyTurretRateUntil = this.state.elapsed + 10;
     } else if (item.id === 'room-beacon' && room) {
-      room.beaconUntil = this.state.elapsed + 10;
+      room.supplyTurretDamageUntil = this.state.elapsed + 10;
     } else if (SUPPLY_DOOR_HEAL[item.id] && room) {
       room.doorHp = Math.min(room.doorMaxHp, room.doorHp + (SUPPLY_DOOR_HEAL[item.id] as number));
     } else if (SUPPLY_DOOR_BRACE_SECONDS[item.id] && room) {
       room.doorBraceUntil = this.state.elapsed + (SUPPLY_DOOR_BRACE_SECONDS[item.id] as number);
     } else if (SUPPLY_DOOR_WARD_SECONDS[item.id] && room) {
       room.doorWardUntil = this.state.elapsed + (SUPPLY_DOOR_WARD_SECONDS[item.id] as number);
-    } else if (SUPPLY_REGEN_RESET.has(item.id) && room) {
-      room.lastDoorHitAt = this.state.elapsed - BALANCE.door.passiveRegenDelaySeconds;
-      room.doorRegenAccumulator = -1;
     } else if (item.id === 'last-latch' && room) {
       if (room.lastLatchArmedBy) return { ok: false, error: '이 문의 최후의 걸쇠는 이미 장착되어 있습니다.' };
       room.lastLatchArmedBy = player.id;
-    } else if (SUPPLY_BEDROLL_SECONDS[item.id]) {
-      if (player.roomId) return { ok: false, error: '침대를 점유한 뒤에는 사용할 수 없습니다.' };
-      player.bedrollUntil = this.state.elapsed + (SUPPLY_BEDROLL_SECONDS[item.id] as number);
-    } else if (SUPPLY_BUILD_DISCOUNT[item.id]) {
+    } else if (item.target === 'building') {
       const building = this.state.buildings.find((candidate) => candidate.id === message.targetId);
-      if (!building) return { ok: false, error: '설비를 찾을 수 없습니다.' };
-      player.upgradeDiscountTargetId = building.id;
-      player.upgradeDiscountRate = SUPPLY_BUILD_DISCOUNT[item.id] as number;
+      if (!building || !SUPPLY_TURRET_KINDS.has(building.kind)) {
+        return { ok: false, error: '포탑을 찾을 수 없습니다.' };
+      }
+      if (item.id === 'toolbelt-voucher') {
+        building.supplyNextShotMultiplier = Math.max(
+          building.supplyNextShotMultiplier ?? 1,
+          3,
+        );
+      } else if (item.id === 'turret-grease') {
+        building.supplyRateUntil = this.state.elapsed + 12;
+      } else if (item.id === 'lens-kit') {
+        building.supplyRangeUntil = this.state.elapsed + 12;
+      }
+    } else if (item.id === 'field-crane' && room) {
+      room.supplyTurretLevelUntil = this.state.elapsed + 12;
     }
 
     owned.quantity -= 1;
@@ -1269,6 +1299,7 @@ export class GameEngine {
       return { ok: false, error: "비정상 이동 입력입니다." };
     if (inputSequence <= player.lastInputSeq) return { ok: true };
     if (
+      this.state.status === "RANKED_INTRO" ||
       this.state.status === "GHOST_INTRO" ||
       this.state.status === "EVENT_INTRO"
     ) {
@@ -1307,6 +1338,10 @@ export class GameEngine {
         ok: false,
         error: "준비 시간이 시작된 뒤 침대를 점유할 수 있습니다.",
       };
+    // A sleep press is also an explicit request to stop. This protects older
+    // cached clients and a lost final movement packet from continuing to move
+    // the survivor while the interaction is being resolved.
+    player.velocity = { x: 0, y: 0 };
     const roomCapacity = this.playMode === "multiplayer" ? 2 : 1;
     const candidate = this.map.rooms
       .flatMap((mapRoom) => {
@@ -1327,6 +1362,8 @@ export class GameEngine {
       })
       .filter(
         ({ mapRoom, bed }) =>
+          (!this.state.tutorial?.reservedRoomId ||
+            mapRoom.id === this.state.tutorial.reservedRoomId) &&
           // A bed is interactable only from its actual room floor.  Distance
           // alone allowed a survivor standing in the outside corner beside a
           // wall to claim the bed through that wall.
@@ -1334,7 +1371,8 @@ export class GameEngine {
           distance(player.position, bed) <=
           (this.state.elapsed < player.bedrollUntil
             ? 1.5
-            : BALANCE.player.interactionRange),
+            : BALANCE.player.interactionRange +
+              BALANCE.player.interactionLatencyGrace),
       )
       .sort(
         (a, b) =>
@@ -1416,6 +1454,17 @@ export class GameEngine {
     const room = this.state.rooms.find((candidate) => candidate.id === roomId);
     if (!player || !player.alive || !room)
       return { ok: false, error: "건설할 수 없습니다." };
+    if (this.state.tutorial?.active) {
+      const guidedKind: Partial<Record<typeof this.state.tutorial.step, BuildingKind>> = {
+        'build-turret': 'basic-turret',
+        'build-generator': 'generator',
+        'build-frost': 'frost-turret',
+        'build-net': 'ghost-net',
+      };
+      if (guidedKind[this.state.tutorial.step] !== kind) {
+        return { ok: false, error: "훈련 안내에 표시된 설비부터 설치하세요." };
+      }
+    }
     if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
       return { ok: false, error: "게임 중에만 건설할 수 있습니다." };
     if (!room.ownerIds.includes(playerId) || player.roomId !== roomId)
@@ -1805,6 +1854,21 @@ export class GameEngine {
     );
     if (!player || !player.alive || !player.roomId)
       return { ok: false, error: "업그레이드할 수 없습니다." };
+    if (this.state.tutorial?.active) {
+      const step = this.state.tutorial.step;
+      const allowed =
+        (step === 'upgrade-bed' && targetId.startsWith(`bed:${player.roomId}:`)) ||
+        (step === 'upgrade-door' && targetId === `door:${player.roomId}`) ||
+        (step === 'upgrade-turret' && this.state.buildings.some(
+          (building) =>
+            building.id === targetId &&
+            building.ownerId === playerId &&
+            building.kind === 'basic-turret',
+        ));
+      if (!allowed) {
+        return { ok: false, error: "훈련 안내에 표시된 설비부터 강화하세요." };
+      }
+    }
     if (targetId.startsWith("bed:") || targetId.startsWith("door:")) {
       const [target, roomId, rawBedIndex] = targetId.split(":");
       const room = this.state.rooms.find(
@@ -1915,6 +1979,8 @@ export class GameEngine {
   }
 
   removeBuilding(playerId: string, buildingId: string): ActionResult {
+    if (this.state.tutorial?.active)
+      return { ok: false, error: "훈련 중에는 설치한 설비를 철거할 수 없습니다." };
     const player = this.state.players.find(
       (candidate) => candidate.id === playerId,
     );
@@ -1963,6 +2029,8 @@ export class GameEngine {
   }
 
   moveBuilding(playerId: string, buildingId: string, tile: Tile): ActionResult {
+    if (this.state.tutorial?.active)
+      return { ok: false, error: "훈련 중에는 설치한 설비를 이동할 수 없습니다." };
     const player = this.state.players.find((candidate) => candidate.id === playerId);
     const building = this.state.buildings.find((candidate) => candidate.id === buildingId);
     const room = building
@@ -2289,13 +2357,150 @@ export class GameEngine {
     return 0;
   }
 
+  private grantTutorialResource(
+    player: PlayerState,
+    resource: 'gold' | 'power',
+    minimum: number,
+  ): void {
+    const granted = Math.max(0, minimum - player[resource]);
+    if (granted <= 0) return;
+    player[resource] += granted;
+    this.pendingEvents.push({
+      kind: resource,
+      playerId: player.id,
+      amount: granted,
+      position: { ...player.position },
+      label: '훈련 지원',
+    });
+  }
+
+  /**
+   * The first match is an authoritative lesson, not a client-only checklist.
+   * Each completed action unlocks exactly one next action and enough training
+   * resources to perform it without waiting or accidentally skipping ahead.
+   */
+  private updateTutorialProgress(): void {
+    const tutorial = this.state.tutorial;
+    if (!tutorial?.active) return;
+    const player = this.state.players.find((candidate) => !candidate.isBot);
+    if (!player) return;
+    const room = player.roomId
+      ? this.state.rooms.find((candidate) => candidate.id === player.roomId)
+      : undefined;
+    const buildings = room
+      ? this.state.buildings.filter(
+          (building) => building.roomId === room.id && building.ownerId === player.id,
+        )
+      : [];
+    const turret = buildings.find((building) => building.kind === 'basic-turret');
+
+    if (tutorial.step === 'claim-bed' && room) {
+      tutorial.step = 'build-turret';
+      this.grantTutorialResource(player, 'gold', upgradeCost('basic-turret', 1, player.soloRank).gold);
+    }
+    if (tutorial.step === 'build-turret' && turret) {
+      tutorial.step = 'upgrade-bed';
+      this.grantTutorialResource(player, 'gold', upgradeCost('bed', 2, player.soloRank).gold);
+    }
+    if (
+      tutorial.step === 'upgrade-bed' &&
+      room &&
+      (room.bedLevels[player.bedIndex ?? 0] ?? 1) >= 2
+    ) {
+      tutorial.step = 'upgrade-door';
+      this.grantTutorialResource(player, 'gold', upgradeCost('reinforced-door', 2, player.soloRank).gold);
+    }
+    if (tutorial.step === 'upgrade-door' && room && room.doorLevel >= 2) {
+      tutorial.step = 'upgrade-turret';
+      this.grantTutorialResource(player, 'gold', upgradeCost('basic-turret', 2, player.soloRank).gold);
+    }
+    if (tutorial.step === 'upgrade-turret' && turret && turret.level >= 2) {
+      tutorial.step = 'retreat';
+    }
+
+    const primaryGhost = this.state.ghosts.find((ghost) => ghost.variant !== 'minion');
+    if (
+      tutorial.step === 'retreat' &&
+      primaryGhost?.retreating &&
+      !tutorial.retreatExplained
+    ) {
+      tutorial.retreatExplained = true;
+      tutorial.pauseRemaining = 3;
+      for (const survivor of this.state.players) survivor.velocity = { x: 0, y: 0 };
+    }
+
+    if (
+      tutorial.step === 'retreat' &&
+      tutorial.retreatExplained &&
+      tutorial.pauseRemaining <= 0
+    ) {
+      tutorial.step = 'build-generator';
+      tutorial.powerGranted = true;
+      this.grantTutorialResource(player, 'gold', upgradeCost('generator', 1, player.soloRank).gold);
+      this.grantTutorialResource(player, 'power', 450);
+    }
+    if (
+      tutorial.step === 'build-generator' &&
+      buildings.some((building) => building.kind === 'generator')
+    ) {
+      tutorial.step = 'build-frost';
+    }
+    if (
+      tutorial.step === 'build-frost' &&
+      buildings.some((building) => building.kind === 'frost-turret')
+    ) {
+      tutorial.step = 'build-net';
+    }
+    if (
+      tutorial.step === 'build-net' &&
+      buildings.some((building) => building.kind === 'ghost-net')
+    ) {
+      tutorial.step = 'finish';
+    }
+    if (tutorial.step === 'finish' && primaryGhost && primaryGhost.hp > 0 && turret) {
+      // The final lesson is a proof of the three-part setup, not another
+      // balance wall. The next Lv.2 turret shot is guaranteed to finish it.
+      primaryGhost.retreating = false;
+      primaryGhost.healing = false;
+      primaryGhost.targetRoomId = room?.id ?? null;
+      primaryGhost.targetPlayerId = null;
+      primaryGhost.path = [];
+      primaryGhost.hp = Math.min(
+        primaryGhost.hp,
+        Math.max(1, buildingStats('basic-turret', 2).value * 0.8),
+      );
+    }
+  }
+
   tick(realDt: number, now = Date.now()): void {
     const dt = clamp(realDt, 0, 0.1) * (this.testMode ? 4 : 1);
     this.serverSeq += 1;
     this.expireDisconnected(now);
+    if (this.state.tutorial?.active && this.state.tutorial.pauseRemaining > 0) {
+      this.state.tutorial.pauseRemaining = Math.max(
+        0,
+        this.state.tutorial.pauseRemaining - dt,
+      );
+      for (const player of this.state.players) player.velocity = { x: 0, y: 0 };
+      this.updateTutorialProgress();
+      this.sanitizeResources();
+      return;
+    }
     this.updatePlayers(dt);
     this.updateBots(dt);
-    if (this.state.status === 'GHOST_INTRO') {
+    if (this.state.status === 'RANKED_INTRO') {
+      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
+      if (this.state.difficulty.introRemaining <= 0) {
+        if (this.state.difficulty.modifier === 'time-attack') {
+          this.state.status = 'EVENT_INTRO';
+          this.state.difficulty.introRemaining = BALANCE.timeAttackIntroSeconds;
+        } else {
+          this.state.status = 'COUNTDOWN';
+          this.state.countdown = this.countdownSecondsForMatch();
+          this.releaseCountdownLoot();
+        }
+      }
+    } else if (this.state.status === 'GHOST_INTRO') {
       // Ghost warning posters freeze survivor, bot and combat simulation.
       // The client keeps the card opaque for two seconds, then fades it over
       // the remaining two seconds before the countdown begins.
@@ -2309,10 +2514,17 @@ export class GameEngine {
       // Time Attack is shown first, then the normal per-ghost warning poster.
       this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
       if (this.state.difficulty.introRemaining <= 0) {
-        this.state.status = 'GHOST_INTRO';
-        this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
+        if (this.state.ranked) {
+          this.state.status = 'COUNTDOWN';
+          this.state.countdown = this.countdownSecondsForMatch();
+          this.releaseCountdownLoot();
+        } else {
+          this.state.status = 'GHOST_INTRO';
+          this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
+        }
       }
     } else if (this.state.status === "COUNTDOWN") {
+      this.updateTutorialProgress();
       this.updateEconomy(dt);
       // Only ranked matches use the blackout pursuit. In normal modes the
       // ghost remains idle until the countdown reaches zero.
@@ -2330,7 +2542,13 @@ export class GameEngine {
       this.syncDynamicTurretLevels(buildingIndex);
       this.updateEconomy(dt);
       this.updateBuildings(dt, buildingIndex);
+      this.updateTutorialProgress();
+      if ((this.state.tutorial?.pauseRemaining ?? 0) > 0) {
+        this.sanitizeResources();
+        return;
+      }
       this.updateGhosts(dt);
+      this.updateTutorialProgress();
       this.updateDoorRegeneration(dt);
       this.evaluateOutcome();
     }
@@ -2411,11 +2629,12 @@ export class GameEngine {
             : ghost.variant === "swift"
               ? 0.84
               : 1;
-      ghost.maxHp =
-        (this.testMode ? maxHp * 0.34 : maxHp) *
-        variantHp *
-        this.stage.hpMultiplier *
-        rankPressure;
+      ghost.maxHp = this.state.tutorial?.active
+        ? Math.ceil(buildingStats('basic-turret', 2).value * 7)
+        : (this.testMode ? maxHp * 0.34 : maxHp) *
+          variantHp *
+          this.stage.hpMultiplier *
+          rankPressure;
       ghost.hp = ghost.maxHp;
       // Keep the position reached during the blackout hunt. Reset only the
       // scouting target so the normal room/door combat selector takes over.
@@ -3053,9 +3272,14 @@ export class GameEngine {
 
     for (const building of this.state.buildings) {
       building.cooldown -= dt;
-      const visualLevel = building.effectiveLevel ?? building.level;
-      const stats = buildingStats(building.kind, visualLevel);
       const room = roomsById.get(building.roomId);
+      const supplyLevelBonus =
+        room && room.supplyTurretLevelUntil > this.state.elapsed ? 1 : 0;
+      const visualLevel = Math.min(
+        15,
+        (building.effectiveLevel ?? building.level) + supplyLevelBonus,
+      );
+      const stats = buildingStats(building.kind, visualLevel);
       const owner = ownersById.get(building.ownerId);
       // 아직 점유되지 않은 방의 기본 설비는 보이기만 하고 생산·공격하지 않는다.
       if (!owner) continue;
@@ -3125,7 +3349,14 @@ export class GameEngine {
       const roomRangeBonus = building.kind === "electric-coil"
         ? 0
         : (rangeBonusByOwner.get(building.ownerId) ?? 0);
-      const range = stats.range + effects.turretRangeBonus + trait.turretRangeBonus + roomRangeBonus;
+      const supplyRangeBonus =
+        (building.supplyRangeUntil ?? 0) > this.state.elapsed ? 2 : 0;
+      const range =
+        stats.range +
+        effects.turretRangeBonus +
+        trait.turretRangeBonus +
+        roomRangeBonus +
+        supplyRangeBonus;
       if (
         !offensive ||
         !nearest ||
@@ -3142,6 +3373,10 @@ export class GameEngine {
       if (panelAttack) building.cooldown *= 0.82;
       if (overloadActive) building.cooldown *= 0.42;
       if (building.berserk) building.cooldown *= 0.72;
+      if (room && room.supplyTurretRateUntil > this.state.elapsed)
+        building.cooldown *= 0.5;
+      if ((building.supplyRateUntil ?? 0) > this.state.elapsed)
+        building.cooldown *= 0.55;
       let damage =
         stats.value *
         effects.turretDamageMultiplier *
@@ -3151,6 +3386,14 @@ export class GameEngine {
       damage *= panelTurretDamageMultiplier;
       if (overloadActive) damage *= 1.5;
       if (building.berserk) damage *= 1.65;
+      if (room && room.supplyTurretDamageUntil > this.state.elapsed)
+        damage *= 1.35;
+      const nextShotMultiplier = Math.max(
+        1,
+        building.supplyNextShotMultiplier ?? 1,
+      );
+      damage *= nextShotMultiplier;
+      if (nextShotMultiplier > 1) building.supplyNextShotMultiplier = 1;
       const soulReady =
         (building.soulChargeReadyAt ?? 0) > 0 &&
         this.state.elapsed >= (building.soulChargeReadyAt ?? 0);
@@ -3387,8 +3630,13 @@ export class GameEngine {
       }
     }
     // 도망치는 동안은 방어선의 집중 사격에 노출되어, 충분한 화력이 있으면 회복 전에 처치할 수 있다.
+    const vulnerabilityMultiplier =
+      ghost.vulnerableUntil > this.state.elapsed ? 1.35 : 1;
     const appliedDamage =
-      damage * directionalMultiplier * (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
+      damage *
+      directionalMultiplier *
+      vulnerabilityMultiplier *
+      (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
     const next = Math.max(0, before - appliedDamage);
     if (next <= 0 && ghost.barrierLayers > 0) {
       if (ghost.variant === "demolisher")
@@ -4275,7 +4523,7 @@ export class GameEngine {
       const panelDoorDamageMultiplier = panelMode === "defense" ? 0.75 : panelMode === "attack" ? 1.25 : panelMode === "production" ? 1.15 : 1;
       const damage =
         BALANCE.ghost.baseDamage * damageScale * (1 - shieldReduction) *
-        (this.state.elapsed < room.doorBraceUntil ? 0.75 : 1) *
+        (this.state.elapsed < room.doorBraceUntil ? 0.65 : 1) *
         panelDoorDamageMultiplier;
       const shieldAbsorbed = Math.min(
         Math.max(0, room.doorShieldHp),
@@ -4740,6 +4988,16 @@ export class GameEngine {
     });
     const candidates = occupied.filter((room) => room.beaconUntil <= this.state.elapsed);
     if (candidates.length === 0) return null;
+    if (this.state.tutorial?.active) {
+      const playerRoom = candidates.find((room) =>
+        room.ownerIds.some((ownerId) =>
+          this.state.players.some(
+            (player) => player.id === ownerId && !player.isBot && player.alive,
+          ),
+        ),
+      );
+      if (playerRoom) return playerRoom.id;
+    }
     const otherTwinTargets = ghost.variant.startsWith("twin")
       ? new Set(
           this.state.ghosts

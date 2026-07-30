@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
-import { findPath } from '../../shared/pathfinding';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForAppearance } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
   CYBERPUNK_LASER_TURRET_SKIN_ID,
   CYBERPUNK_NEON_TILE_SKIN_ID,
+  LIFEGUARD_PARASOL_TURRET_SKIN_ID,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
 } from '../../shared/customization';
@@ -320,6 +320,7 @@ export interface GamePerformanceStats {
   cachedBuildingTextures: number;
   effectQuality: EffectQuality;
   roomSkinDrawables: number;
+  buildingViews: number;
 }
 
 interface PointerDrag {
@@ -2059,6 +2060,8 @@ export class ThreeGameView {
   private paused = false;
   private destroyed = false;
   private nearbyLootId: string | null = null;
+  private sleepRequestPending = false;
+  private sleepRequestStartedAt = 0;
   private nextInteractionScanAt = 0;
   private renderPixelRatio = 1;
   private minRenderPixelRatio = 1;
@@ -2205,7 +2208,20 @@ export class ThreeGameView {
       event.preventDefault();
       event.stopPropagation();
       if (this.nearbyLootId) this.onPickupLoot(this.nearbyLootId);
-      else this.onSleep();
+      else {
+        if (this.sleepRequestPending) return;
+        // The movement canvas can still own the first touch while a second
+        // finger presses the sleep button. Release that capture before the
+        // authoritative stop + interact messages are sent, otherwise the
+        // survivor can keep walking between the prompt snapshot and interact.
+        this.cancelPortraitMovement(false);
+        this.sleepRequestPending = true;
+        this.sleepRequestStartedAt = performance.now();
+        this.sleepButton.disabled = true;
+        this.sleepButton.innerHTML = '<span aria-hidden="true">☾</span> 점유 중…';
+        this.sleepButton.setAttribute('aria-label', '침대 점유 처리 중');
+        this.onSleep();
+      }
     });
     this.host.appendChild(this.sleepButton);
 
@@ -2280,7 +2296,65 @@ export class ThreeGameView {
       cachedBuildingTextures: buildingTextureCache.size,
       effectQuality: this.effectQuality,
       roomSkinDrawables,
+      buildingViews: this.buildingViews.size,
     };
+  }
+
+  /**
+   * Injects a disconnected, visual-only worst-case scene for browser
+   * automation. This never runs in ordinary play and deliberately uses the
+   * authored full-resolution turret skins so performance tests catch render
+   * regressions without lowering image quality.
+   */
+  injectVisualStressScenario(): number {
+    const local =
+      this.snapshotData.players.find((player) => player.id === this.playerId) ??
+      this.snapshotData.players[0];
+    if (!local) return 0;
+    const skins = [
+      SURFER_WATER_TURRET_SKIN_ID,
+      LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+      CYBERPUNK_LASER_TURRET_SKIN_ID,
+    ];
+    const buildings: BuildingState[] = this.mapData.rooms
+      .flatMap((room) =>
+        room.buildTiles.map((tile) => ({ roomId: room.id, tile })),
+      )
+      .slice(0, 96)
+      .map(({ roomId, tile }, index) => ({
+        id: `visual-stress-${index}`,
+        kind: 'basic-turret',
+        roomId,
+        ownerId: local.id,
+        skinId: skins[index % skins.length] as string,
+        tile: { ...tile },
+        level: 15,
+        effectiveLevel: 15,
+        cooldown: 0,
+        hp: 100,
+      }));
+    const target =
+      this.snapshotData.ghosts[0]?.position ??
+      this.snapshotData.ghost.position ??
+      this.mapData.ghostSpawn;
+    const events: GameEvent[] = buildings.slice(0, MAX_TRANSIENT_EFFECTS).map(
+      (building) => ({
+        kind: 'turret-fire',
+        sourceId: building.id,
+        sourcePosition: { ...building.tile },
+        position: { ...building.tile },
+        targetPosition: { ...target },
+        buildingKind: 'basic-turret',
+      }),
+    );
+    this.updateSnapshot(
+      {
+        ...this.snapshotData,
+        buildings,
+      },
+      events,
+    );
+    return buildings.length;
   }
 
   /** 수직 2D 카메라는 북쪽 고정이며 테스트 API에는 0으로 노출한다. */
@@ -2320,9 +2394,19 @@ export class ThreeGameView {
 
   resetTransientInteraction(): void {
     this.cancelBuildingDrag();
+    this.cancelPortraitMovement(false);
+    this.resetSleepInteraction();
     this.selectionMarker.visible = false;
     this.nearbyLootId = null;
     this.suppressSelections(450);
+  }
+
+  resetSleepInteraction(): void {
+    this.sleepRequestPending = false;
+    this.sleepRequestStartedAt = 0;
+    this.sleepButton.disabled = false;
+    this.nextInteractionScanAt = 0;
+    this.updateSleepPrompt(true);
   }
 
   zoomBy(magnificationFactor: number): void {
@@ -2364,6 +2448,9 @@ export class ThreeGameView {
 
     const local = snapshot.players.find((player) => player.id === this.playerId);
     if (!local?.alive) {
+      this.cancelPortraitMovement(false);
+      this.sleepRequestPending = false;
+      this.sleepRequestStartedAt = 0;
       // 사망 뒤에는 관전 상태이므로 마지막 위치에 카메라를 고정하지 않는다.
       this.followingPlayer = false;
       this.focusedRoomId = null;
@@ -2371,6 +2458,10 @@ export class ThreeGameView {
       this.followingPlayer = true;
       this.focusedRoomId = null;
     } else if (local.roomId) {
+      this.cancelPortraitMovement(false);
+      this.sleepRequestPending = false;
+      this.sleepRequestStartedAt = 0;
+      this.sleepButton.disabled = false;
       const roomChanged = this.focusedRoomId !== local.roomId;
       this.followingPlayer = false;
       if (roomChanged) {
@@ -2576,6 +2667,21 @@ export class ThreeGameView {
       this.sleepButton.hidden = true;
       return;
     }
+    if (this.sleepRequestPending) {
+      if (now - this.sleepRequestStartedAt < 1_800) {
+        this.nearbyLootId = null;
+        this.sleepButton.disabled = true;
+        this.sleepButton.innerHTML = '<span aria-hidden="true">☾</span> 점유 중…';
+        this.sleepButton.setAttribute('aria-label', '침대 점유 처리 중');
+        this.sleepButton.hidden = false;
+        return;
+      }
+      // A rejected/lost request must not leave the only interaction control
+      // permanently disabled. Server errors also clear this immediately.
+      this.sleepRequestPending = false;
+      this.sleepRequestStartedAt = 0;
+    }
+    this.sleepButton.disabled = false;
     const clock = this.snapshotData.status === 'COUNTDOWN'
       ? Math.max(0, BALANCE.countdownSeconds - this.snapshotData.countdown)
       : BALANCE.countdownSeconds + this.snapshotData.elapsed;
@@ -3752,26 +3858,31 @@ export class ThreeGameView {
       view.statusScale = soulCharging
         ? 1 + Math.sin(snapshot.elapsed * 20) * 0.08
         : overloadActive ? 1 + Math.sin(snapshot.elapsed * 18) * 0.055 : 1;
-      const nextCost =
-        building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
-          ? upgradeCost(building.kind, building.level + 1, rank ?? 'beginner')
-          : null;
-      const room = this.roomStateById.get(building.roomId);
-      const requirement = upgradeRequirement(building.kind, building.level, {
-        bedLevel: room?.bedLevels[local?.bedIndex ?? 0] ?? 1,
-        doorLevel: room?.doorLevel ?? 1,
-      });
-      const isUpgradeable = Boolean(
-        nextCost && !requirement && local?.alive && local.roomId === building.roomId,
-      );
-      const canAffordUpgrade = Boolean(
-        nextCost &&
-          local &&
-          local.gold >= nextCost.gold &&
-          local.power >= nextCost.power,
-      );
-      const canUpgrade = isUpgradeable && canAffordUpgrade;
-      view.upgradeVisible = canUpgrade;
+      // Upgrade hints are local-room UI. Avoid recalculating costs and
+      // requirements for every remote building on every 10 Hz snapshot.
+      if (!local?.alive || local.roomId !== building.roomId) {
+        view.upgradeVisible = false;
+      } else {
+        const nextCost =
+          building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
+            ? upgradeCost(
+                building.kind,
+                building.level + 1,
+                rank ?? 'beginner',
+              )
+            : null;
+        const room = this.roomStateById.get(building.roomId);
+        const requirement = upgradeRequirement(building.kind, building.level, {
+          bedLevel: room?.bedLevels[local.bedIndex ?? 0] ?? 1,
+          doorLevel: room?.doorLevel ?? 1,
+        });
+        view.upgradeVisible = Boolean(
+          nextCost &&
+            !requirement &&
+            local.gold >= nextCost.gold &&
+            local.power >= nextCost.power,
+        );
+      }
     }
     if (active) {
       for (const [id, view] of this.buildingViews) {
@@ -4201,7 +4312,8 @@ export class ThreeGameView {
     const local = this.playerStateById.get(this.playerId);
     const blackoutActive =
       Boolean(this.snapshotData.ranked) &&
-      (this.snapshotData.status === 'EVENT_INTRO' ||
+      (this.snapshotData.status === 'RANKED_INTRO' ||
+        this.snapshotData.status === 'EVENT_INTRO' ||
         this.snapshotData.status === 'GHOST_INTRO' ||
         this.snapshotData.status === 'COUNTDOWN') &&
       Boolean(local?.alive);
@@ -4238,7 +4350,9 @@ export class ThreeGameView {
         this.isEffectVisible(building.tile, 1)
           ? 1 + Math.sin(time * 0.0035 + building.tile.x * 0.7) * 0.014
           : 1;
-      view.root.scale.setScalar(view.statusScale * enterScale * activePulse);
+      const nextScale = view.statusScale * enterScale * activePulse;
+      if (Math.abs(view.root.scale.x - nextScale) > 0.0005)
+        view.root.scale.setScalar(nextScale);
     }
   }
 
@@ -4786,45 +4900,32 @@ export class ThreeGameView {
       return;
     }
     if (event.kind === 'consumable-use' && event.position) {
-      const duration = event.itemId === 'echo-lens'
-        ? 10_000
-        : event.itemId === 'scout-flare'
-          ? 8_000
-          : event.itemId === 'moon-compass'
-            ? 18_000
-            : event.itemId === 'path-chalk'
-              ? 12_000
-              : 720;
+      const duration =
+        event.itemId === 'scout-flare' || event.itemId === 'path-chalk'
+          ? 900
+          : 720;
       const color = event.itemId === 'ward-seal' || event.itemId === 'last-latch'
         ? 0xb99aff
-        : event.itemId === 'quick-mortar' || event.itemId === 'repair-window'
+        : event.itemId === 'quick-mortar'
           ? 0x76f0b0
           : 0x74ecf2;
       const ring = effectMesh(
-        new THREE.RingGeometry(0.2, event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 1.25 : 0.48, 32),
+        new THREE.RingGeometry(0.2, event.itemId === 'scout-flare' || event.itemId === 'path-chalk' ? 1.25 : 0.48, 32),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
         [event.position.x, 0.06, event.position.y],
       );
       ring.rotation.x = -Math.PI / 2;
       this.scene.add(ring);
-      this.effects.push({ object: ring, born: performance.now(), duration, baseScale: ring.scale.clone(), scaleGrowth: event.itemId === 'scout-flare' || event.itemId === 'echo-lens' ? 0.4 : 0.14 });
-
-      if ((event.itemId === 'path-chalk' || event.itemId === 'moon-compass') && event.playerId && this.snapshotData) {
-        const player = this.snapshotData.players.find((candidate) => candidate.id === event.playerId);
-        const occupiedRooms = new Set(this.snapshotData.rooms.filter((room) => room.ownerIds.length > 0).map((room) => room.id));
-        const target = this.mapData.rooms.find((room) => !occupiedRooms.has(room.id));
-        if (player && target) {
-          const path = findPath(this.mapData, player.position, target.bed);
-          if (path.length > 1) {
-            const route = new THREE.Line(
-              new THREE.BufferGeometry().setFromPoints(path.map((tile) => worldPoint(tile, 0.06))),
-              new THREE.LineBasicMaterial({ color: 0x93ffbd, transparent: true, opacity: 0.78 }),
-            );
-            this.scene.add(route);
-            this.effects.push({ object: route, born: performance.now(), duration, baseScale: route.scale.clone(), scaleGrowth: 0 });
-          }
-        }
-      }
+      this.effects.push({
+        object: ring,
+        born: performance.now(),
+        duration,
+        baseScale: ring.scale.clone(),
+        scaleGrowth:
+          event.itemId === 'scout-flare' || event.itemId === 'path-chalk'
+            ? 0.4
+            : 0.14,
+      });
       return;
     }
     if (event.kind === 'turret-fire' && event.position && event.targetPosition) {
@@ -5144,6 +5245,7 @@ export class ThreeGameView {
     const active = Boolean(
       this.snapshotData.ranked &&
       (
+        this.snapshotData.status === 'RANKED_INTRO' ||
         this.snapshotData.status === 'EVENT_INTRO' ||
         this.snapshotData.status === 'GHOST_INTRO' ||
         this.snapshotData.status === 'COUNTDOWN'
@@ -5310,6 +5412,19 @@ export class ThreeGameView {
     canvas.removeEventListener('pointercancel', this.onPointerUp);
     canvas.removeEventListener('wheel', this.onWheel);
     canvas.removeEventListener('contextmenu', this.onContextMenu);
+  }
+
+  private cancelPortraitMovement(dispatchStop: boolean): void {
+    const activePointerId = this.portraitMovementDrag?.id;
+    this.portraitMovementDrag = null;
+    this.localInput = { x: 0, y: 0 };
+    if (
+      activePointerId !== undefined &&
+      this.renderer.domElement.hasPointerCapture(activePointerId)
+    ) {
+      this.renderer.domElement.releasePointerCapture(activePointerId);
+    }
+    if (dispatchStop) this.dispatchPortraitMovement(0, 0);
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {

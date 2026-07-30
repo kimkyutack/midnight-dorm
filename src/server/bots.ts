@@ -81,7 +81,10 @@ export function decideBotIntent(
 
   if (!bot.roomId) {
     const roomCapacity = snapshot.playMode === 'multiplayer' ? 2 : 1;
-    const available = map.rooms.flatMap((room) => {
+    const eligibleRooms = map.rooms.filter(
+      (room) => room.id !== snapshot.tutorial?.reservedRoomId,
+    );
+    const available = (eligibleRooms.length ? eligibleRooms : map.rooms).flatMap((room) => {
       const roomState = snapshot.rooms.find((state) => state.id === room.id);
       return room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex }))
         .filter(({ bedIndex }) =>
@@ -112,6 +115,10 @@ export function decideBotIntent(
       return { type: 'interact' };
     return movementAlongPath(bot, availableTarget.bed, map);
   }
+
+  // Training bots demonstrate room claiming but never consume the beginner's
+  // guided resources or obscure the required build sequence.
+  if (snapshot.tutorial?.active) return { type: 'idle' };
 
   const room = snapshot.rooms.find((candidate) => candidate.id === bot.roomId);
   const mapRoom = map.rooms.find((candidate) => candidate.id === bot.roomId);

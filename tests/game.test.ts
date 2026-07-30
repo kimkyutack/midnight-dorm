@@ -36,6 +36,7 @@ const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   modifier: 'none',
   goldenTurretPolicy: 'disabled',
   supplyPolicy: 'disabled',
+  firstRankedMatch: false,
 };
 
 function setup(
@@ -86,11 +87,11 @@ function begin(engine: GameEngine, hostId: string): GameSnapshot {
 }
 
 function advanceFrozenIntros(engine: GameEngine): void {
-  // Time Attack is announced first; every match then shows its ghost poster.
-  // Setup fixtures wait through both frozen phases.
+  // 일반전은 이벤트/귀신 포스터를, 첫 랭크전은 전용 암전 안내를 거친다.
+  // Setup fixtures wait through every server-authoritative frozen phase.
   for (
     let index = 0;
-    index < 80 && ['GHOST_INTRO', 'EVENT_INTRO'].includes(engine.snapshot().status);
+    index < 130 && ['RANKED_INTRO', 'GHOST_INTRO', 'EVENT_INTRO'].includes(engine.snapshot().status);
     index += 1
   ) engine.tick(0.1);
 }
@@ -230,6 +231,113 @@ describe('realtime snapshot frames', () => {
       { kind: 'turret-fire', sourceId: 'turret-b', amount: 2 },
       { kind: 'turret-fire', sourceId: 'turret-a', amount: 3 },
     ]);
+  });
+});
+
+describe('dense-match performance safety', () => {
+  it('keeps a long high-level turret and multi-ghost simulation finite and bounded', () => {
+    const { engine, ids } = setup(4);
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const buildings = persisted.snapshot.rooms.flatMap((roomState) => {
+      const ownerId = roomState.ownerIds[0];
+      const room = engine.map.rooms.find(
+        (candidate) => candidate.id === roomState.id,
+      );
+      if (!ownerId || !room) return [];
+      return room.buildTiles.map((tile, index) => ({
+        id: `stress-${room.id}-${index}`,
+        kind: 'basic-turret' as const,
+        roomId: room.id,
+        ownerId,
+        skinId: CYBERPUNK_LASER_TURRET_SKIN_ID,
+        tile: { ...tile },
+        level: 15,
+        effectiveLevel: 15,
+        cooldown: 0,
+        hp: 100,
+      }));
+    });
+    persisted.snapshot.buildings = buildings;
+    for (const room of persisted.snapshot.rooms) {
+      room.doorHp = 1_000_000_000;
+      room.doorMaxHp = 1_000_000_000;
+    }
+    const primary = persisted.snapshot.ghost;
+    const corridor = engine.map.corridorTiles;
+    persisted.snapshot.ghosts = Array.from({ length: 24 }, (_, index) => ({
+      ...primary,
+      id: `stress-ghost-${index}`,
+      position: {
+        ...(corridor[index % Math.max(1, corridor.length)] ??
+          primary.position),
+      },
+      hp: 1_000_000_000,
+      maxHp: 1_000_000_000,
+      targetRoomId: null,
+      targetPlayerId: null,
+      attackCooldown: 0,
+      retreating: false,
+      healing: false,
+    }));
+    persisted.snapshot.ghost = persisted.snapshot.ghosts[0] as GhostState;
+    engine.restore(persisted);
+    // Ignore countdown/economy events accumulated while preparing the
+    // fixture. Measurements below model the 10 Hz realtime drain cadence.
+    engine.drainEvents();
+
+    const startedAt = performance.now();
+    let largestCompactedBatch = 0;
+    let largestBatchKinds: Record<string, number> = {};
+    for (let tick = 0; tick < 2_400; tick += 1) {
+      engine.tick(0.05);
+      if (tick % 2 !== 1) continue;
+      const compacted = compactRealtimeEvents(engine.drainEvents());
+      if (compacted.length > largestCompactedBatch) {
+        largestCompactedBatch = compacted.length;
+        largestBatchKinds = compacted.reduce<Record<string, number>>(
+          (counts, event) => {
+            counts[event.kind] = (counts[event.kind] ?? 0) + 1;
+            return counts;
+          },
+          {},
+        );
+      }
+    }
+    const duration = performance.now() - startedAt;
+    const state = engine.snapshot();
+
+    expect(duration).toBeLessThan(7_000);
+    expect(state.status).toBe('PLAYING');
+    expect(state.buildings).toHaveLength(buildings.length);
+    expect(
+      largestCompactedBatch,
+      JSON.stringify(largestBatchKinds),
+    ).toBeLessThanOrEqual(buildings.length + 96);
+    expect(
+      state.players.every(
+        (player) =>
+          Number.isFinite(player.position.x) &&
+          Number.isFinite(player.position.y) &&
+          Number.isFinite(player.gold) &&
+          Number.isFinite(player.power),
+      ),
+    ).toBe(true);
+    expect(
+      state.ghosts.every(
+        (ghost) =>
+          Number.isFinite(ghost.position.x) &&
+          Number.isFinite(ghost.position.y) &&
+          Number.isFinite(ghost.hp) &&
+          Number.isFinite(ghost.attackCooldown),
+      ),
+    ).toBe(true);
+    expect(
+      state.buildings.every(
+        (building) =>
+          Number.isFinite(building.cooldown) && Number.isFinite(building.hp),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -914,13 +1022,13 @@ describe('survivor customization rules', () => {
 });
 
 describe('shop consumable rules', () => {
-  it('keeps thirty tactical supplies separate from lamp rewards', () => {
-    expect(SHOP_CONSUMABLES).toHaveLength(30);
+  it('keeps twelve combat tactical supplies separate from lamp rewards', () => {
+    expect(SHOP_CONSUMABLES).toHaveLength(12);
     expect(new Set(SHOP_CONSUMABLES.map((item) => item.id)).size).toBe(SHOP_CONSUMABLES.length);
     expect(SHOP_CONSUMABLES.every((item) => !RANDOM_ITEMS.some((random) => random.id === item.id))).toBe(true);
-    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'scout')).toHaveLength(10);
-    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'survival')).toHaveLength(10);
-    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'construction')).toHaveLength(10);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'assault')).toHaveLength(4);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'defense')).toHaveLength(4);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'engineering')).toHaveLength(4);
   });
 
   it('allows a selected supply once per match and retains the remaining account inventory', () => {
@@ -928,19 +1036,24 @@ describe('shop consumable rules', () => {
     const joined = engine.join({
       nickname: 'SupplyTester',
       deviceId: 'device-supply-tester',
-      consumables: [{ itemId: 'adrenal-shot', quantity: 2 }],
+      consumables: [{ itemId: 'scout-flare', quantity: 2 }],
     });
-    expect(engine.handle(joined.player.id, envelope({ type: 'set-consumable-loadout', itemIds: ['adrenal-shot'] })).ok).toBe(true);
+    expect(engine.handle(joined.player.id, envelope({ type: 'set-consumable-loadout', itemIds: ['scout-flare'] })).ok).toBe(true);
     expect(engine.start(joined.player.id).ok).toBe(true);
     advanceFrozenIntros(engine);
     for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('PLAYING');
-    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'adrenal-shot' }, 2)).ok).toBe(true);
+    const playerPosition = engine.snapshot().players.find((candidate) => candidate.id === joined.player.id)?.position;
+    const targetTile = engine.map.corridorTiles
+      .slice()
+      .sort((left, right) =>
+        Math.hypot(left.x - (playerPosition?.x ?? 0), left.y - (playerPosition?.y ?? 0)) -
+        Math.hypot(right.x - (playerPosition?.x ?? 0), right.y - (playerPosition?.y ?? 0)))[0]!;
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 2)).ok).toBe(true);
     const player = engine.snapshot().players.find((candidate) => candidate.id === joined.player.id);
-    expect(player?.consumables).toEqual([{ itemId: 'adrenal-shot', quantity: 1 }]);
-    expect(player?.usedConsumables).toEqual(['adrenal-shot']);
-    expect(player?.speedBoostUntil).toBeGreaterThan(engine.snapshot().elapsed);
-    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'adrenal-shot' }, 3)).ok).toBe(false);
+    expect(player?.consumables).toEqual([{ itemId: 'scout-flare', quantity: 1 }]);
+    expect(player?.usedConsumables).toEqual(['scout-flare']);
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 3)).ok).toBe(false);
   });
 });
 
@@ -976,10 +1089,8 @@ describe('authoritative game rules', () => {
     const { engine, ids } = setup(1, false, { ranked: RANKED_OPENING });
     const ghostSpawn = { ...engine.map.ghostSpawn };
     expect(engine.start(ids[0] as string).ok).toBe(true);
-    expect(engine.snapshot().status).toBe('GHOST_INTRO');
-    expect(engine.snapshot().countdown).toBe(30);
-    for (let index = 0; index < 40 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) engine.tick(0.1);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
+    expect(engine.snapshot().countdown).toBe(30);
     for (let index = 0; index < 10; index += 1) engine.tick(0.1);
     expect(
       Math.hypot(
@@ -1314,7 +1425,7 @@ describe('authoritative game rules', () => {
     expect(isPositionOnRoomFloor(room, after?.position as Tile)).toBe(true);
   });
 
-  it('shows Time Attack before the frozen ghost poster and does not buffer movement', () => {
+  it('shows Time Attack before ranked countdown without revealing the ghost', () => {
     const { engine, ids } = setup(1, true, {
       ranked: { ...RANKED_OPENING, modifier: 'time-attack' },
     });
@@ -1330,13 +1441,57 @@ describe('authoritative game rules', () => {
     for (let index = 0; index < 20 && engine.snapshot().status === 'EVENT_INTRO'; index += 1) {
       engine.tick(0.1);
     }
-    expect(engine.snapshot().status).toBe('GHOST_INTRO');
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
     expect(engine.snapshot().players[0]?.position).toEqual(initialPosition);
     expect(engine.snapshot().players[0]?.velocity).toEqual({ x: 0, y: 0 });
-    for (let index = 0; index < 20 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) {
-      engine.tick(0.1);
-    }
+  });
+
+  it('shows the blackout lesson for five seconds before a first ranked match', () => {
+    const { engine, ids } = setup(1, true, {
+      ranked: { ...RANKED_OPENING, firstRankedMatch: true },
+    });
+    const playerId = ids[0] as string;
+    const initialPosition = { ...engine.snapshot().players[0]!.position };
+
+    expect(engine.start(playerId).ok).toBe(true);
+    expect(engine.snapshot().status).toBe('RANKED_INTRO');
+    expect(engine.handle(playerId, envelope({
+      type: 'move',
+      dx: 1,
+      dy: 0,
+      inputSequence: 1,
+    })).ok).toBe(true);
+
+    // Deterministic engine fixtures run at 4× simulation speed.
+    for (let index = 0; index < 12; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().status).toBe('RANKED_INTRO');
+    expect(engine.snapshot().players[0]?.position).toEqual(initialPosition);
+
+    engine.tick(0.1);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
+  });
+
+  it('reserves a separate guided room for the first-match tutorial', () => {
+    const map = generateMap(91_001);
+    const engine = new GameEngine('TUTORIAL', map, true, {
+      stageId: 'tutorial-1',
+      playMode: 'solo',
+    });
+    const joined = engine.join({
+      nickname: '첫 생존자',
+      deviceId: 'device-first-tutorial',
+    });
+
+    expect(engine.snapshot().tutorial).toEqual(expect.objectContaining({
+      active: true,
+      step: 'claim-bed',
+    }));
+    expect(engine.snapshot().tutorial?.reservedRoomId).toBeTruthy();
+    expect(engine.snapshot().rooms.find(
+      (room) => room.id === engine.snapshot().tutorial?.reservedRoomId,
+    )).toBeDefined();
+    expect(engine.start(joined.player.id).ok).toBe(true);
+    expect(engine.snapshot().status).toBe('GHOST_INTRO');
   });
 
   it('announces the stronger ghost exactly when the five-minute Time Attack expires', () => {
@@ -1441,14 +1596,14 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().players.find((player) => player.id === hostId)?.roomId).toBeNull();
   });
 
-  it('never auto-occupies a bed and pursues an unoccupied survivor at 3x speed', () => {
+  it('never auto-occupies a bed and pursues an unoccupied survivor at accelerated speed', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
     expect(engine.start(playerId).ok).toBe(true);
     advanceFrozenIntros(engine);
     for (
       let index = 0;
-      index < 80 && engine.snapshot().status === 'COUNTDOWN';
+      index < 400 && engine.snapshot().status === 'COUNTDOWN';
       index += 1
     ) engine.tick(0.1);
     const before = engine.snapshot();
@@ -1557,8 +1712,49 @@ describe('authoritative game rules', () => {
     const outside = engine.map.walls.find((tile) => Math.hypot(tile.x - bed.x, tile.y - bed.y) <= BALANCE.player.interactionRange);
     if (!outside) throw new Error('missing wall next to bed');
     candidate.position = { ...outside };
+    candidate.velocity = { x: 1, y: 0 };
     engine.restore(persisted);
     expect(engine.interact(playerId).ok).toBe(false);
+    expect(engine.snapshot().players.find((entry) => entry.id === playerId)?.velocity).toEqual({ x: 0, y: 0 });
+  });
+
+  it('accepts snapshot latency drift near a bed only while still on that room floor', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const roomWithGraceTile = engine.map.rooms
+      .flatMap((room) => room.floorTiles.map((tile) => ({ room, tile })))
+      .find(({ room, tile }) => {
+        const distanceFromBed = Math.hypot(
+          tile.x - room.bed.x,
+          tile.y - room.bed.y,
+        );
+        return (
+          distanceFromBed > BALANCE.player.interactionRange &&
+          distanceFromBed <=
+            BALANCE.player.interactionRange +
+              BALANCE.player.interactionLatencyGrace
+        );
+      });
+    if (!roomWithGraceTile)
+      throw new Error('missing legal sleep latency-grace fixture');
+    const persisted = engine.serialize();
+    const candidate = persisted.snapshot.players.find(
+      (entry) => entry.id === playerId,
+    );
+    if (!candidate) throw new Error('missing sleep latency-grace player');
+    candidate.position = { ...roomWithGraceTile.tile };
+    candidate.velocity = { x: 1, y: 0 };
+    engine.restore(persisted);
+
+    expect(engine.interact(playerId).ok).toBe(true);
+    const claimed = engine
+      .snapshot()
+      .players.find((entry) => entry.id === playerId);
+    expect(claimed?.roomId).toBe(roomWithGraceTile.room.id);
+    expect(claimed?.position).toEqual(roomWithGraceTile.room.bed);
+    expect(claimed?.velocity).toEqual({ x: 0, y: 0 });
   });
 
   it('makes ten basic turret hits visibly damage a level-one easy ghost in solo and four-player games', () => {

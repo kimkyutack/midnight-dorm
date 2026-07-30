@@ -39,6 +39,7 @@ export function rankedMatchForContract(
     modifier: contractNumber % 3 === 0 ? 'time-attack' : 'none',
     goldenTurretPolicy: goldenPolicies[(contractNumber - 1) % goldenPolicies.length] as RankedMatchState['goldenTurretPolicy'],
     supplyPolicy: supplyPolicies[(contractNumber - 1) % supplyPolicies.length] as RankedMatchState['supplyPolicy'],
+    firstRankedMatch: false,
   };
 }
 

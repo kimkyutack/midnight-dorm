@@ -70,6 +70,23 @@ export interface DifficultyModifierPreset {
   directionalShield: boolean;
 }
 
+/** A non-progression stage used until the account records its first victory. */
+export const TUTORIAL_STAGE: StageDefinition = {
+  id: 'tutorial-1',
+  index: -1,
+  tier: 'tutorial',
+  level: 1,
+  label: '생존 훈련',
+  hpMultiplier: 1,
+  damageMultiplier: 0.45,
+  speedMultiplier: 0.72,
+  levelHpGrowth: 0,
+  levelDamageGrowth: 0,
+  skillInterval: 999,
+  skills: [],
+  victoryXp: 80,
+};
+
 export const TIME_ATTACK_EXPIRED_MESSAGE =
   '시간이 초과 되어 귀신이 더욱 강력해집니다';
 
@@ -216,6 +233,7 @@ export function recommendedRankForStage(
 }
 
 export function getStage(id: StageId | string | undefined): StageDefinition {
+  if (id === TUTORIAL_STAGE.id) return TUTORIAL_STAGE;
   return STAGES.find((stage) => stage.id === id) ?? STAGES[0] as StageDefinition;
 }
 

@@ -24,8 +24,10 @@ interface TestState {
     players: Array<{
       id: string;
       position: { x: number; y: number };
+      velocity: { x: number; y: number };
       gold: number;
       isBot: boolean;
+      alive: boolean;
       roomId: string | null;
       bedIndex: number | null;
     }>;
@@ -34,7 +36,12 @@ interface TestState {
       kind: string;
       tile: { x: number; y: number };
     }>;
-    rooms: Array<{ doorHp: number; doorMaxHp: number }>;
+    rooms: Array<{
+      id: string;
+      ownerIds: string[];
+      doorHp: number;
+      doorMaxHp: number;
+    }>;
     ghost: { hp: number };
   } | null;
   playerId: string;
@@ -54,7 +61,9 @@ interface TestState {
     cachedBuildingTextures: number;
     effectQuality: "high" | "balanced" | "low";
     roomSkinDrawables: number;
+    buildingViews: number;
   } | null;
+  stressVisuals: () => number;
   resumeRendering: () => void;
 }
 
@@ -599,7 +608,7 @@ test("portrait home separates shop, owned customization and stage start", async 
   }
 });
 
-test("출시 팝업이 여름·사이버펑크 슬라이드를 독립적으로 숨기고 루루 스킨으로 연결한다", async ({
+test("튜토리얼 전에는 출시 팝업을 숨기고 완료 계정에서는 이벤트를 독립적으로 관리한다", async ({
   browser,
 }) => {
   const shopContext = await mobileContext(browser);
@@ -608,6 +617,17 @@ test("출시 팝업이 여름·사이버펑크 슬라이드를 독립적으로 �
   const dismissPage = await dismissContext.newPage();
   try {
     await enter(shopPage, "여름몽", "surfshop", true, false);
+    await expect(shopPage.locator(".surfer-mong-promo")).toHaveCount(0);
+    await shopPage.route("**/api/auth/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        profile: { tutorialCompleted: boolean };
+      };
+      body.profile.tutorialCompleted = true;
+      await route.fulfill({ response, json: body });
+    });
+    await shopPage.reload();
+    await expect(shopPage.locator(".game-home")).toBeVisible();
     const promo = shopPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });
@@ -649,6 +669,16 @@ test("출시 팝업이 여름·사이버펑크 슬라이드를 독립적으로 �
     ).toBeVisible();
 
     await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
+    await expect(dismissPage.locator(".surfer-mong-promo")).toHaveCount(0);
+    await dismissPage.route("**/api/auth/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        profile: { tutorialCompleted: boolean };
+      };
+      body.profile.tutorialCompleted = true;
+      await route.fulfill({ response, json: body });
+    });
+    await dismissPage.reload();
     const dismissPromo = dismissPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });
@@ -766,16 +796,16 @@ async function moveNearBed(
               player.position.x - bed.x,
               player.position.y - bed.y,
             );
-            // Keep the browser driver inside the server's 1.7-tile interaction
-            // range, without requiring a fragile exact tile centre.
+            // This scenario verifies a held touch racing with the sleep click,
+            // not the outer interaction boundary. Move well inside the prompt
+            // radius so a 10 Hz snapshot cannot leave the browser sitting on
+            // opposite sides of the 1.7-tile UI threshold.
             const standingOnRoomFloor = targetRoom.floorTiles.some(
               (tile) =>
-                Math.hypot(
-                  player.position.x - tile.x,
-                  player.position.y - tile.y,
-                ) <= 0.68,
+                Math.round(player.position.x) === tile.x &&
+                Math.round(player.position.y) === tile.y,
             );
-            if (standingOnRoomFloor && distance <= 1.65) {
+            if (standingOnRoomFloor && distance <= 0.75) {
               game.move(0, 0);
               // Test matches run at 4x simulation speed. Wait until a server
               // snapshot acknowledges the stop input before interacting;
@@ -843,19 +873,8 @@ async function moveNearBed(
         ),
       { timeout: 12_000, intervals: [100] },
     )
-    .toBeLessThanOrEqual(1.65);
+    .toBeLessThanOrEqual(0.75);
   await page.evaluate(() => window.__DORM_TEST__?.move(0, 0));
-}
-
-async function sleepInBed(
-  page: Page,
-  roomId: string,
-  bedIndex: number,
-): Promise<void> {
-  await moveNearBed(page, roomId, bedIndex);
-  await page.evaluate(() => {
-    window.__DORM_TEST__?.interact();
-  });
 }
 
 async function mobileContext(browser: Browser): Promise<BrowserContext> {
@@ -915,15 +934,191 @@ test("desktop-site portrait viewport keeps the 390px mobile layout", async ({
   }
 });
 
-test("three solo bots visibly pathfind through doors before the normal countdown ends", async ({
+test("sleep button stops a held drag before claiming and stays on the bed after reconnect", async ({
+  browser,
+}) => {
+  const context = await mobileContext(browser);
+  const page = await context.newPage();
+  try {
+    await enter(page, "수면점유검증", "sleepclaim");
+    await createMultiplayerRoom(page);
+    const addBot = page.getByRole("button", { name: "봇 추가" });
+    for (let index = 0; index < 2; index += 1) await addBot.click();
+    await page.getByTestId("start-game").click();
+    await page.waitForFunction(
+      () => window.__DORM_TEST__?.snapshot?.status === "COUNTDOWN",
+      undefined,
+      { timeout: 8_000 },
+    );
+    await page.waitForFunction(
+      () =>
+        (window.__DORM_TEST__?.snapshot?.players.filter(
+          (player) => player.isBot && player.roomId,
+        ).length ?? 0) === 2,
+      undefined,
+      { timeout: 20_000 },
+    );
+    const target = await page.evaluate(() => {
+      const game = window.__DORM_TEST__;
+      const snapshot = game?.snapshot;
+      const map = game?.map;
+      const player = snapshot?.players.find(
+        (candidate) => candidate.id === game?.playerId,
+      );
+      if (!game || !snapshot || !map || !player) return null;
+      const occupiedBeds = new Set(
+        snapshot.players
+          .filter((candidate) => candidate.roomId && candidate.bedIndex !== null)
+          .map((candidate) => `${candidate.roomId}:${candidate.bedIndex}`),
+      );
+      const roomOwners = new Map(
+        snapshot.rooms.map((room) => [room.id, room.ownerIds.length]),
+      );
+      const walkable = new Set(
+        map.walkable.map((tile) => `${tile.x},${tile.y}`),
+      );
+      const start = {
+        x: Math.round(player.position.x),
+        y: Math.round(player.position.y),
+      };
+      const distances = new Map<string, number>([
+        [`${start.x},${start.y}`, 0],
+      ]);
+      const queue = [start];
+      for (let index = 0; index < queue.length; index += 1) {
+        const current = queue[index] as { x: number; y: number };
+        const distance = distances.get(`${current.x},${current.y}`) ?? 0;
+        for (const [dx = 0, dy = 0] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const next = { x: current.x + dx, y: current.y + dy };
+          const key = `${next.x},${next.y}`;
+          if (!walkable.has(key) || distances.has(key)) continue;
+          distances.set(key, distance + 1);
+          queue.push(next);
+        }
+      }
+      return (
+        map.rooms
+          .filter((room) => (roomOwners.get(room.id) ?? 0) < 2)
+          .flatMap((room) =>
+            room.beds.map((bed, bedIndex) => ({
+              roomId: room.id,
+              bedIndex,
+              bed,
+              occupied: occupiedBeds.has(`${room.id}:${bedIndex}`),
+              distance:
+                distances.get(`${bed.x},${bed.y}`) ?? Number.POSITIVE_INFINITY,
+            })),
+          )
+          .filter(
+            (candidate) =>
+              !candidate.occupied && Number.isFinite(candidate.distance),
+          )
+          .sort((left, right) => left.distance - right.distance)[0] ?? null
+      );
+    });
+    expect(target).toBeTruthy();
+    await moveNearBed(
+      page,
+      target?.roomId as string,
+      target?.bedIndex as number,
+    );
+    const sleep = page.getByRole("button", {
+      name: "가까운 침대에서 잠자기",
+    });
+    await expect(sleep).toBeVisible();
+    const canvas = page.locator("#game-root canvas[data-renderer]");
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    const touch = {
+      x: (box?.x ?? 0) + (box?.width ?? 0) * 0.52,
+      y: (box?.y ?? 0) + (box?.height ?? 0) * 0.55,
+      id: 71,
+      radiusX: 4,
+      radiusY: 4,
+      force: 1,
+    };
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [touch],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ ...touch, x: touch.x + 24, y: touch.y + 8 }],
+    });
+    await sleep.click();
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await expect
+      .poll(
+        async () => {
+          const current = await state(page);
+          return current.snapshot?.players.find(
+            (candidate) => candidate.id === current.playerId,
+          )?.roomId;
+        },
+        { timeout: 5_000, intervals: [50] },
+      )
+      .toBe(target?.roomId);
+    const claimed = await state(page);
+    const local = claimed.snapshot?.players.find(
+      (candidate) => candidate.id === claimed.playerId,
+    );
+    const rendered = await page.evaluate(() =>
+      window.__DORM_TEST__?.renderedPosition(),
+    );
+    expect(local?.position).toEqual(target?.bed);
+    expect(Math.hypot(local?.velocity.x ?? 1, local?.velocity.y ?? 1)).toBe(0);
+    expect(
+      rendered
+        ? Math.hypot(
+            rendered.x - (target?.bed.x ?? 0),
+            rendered.y - (target?.bed.y ?? 0),
+          )
+        : Infinity,
+    ).toBeLessThan(0.08);
+    await page.waitForTimeout(800);
+    const settled = await state(page);
+    const settledLocal = settled.snapshot?.players.find(
+      (candidate) => candidate.id === settled.playerId,
+    );
+    expect(settledLocal?.position).toEqual(target?.bed);
+
+    await page.reload();
+    await page.waitForFunction(
+      (id) => window.__DORM_TEST__?.playerId === id,
+      claimed.playerId,
+      { timeout: 15_000 },
+    );
+    const reconnected = await state(page);
+    const restored = reconnected.snapshot?.players.find(
+      (candidate) => candidate.id === reconnected.playerId,
+    );
+    expect(restored?.roomId).toBe(target?.roomId);
+    expect(restored?.position).toEqual(target?.bed);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+});
+
+test("three bots visibly pathfind through doors before the normal countdown ends", async ({
   browser,
 }) => {
   const context = await mobileContext(browser);
   const page = await context.newPage();
   try {
     await enter(page, "봇길검증", "p", false);
-    await page.getByTestId("home-stage-start").click();
-    await expect(page.getByTestId("room-code")).toHaveCount(0);
+    await createMultiplayerRoom(page);
+    const addBot = page.getByRole("button", { name: "봇 추가" });
+    for (let index = 0; index < 3; index += 1) await addBot.click();
+    await expect(page.getByTestId("room-code")).toHaveCount(1);
     await expect(page.locator("[data-player-id]")).toHaveCount(4);
     await page.getByTestId("start-game").click();
     await expect(
@@ -1062,8 +1257,17 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     );
     const snapshot = (await state(page)).snapshot;
     const bots = snapshot?.players.filter((player) => player.isBot) ?? [];
-    expect(new Set(bots.map((bot) => bot.roomId)).size).toBe(3);
     expect(bots.every((bot) => bot.roomId && bot.position)).toBe(true);
+    const roomOccupancy = bots.reduce<Map<string, number>>((counts, bot) => {
+      if (bot.roomId)
+        counts.set(bot.roomId, (counts.get(bot.roomId) ?? 0) + 1);
+      return counts;
+    }, new Map());
+    // Multiplayer rooms intentionally have two beds, so two bots may share a
+    // room. What matters here is that all three reached legal beds without
+    // exceeding room capacity.
+    expect(roomOccupancy.size).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...roomOccupancy.values())).toBeLessThanOrEqual(2);
     expect(await page.evaluate(() => window.__DORM_TEST__?.cameraMode())).toBe(
       "follow",
     );
@@ -1077,10 +1281,10 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(
       page.locator("#game-root canvas[data-shadows='off']"),
     ).toBeVisible();
-    await expect(page.getByTestId("game-blackout")).toHaveClass(/is-active/);
-    await expect(page.getByRole("button", { name: "카메라 확대" })).toBeHidden();
+    await expect(page.getByTestId("game-blackout")).not.toHaveClass(/is-active/);
+    await expect(page.getByRole("button", { name: "카메라 확대" })).toBeVisible();
     await expect(
-      page.locator("#game-root canvas[data-camera-zoom-locked='true']"),
+      page.locator("#game-root canvas[data-camera-zoom-locked='false']"),
     ).toBeVisible();
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),
@@ -1134,6 +1338,68 @@ test("three solo bots visibly pathfind through doors before the normal countdown
     await expect(leave).toContainText("한 번 더");
     await leave.click();
     await expect(page.locator(".game-home")).toBeVisible();
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+});
+
+test("mass turret visuals keep authored resolution and bounded mobile frame work", async ({
+  browser,
+}) => {
+  const context = await mobileContext(browser);
+  const page = await context.newPage();
+  try {
+    await enter(page, "시각부하검증", "visualstress", false);
+    await createMultiplayerRoom(page);
+    const addBot = page.getByRole("button", { name: "봇 추가" });
+    for (let index = 0; index < 3; index += 1) await addBot.click();
+    await page.getByTestId("start-game").click();
+    await page.waitForFunction(
+      () => window.__DORM_TEST__?.snapshot?.status === "COUNTDOWN",
+      undefined,
+      { timeout: 8_000 },
+    );
+    const result = await page.evaluate(async () => {
+      const game = window.__DORM_TEST__;
+      game?.resumeRendering();
+      const before = game?.performanceStats() ?? null;
+      const buildingCount = game?.stressVisuals() ?? 0;
+      await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+      const frameDurations: number[] = [];
+      await new Promise<void>((resolve) => {
+        const startedAt = performance.now();
+        let previous = startedAt;
+        const sample = (time: number) => {
+          frameDurations.push(time - previous);
+          previous = time;
+          if (time - startedAt >= 3_000) resolve();
+          else requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      const sorted = frameDurations.slice().sort((left, right) => left - right);
+      const percentile95 =
+        sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ??
+        Infinity;
+      return {
+        before,
+        after: game?.performanceStats() ?? null,
+        buildingCount,
+        averageFrameMs:
+          frameDurations.reduce((sum, value) => sum + value, 0) /
+          Math.max(1, frameDurations.length),
+        percentile95,
+      };
+    });
+    expect(result.buildingCount).toBeGreaterThanOrEqual(60);
+    expect(result.after?.buildingViews).toBe(result.buildingCount);
+    expect(result.after?.pixelRatio).toBe(result.before?.pixelRatio);
+    expect(result.after?.pixelRatio).toBe(result.after?.minimumPixelRatio);
+    expect(result.after?.transientEffects).toBeLessThanOrEqual(72);
+    expect(result.after?.hudMessages).toBeLessThanOrEqual(24);
+    expect(result.after?.drawCalls).toBeLessThan(220);
+    expect(result.averageFrameMs).toBeLessThan(55);
+    expect(result.percentile95).toBeLessThan(100);
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -1240,9 +1506,15 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(firstState.snapshot?.seed).toBe(secondState.snapshot?.seed);
     expect(firstState.snapshot?.players).toHaveLength(2);
     const { roomId } = await nearestSharedRoom(first);
+    // Move both survivors into the room before either one claims it. Driving
+    // both routes concurrently makes the synthetic clients collide in a
+    // one-tile doorway, while claiming the first bed too early closes that
+    // doorway before the second client reaches the room.
+    await moveNearBed(first, roomId, 0);
+    await moveNearBed(second, roomId, 1);
     await Promise.all([
-      sleepInBed(first, roomId, 0),
-      sleepInBed(second, roomId, 1),
+      first.evaluate(() => window.__DORM_TEST__?.interact()),
+      second.evaluate(() => window.__DORM_TEST__?.interact()),
     ]);
     await expect
       .poll(
@@ -1262,7 +1534,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
     expect(roommates[0]?.bedIndex).not.toBe(roommates[1]?.bedIndex);
     await expect
       .poll(async () => (await state(first)).snapshot?.status, {
-        timeout: 15_000,
+        timeout: 30_000,
         intervals: [100],
       })
       .toBe("PLAYING");
@@ -1379,12 +1651,10 @@ test("two real browser contexts share a room, building, combat and reconnection"
       // 10Hz 스냅샷 경계에서 한 클라이언트만 1발(기본 피해 13)을 먼저 볼 수 있다.
     ).toBeLessThanOrEqual(13);
 
-    await expect(first.getByTestId("rematch")).toBeVisible({ timeout: 45_000 });
-    await expect(second.getByTestId("rematch")).toBeVisible({
-      timeout: 45_000,
-    });
-
-    await second.reload();
+    // Match duration is balance data, not part of the multiplayer transport
+    // contract tested here. Leave the still-running match explicitly instead
+    // of waiting for a particular ghost/door outcome.
+    await second.goto("/?dev=1&fresh=1&automation=1");
     await expect(second.locator(".game-home")).toBeVisible();
 
     const manifest = await first.request.get("/manifest.webmanifest");

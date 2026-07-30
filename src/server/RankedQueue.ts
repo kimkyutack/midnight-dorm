@@ -289,7 +289,8 @@ export class RankedQueue extends DurableObject<Env> {
     if (entry.contractId !== anchor.contractId || entry.stageId !== anchor.stageId) return false;
     const anchorUnranked = anchor.placementCompleted < 1;
     const entryUnranked = entry.placementCompleted < 1;
-    if (anchorUnranked || entryUnranked)
+    if (anchorUnranked !== entryUnranked) return false;
+    if (anchorUnranked && entryUnranked)
       return anchor.tier === 'bronze' && entry.tier === 'bronze';
     return anchor.tier === entry.tier;
   }
@@ -359,6 +360,7 @@ export class RankedQueue extends DurableObject<Env> {
       modifier: anchor.modifier,
       goldenTurretPolicy: anchor.goldenTurretPolicy,
       supplyPolicy: anchor.supplyPolicy,
+      firstRankedMatch: entries.every((entry) => entry.placementCompleted < 1),
     };
     try {
       const response = await this.env.GAME_ROOMS.getByName(roomCode).fetch('https://game-room.internal/init', {

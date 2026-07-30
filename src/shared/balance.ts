@@ -66,6 +66,12 @@ export const BALANCE = {
     startingGold: 20,
     startingPower: 18,
     interactionRange: 1.7,
+    // The sleep prompt is rendered from a 10 Hz authoritative snapshot. While
+    // a survivor is still dragging, that snapshot can be roughly one network
+    // trip behind the server. The server accepts this extra distance only
+    // when the survivor is still on that same room's floor, never through a
+    // wall or from the corridor.
+    interactionLatencyGrace: 1.05,
     collisionRadius: 0.36,
   },
   door: {

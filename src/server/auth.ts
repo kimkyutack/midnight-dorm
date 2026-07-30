@@ -1,6 +1,6 @@
 import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
-import { shopConsumableById } from '../shared/shopConsumables';
+import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
 
 const SESSION_COOKIE = 'midnight_session';
@@ -47,6 +47,7 @@ interface AccountRow {
   ranked_season_id?: string;
   ranked_placement_count?: number;
   ranked_contracts_played?: number;
+  tutorial_completed?: number;
   created_at: number;
 }
 
@@ -87,6 +88,7 @@ async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
     ['ranked_season_id', `TEXT NOT NULL DEFAULT ''`],
     ['ranked_placement_count', 'INTEGER NOT NULL DEFAULT 0'],
     ['ranked_contracts_played', 'INTEGER NOT NULL DEFAULT 0'],
+    ['tutorial_completed', 'INTEGER NOT NULL DEFAULT 0'],
   ] as const;
   const missing = definitions
     .filter(([column]) => !existing.has(column))
@@ -98,7 +100,7 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   // D1 promises are request-scoped in Workers. Never cache this promise at module
   // scope: a later request would try to await I/O created by another request.
   await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, selected_play_mode TEXT NOT NULL DEFAULT 'solo', profile_display_mode TEXT NOT NULL DEFAULT 'solo', profile_avatar TEXT NOT NULL DEFAULT '', profile_avatar_updated_at INTEGER NOT NULL DEFAULT 0, ranked_rating INTEGER NOT NULL DEFAULT 800, ranked_season_id TEXT NOT NULL DEFAULT '', ranked_placement_count INTEGER NOT NULL DEFAULT 0, ranked_contracts_played INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, solo_xp INTEGER NOT NULL DEFAULT 0, multiplayer_xp INTEGER NOT NULL DEFAULT 0, solo_stage_index INTEGER NOT NULL DEFAULT 0, multiplayer_stage_index INTEGER NOT NULL DEFAULT 0, victories INTEGER NOT NULL DEFAULT 0, login_failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, selected_play_mode TEXT NOT NULL DEFAULT 'solo', profile_display_mode TEXT NOT NULL DEFAULT 'solo', profile_avatar TEXT NOT NULL DEFAULT '', profile_avatar_updated_at INTEGER NOT NULL DEFAULT 0, ranked_rating INTEGER NOT NULL DEFAULT 800, ranked_season_id TEXT NOT NULL DEFAULT '', ranked_placement_count INTEGER NOT NULL DEFAULT 0, ranked_contracts_played INTEGER NOT NULL DEFAULT 0, tutorial_completed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_login_at INTEGER NOT NULL DEFAULT 0)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
@@ -205,6 +207,13 @@ function profileFromRow(
     : requestedProfileDisplayMode === 'multiplayer'
       ? 'multiplayer'
       : 'solo';
+  const normalizedConsumables = [...consumables.reduce((inventory, owned) => {
+    const itemId = normalizeConsumableId(owned.itemId);
+    if (itemId && owned.quantity > 0) {
+      inventory.set(itemId, (inventory.get(itemId) ?? 0) + owned.quantity);
+    }
+    return inventory;
+  }, new Map<ConsumableId, number>())].map(([itemId, quantity]) => ({ itemId, quantity }));
   return {
     id: row.id,
     username: row.username,
@@ -237,7 +246,8 @@ function profileFromRow(
     ownedCosmetics,
     appearance,
     turretSkins: parseTurretSkins(turretLoadout?.skins),
-    consumables,
+    consumables: normalizedConsumables,
+    tutorialCompleted: Boolean(row.tutorial_completed),
     createdAt: row.created_at,
   };
 }
@@ -694,13 +704,18 @@ export async function routeAuth(request: Request, db: D1Database, bootstrapSchem
 
 export async function recordMatchResult(
   db: D1Database,
-  input: { matchId: string; accountId: string; playMode: PlayMode; stageIndex: number; victory: boolean; elapsed: number; timeAttack?: boolean },
+  input: { matchId: string; accountId: string; playMode: PlayMode; stageId?: string; stageIndex: number; victory: boolean; elapsed: number; timeAttack?: boolean },
   bootstrapSchema = false,
 ): Promise<void> {
   if (bootstrapSchema) await ensureAuthSchema(db);
-  const stage = getStage(STAGES[input.stageIndex]?.id);
+  const tutorialMatch = input.stageId === 'tutorial-1';
+  const stage = getStage(input.stageId ?? STAGES[input.stageIndex]?.id);
   const baseXp = input.victory ? stage.victoryXp : Math.max(10, Math.floor(stage.victoryXp * 0.18));
-  const basePoints = input.victory ? customizationReward(input.stageIndex) : 0;
+  const basePoints = input.victory
+    ? tutorialMatch
+      ? 100
+      : customizationReward(input.stageIndex)
+    : 0;
   // The 35% event bonus is awarded only for a successful Time Attack clear.
   const eventBonus = input.victory && input.timeAttack ? 1.35 : 1;
   const xp = Math.round(baseXp * eventBonus);
@@ -710,11 +725,13 @@ export async function recordMatchResult(
   if ((inserted.meta.changes ?? 0) === 0) return;
   const xpColumn = input.playMode === 'solo' ? 'solo_xp' : 'multiplayer_xp';
   const stageColumn = input.playMode === 'solo' ? 'solo_stage_index' : 'multiplayer_stage_index';
-  const nextStage = Math.min(STAGES.length - 1, input.stageIndex + (input.victory ? 1 : 0));
+  const nextStage = tutorialMatch
+    ? 0
+    : Math.min(STAGES.length - 1, input.stageIndex + (input.victory ? 1 : 0));
   const now = Date.now();
   await db.batch([
-    db.prepare(`UPDATE accounts SET ${xpColumn} = ${xpColumn} + ?, ${stageColumn} = MAX(${stageColumn}, ?), victories = victories + ?, updated_at = ? WHERE id = ?`)
-      .bind(xp, nextStage, input.victory ? 1 : 0, now, input.accountId),
+    db.prepare(`UPDATE accounts SET ${xpColumn} = ${xpColumn} + ?, ${stageColumn} = MAX(${stageColumn}, ?), victories = victories + ?, tutorial_completed = MAX(tutorial_completed, ?), updated_at = ? WHERE id = ?`)
+      .bind(xp, nextStage, input.victory ? 1 : 0, tutorialMatch && input.victory ? 1 : 0, now, input.accountId),
     db.prepare(`INSERT OR IGNORE INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
       .bind(input.accountId, JSON.stringify(DEFAULT_APPEARANCE), now),
     db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')

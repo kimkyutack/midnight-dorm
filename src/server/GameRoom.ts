@@ -6,7 +6,7 @@ import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import { compactRealtimeEvents } from '../shared/realtimeEvents';
 import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
 import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
-import { shopConsumableById } from '../shared/shopConsumables';
+import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
 import type { Env } from './worker';
 
@@ -170,12 +170,18 @@ export class GameRoom extends DurableObject<Env> {
       try {
         const parsed = JSON.parse(decodeURIComponent(consumablesHeader));
         if (Array.isArray(parsed)) {
-          consumables = parsed
+          const normalized = parsed
             .filter((item): item is { itemId: string; quantity: number } =>
               Boolean(item) && typeof item.itemId === 'string' && Number.isInteger(item.quantity),
             )
-            .filter((item) => shopConsumableById(item.itemId) && item.quantity > 0)
-            .map((item) => ({ itemId: item.itemId as ConsumableId, quantity: item.quantity }));
+            .map((item) => ({ itemId: normalizeConsumableId(item.itemId), quantity: item.quantity }))
+            .filter((item): item is { itemId: ConsumableId; quantity: number } =>
+              Boolean(item.itemId) && item.quantity > 0,
+            );
+          consumables = [...normalized.reduce((inventory, item) => {
+            inventory.set(item.itemId, (inventory.get(item.itemId) ?? 0) + item.quantity);
+            return inventory;
+          }, new Map<ConsumableId, number>())].map(([itemId, quantity]) => ({ itemId, quantity }));
         }
       } catch { consumables = []; }
     }
@@ -651,6 +657,7 @@ export class GameRoom extends DurableObject<Env> {
           matchId: snapshot.matchId,
           accountId: player.accountId as string,
           playMode: snapshot.playMode,
+          stageId: snapshot.stageId,
           stageIndex: snapshot.stageIndex,
           victory,
           elapsed: snapshot.elapsed,
