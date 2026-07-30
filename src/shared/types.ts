@@ -547,7 +547,18 @@ export type ClientMessage =
   | (BaseMessage & { type: 'remove-bot'; botId: string })
   | (BaseMessage & { type: 'leave-room' })
   | (BaseMessage & { type: 'kick-player'; playerId: string })
-  | (BaseMessage & { type: 'move'; dx: number; dy: number; inputSequence: number })
+  | (BaseMessage & {
+      type: 'move';
+      dx: number;
+      dy: number;
+      inputSequence: number;
+      /**
+       * The locally rendered position captured only when a drag is released.
+       * The server treats this as a bounded reconciliation hint, never as an
+       * authoritative teleport destination.
+       */
+      releasePosition?: Vec2;
+    })
   | (BaseMessage & { type: 'interact' })
   | (BaseMessage & { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind })
   | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })

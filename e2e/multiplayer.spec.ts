@@ -283,6 +283,13 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByRole("button", { name: "닫기" }).click();
     await page.locator("[data-home-settings]").click();
     await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
+    await expect(page.locator("[data-settings-version]")).toContainText(
+      APP_RELEASE_VERSION,
+    );
+    await expect(page.locator("[data-version-status]")).toHaveText(
+      "최신 버전입니다",
+    );
+    await expect(page.locator("[data-settings-update]")).not.toBeVisible();
     await page.getByRole("button", { name: "완료" }).click();
     const latestUpdate = await page.request.get("/api/app-updates/latest", {
       headers: { "cache-control": "no-cache" },

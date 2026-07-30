@@ -1,5 +1,5 @@
 import { BALANCE } from '../shared/balance';
-import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, GameSnapshotFrame, MapDefinition, QuickChatPhrase, ServerMessage, Tile } from '../shared/types';
+import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, GameSnapshotFrame, MapDefinition, QuickChatPhrase, ServerMessage, Tile, Vec2 } from '../shared/types';
 
 export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
@@ -156,7 +156,20 @@ export class GameNetwork {
   removeBot(botId: string): void { this.send({ type: 'remove-bot', botId }); }
   leaveRoom(): void { this.send({ type: 'leave-room' }); }
   kickPlayer(playerId: string): void { this.send({ type: 'kick-player', playerId }); }
-  move(dx: number, dy: number, inputSequence: number): void { this.send({ type: 'move', dx, dy, inputSequence }); }
+  move(
+    dx: number,
+    dy: number,
+    inputSequence: number,
+    releasePosition?: Vec2,
+  ): void {
+    this.send({
+      type: 'move',
+      dx,
+      dy,
+      inputSequence,
+      ...(releasePosition ? { releasePosition } : {}),
+    });
+  }
   interact(): void { this.send({ type: 'interact' }); }
   build(roomId: string, tile: Tile, kind: BuildingKind): void {
     const now = performance.now();

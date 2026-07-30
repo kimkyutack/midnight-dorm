@@ -1100,6 +1100,7 @@ export class GameEngine {
           message.dx,
           message.dy,
           message.inputSequence,
+          message.releasePosition,
         );
       case "interact":
         return this.interact(playerId);
@@ -1320,6 +1321,7 @@ export class GameEngine {
     dx: number,
     dy: number,
     inputSequence: number,
+    releasePosition?: Vec2,
   ): ActionResult {
     const player = this.state.players.find(
       (candidate) => candidate.id === playerId,
@@ -1348,11 +1350,56 @@ export class GameEngine {
       player.lastInputSeq = inputSequence;
       return { ok: true };
     }
+    const previousVelocity = { ...player.velocity };
+    const magnitude = Math.hypot(dx, dy);
+    if (
+      magnitude <= 0.001 &&
+      releasePosition &&
+      Number.isFinite(releasePosition.x) &&
+      Number.isFinite(releasePosition.y)
+    ) {
+      const velocityMagnitude = Math.hypot(
+        previousVelocity.x,
+        previousVelocity.y,
+      );
+      const offset = {
+        x: releasePosition.x - player.position.x,
+        y: releasePosition.y - player.position.y,
+      };
+      const offsetDistance = Math.hypot(offset.x, offset.y);
+      const forwardDistance =
+        velocityMagnitude > 0.001
+          ? (offset.x * previousVelocity.x + offset.y * previousVelocity.y) /
+            velocityMagnitude
+          : -1;
+      // A release packet can close only the ordinary one-way-latency gap and
+      // only in the direction the server was already moving. This removes the
+      // visible 1–2 step rewind without accepting a client teleport.
+      if (
+        velocityMagnitude > 0.001 &&
+        offsetDistance > 0.001 &&
+        offsetDistance <= 0.9 &&
+        forwardDistance >= -0.02
+      ) {
+        const lockedRoom = player.lockedRoomId
+          ? this.map.rooms.find((room) => room.id === player.lockedRoomId)
+          : undefined;
+        player.position = moveInWalkableArea(
+          this.map,
+          player.position,
+          offset,
+          BALANCE.player.collisionRadius,
+          0.12,
+          lockedRoom
+            ? this.roomExitBlockTilesFor(lockedRoom.id)
+            : undefined,
+        );
+      }
+    }
     // Keep the analogue input magnitude sent by the client. Normalizing every
     // non-zero vector made the authoritative player run at full speed while
     // local prediction used the shorter touch vector, so each snapshot pulled
     // the rendered survivor forward in visible teleport-like corrections.
-    const magnitude = Math.hypot(dx, dy);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     player.velocity = {
       x: dx * scale,

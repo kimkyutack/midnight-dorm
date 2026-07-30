@@ -143,7 +143,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.30.2')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -1778,6 +1778,80 @@ describe('authoritative game rules', () => {
     expect(diagonal?.y).toBeCloseTo(Math.SQRT1_2);
   });
 
+  it('accepts only a bounded forward release position to prevent a visible stop rewind', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    const walkableKeys = new Set(
+      engine.map.walkable.map((tile) => `${tile.x},${tile.y}`),
+    );
+    const directions = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+    ];
+    const fixture = engine.map.walkable
+      .flatMap((tile) =>
+        directions.map((direction) => ({ tile, direction })),
+      )
+      .find(({ tile, direction }) =>
+        walkableKeys.has(`${tile.x + direction.x},${tile.y + direction.y}`),
+      );
+    if (!fixture) throw new Error('missing movement release fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing movement release player');
+    player.position = { ...fixture.tile };
+    player.velocity = { x: 0, y: 0 };
+    player.lastInputSeq = 0;
+    engine.restore(persisted);
+
+    expect(
+      engine.setMovement(
+        playerId,
+        fixture.direction.x,
+        fixture.direction.y,
+        1,
+      ).ok,
+    ).toBe(true);
+    const releasePosition = {
+      x: fixture.tile.x + fixture.direction.x * 0.42,
+      y: fixture.tile.y + fixture.direction.y * 0.42,
+    };
+    expect(
+      engine.setMovement(playerId, 0, 0, 2, releasePosition).ok,
+    ).toBe(true);
+    const released = engine
+      .snapshot()
+      .players.find((candidate) => candidate.id === playerId);
+    expect(released?.position.x).toBeCloseTo(releasePosition.x, 2);
+    expect(released?.position.y).toBeCloseTo(releasePosition.y, 2);
+    expect(released?.velocity).toEqual({ x: 0, y: 0 });
+
+    const afterForward = { ...(released?.position ?? fixture.tile) };
+    expect(
+      engine.setMovement(
+        playerId,
+        fixture.direction.x,
+        fixture.direction.y,
+        3,
+      ).ok,
+    ).toBe(true);
+    expect(
+      engine.setMovement(playerId, 0, 0, 4, {
+        x: afterForward.x - fixture.direction.x * 0.35,
+        y: afterForward.y - fixture.direction.y * 0.35,
+      }).ok,
+    ).toBe(true);
+    expect(
+      engine
+        .snapshot()
+        .players.find((candidate) => candidate.id === playerId)?.position,
+    ).toEqual(afterForward);
+  });
+
   it('does not allow sleeping from a position outside the room floor', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -2398,6 +2472,9 @@ describe('protocol and lifecycle', () => {
   it('rejects malformed and manipulated network messages without throwing', () => {
     expect(parseClientMessage('{bad json').ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 99, dy: 0, inputSequence: 1 })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 0, dy: 0, inputSequence: 2, releasePosition: { x: 3.2, y: 4.1 } })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 1, dy: 0, inputSequence: 3, releasePosition: { x: 3.2, y: 4.1 } })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 0, dy: 0, inputSequence: 4, releasePosition: { x: null, y: 4.1 } })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1.5, y: 2 }, kind: 'nuke' })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1, y: 2 }, kind: 'hide-and-seek-doll' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'activate-building', sequence: 1, timestamp: 2, buildingId: 'building-1', action: 'hide-and-seek' })).ok).toBe(true);

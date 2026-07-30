@@ -47,7 +47,17 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
     case 'move': {
       const vectorValid = typeof value.dx === 'number' && Number.isFinite(value.dx) && Math.abs(value.dx) <= 1
         && typeof value.dy === 'number' && Number.isFinite(value.dy) && Math.abs(value.dy) <= 1;
-      if (!vectorValid || !Number.isSafeInteger(value.inputSequence)) return { ok: false, error: 'invalid movement input' };
+      const releasePositionValid = value.releasePosition === undefined || (
+        value.dx === 0 &&
+        value.dy === 0 &&
+        isRecord(value.releasePosition) &&
+        typeof value.releasePosition.x === 'number' &&
+        Number.isFinite(value.releasePosition.x) &&
+        typeof value.releasePosition.y === 'number' &&
+        Number.isFinite(value.releasePosition.y)
+      );
+      if (!vectorValid || !Number.isSafeInteger(value.inputSequence) || !releasePositionValid)
+        return { ok: false, error: 'invalid movement input' };
       break;
     }
     case 'build':

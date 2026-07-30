@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.30.1";
+export const APP_RELEASE_VERSION = "2026.07.31.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "실시간 동기화와 랭크전 새로고침 개선",
+  title: "모바일 이동·채팅과 전술 보급 개선",
   summary:
-    "• 이동 종료와 대기열 시간을 네트워크 지연에도 부드럽게 동기화했습니다.\n• iOS PWA에서도 최신 앱 셸을 확실히 받도록 강력 새로고침을 보강했습니다.\n• 랭크전 봇은 매 경기 새로운 닉네임을 사용하며 결과 화면에서는 홈으로만 이동합니다.",
-  publishedAt: 1785421519000,
+    "• 드래그를 놓을 때 캐릭터가 뒤로 되감기는 현상을 보정했습니다.\n• 모바일 키보드가 열려도 게임 화면은 고정되고 채팅창만 올라오도록 개선했습니다.\n• 전술 보급품 이미지와 카드 배치를 정리하고 포탑 지정 사용 절차를 추가했습니다.\n• 홈 설정에서 현재 버전과 최신 업데이트 여부를 바로 확인할 수 있습니다.",
+  publishedAt: 1785466800000,
 };
 
 /**

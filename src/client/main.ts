@@ -179,6 +179,7 @@ const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let soulVialTargetingId: string | null = null;
+let consumableTurretTargetingId: ConsumableId | null = null;
 const optimisticPowerPanelModes = new Map<
   string,
   "attack" | "defense" | "production"
@@ -198,6 +199,7 @@ let inputVector: Vec2 = { x: 0, y: 0 };
 let lastMovementSentAt = 0;
 let pendingMovementTimer = 0;
 let movementKeepaliveTimer = 0;
+let quickChatCleanup: (() => void) | null = null;
 let tileSelectionBlockedUntil = 0;
 let buildPanelInputBlockedUntil = 0;
 const pendingActions = new Map<string, number>();
@@ -851,7 +853,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-hard-refresh" data-force-refresh aria-haspopup="dialog" aria-label="강력 새로고침" title="강력 새로고침"><span aria-hidden="true">↻</span></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -919,10 +921,6 @@ function homeScreen(): void {
   app.querySelector("[data-app-updates]")?.addEventListener("click", () => {
     audio.play("button");
     void showAppUpdateHistory();
-  });
-  app.querySelector("[data-force-refresh]")?.addEventListener("click", () => {
-    audio.play("button");
-    showForceRefreshPrompt();
   });
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
@@ -2493,6 +2491,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       selectedTarget = null;
       soulVialTargetingId = null;
       soulVialArmPendingId = null;
+      consumableTurretTargetingId = null;
       closeBuildPanel();
       game?.resetTransientInteraction();
       renderForSnapshot(initial, false);
@@ -3325,6 +3324,24 @@ function onTargetSelected(event: CustomEvent<SceneSelection>): void {
       return;
     }
     showSoulVialConfirm(soulVialTargetingId, target);
+    return;
+  }
+  if (consumableTurretTargetingId && snapshot) {
+    const itemId = consumableTurretTargetingId;
+    const target = snapshot.buildings.find(
+      (building) => building.id === event.detail.targetId,
+    );
+    const me = snapshot.players.find((player) => player.id === playerId);
+    if (
+      !target ||
+      !me?.roomId ||
+      target.roomId !== me.roomId ||
+      !["basic-turret", "golden-turret"].includes(target.kind)
+    ) {
+      toast("전술 보급을 적용할 현재 방의 포탑을 선택하세요.");
+      return;
+    }
+    showConsumableTurretConfirm(itemId, target);
     return;
   }
   selectedTile = null;
@@ -4184,14 +4201,19 @@ function setupJoystick(): void {
   base.addEventListener("pointercancel", release);
 }
 
-function flushMovement(): void {
+function flushMovement(releasePosition?: Vec2): void {
   pendingMovementTimer = 0;
   lastMovementSentAt = performance.now();
   const nextInputSequence = ++inputSequence;
   // Keep prediction tied to the exact input sent to the authoritative worker,
   // so a bot occupancy frame cannot be mistaken for a movement collision.
   game?.setLocalInput(inputVector, nextInputSequence);
-  network?.move(inputVector.x, inputVector.y, nextInputSequence);
+  network?.move(
+    inputVector.x,
+    inputVector.y,
+    nextInputSequence,
+    releasePosition,
+  );
 }
 
 function syncMovementKeepalive(): void {
@@ -4225,7 +4247,11 @@ function sendMovement(force = false): void {
   syncMovementKeepalive();
   if (force) {
     if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
-    flushMovement();
+    const releasePosition =
+      Math.hypot(inputVector.x, inputVector.y) <= 0.001
+        ? game?.getLocalRenderedPosition() ?? undefined
+        : undefined;
+    flushMovement(releasePosition);
     return;
   }
   const elapsed = performance.now() - lastMovementSentAt;
@@ -4341,15 +4367,46 @@ const QUICK_CHAT_PHRASES: readonly QuickChatPhrase[] = [
 ];
 
 function showQuickChatPicker(): void {
-  app.querySelector(".quick-chat-picker")?.remove();
+  quickChatCleanup?.();
   const picker = document.createElement("section");
   picker.className = "quick-chat-picker";
   picker.setAttribute("aria-label", "인게임 팀 채팅");
   picker.innerHTML = `<header><strong>팀 채팅</strong><button type="button" class="quick-chat-close" data-chat-close aria-label="채팅 닫기">×</button></header><form class="game-chat-form" data-game-chat-form><input data-game-chat-input maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="메시지를 입력하세요" aria-label="팀 채팅 메시지"/><button type="submit">전송</button></form><div class="quick-chat-options" aria-label="빠른 문구">${QUICK_CHAT_PHRASES.map((phrase) => `<button type="button" data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}</div>`;
+  const stableHeight = app.offsetHeight;
+  const pageScrollY = window.scrollY;
+  app.style.setProperty("--chat-stable-height", `${stableHeight}px`);
+  app.classList.add("chat-keyboard-open");
+  document.documentElement.classList.add("game-chat-active");
+  document.body.classList.add("game-chat-active");
   app.appendChild(picker);
+  const positionPicker = (): void => {
+    if (!picker.isConnected) return;
+    const viewport = window.visualViewport;
+    const visibleTop = viewport?.offsetTop ?? 0;
+    const visibleHeight = viewport?.height ?? window.innerHeight;
+    const panelTop = Math.max(
+      visibleTop + 8,
+      visibleTop + visibleHeight - picker.offsetHeight - 12,
+    );
+    picker.style.top = `${panelTop}px`;
+  };
+  const closePicker = (): void => {
+    window.visualViewport?.removeEventListener("resize", positionPicker);
+    window.visualViewport?.removeEventListener("scroll", positionPicker);
+    app.classList.remove("chat-keyboard-open");
+    app.style.removeProperty("--chat-stable-height");
+    document.documentElement.classList.remove("game-chat-active");
+    document.body.classList.remove("game-chat-active");
+    picker.remove();
+    window.scrollTo(0, pageScrollY);
+    if (quickChatCleanup === closePicker) quickChatCleanup = null;
+  };
+  quickChatCleanup = closePicker;
+  window.visualViewport?.addEventListener("resize", positionPicker);
+  window.visualViewport?.addEventListener("scroll", positionPicker);
   picker
     .querySelector("[data-chat-close]")
-    ?.addEventListener("click", () => picker.remove());
+    ?.addEventListener("click", closePicker);
   picker
     .querySelector<HTMLFormElement>("[data-game-chat-form]")
     ?.addEventListener("submit", (event) => {
@@ -4360,7 +4417,7 @@ function showQuickChatPicker(): void {
       if (!message) return;
       network?.gameChat(message.slice(0, 80));
       audio.play("button");
-      picker.remove();
+      closePicker();
     });
   picker
     .querySelectorAll<HTMLButtonElement>("[data-quick-phrase]")
@@ -4370,16 +4427,17 @@ function showQuickChatPicker(): void {
         if (!QUICK_CHAT_PHRASES.includes(phrase)) return;
         network?.quickChat(phrase);
         audio.play("button");
-        picker.remove();
+        closePicker();
       }),
     );
-  window.setTimeout(
-    () =>
-      picker
-        .querySelector<HTMLInputElement>("[data-game-chat-input]")
-        ?.focus(),
-    0,
-  );
+  window.setTimeout(() => {
+    positionPicker();
+    picker
+      .querySelector<HTMLInputElement>("[data-game-chat-input]")
+      ?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+    window.requestAnimationFrame(positionPicker);
+  }, 0);
 }
 
 function showQuickChatBubble(nickname: string, phrase: string): void {
@@ -4405,6 +4463,7 @@ function showEliteEntrance(label: string): void {
 
 function showInventory(): void {
   if (!snapshot) return;
+  consumableTurretTargetingId = null;
   const me = snapshot.players.find((player) => player.id === playerId);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
@@ -4443,17 +4502,18 @@ function showInventory(): void {
         item.target === "tile"
           ? "먼저 복도 타일을 선택하세요"
           : item.target === "building"
-            ? "먼저 강화할 포탑을 선택하세요"
+            ? "사용 후 적용할 포탑 선택"
             : item.target === "door"
               ? "현재 방의 문에 사용"
               : item.target === "room"
                 ? "현재 방에 사용"
                 : "즉시 사용";
-      return `<article class="item-card supply-item ${used ? "spent" : ""}"><i>${item.icon}</i><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>${targetHint} · ${used ? "이번 판 사용 완료" : `남은 재고 ${quantity}개`}</small><button ${used || quantity <= 0 ? "disabled" : ""} data-use-consumable="${item.id}">${used ? "사용 완료" : "사용"}</button></article>`;
+      return `<article class="item-card supply-item ${used ? "spent" : ""}"><img class="inventory-supply-art" data-supply-art="${item.id}" alt="${escapeHtml(item.label)}"/><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span><small>${targetHint}<br/>${used ? "이번 판 사용 완료" : `남은 재고 ${quantity}개`}</small><button ${used || quantity <= 0 ? "disabled" : ""} data-use-consumable="${item.id}">${used ? "사용 완료" : "사용"}</button></article>`;
     })
     .join("");
-  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">MATCH ITEMS · ${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}</span><h2>이번 판 보상</h2>${supplies ? `<h3 class="inventory-subtitle">전술 보급</h3><div class="item-grid supply-item-grid">${supplies}</div>` : ""}<h3 class="inventory-subtitle">설치한 랜덤 보상</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
+  modal.innerHTML = `<section class="panel inventory-panel"><span class="eyebrow">TACTICAL SUPPLIES · ${me?.consumableLoadout.length ?? 0}/3</span><h2>전술 보급품</h2>${supplies ? `<div class="item-grid supply-item-grid">${supplies}</div>` : '<p class="subtitle">장착한 전술 보급품이 없습니다.</p>'}<h3 class="inventory-subtitle">설치한 랜덤 보상</h3><div class="item-grid">${randomCards}</div><button class="btn primary" style="width:100%" data-close>닫기</button></section>`;
   app.appendChild(modal);
+  hydrateCatalogArt(modal);
   modal
     .querySelector("[data-close]")
     ?.addEventListener("click", () => modal.remove());
@@ -4472,11 +4532,13 @@ function showInventory(): void {
           }
           target = { tile: selectedTile };
         } else if (item.target === "building") {
-          if (!selectedTarget || selectedTarget.type !== "building") {
-            toast("강화할 포탑을 먼저 선택하세요.");
-            return;
-          }
-          target = { targetId: selectedTarget.targetId };
+          consumableTurretTargetingId = itemId;
+          selectedTarget = null;
+          closeBuildPanel();
+          audio.play("button");
+          modal.remove();
+          toast("전술 보급을 적용할 현재 방의 포탑을 선택하세요.");
+          return;
         } else if (item.target === "room" || item.target === "door") {
           if (!me.roomId) {
             toast("방을 점유한 뒤 사용할 수 있습니다.");
@@ -4490,6 +4552,41 @@ function showInventory(): void {
         modal.remove();
       }),
     );
+}
+
+function showConsumableTurretConfirm(
+  itemId: ConsumableId,
+  target: GameSnapshot["buildings"][number],
+): void {
+  const item = shopConsumableById(itemId);
+  if (!item) {
+    consumableTurretTargetingId = null;
+    return;
+  }
+  const modal = dismissibleModal(
+    `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true" aria-label="전술 보급품 사용 확인"><span class="eyebrow">TACTICAL SUPPLY</span><h2>${escapeHtml(item.label)}을 사용하시겠습니까?</h2><p class="subtitle">선택한 Lv.${target.level} 포탑에 적용합니다.</p><div class="purchase-confirm-actions"><button class="btn ghost" data-cancel-consumable>취소</button><button class="btn gold" data-confirm-consumable>사용</button></div></section>`,
+    "purchase-confirm-modal",
+  );
+  const cancel = (): void => {
+    consumableTurretTargetingId = null;
+    modal.remove();
+  };
+  modal.addEventListener("pointerdown", (event) => {
+    if (event.target === modal) cancel();
+  });
+  modal
+    .querySelector<HTMLButtonElement>("[data-cancel-consumable]")
+    ?.addEventListener("click", cancel);
+  modal
+    .querySelector<HTMLButtonElement>("[data-confirm-consumable]")
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      consumableTurretTargetingId = null;
+      network?.useConsumable(itemId, { targetId: target.id });
+      audio.play("button");
+      modal.remove();
+    });
 }
 
 function updateConnection(
@@ -4527,6 +4624,7 @@ function showSettings(): void {
   // Game screens provide a dedicated leave-game action. Logging out from this
   // modal can orphan that session, so account actions stay on menu settings.
   const isInGameSettings = currentView === "game";
+  const showHomeVersion = currentView === "home";
   const leaveAction = network
     ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>'
     : "";
@@ -4534,8 +4632,42 @@ function showSettings(): void {
     account && !isInGameSettings
       ? '<button class="btn ghost settings-logout" data-logout-account>로그아웃</button>'
       : "";
-  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p><div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
+  const versionMarkup = showHomeVersion
+    ? `<div class="settings-version" data-settings-version><div><span>현재 버전</span><strong>${APP_RELEASE_VERSION}</strong></div><small data-version-status>최신 버전 확인 중…</small><button class="btn primary hidden" type="button" data-settings-update>업데이트</button></div>`
+    : "";
+  modal.innerHTML = `<section class="panel compact"><span class="eyebrow">SETTINGS</span><h2>게임 설정</h2><div class="setting-row"><span>배경음</span><button class="vibration-toggle ${profile.musicEnabled ? "on" : "off"}" type="button" aria-pressed="${profile.musicEnabled}" data-music-toggle>${profile.musicEnabled ? "켜짐" : "꺼짐"}</button></div><label class="setting-row"><span>배경음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.musicVolume}" data-music-volume ${profile.musicEnabled ? "" : "disabled"}></label><label class="setting-row"><span>효과음 음량</span><input type="range" min="0" max="1" step="0.05" value="${profile.volume}" data-volume></label><div class="setting-row"><span>진동 피드백</span><button class="vibration-toggle ${profile.vibration ? "on" : "off"}" type="button" aria-pressed="${profile.vibration}" data-vibration>${profile.vibration ? "켜짐" : "꺼짐"}</button></div><p class="subtitle settings-note">실제 기기 식별 정보는 수집하지 않습니다. 브라우저에 생성한 임의 UUID만 재접속에 사용합니다.</p>${versionMarkup}<div class="settings-actions">${leaveAction}${logoutAction}<button class="btn primary" data-close>완료</button></div></section>`;
   app.appendChild(modal);
+  const versionStatus =
+    modal.querySelector<HTMLElement>("[data-version-status]");
+  const settingsUpdate =
+    modal.querySelector<HTMLButtonElement>("[data-settings-update]");
+  settingsUpdate?.addEventListener("click", () => {
+    const latestVersion = settingsUpdate.dataset.latestVersion;
+    if (!latestVersion) return;
+    settingsUpdate.disabled = true;
+    settingsUpdate.textContent = "업데이트 중…";
+    void forceRefreshForUpdate(latestVersion, { resetWorker: true });
+  });
+  if (showHomeVersion) {
+    void fetchLatestAppUpdate()
+      .then((latest) => {
+        if (!modal.isConnected || !versionStatus || !settingsUpdate) return;
+        if (
+          latest &&
+          isUpdateAvailable(APP_RELEASE_VERSION, latest.version)
+        ) {
+          versionStatus.textContent = `최신 ${latest.version}`;
+          settingsUpdate.dataset.latestVersion = latest.version;
+          settingsUpdate.classList.remove("hidden");
+        } else {
+          versionStatus.textContent = "최신 버전입니다";
+        }
+      })
+      .catch(() => {
+        if (versionStatus && modal.isConnected)
+          versionStatus.textContent = "버전 확인 실패";
+      });
+  }
   modal
     .querySelector<HTMLInputElement>("[data-music-volume]")
     ?.addEventListener("input", (event) => {
@@ -4654,6 +4786,20 @@ async function fetchAppUpdates(): Promise<AppUpdate[]> {
   if (!response.ok) throw new Error("업데이트 내역을 불러오지 못했습니다.");
   const data = (await response.json()) as { updates?: AppUpdate[] };
   return data.updates ?? [];
+}
+
+async function fetchLatestAppUpdate(): Promise<AppUpdate | null> {
+  const response = await fetch(
+    `/api/app-updates/latest?checkedAt=${Date.now()}`,
+    {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "cache-control": "no-cache" },
+    },
+  );
+  if (!response.ok) throw new Error("최신 버전을 확인하지 못했습니다.");
+  const data = (await response.json()) as { latest?: AppUpdate | null };
+  return data.latest ?? null;
 }
 
 async function showAppUpdateHistory(): Promise<void> {
@@ -5258,24 +5404,6 @@ async function showSocialHub(
   }
 }
 
-function showForceRefreshPrompt(): void {
-  const modal = dismissibleModal(
-    `<section class="panel compact force-refresh-sheet" role="dialog" aria-modal="true" aria-labelledby="force-refresh-title"><h2 id="force-refresh-title">강력 새로고침</h2><p class="subtitle">저장된 앱 캐시와 서비스 워커를 새로 설정한 뒤 최신 버전으로 다시 엽니다.</p><div class="force-refresh-actions"><button class="btn ghost" data-force-refresh-cancel>취소</button><button class="btn primary" data-force-refresh-confirm>새로고침</button></div></section>`,
-    "force-refresh-modal",
-  );
-  modal
-    .querySelector<HTMLButtonElement>("[data-force-refresh-confirm]")
-    ?.addEventListener("click", (event) => {
-      const button = event.currentTarget as HTMLButtonElement;
-      button.disabled = true;
-      button.textContent = "최신 버전 불러오는 중…";
-      void forceRefreshForUpdate(APP_RELEASE_VERSION, { resetWorker: true });
-    });
-  modal
-    .querySelector<HTMLButtonElement>("[data-force-refresh-cancel]")
-    ?.addEventListener("click", () => modal.remove());
-}
-
 async function forceRefreshForUpdate(
   version: string,
   options: { resetWorker?: boolean } = { resetWorker: true },
@@ -5346,12 +5474,7 @@ async function forceRefreshForUpdate(
 async function checkForAppUpdate(): Promise<void> {
   if (testShellMode || updatePromptOpen) return;
   try {
-    const response = await fetch("/api/app-updates/latest", {
-      cache: "no-store",
-    });
-    if (!response.ok) return;
-    const data = (await response.json()) as { latest?: AppUpdate | null };
-    const latest = data.latest;
+    const latest = await fetchLatestAppUpdate();
     if (!latest || !isUpdateAvailable(APP_RELEASE_VERSION, latest.version))
       return;
     updatePromptOpen = true;
@@ -5467,6 +5590,8 @@ function destroyGame(): void {
   countdownWarningTimer = 0;
   previousGameStatus = null;
   inputVector = { x: 0, y: 0 };
+  consumableTurretTargetingId = null;
+  quickChatCleanup?.();
   syncMovementKeepalive();
   game?.destroy();
   game = null;
