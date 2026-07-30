@@ -8983,7 +8983,7 @@ select {
     margin: 0;
     padding: 6px 1px calc(18px + env(safe-area-inset-bottom));
     flex: 1 1 auto;
-    grid-auto-rows: 165px;
+    grid-auto-rows: 188px;
     gap: 7px;
     overflow-x: hidden;
     overflow-y: auto;
@@ -8992,15 +8992,22 @@ select {
     -webkit-overflow-scrolling: touch;
   }
   .supply-shop-screen .supply-card {
-    min-height: 165px;
+    min-height: 188px;
     padding: 6px;
-    grid-template-rows: 56px minmax(0, 1fr) 36px;
+    grid-template-rows: 76px minmax(0, 1fr) 36px;
     gap: 5px;
   }
   .supply-shop-screen .supply-art {
     width: 100%;
-    height: 56px;
+    height: 76px;
     aspect-ratio: auto;
+    place-items: center;
+  }
+  .supply-shop-screen .supply-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
   }
   .supply-shop-screen .supply-copy {
     display: grid;

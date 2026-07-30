@@ -1999,6 +1999,8 @@ export class ThreeGameView {
   private readonly blackoutRoomMask: SVGGElement;
   private blackoutRoomRects: SVGRectElement[] = [];
   private blackoutRoomId: string | null = null;
+  private readonly blackoutUiMask: SVGGElement;
+  private blackoutUiRects: SVGRectElement[] = [];
   private readonly selectionMarker: THREE.Mesh;
   private readonly buildTileMarkers = new Map<string, THREE.Group>();
   private readonly baseRoomFloors = new Map<string, THREE.InstancedMesh>();
@@ -2117,7 +2119,9 @@ export class ThreeGameView {
     this.hudCanvas.style.width = '100%';
     this.hudCanvas.style.height = '100%';
     this.hudCanvas.style.pointerEvents = 'none';
-    this.hudCanvas.style.zIndex = '4';
+    // Resource/level HUD is a semantic overlay, not scenery. It is placed
+    // above the blackout and filtered below by the same fog visibility rules.
+    this.hudCanvas.style.zIndex = '6';
     const hudContext = this.hudCanvas.getContext('2d');
     if (!hudContext) throw new Error('Canvas 2D context is unavailable');
     this.hudContext = hudContext;
@@ -2147,6 +2151,7 @@ export class ThreeGameView {
               <circle data-blackout-mask-circle data-blackout-light-source fill="url(#${blackoutId}-spot)"/>
             </g>
             <g data-blackout-room-mask></g>
+            <g data-blackout-ui-mask></g>
           </mask>
         </defs>
         <rect data-blackout-cover fill="url(#${blackoutId}-cover)" fill-opacity=".86" mask="url(#${blackoutId}-mask)"/>
@@ -2169,13 +2174,17 @@ export class ThreeGameView {
     const blackoutRoomMask = this.blackoutLayer.querySelector(
       '[data-blackout-room-mask]',
     );
+    const blackoutUiMask = this.blackoutLayer.querySelector(
+      '[data-blackout-ui-mask]',
+    );
     if (
       !(blackoutSvg instanceof SVGSVGElement) ||
       !(blackoutMaskBase instanceof SVGRectElement) ||
       !(blackoutCover instanceof SVGRectElement) ||
       !(blackoutMaskCircle instanceof SVGCircleElement) ||
       !(blackoutLightMask instanceof SVGGElement) ||
-      !(blackoutRoomMask instanceof SVGGElement)
+      !(blackoutRoomMask instanceof SVGGElement) ||
+      !(blackoutUiMask instanceof SVGGElement)
     )
       throw new Error('Blackout mask could not be created');
     this.blackoutSvg = blackoutSvg;
@@ -2184,6 +2193,7 @@ export class ThreeGameView {
     this.blackoutMaskCircle = blackoutMaskCircle;
     this.blackoutLightMask = blackoutLightMask;
     this.blackoutRoomMask = blackoutRoomMask;
+    this.blackoutUiMask = blackoutUiMask;
     this.host.appendChild(this.blackoutLayer);
     this.sleepButton = document.createElement('button');
     this.sleepButton.type = 'button';
@@ -4188,6 +4198,22 @@ export class ThreeGameView {
   }
 
   private isEffectVisible(position: Vec2, margin = 2.5): boolean {
+    const local = this.playerStateById.get(this.playerId);
+    const blackoutActive =
+      (this.snapshotData.status === 'EVENT_INTRO' ||
+        this.snapshotData.status === 'GHOST_INTRO' ||
+        this.snapshotData.status === 'COUNTDOWN') &&
+      Boolean(local?.alive);
+    if (blackoutActive && local?.roomId) {
+      const room = this.mapRoomById.get(local.roomId);
+      if (
+        room &&
+        ![...room.floorTiles, room.door].some(
+          (tile) => tile.x === position.x && tile.y === position.y,
+        )
+      )
+        return false;
+    }
     const halfWidth = Math.abs(this.camera.right - this.camera.left) / 2;
     const halfHeight = Math.abs(this.camera.top - this.camera.bottom) / 2;
     return (
@@ -5009,6 +5035,107 @@ export class ThreeGameView {
     return circles.slice(0, count);
   }
 
+  private syncBlackoutUiRects(count: number): SVGRectElement[] {
+    const namespace = 'http://www.w3.org/2000/svg';
+    while (this.blackoutUiRects.length < count) {
+      const rect = document.createElementNS(namespace, 'rect');
+      // Black in the luminance mask means no blackout is painted over this
+      // small semantic UI window. It prevents labels from being half-clipped
+      // while keeping the surrounding world in darkness.
+      rect.setAttribute('fill', '#000');
+      rect.setAttribute('rx', '5');
+      this.blackoutUiMask.appendChild(rect);
+      this.blackoutUiRects.push(rect);
+    }
+    while (this.blackoutUiRects.length > count) {
+      this.blackoutUiRects.pop()?.remove();
+    }
+    return this.blackoutUiRects;
+  }
+
+  private projectBlackoutWorldPoint(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    width: number,
+    height: number,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
+    target.set(worldX, worldY, worldZ).project(this.camera);
+    target.x = (target.x * 0.5 + 0.5) * width;
+    target.y = (-target.y * 0.5 + 0.5) * height;
+    return target;
+  }
+
+  private updateBlackoutSemanticUi(
+    roomId: string | null,
+    width: number,
+    height: number,
+  ): void {
+    if (!roomId) {
+      this.syncBlackoutUiRects(0);
+      return;
+    }
+    const room = this.mapRoomById.get(roomId);
+    const local = this.playerStateById.get(this.playerId);
+    if (!room || !local) {
+      this.syncBlackoutUiRects(0);
+      return;
+    }
+    const windows: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const addWindow = (
+      x: number,
+      y: number,
+      z: number,
+      windowWidth: number,
+      windowHeight: number,
+    ) => {
+      const point = this.projectBlackoutWorldPoint(
+        x,
+        y,
+        z,
+        width,
+        height,
+        this.blackoutProjectionA,
+      );
+      windows.push({
+        x: point.x - windowWidth / 2,
+        y: point.y - windowHeight / 2,
+        width: windowWidth,
+        height: windowHeight,
+      });
+    };
+
+    // Preserve the existing door label/HP coordinates exactly; reveal a small
+    // window behind them rather than relocating either label.
+    const door = this.doorViews.get(roomId);
+    if (door) addWindow(door.root.position.x, 0.9, door.root.position.z, 132, 48);
+    const localView = this.playerViews.get(local.id);
+    if (localView)
+      addWindow(
+        localView.root.position.x,
+        PLAYER_HEIGHT + 0.54,
+        localView.root.position.z,
+        132,
+        34,
+      );
+    for (const building of this.buildingStateById.values()) {
+      if (building.roomId !== roomId) continue;
+      const view = this.buildingViews.get(building.id);
+      if (view)
+        addWindow(view.root.position.x + 0.28, 0.9, view.root.position.z + 0.34, 74, 22);
+    }
+    const rects = this.syncBlackoutUiRects(windows.length);
+    windows.forEach((window, index) => {
+      const rect = rects[index];
+      if (!rect) return;
+      rect.setAttribute('x', window.x.toFixed(2));
+      rect.setAttribute('y', window.y.toFixed(2));
+      rect.setAttribute('width', window.width.toFixed(2));
+      rect.setAttribute('height', window.height.toFixed(2));
+    });
+  }
+
   private updateBlackoutMask(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
@@ -5033,6 +5160,7 @@ export class ThreeGameView {
     if (!active || !local) {
       this.syncBlackoutRoomRects(null);
       this.syncBlackoutLightCircles(0);
+      this.syncBlackoutUiRects(0);
       return;
     }
 
@@ -5046,6 +5174,7 @@ export class ThreeGameView {
 
     if (!local.roomId) {
       this.syncBlackoutRoomRects(null);
+      this.syncBlackoutUiRects(0);
       const lightPlayers = this.snapshotData.players
         .filter(
           (player) =>
@@ -5094,6 +5223,7 @@ export class ThreeGameView {
 
     this.syncBlackoutLightCircles(0);
     this.syncBlackoutRoomRects(local.roomId);
+    this.updateBlackoutSemanticUi(local.roomId, width, height);
     const room = this.mapRoomById.get(local.roomId);
     if (!room) return;
     [...room.floorTiles, room.door].forEach((tile, index) => {

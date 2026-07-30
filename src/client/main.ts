@@ -172,6 +172,10 @@ const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
 let selectedTile: Tile | null = null;
 let selectedTarget: SceneSelection | null = null;
 let soulVialTargetingId: string | null = null;
+// The arm request and the following turret click can happen before the next
+// authoritative snapshot returns. Keep this short-lived optimistic state so a
+// stale frame cannot swallow the player's first turret selection.
+let soulVialArmPendingId: string | null = null;
 interface BuildingMoveRequest {
   buildingId: string;
   roomId: string;
@@ -2325,6 +2329,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       selectedTile = null;
       selectedTarget = null;
       soulVialTargetingId = null;
+      soulVialArmPendingId = null;
       closeBuildPanel();
       game?.resetTransientInteraction();
       renderForSnapshot(initial, false);
@@ -2336,8 +2341,15 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
-    if (!next.players.find((player) => player.id === playerId)?.armedSoulVialId)
+    const armedSoulVialId = next.players.find(
+      (player) => player.id === playerId,
+    )?.armedSoulVialId;
+    if (armedSoulVialId) {
+      soulVialTargetingId = armedSoulVialId;
+      soulVialArmPendingId = null;
+    } else if (!soulVialArmPendingId) {
       soulVialTargetingId = null;
+    }
     updateTestApi();
     renderForSnapshot(next, false);
     game?.updateSnapshot(next, events);
@@ -2353,6 +2365,10 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (fatal && firstWelcome) {
       invalidateRealtimeSession(roomNetwork, code);
       return;
+    }
+    if (soulVialArmPendingId) {
+      soulVialTargetingId = null;
+      soulVialArmPendingId = null;
     }
     toast(message);
     refreshSelectionPanel(null);
@@ -3297,6 +3313,7 @@ function showSoulVialConfirm(
   );
   const cancelTargeting = () => {
     soulVialTargetingId = null;
+    soulVialArmPendingId = null;
     selectedTarget = null;
     network?.activateBuilding(vialId, "soul-cancel");
   };
@@ -3311,6 +3328,7 @@ function showSoulVialConfirm(
     ?.addEventListener("click", () => {
       modal.remove();
       soulVialTargetingId = null;
+      soulVialArmPendingId = null;
       network?.activateBuilding(vialId, "soul-fire", turret.id);
     });
 }
@@ -3406,12 +3424,23 @@ function renderTargetPanel(selection: SceneSelection): void {
     panel
       .querySelectorAll<HTMLButtonElement>("[data-panel-mode]")
       .forEach((button) =>
-        wirePanelAction(button, () =>
+        wirePanelAction(button, () => {
+          // Reflect the chosen mode immediately. The next snapshot remains
+          // authoritative, but reopening the panel never flashes back to the
+          // default attack card while that action is in flight.
+          panel
+            .querySelectorAll("[data-panel-mode]")
+            .forEach((candidate) =>
+              candidate.classList.toggle(
+                "active",
+                candidate === button,
+              ),
+            );
           network?.activateBuilding(
             building.id,
             button.dataset.panelMode as "attack" | "defense" | "production",
-          ),
-        ),
+          );
+        }),
       );
     wireBuildingRemoval(panel, building.id);
     return;
@@ -3437,6 +3466,7 @@ function renderTargetPanel(selection: SceneSelection): void {
     if (button)
       wirePanelAction(button, () => {
         soulVialTargetingId = building.id;
+        soulVialArmPendingId = building.id;
         network?.activateBuilding(building.id, "soul-arm");
         closeBuildPanel();
         toast("충전할 내 포탑을 선택하세요.");
