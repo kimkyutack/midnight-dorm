@@ -6343,6 +6343,25 @@ body.game-chat-active {
   border-color: rgba(120, 223, 241, 0.46);
   background: rgba(45, 66, 96, 0.72);
 }
+.power-panel-modes .build-card {
+  outline: none;
+}
+.power-panel-modes .build-card.active,
+.power-panel-modes .build-card[aria-checked="true"] {
+  border-color: rgba(116, 227, 247, 0.94);
+  background: linear-gradient(
+    145deg,
+    rgba(45, 82, 112, 0.92),
+    rgba(29, 55, 86, 0.9)
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(151, 240, 255, 0.24),
+    0 0 14px rgba(73, 205, 237, 0.18);
+}
+.power-panel-modes .build-card:focus-visible {
+  outline: 2px solid rgba(173, 241, 255, 0.92);
+  outline-offset: 2px;
+}
 .building-panel-icon {
   display: grid;
   width: 28px;
@@ -11317,6 +11336,7 @@ body.game-chat-active {
 .auth-google-web {
   width: 54px;
   height: 54px;
+  overflow: hidden;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -11325,13 +11345,19 @@ body.game-chat-active {
 .auth-google-web > div {
   width: 54px !important;
   height: 54px !important;
+  overflow: hidden !important;
   display: grid !important;
   place-items: center;
+  border-radius: 50% !important;
 }
 
 .auth-google-web iframe {
+  display: block !important;
   max-width: none !important;
   max-height: none !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  clip-path: circle(50% at 50% 50%);
   opacity: 1;
 }
 

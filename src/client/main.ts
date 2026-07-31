@@ -204,6 +204,16 @@ const optimisticPowerPanelModes = new Map<
   string,
   "attack" | "defense" | "production"
 >();
+
+function reconcileOptimisticPowerPanelModes(next: GameSnapshot): void {
+  for (const [buildingId, mode] of optimisticPowerPanelModes) {
+    const building = next.buildings.find(
+      (candidate) => candidate.id === buildingId,
+    );
+    if (!building || building.powerPanelMode === mode)
+      optimisticPowerPanelModes.delete(buildingId);
+  }
+}
 // The arm request and the following turret click can happen before the next
 // authoritative snapshot returns. Keep this short-lived optimistic state so a
 // stale frame cannot swallow the player's first turret selection.
@@ -2598,6 +2608,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     playerId = id;
     mapData = map;
     snapshot = initial;
+    optimisticPowerPanelModes.clear();
     updateTestApi();
     profile.reconnectTokens[code] = roomNetwork.reconnectToken;
     saveProfile(profile);
@@ -2633,6 +2644,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
+    reconcileOptimisticPowerPanelModes(next);
     const armedSoulVialId = next.players.find(
       (player) => player.id === playerId,
     )?.armedSoulVialId;
@@ -2659,6 +2671,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       soulVialTargetingId = null;
       soulVialArmPendingId = null;
     }
+    optimisticPowerPanelModes.clear();
     game?.resetSleepInteraction();
     toast(message);
     refreshSelectionPanel(null);
@@ -4004,7 +4017,7 @@ function renderTargetPanel(selection: SceneSelection): void {
         copy: "골드·전력 +25% · 포탑 피해 -15%, 문 피해 +15%",
       },
     ];
-    panel.innerHTML = `${panelHeadingMarkup("MODE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">한 가지를 강화하면 다른 능력에는 반드시 손해가 생깁니다.</p><div class="build-grid">${modes.map((entry) => `<button class="build-card ${entry.id === mode ? "active" : ""}" type="button" data-panel-mode="${entry.id}"><span class="build-card-copy"><strong>${entry.label}</strong><small>${entry.copy}</small></span></button>`).join("")}</div>${removalMarkup}`;
+    panel.innerHTML = `${panelHeadingMarkup("MODE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">한 가지를 강화하면 다른 능력에는 반드시 손해가 생깁니다.</p><div class="build-grid power-panel-modes" role="radiogroup" aria-label="배전 제어판 모드">${modes.map((entry) => `<button class="build-card ${entry.id === mode ? "active" : ""}" type="button" role="radio" aria-checked="${entry.id === mode}" data-panel-mode="${entry.id}"><span class="build-card-copy"><strong>${entry.label}</strong><small>${entry.copy}</small></span></button>`).join("")}</div>${removalMarkup}`;
     panel.classList.remove("hidden");
     wireBuildPanelClose(panel);
     panel
@@ -4015,13 +4028,12 @@ function renderTargetPanel(selection: SceneSelection): void {
           // authoritative, but reopening the panel never flashes back to the
           // default attack card while that action is in flight.
           panel
-            .querySelectorAll("[data-panel-mode]")
-            .forEach((candidate) =>
-              candidate.classList.toggle(
-                "active",
-                candidate === button,
-              ),
-            );
+            .querySelectorAll<HTMLElement>("[data-panel-mode]")
+            .forEach((candidate) => {
+              const selected = candidate === button;
+              candidate.classList.toggle("active", selected);
+              candidate.setAttribute("aria-checked", String(selected));
+            });
           const selectedMode = button.dataset.panelMode as
             | "attack"
             | "defense"
