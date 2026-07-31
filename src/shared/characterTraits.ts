@@ -188,6 +188,18 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
 };
 
 /**
+ * Ranked matches keep the owned character passive but deliberately ignore
+ * every skin multiplier and override.  Use this helper for gameplay and local
+ * prediction; catalogue previews should continue to use
+ * characterTraitForAppearance().
+ */
+export const characterTraitForMatch = (
+  appearance: AvatarAppearance,
+  ranked: boolean,
+): CharacterTrait =>
+  ranked ? characterTrait(appearance.character) : characterTraitForAppearance(appearance);
+
+/**
  * Economy traits are added to the bed exactly once. A complete skin replaces
  * its base character trait, so a 200% Mong skin yields 1 bed + 2 skin gold
  * without also adding Mong's original +1.
@@ -203,6 +215,16 @@ export const bedGoldProductionForAppearance = (
   return bedGoldPerSecond + traitGold;
 };
 
+export const bedGoldProductionForMatch = (
+  appearance: AvatarAppearance,
+  bedGoldPerSecond: number,
+  productionMultiplier = 1,
+  ranked = false,
+): number =>
+  bedGoldPerSecond +
+  characterTraitForMatch(appearance, ranked).goldPerSecond *
+    productionMultiplier;
+
 export const BASE_DRAW_LIMIT = 4;
 
 export const drawLimitForCharacter = (characterId: string): number =>
@@ -210,3 +232,8 @@ export const drawLimitForCharacter = (characterId: string): number =>
 
 export const drawLimitForAppearance = (appearance: AvatarAppearance): number =>
   BASE_DRAW_LIMIT + characterTraitForAppearance(appearance).extraDraws;
+
+export const drawLimitForMatch = (
+  appearance: AvatarAppearance,
+  ranked: boolean,
+): number => BASE_DRAW_LIMIT + characterTraitForMatch(appearance, ranked).extraDraws;

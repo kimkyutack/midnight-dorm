@@ -29,6 +29,18 @@ export interface RankedProfile {
   bestContractScores: number[];
 }
 
+/** Exactly one season constraint is active for each ranked season. */
+export type RankedSeasonConstraint =
+  | { kind: 'turret-limit'; maxTurrets: number }
+  | { kind: 'random-box-limit'; maxRandomBoxes: number }
+  | { kind: 'slow-resistance'; slowResistance: number }
+  | { kind: 'bind-resistance'; bindResistance: number };
+
+export interface RankedSeasonRules {
+  /** Server-authoritative single constraint selected for this season. */
+  constraint: RankedSeasonConstraint;
+}
+
 export interface RankedMatchState {
   seasonId: string;
   contractId: string;
@@ -38,6 +50,8 @@ export interface RankedMatchState {
   supplyPolicy: 'disabled' | 'loaned' | 'penalized';
   /** True only when every human entrant is playing a ranked match for the first time. */
   firstRankedMatch: boolean;
+  /** Server-authoritative restrictions for this ranked season. */
+  seasonRules: RankedSeasonRules;
 }
 
 export interface Vec2 {
@@ -193,6 +207,17 @@ export interface PlayerState {
   lastInputSeq: number;
   reconnectUntil: number;
   score: number;
+  /** Server-authoritative inputs used for ranked contribution and RP settlement. */
+  rankedContribution: {
+    activeSeconds: number;
+    turretDamage: number;
+    defenseValue: number;
+    controlSeconds: number;
+    goldSpent: number;
+    powerSpent: number;
+    diedAt: number | null;
+    abandonedAt: number | null;
+  };
   drawCount: number;
   /** One countdown loot reward can be carried until the survivor claims a bed. */
   carriedLootId: string | null;

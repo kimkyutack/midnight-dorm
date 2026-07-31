@@ -1,4 +1,5 @@
 import type { RankedMatchState, RankedTier, StageId } from '../shared/types';
+import { rankedSeasonRules } from '../shared/rankedRules';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -40,6 +41,7 @@ export function rankedMatchForContract(
     goldenTurretPolicy: goldenPolicies[(contractNumber - 1) % goldenPolicies.length] as RankedMatchState['goldenTurretPolicy'],
     supplyPolicy: supplyPolicies[(contractNumber - 1) % supplyPolicies.length] as RankedMatchState['supplyPolicy'],
     firstRankedMatch: false,
+    seasonRules: rankedSeasonRules(seasonId),
   };
 }
 

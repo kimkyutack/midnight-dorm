@@ -17,7 +17,7 @@ import {
 import {
   characterTrait,
   characterTraitForAppearance,
-  drawLimitForAppearance,
+  drawLimitForMatch,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import { isPlayerUnderGhostAttack } from "../shared/combatPresentation";
@@ -46,6 +46,11 @@ import {
   stagesThrough,
   TIME_ATTACK_EXPIRED_MESSAGE,
 } from "../shared/progression";
+import {
+  isRankedTurretKind,
+  rankedSeasonRules,
+  rankedSeasonRuleSummary,
+} from "../shared/rankedRules";
 import { stageThemeFor } from "../shared/stageThemes";
 import {
   APP_RELEASE_VERSION,
@@ -618,31 +623,26 @@ const TUTORIALS: Record<TutorialTopic, TutorialDefinition> = {
     eyebrow: "POINTS & REWARDS",
     title: "승리 보상과 포인트",
     intro:
-      "커스텀 포인트는 게임을 클리어하면 얻는 영구 재화입니다. 골드와 전기는 한 판 안에서만 사용됩니다.",
+      "커스텀 포인트는 게임을 클리어하면 얻는 영구 재화입니다.",
     image: "/assets/tutorial/rewards-points-guide.webp",
     imageAlt: "침대, 코인, 전기 구슬과 보상 상자가 있는 익명 방",
     steps: [
       {
         title: "클리어 보상",
         description:
-          "승리하면 스테이지에 따라 80P부터 최대 500P까지 받습니다. 타임어택 클리어는 보너스가 적용됩니다.",
+          "승리하면 스테이지에 따라 80P부터 최대 500P까지 받습니다.",
       },
       {
         title: "사용처",
         description:
           "포인트로 캐릭터·완성형 스킨을 영구 구매하고, 전술 보급품은 수량 단위로 구매합니다.",
       },
-      {
-        title: "판 안 자원",
-        description:
-          "골드와 전기는 해당 게임에서만 쓰입니다. 침대, 발전기, 보석, 랜덤 보상으로 확보하세요.",
-      },
     ],
   },
   ranked: {
     label: "랭크전",
     eyebrow: "RANKED CONTRACT",
-    title: "14일 시즌 랭크전",
+    title: "4주 시즌 랭크전",
     intro:
       "랭크전은 같은 계약 조건에서 협동 실력을 겨루는 4인 시즌 모드입니다.",
     image: "/assets/tutorial/ranked-coop-guide.webp",
@@ -661,7 +661,7 @@ const TUTORIALS: Record<TutorialTopic, TutorialDefinition> = {
       {
         title: "시즌 순위",
         description:
-          "계약별 최고 기록 중 상위 5개가 시즌 순위를 만듭니다. 시즌은 2주마다 집계와 보상 후 초기화됩니다.",
+          "첫 5판은 RP 변동 폭이 큰 배치전입니다. 14개 계약 중 상위 8개 기록으로 시즌 순위를 정하며, 시즌은 4주마다 집계와 보상 후 초기화됩니다.",
       },
     ],
   },
@@ -1175,8 +1175,9 @@ function confirmPointPurchase(options: {
 
 function showHomeModePicker(): void {
   if (!account) return;
+  const currentAccount = account;
   const modal = dismissibleModal(
-    `<section class="home-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mode-picker-title"><header><div><small>PLAY MODE</small><h2 id="mode-picker-title">플레이 방식 선택</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-mode-options"><button class="${homePlayMode === "solo" ? "selected" : ""}" data-home-mode="solo"><i>☾</i><span><strong>혼자하기</strong><small>생존 봇 3명과 함께 방어합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "multiplayer" ? "selected" : ""}" data-home-mode="multiplayer"><i>◎</i><span><strong>친구랑하기</strong><small>친구와 실시간으로 협동합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "ranked" ? "selected" : ""} ${account.ranked.eligible ? "" : "locked"}" data-home-mode="ranked" ${account.ranked.eligible ? "" : "disabled"}><i>♛</i><span><strong>랭크전</strong><small>${account.ranked.eligible ? `${account.ranked.seasonId} · 48시간 계약` : "혼자하기 노말 5 · 일반 10회 필요"}</small></span><b>${account.ranked.eligible ? "선택" : "잠김"}</b></button></div><div class="home-invite"><label for="invite-code">친구 방 초대 코드</label><div><input class="code-input" id="invite-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-home-join>참가</button></div></div></section>`,
+    `<section class="home-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mode-picker-title"><header><div><small>PLAY MODE</small><h2 id="mode-picker-title">플레이 방식 선택</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-mode-options"><button class="${homePlayMode === "solo" ? "selected" : ""}" data-home-mode="solo"><i>☾</i><span><strong>혼자하기</strong><small>생존 봇 3명과 함께 방어합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "multiplayer" ? "selected" : ""}" data-home-mode="multiplayer"><i>◎</i><span><strong>친구랑하기</strong><small>친구와 실시간으로 협동합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "ranked" ? "selected" : ""} ${currentAccount.ranked.eligible ? "" : "locked"}" data-home-mode="ranked" ${currentAccount.ranked.eligible ? "" : "disabled"}><i>♛</i><span><strong>랭크전</strong><small>${currentAccount.ranked.eligible ? `${currentAccount.ranked.seasonId} · 48시간 계약` : "혼자하기 노말 5 · 일반 10회 필요"}</small></span><b>${currentAccount.ranked.eligible ? "선택" : "잠김"}</b></button></div><div class="home-invite"><label for="invite-code">친구 방 초대 코드</label><div><input class="code-input" id="invite-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-home-join>참가</button></div></div></section>`,
     "home-picker-modal",
   );
   modal.querySelectorAll<HTMLElement>("[data-home-mode]").forEach((button) =>
@@ -1187,7 +1188,8 @@ function showHomeModePicker(): void {
           : button.dataset.homeMode === "multiplayer"
             ? "multiplayer"
             : "solo";
-      void setSelectedPlayMode(next)
+      const applySelection = (): void => {
+        void setSelectedPlayMode(next)
         .then((updated) => {
           account = updated;
           homePlayMode = next;
@@ -1201,6 +1203,21 @@ function showHomeModePicker(): void {
               : "플레이 방식을 저장하지 못했습니다.",
           ),
         );
+      };
+      if (next !== "ranked" || homePlayMode === "ranked") {
+        applySelection();
+        return;
+      }
+      const notice = dismissibleModal(
+        `<section class="panel compact ranked-fair-play-modal" role="dialog" aria-modal="true" aria-labelledby="ranked-fair-play-title"><span class="eyebrow">RANKED FAIR PLAY</span><h2 id="ranked-fair-play-title">랭크전 사전 안내</h2><div class="ranked-fair-play-points"><p><strong>캐릭터 고유 능력</strong><span>랭크전에서도 그대로 적용됩니다.</span></p><p><strong>스킨 추가 능력</strong><span>적용되지 않으며 외형만 사용됩니다.</span></p><p><strong>시즌 제약</strong><span>${escapeHtml(rankedSeasonRuleSummary(currentAccount.ranked.seasonId))}</span></p><p><strong>사망·중도 이탈</strong><span>기여도와 생존 시간에 따라 RP가 감소할 수 있습니다.</span></p></div><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn gold" data-ranked-rules-confirm>확인하고 선택</button></div></section>`,
+        "ranked-fair-play-overlay",
+      );
+      notice
+        .querySelector<HTMLButtonElement>("[data-ranked-rules-confirm]")
+        ?.addEventListener("click", () => {
+          notice.remove();
+          applySelection();
+        });
     }),
   );
   modal
@@ -1418,7 +1435,7 @@ function showRankingPreview(): void {
           ? "bronze"
           : null;
   dismissibleModal(
-    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ""}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">2주 시즌 · 48시간 계약 7개 · 최고 5개 점수 반영. 시즌 종료 뒤 순위 보상과 한정 칭호를 지급합니다.</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
+    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ""}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영. 첫 5판 배치전은 RP 변동 폭이 2배입니다.</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
     "home-picker-modal",
   );
   const board = document.querySelector<HTMLOListElement>(
@@ -1492,66 +1509,6 @@ function modelPreviewHtml(
   }
   const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
-}
-
-function showLiveCosmeticPreview(
-  itemId: string,
-  fallbackAppearance: AvatarAppearance,
-  rank: RankId,
-): void {
-  const item = cosmeticById(itemId);
-  if (!item) return;
-  const modal = dismissibleModal(
-    `<section class="live-cosmetic-sheet" role="dialog" aria-modal="true" aria-labelledby="live-preview-title"><header><div><small>IN-GAME PREVIEW</small><h2 id="live-preview-title">${escapeHtml(item.label)}</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="live-cosmetic-stage" data-live-preview-stage></div><p>${escapeHtml(item.description)}</p></section>`,
-    "live-cosmetic-modal",
-  );
-  const stage = modal.querySelector<HTMLElement>("[data-live-preview-stage]");
-  if (!stage) return;
-  let avatarPreview: AvatarPreview2D | null = null;
-  if (item.slot === "tile") {
-    stage.classList.add("tile");
-    stage.innerHTML = `<div class="live-tile-room"><img src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 인게임 타일"/><span></span></div>`;
-  } else if (item.slot === "turret") {
-    stage.classList.add("turret");
-    const art =
-      turretSkinAssetUrl(item.id, 1) ??
-      "/assets/buildings/cute-basic-turret-1.png";
-    stage.innerHTML = `<div class="live-turret-room"><img src="${art}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 인게임 포탑"/><i></i><b></b></div>`;
-  } else {
-    stage.classList.add("avatar");
-    const previewAppearance: AvatarAppearance =
-      item.slot === "character"
-        ? {
-            character: item.id,
-            skin: defaultSkinForCharacter(item.id),
-            tileSkin: fallbackAppearance.tileSkin,
-          }
-        : {
-            character: item.characterId ?? fallbackAppearance.character,
-            skin: item.id,
-            tileSkin: fallbackAppearance.tileSkin,
-          };
-    avatarPreview = new AvatarPreview2D(stage, previewAppearance, rank);
-  }
-  const cleanup = (): void => {
-    avatarPreview?.destroy();
-    avatarPreview = null;
-  };
-  const removalObserver = new MutationObserver(() => {
-    if (modal.isConnected) return;
-    cleanup();
-    removalObserver.disconnect();
-  });
-  removalObserver.observe(app, { childList: true });
-  modal.querySelector("[data-modal-close]")?.addEventListener("click", cleanup, {
-    once: true,
-  });
-  modal.addEventListener(
-    "pointerdown",
-    (event) => {
-      if (event.target === modal) cleanup();
-    },
-  );
 }
 
 function cosmeticEntitled(
@@ -1801,6 +1758,10 @@ function cosmeticCollectionScreen(
         skinTraitInfo?.description ??
         turretTraitInfo?.description ??
         item.description;
+      const rankedSkinNote =
+        shopping && item.slot === "skin"
+          ? '<em class="ranked-skin-card-note">랭크전: 외형만 적용</em>'
+          : "";
       const authoredTurretArt =
         item.slot === "turret" ? turretSkinAssetUrl(item.id, 1) : undefined;
       const art =
@@ -1817,7 +1778,7 @@ function cosmeticCollectionScreen(
                   : premiumCyberKong
                     ? `<div class="catalog-art cosmetic-art cyber-driver-kong-card-art" style="--swatch:${item.swatch}"><span class="cyber-driver-kong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 사이버 드라이빙 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong>${rankedSkinNote}<small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -1865,29 +1826,13 @@ function cosmeticCollectionScreen(
   const initialTurretTrait = initialTurret?.turretKind
     ? turretSkinTrait(initialTurret.id, initialTurret.turretKind)
     : null;
-  let livePreviewItemId =
-    initialPreviewItem?.id ??
-    (selectedSlot === "skin" ? activeSkin?.id : character?.id) ??
-    appearance.character;
+  const rankedCosmeticNotice =
+    shopping && (selectedSlot === "skin")
+      ? `<aside class="ranked-cosmetic-notice" role="note"><div><span>랭크전에서는 캐릭터 고유 능력만 적용되며, 스킨의 능력치 상승 효과는 적용되지 않습니다.</span></div></aside>`
+      : "";
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
-  );
-  const livePreviewButton = document.createElement("button");
-  livePreviewButton.className = "custom-live-preview";
-  livePreviewButton.type = "button";
-  livePreviewButton.dataset.liveCosmeticPreview = "";
-  livePreviewButton.setAttribute("aria-label", "인게임 연출 미리보기");
-  livePreviewButton.innerHTML =
-    '<span aria-hidden="true">▶</span><small>인게임</small>';
-  const customPreview = app.querySelector(".custom-preview");
-  customPreview?.insertBefore(livePreviewButton, customPreview.firstChild);
-  livePreviewButton.addEventListener("click", () =>
-    showLiveCosmeticPreview(
-      livePreviewItemId,
-      appearance,
-      currentAccount.displayRank,
-    ),
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div>${shopping ? '<button class="custom-shop-switch" data-open-supplies>전술 보급</button>' : ""}<div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog ${rankedCosmeticNotice ? "has-ranked-notice" : ""}"><nav>${tabs}</nav>${rankedCosmeticNotice}<div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -1920,7 +1865,6 @@ function cosmeticCollectionScreen(
   const showPreview = (itemId: string): void => {
     const item = cosmeticById(itemId);
     if (!item) return;
-    livePreviewItemId = item.id;
     if (item.slot === "tile") {
       const tilePreview = app.querySelector<HTMLImageElement>(
         "[data-tile-preview]",
@@ -2407,7 +2351,7 @@ function renderRankedQueue(queue: RankedQueueResponse): void {
   }).join("");
   setContent(
     "ranked-queue",
-    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong data-ranked-queue-elapsed>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
+    `<main class="ranked-queue-screen"><div class="ranked-queue-backdrop"></div><section class="ranked-queue-shell"><header><span class="eyebrow">RANKED MATCHMAKING</span><h1>${account?.ranked.seasonId ?? "S1"} 랭크전</h1><p>비슷한 랭크의 생존자 4명을 찾고 있습니다.</p></header><aside class="ranked-queue-rule"><strong>공정 경쟁 규칙</strong><span>캐릭터 고유 능력 적용 · 스킨 추가 능력 제외</span><small>${escapeHtml(rankedSeasonRuleSummary(account?.ranked.seasonId ?? "S1"))}</small><small>사망·중도 이탈은 기여도와 생존 시간에 따라 RP에 반영됩니다.</small></aside><section class="ranked-queue-clock"><span>QUEUE TIME</span><strong data-ranked-queue-elapsed>${elapsed}</strong><small>${queue.playerCount}/${queue.requiredPlayers} 명 참가</small></section><ol class="ranked-queue-players">${slots}</ol><footer><button class="btn danger" data-ranked-queue-cancel>대기열 취소</button><small>매칭이 완료되면 별도 준비 없이 자동으로 시작됩니다.</small></footer></section></main>`,
   );
   syncRankedQueueClock(queue.elapsedSeconds);
   app
@@ -2706,7 +2650,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForAppearance(me.appearance) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
     '[data-camera="rotate-left"]',
@@ -3038,7 +2982,7 @@ function updateHud(): void {
   );
   setText(
     "[data-draw]",
-    `${me?.drawCount ?? 0}/${me ? drawLimitForAppearance(me.appearance) : 4}`,
+    `${me?.drawCount ?? 0}/${me ? drawLimitForMatch(me.appearance, Boolean(snapshot.ranked)) : 4}`,
   );
   setText("[data-time]", formatTime(snapshot.elapsed));
   const retreating = snapshot.ghosts.some(
@@ -3533,10 +3477,30 @@ function renderBuildPanel(tile: Tile): void {
   const canInstallGoldenTurret =
     gameState.ranked?.goldenTurretPolicy !== "disabled" &&
     installedGoldenTurrets < goldenTurretSlots;
+  const rankedRules = gameState.ranked
+    ? (gameState.ranked.seasonRules ??
+      rankedSeasonRules(gameState.ranked.seasonId))
+    : null;
   const buildLimitReason = (kind: BuildingKind): string | null => {
     if (
+      rankedRules?.constraint.kind === "turret-limit" &&
+      isRankedTurretKind(kind) &&
+      ownedBuildings.filter((building) => isRankedTurretKind(building.kind))
+        .length >= rankedRules.constraint.maxTurrets
+    )
+      return `이번 시즌 최대 ${rankedRules.constraint.maxTurrets}개`;
+    if (
+      kind === "lucky-machine" &&
+      ownedBuildings.filter((building) => building.kind === kind).length >=
+        (rankedRules?.constraint.kind === "random-box-limit"
+          ? rankedRules.constraint.maxRandomBoxes
+          : 1)
+    )
+      return rankedRules?.constraint.kind === "random-box-limit"
+        ? `이번 시즌 최대 ${rankedRules.constraint.maxRandomBoxes}개`
+        : "이미 설치됨";
+    if (
       [
-        "lucky-machine",
         "range-amplifier",
         "overload-capacitor",
         "reflect-mirror",
@@ -3874,7 +3838,7 @@ function renderTargetPanel(selection: SceneSelection): void {
     return;
   }
   if (kind === "lucky-machine" && building) {
-    const drawLimit = drawLimitForAppearance(me.appearance);
+    const drawLimit = drawLimitForMatch(me.appearance, Boolean(snapshot?.ranked));
     const cost =
       me.drawCount < drawLimit ? DRAW_COSTS[me.drawCount] : undefined;
     const owned =
@@ -5497,6 +5461,30 @@ async function checkForAppUpdate(): Promise<void> {
 }
 
 function leaveCurrentGame(): void {
+  if (snapshot?.ranked && network) {
+    const leavingNetwork = network;
+    leavingNetwork.leaveRoom();
+    // The room-exit message normally performs cleanup. Keep a short fallback
+    // for a socket that closes between the explicit ranked abandon request
+    // and the acknowledgement.
+    window.setTimeout(() => {
+      if (network !== leavingNetwork || currentView !== "game") return;
+      const code = leavingNetwork.code;
+      leavingNetwork.close();
+      network = null;
+      if (code) forgetRoom(code);
+      destroyGame();
+      snapshot = null;
+      mapData = null;
+      playerId = "";
+      selectedTile = null;
+      selectedTarget = null;
+      inputVector = { x: 0, y: 0 };
+      resultRecorded = false;
+      homeScreen();
+    }, 1_200);
+    return;
+  }
   const code = network?.code;
   network?.close();
   network = null;

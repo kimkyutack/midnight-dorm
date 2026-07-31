@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { RankedMatchState, RankedTier, StageId } from '../shared/types';
+import { rankedSeasonRules } from '../shared/rankedRules';
 import { contractSeed, createRoomCode } from './rankedMatch';
 import type { Env } from './worker';
 
@@ -361,6 +362,7 @@ export class RankedQueue extends DurableObject<Env> {
       goldenTurretPolicy: anchor.goldenTurretPolicy,
       supplyPolicy: anchor.supplyPolicy,
       firstRankedMatch: entries.every((entry) => entry.placementCompleted < 1),
+      seasonRules: rankedSeasonRules(anchor.seasonId),
     };
     try {
       const response = await this.env.GAME_ROOMS.getByName(roomCode).fetch('https://game-room.internal/init', {

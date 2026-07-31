@@ -6,6 +6,7 @@ import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import { compactRealtimeEvents } from '../shared/realtimeEvents';
 import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
 import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
+import { summarizeRankedContributions } from './rankedScoring';
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
 import type { Env } from './worker';
@@ -366,7 +367,7 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
     if (parsed.message.type === 'leave-room') {
-      const result = engine.leaveLobby(attachment.playerId);
+      const result = engine.leaveRoom(attachment.playerId);
       if (!result.ok) {
         this.sendError(socket, 'ACTION_REJECTED', result.error ?? '방을 나갈 수 없습니다.');
         return;
@@ -651,6 +652,13 @@ export class GameRoom extends DurableObject<Env> {
     if ((snapshot.status !== 'VICTORY' && snapshot.status !== 'DEFEAT') || this.recordedMatchId === snapshot.matchId || this.recordingMatchId === snapshot.matchId) return;
     this.recordingMatchId = snapshot.matchId;
     const victory = snapshot.status === 'VICTORY';
+    const rankedContributions = snapshot.ranked
+      ? summarizeRankedContributions(snapshot.players, snapshot.elapsed)
+      : null;
+    const ghostLevel = Math.max(
+      snapshot.ghost.level,
+      ...snapshot.ghosts.map((ghost) => ghost.level),
+    );
     try {
       await Promise.all(snapshot.players.filter((player) => !player.isBot && player.accountId).map(async (player) => {
         await recordMatchResult(this.env.DB, {
@@ -678,6 +686,16 @@ export class GameRoom extends DurableObject<Env> {
           elapsed: snapshot.elapsed,
           doorHpRatio,
           suppliesUsed: snapshot.ranked.supplyPolicy === 'penalized' ? player.usedConsumables.length : 0,
+          ghostLevel,
+          contribution:
+            rankedContributions?.get(player.id) ?? {
+              score: 0,
+              rank: snapshot.players.length,
+              participantCount: snapshot.players.length,
+              participationRatio: 0,
+              died: !player.alive,
+              abandoned: false,
+            },
         }, this.env.DATA_ENV === 'local-e2e');
       }));
       this.recordedMatchId = snapshot.matchId;

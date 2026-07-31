@@ -19,10 +19,21 @@
     "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^8.0.0",
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/ios": "^8.4.2",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capawesome/capacitor-google-sign-in": "^0.1.2",
+    "@capgo/native-purchases": "^8.6.4",
     "@types/three": "^0.184.0",
+    "capacitor-secure-storage-plugin": "^0.13.0",
+    "jose": "^6.2.5",
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
     "@cloudflare/vite-plugin": "1.40.0",
     "@cloudflare/workers-types": "5.20260715.1",
     "@playwright/test": "1.61.1",

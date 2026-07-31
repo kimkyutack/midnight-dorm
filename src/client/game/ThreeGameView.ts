@@ -3,7 +3,7 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequireme
 import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
-import { characterTraitForAppearance } from '../../shared/characterTraits';
+import { characterTraitForMatch } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
   CYBERPUNK_LASER_TURRET_SKIN_ID,
@@ -2618,7 +2618,7 @@ export class ThreeGameView {
             building.effectiveLevel ?? building.level,
           ).range +
           (owner
-            ? characterTraitForAppearance(owner.appearance).turretRangeBonus
+            ? characterTraitForMatch(owner.appearance, Boolean(snapshot.ranked)).turretRangeBonus
             : 0) +
           (rewardEffects?.turretRangeBonus ?? 0) +
           (this.rangeBonusByOwner.get(building.ownerId) ?? 0);
@@ -4160,7 +4160,10 @@ export class ThreeGameView {
     const localRank = this.snapshotData.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     const localSpeed = BALANCE.player.speed
       * rankBenefits(localRank ?? 'beginner').speedMultiplier
-      * characterTraitForAppearance(local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' }).unclaimedMoveSpeedMultiplier
+      * characterTraitForMatch(
+        local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' },
+        Boolean(this.snapshotData.ranked),
+      ).unclaimedMoveSpeedMultiplier
       * (this.snapshotData.elapsed < (local?.speedBoostUntil ?? 0) ? 1.45 : 1);
     for (const [id, view] of this.playerViews) {
       const player = this.playerStateById.get(id);

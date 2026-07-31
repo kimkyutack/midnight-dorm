@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
-import { bedGoldProductionForAppearance, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, drawLimitForCharacter } from '../src/shared/characterTraits';
+import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
@@ -30,6 +30,8 @@ import { buildForceRefreshUrl } from '../src/client/pwaRefresh';
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
 import { RANKED_BOT_NICKNAMES } from '../src/server/botNames';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
+import { rankedSeasonRules } from '../src/shared/rankedRules';
+import { rankedRatingDelta } from '../src/server/rankedScoring';
 
 const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   seasonId: 'S-test',
@@ -39,7 +41,15 @@ const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   goldenTurretPolicy: 'disabled',
   supplyPolicy: 'disabled',
   firstRankedMatch: false,
+  seasonRules: rankedSeasonRules('S-test'),
 };
+
+const rankedOpeningWithConstraint = (
+  seasonRules: NonNullable<MatchConfig['ranked']>['seasonRules'],
+): NonNullable<MatchConfig['ranked']> => ({
+  ...RANKED_OPENING,
+  seasonRules,
+});
 
 function setup(
   players = 1,
@@ -143,7 +153,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.2')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.3')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -1948,6 +1958,106 @@ describe('authoritative game rules', () => {
     expect(engine.build(ids[0] as string, roomId, tile, 'frost-turret').error).toContain('사용 중');
   });
 
+  it('enforces only the active S1 turret cap on the authoritative server', () => {
+    const prepareRankedRoom = (
+      ranked = RANKED_OPENING,
+    ) => {
+      const fixture = setup(1, true, { ranked });
+      const playerId = fixture.ids[0] as string;
+      begin(fixture.engine, playerId);
+      const { roomId } = assigned(fixture.engine, playerId);
+      const room = fixture.engine.map.rooms.find(
+        (candidate) => candidate.id === roomId,
+      );
+      const persisted = fixture.engine.serialize();
+      const player = persisted.snapshot.players.find(
+        (candidate) => candidate.id === playerId,
+      );
+      if (!room || !player || room.buildTiles.length < 5)
+        throw new Error('missing ranked building-limit fixture');
+      player.gold = 100_000;
+      player.power = 100_000;
+      fixture.engine.restore(persisted);
+      return { ...fixture, playerId, roomId, tiles: room.buildTiles };
+    };
+
+    const turretRoom = prepareRankedRoom();
+    for (const tile of turretRoom.tiles.slice(0, 4)) {
+      expect(
+        turretRoom.engine.build(
+          turretRoom.playerId,
+          turretRoom.roomId,
+          tile,
+          'basic-turret',
+        ).ok,
+      ).toBe(true);
+    }
+    expect(
+      turretRoom.engine.build(
+        turretRoom.playerId,
+        turretRoom.roomId,
+        turretRoom.tiles[4] as Tile,
+        'basic-turret',
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('최대 4개') });
+
+    const boxRoom = prepareRankedRoom();
+    expect(
+      boxRoom.engine.build(
+        boxRoom.playerId,
+        boxRoom.roomId,
+        boxRoom.tiles[0] as Tile,
+        'lucky-machine',
+      ).ok,
+    ).toBe(true);
+    expect(
+      boxRoom.engine.build(
+        boxRoom.playerId,
+        boxRoom.roomId,
+        boxRoom.tiles[1] as Tile,
+        'lucky-machine',
+    ).ok,
+    ).toBe(false);
+    expect(
+      boxRoom.engine.build(
+        boxRoom.playerId,
+        boxRoom.roomId,
+        boxRoom.tiles[2] as Tile,
+        'lucky-machine',
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('방마다 하나') });
+
+    const randomBoxSeason = prepareRankedRoom(
+      rankedOpeningWithConstraint({
+        constraint: { kind: 'random-box-limit', maxRandomBoxes: 2 },
+      }),
+    );
+    expect(
+      randomBoxSeason.engine.build(
+        randomBoxSeason.playerId,
+        randomBoxSeason.roomId,
+        randomBoxSeason.tiles[0] as Tile,
+        'lucky-machine',
+      ).ok,
+    ).toBe(true);
+    expect(
+      randomBoxSeason.engine.build(
+        randomBoxSeason.playerId,
+        randomBoxSeason.roomId,
+        randomBoxSeason.tiles[1] as Tile,
+        'lucky-machine',
+      ).ok,
+    ).toBe(true);
+    expect(
+      randomBoxSeason.engine.build(
+        randomBoxSeason.playerId,
+        randomBoxSeason.roomId,
+        randomBoxSeason.tiles[2] as Tile,
+        'lucky-machine',
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('최대 2개') });
+  });
+
   it('enforces strategic building limits and arms their active effects server-side', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -1987,6 +2097,66 @@ describe('authoritative game rules', () => {
     const chargedTurret = engine.snapshot().buildings.find((building) => building.id === turret.id);
     expect(chargedTurret?.soulChargeReadyAt).toBeGreaterThan(engine.snapshot().elapsed);
     expect(chargedTurret?.soulChargeDamage).toBe(140);
+  });
+
+  it('stores only ten percent of authoritative turret damage in a soul vial', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const room = engine.map.rooms.find((candidate) => candidate.id === roomId);
+    if (!room || room.buildTiles.length < 2)
+      throw new Error('missing soul storage fixture');
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing soul storage owner');
+    player.gold = 10_000;
+    engine.restore(persisted);
+    expect(
+      engine.build(
+        playerId,
+        roomId,
+        room.buildTiles[0] as Tile,
+        'basic-turret',
+      ).ok,
+    ).toBe(true);
+    expect(
+      engine.build(
+        playerId,
+        roomId,
+        room.buildTiles[1] as Tile,
+        'soul-vial',
+      ).ok,
+    ).toBe(true);
+
+    const combat = engine.serialize();
+    const turret = combat.snapshot.buildings.find(
+      (building) => building.kind === 'basic-turret',
+    );
+    const vial = combat.snapshot.buildings.find(
+      (building) => building.kind === 'soul-vial',
+    );
+    const ghost = combat.snapshot.ghosts[0];
+    if (!turret || !vial || !ghost)
+      throw new Error('missing soul storage combat actors');
+    turret.cooldown = 0;
+    vial.storedSoulDamage = 0;
+    ghost.position = { ...turret.tile };
+    ghost.hp = ghost.maxHp;
+    ghost.retreating = false;
+    ghost.healing = false;
+    combat.snapshot.ghost = ghost;
+    engine.restore(combat);
+
+    const hpBefore = engine.snapshot().ghosts[0]?.hp ?? 0;
+    engine.tick(0.05);
+    const hpAfter = engine.snapshot().ghosts[0]?.hp ?? hpBefore;
+    const stored = engine
+      .snapshot()
+      .buildings.find((building) => building.id === vial.id)?.storedSoulDamage;
+    expect(stored).toBeCloseTo((hpBefore - hpAfter) * 0.1, 5);
   });
 
   it('removes a building, returns exactly seventy percent of all invested resources and reopens the tile', () => {
@@ -2281,6 +2451,42 @@ describe('authoritative game rules', () => {
     const netted = engine.snapshot().ghosts[0];
     expect(netted?.stunnedUntil).toBeCloseTo(engine.snapshot().elapsed + 1.5, 5);
     expect(engine.drainEvents().some((event) => event.kind === 'ghost-net')).toBe(true);
+  });
+
+  it('reduces bind duration only in a bind-resistance season', () => {
+    const { engine, ids } = setup(1, true, {
+      ranked: rankedOpeningWithConstraint({
+        constraint: { kind: 'bind-resistance', bindResistance: 0.25 },
+      }),
+    });
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    const mapRoom = engine.map.rooms.find(
+      (candidate) => candidate.id === roomId,
+    );
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !mapRoom || !ghost)
+      throw new Error('missing ranked bind-resistance fixture');
+    player.power = 250;
+    ghost.position = { ...mapRoom.door };
+    ghost.hp = ghost.maxHp * 0.2;
+    ghost.retreating = true;
+    ghost.healing = false;
+    ghost.stunnedUntil = 0;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    expect(engine.build(playerId, roomId, tile, 'ghost-net').ok).toBe(true);
+    engine.tick(0.05);
+    const netted = engine.snapshot().ghosts[0];
+    expect(netted?.stunnedUntil).toBeCloseTo(
+      engine.snapshot().elapsed + 1.125,
+      5,
+    );
   });
 
   it('allows one four-level range amplifier per room and adds up to four turret tiles', () => {
@@ -4087,6 +4293,39 @@ describe('requested progression and event rules', () => {
     expect(events.filter((event) => event.kind === 'ghost-retreat')).toHaveLength(1);
   });
 
+  it('reduces frost slow strength only in a slow-resistance season', () => {
+    const { engine, ids } = setup(1, true, {
+      ranked: rankedOpeningWithConstraint({
+        constraint: { kind: 'slow-resistance', slowResistance: 0.25 },
+      }),
+    });
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId, tile } = assigned(engine, playerId);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!ghost) throw new Error('missing ranked slow-resistance fixture');
+    ghost.position = { ...tile };
+    ghost.hp = ghost.maxHp * 0.19;
+    ghost.retreating = false;
+    ghost.healing = false;
+    persisted.snapshot.ghost = ghost;
+    persisted.snapshot.buildings.push({
+      id: 'ranked-frost-resistance',
+      kind: 'frost-turret',
+      roomId,
+      ownerId: playerId,
+      tile: { ...tile },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      skinId: 'turret-frost-snow',
+    });
+    engine.restore(persisted);
+    engine.tick(0.1);
+    expect(engine.snapshot().ghosts[0]?.slowMultiplier).toBeCloseTo(0.88, 5);
+  });
+
   it('heals completely for seven seconds at respawn and repeats the retreat cycle', () => {
     const { engine, ids } = setup(1, false);
     begin(engine, ids[0] as string);
@@ -4427,6 +4666,106 @@ describe('requested progression and event rules', () => {
       .toBe(0.5);
     expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }).doorShieldRatio)
       .toBe(0.75);
+  });
+
+  it('keeps base character passives but removes every skin stat in ranked matches', () => {
+    const premiumPuppy = {
+      character: 'character-puppy',
+      skin: 'skin-look-puppy-surfer',
+    };
+    const premiumCat = {
+      character: 'character-cat',
+      skin: 'skin-look-cat-neon-rider',
+    };
+    const premiumFox = {
+      character: 'character-fox',
+      skin: 'skin-look-fox-ward',
+    };
+
+    expect(characterTraitForMatch(premiumPuppy, true).goldPerSecond)
+      .toBe(characterTrait('character-puppy').goldPerSecond);
+    expect(characterTraitForMatch(premiumPuppy, false).goldPerSecond).toBe(5);
+    expect(bedGoldProductionForMatch(premiumPuppy, 1, 1, true)).toBe(2);
+    expect(bedGoldProductionForMatch(premiumPuppy, 1, 1, false)).toBe(6);
+    expect(characterTraitForMatch(premiumCat, true).turretRateMultiplier)
+      .toBe(characterTrait('character-cat').turretRateMultiplier);
+    expect(characterTraitForMatch(premiumCat, false).turretRateMultiplier).toBe(0.5);
+    expect(drawLimitForMatch(premiumFox, true))
+      .toBe(drawLimitForCharacter('character-fox'));
+  });
+
+  it('settles ranked death and abandon RP from contribution without rewarding luck alone', () => {
+    expect(rankedRatingDelta({
+      victory: false,
+      doorHpRatio: 0,
+      ghostLevel: 4,
+      contributionScore: 8,
+      contributionRank: 4,
+      participantCount: 4,
+      participationRatio: 0.2,
+      died: true,
+      abandoned: true,
+      placementCompleted: 5,
+    })).toBe(-24);
+
+    expect(rankedRatingDelta({
+      victory: true,
+      doorHpRatio: 0.4,
+      ghostLevel: 8,
+      contributionScore: 38,
+      contributionRank: 2,
+      participantCount: 4,
+      participationRatio: 0.8,
+      died: true,
+      abandoned: false,
+      placementCompleted: 5,
+    })).toBeLessThan(0);
+
+    const lateHighContributionDeath = rankedRatingDelta({
+      victory: true,
+      doorHpRatio: 0.4,
+      ghostLevel: 10,
+      contributionScore: 78,
+      contributionRank: 1,
+      participantCount: 4,
+      participationRatio: 0.82,
+      died: true,
+      abandoned: false,
+      placementCompleted: 5,
+    });
+    expect(lateHighContributionDeath).toBeGreaterThanOrEqual(1);
+    expect(lateHighContributionDeath).toBeLessThanOrEqual(5);
+
+    expect(rankedRatingDelta({
+      victory: true,
+      doorHpRatio: 0.8,
+      ghostLevel: 12,
+      contributionScore: 62,
+      contributionRank: 2,
+      participantCount: 4,
+      participationRatio: 0.95,
+      died: false,
+      abandoned: false,
+      placementCompleted: 5,
+    })).toBeGreaterThan(0);
+  });
+
+  it('doubles RP movement only for the first five ranked placement matches', () => {
+    const baseInput = {
+      victory: true,
+      doorHpRatio: 0.5,
+      ghostLevel: 4,
+      contributionScore: 52,
+      contributionRank: 1,
+      participantCount: 4,
+      participationRatio: 0.9,
+      died: false,
+      abandoned: false,
+    };
+    const placementDelta = rankedRatingDelta({ ...baseInput, placementCompleted: 4 });
+    const standardDelta = rankedRatingDelta({ ...baseInput, placementCompleted: 5 });
+
+    expect(placementDelta).toBe(standardDelta * 2);
   });
 
   it('starts the hamster guardian once, while cyber Kong starts every turret at Lv.5', () => {

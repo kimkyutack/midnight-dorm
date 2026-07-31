@@ -2,6 +2,7 @@ import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGE
 import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
+import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributionSummary } from './rankedScoring';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -10,20 +11,23 @@ const PBKDF2_ITERATIONS = 100_000;
 const PROFILE_AVATAR_MAX_BYTES = 72 * 1024;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1_000;
 const RANKED_SEASON_ZERO_KST = Date.UTC(2026, 6, 20, 0, 0, 0) - KST_OFFSET_MS;
-const RANKED_SEASON_MS = 14 * 24 * 60 * 60 * 1_000;
+/** Seasons intentionally use a predictable four-week cadence, not calendar months. */
+const RANKED_SEASON_MS = 28 * 24 * 60 * 60 * 1_000;
 const RANKED_CONTRACT_MS = 48 * 60 * 60 * 1_000;
+const RANKED_CONTRACTS_PER_SEASON = 14;
+const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
 
-/** Two-week seasons begin at Monday 00:00 KST. */
+/** Four-week seasons begin at Monday 00:00 KST. */
 export function rankedSeasonId(now = Date.now()): string {
   const index = Math.max(1, Math.floor((now - RANKED_SEASON_ZERO_KST) / RANKED_SEASON_MS) + 1);
   return `S${index}`;
 }
 
-/** Contract windows are anchored to each two-week season, never to Unix time. */
+/** Contract windows are anchored to each four-week season, never to Unix time. */
 export function rankedContractNumber(now = Date.now()): number {
   const seasonIndex = Math.max(0, Math.floor((now - RANKED_SEASON_ZERO_KST) / RANKED_SEASON_MS));
   const seasonStart = RANKED_SEASON_ZERO_KST + seasonIndex * RANKED_SEASON_MS;
-  return Math.min(7, Math.max(1, Math.floor((now - seasonStart) / RANKED_CONTRACT_MS) + 1));
+  return Math.min(RANKED_CONTRACTS_PER_SEASON, Math.max(1, Math.floor((now - seasonStart) / RANKED_CONTRACT_MS) + 1));
 }
 
 interface AccountRow {
@@ -96,6 +100,26 @@ async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
   if (missing.length > 0) await db.batch(missing);
 }
 
+async function ensureRankedResultColumns(db: D1Database): Promise<void> {
+  const columns = await db.prepare('PRAGMA table_info(ranked_results)').all<{ name: string }>();
+  const existing = new Set(columns.results?.map((row) => row.name) ?? []);
+  const definitions = [
+    ['rating_delta', 'INTEGER NOT NULL DEFAULT 0'],
+    ['contribution_score', 'REAL NOT NULL DEFAULT 0'],
+    ['contribution_rank', 'INTEGER NOT NULL DEFAULT 0'],
+    ['participation_ratio', 'REAL NOT NULL DEFAULT 0'],
+    ['died', 'INTEGER NOT NULL DEFAULT 0'],
+    ['abandoned', 'INTEGER NOT NULL DEFAULT 0'],
+    ['ghost_level', 'INTEGER NOT NULL DEFAULT 1'],
+  ] as const;
+  const missing = definitions
+    .filter(([column]) => !existing.has(column))
+    .map(([column, definition]) =>
+      db.prepare(`ALTER TABLE ranked_results ADD COLUMN ${column} ${definition}`),
+    );
+  if (missing.length > 0) await db.batch(missing);
+}
+
 export async function ensureAuthSchema(db: D1Database): Promise<void> {
   // D1 promises are request-scoped in Workers. Never cache this promise at module
   // scope: a later request would try to await I/O created by another request.
@@ -114,11 +138,12 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_consumable_uses (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, used_at INTEGER NOT NULL, target TEXT NOT NULL DEFAULT '{}', UNIQUE (match_id, account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_consumable_uses_match ON match_consumable_uses(match_id, account_id)'),
-    db.prepare(`CREATE TABLE IF NOT EXISTS ranked_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, season_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_number INTEGER NOT NULL, score INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), elapsed_seconds INTEGER NOT NULL, door_hp_ratio REAL NOT NULL, supplies_used INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ranked_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, season_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_number INTEGER NOT NULL, score INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), elapsed_seconds INTEGER NOT NULL, door_hp_ratio REAL NOT NULL, supplies_used INTEGER NOT NULL DEFAULT 0, rating_delta INTEGER NOT NULL DEFAULT 0, contribution_score REAL NOT NULL DEFAULT 0, contribution_rank INTEGER NOT NULL DEFAULT 0, participation_ratio REAL NOT NULL DEFAULT 0, died INTEGER NOT NULL DEFAULT 0, abandoned INTEGER NOT NULL DEFAULT 0, ghost_level INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_ranked_results_season_score ON ranked_results(season_id, score DESC, created_at ASC)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_ranked_results_account ON ranked_results(account_id, season_id, created_at DESC)'),
   ]);
   await ensureLegacyAuthColumns(db);
+  await ensureRankedResultColumns(db);
 }
 
 const bytesToText = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
@@ -303,7 +328,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       SELECT score FROM contract_attempts
       WHERE contract_rank = 1
       ORDER BY score DESC, created_at ASC
-      LIMIT 5`)
+      LIMIT ${RANKED_SCORED_CONTRACTS_PER_SEASON}`)
       .bind(row.id, rankedSeasonId()).all<{ score: number }>(),
     db.prepare(`SELECT COUNT(*) AS count
       FROM match_results m
@@ -751,40 +776,94 @@ export async function recordRankedMatchResult(
     elapsed: number;
     doorHpRatio: number;
     suppliesUsed: number;
+    ghostLevel: number;
+    contribution: RankedContributionSummary;
   },
   bootstrapSchema = false,
 ): Promise<void> {
   if (bootstrapSchema) await ensureAuthSchema(db);
   const safeDoorHp = Math.max(0, Math.min(1, input.doorHpRatio));
   const timeScore = Math.max(0, 1_200 - Math.floor(input.elapsed * 2));
-  const score = Math.max(0, (input.victory ? 7_500 : 1_200) + timeScore + Math.round(safeDoorHp * 1_000) - input.suppliesUsed * 180);
+  const baseScore = Math.max(
+    0,
+    (input.victory ? 7_500 : 1_200) +
+      timeScore +
+      Math.round(safeDoorHp * 1_000) -
+      input.suppliesUsed * 180,
+  );
+  const score = Math.round(
+    baseScore *
+      rankedContractScoreMultiplier({
+        contributionScore: input.contribution.score,
+        participationRatio: input.contribution.participationRatio,
+        died: input.contribution.died,
+        abandoned: input.contribution.abandoned,
+      }),
+  );
+  const placementBeforeResult = await db.prepare(
+    'SELECT ranked_placement_count FROM accounts WHERE id = ?',
+  ).bind(input.accountId).first<{ ranked_placement_count: number }>();
+  const ratingDelta = rankedRatingDelta({
+    victory: input.victory,
+    doorHpRatio: safeDoorHp,
+    ghostLevel: input.ghostLevel,
+    contributionScore: input.contribution.score,
+    contributionRank: input.contribution.rank,
+    participantCount: input.contribution.participantCount,
+    participationRatio: input.contribution.participationRatio,
+    died: input.contribution.died,
+    abandoned: input.contribution.abandoned,
+    placementCompleted: Math.max(0, Math.min(5, placementBeforeResult?.ranked_placement_count ?? 0)),
+  });
   const previousBest = await db.prepare(`SELECT MAX(score) AS score, COUNT(*) AS attempts
     FROM ranked_results
     WHERE account_id = ? AND season_id = ? AND contract_id = ?`)
     .bind(input.accountId, input.seasonId, input.contractId)
     .first<{ score: number | null; attempts: number }>();
-  const inserted = await db.prepare(`INSERT OR IGNORE INTO ranked_results (match_id, account_id, season_id, contract_id, contract_number, score, victory, elapsed_seconds, door_hp_ratio, supplies_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(input.matchId, input.accountId, input.seasonId, input.contractId, input.contractNumber, score, input.victory ? 1 : 0, Math.floor(input.elapsed), safeDoorHp, input.suppliesUsed, Date.now()).run();
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO ranked_results (
+      match_id, account_id, season_id, contract_id, contract_number, score,
+      victory, elapsed_seconds, door_hp_ratio, supplies_used, rating_delta,
+      contribution_score, contribution_rank, participation_ratio, died,
+      abandoned, ghost_level, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      input.matchId,
+      input.accountId,
+      input.seasonId,
+      input.contractId,
+      input.contractNumber,
+      score,
+      input.victory ? 1 : 0,
+      Math.floor(input.elapsed),
+      safeDoorHp,
+      input.suppliesUsed,
+      ratingDelta,
+      input.contribution.score,
+      input.contribution.rank,
+      input.contribution.participationRatio,
+      input.contribution.died ? 1 : 0,
+      input.contribution.abandoned ? 1 : 0,
+      input.ghostLevel,
+      Date.now(),
+    ).run();
   if ((inserted.meta.changes ?? 0) === 0) return;
-  // Rating is intentionally modest; the final leaderboard uses the best five
-  // contract scores, so one lucky room cannot decide a two-week season.
-  const ratingDelta = input.victory ? 28 + Math.round(safeDoorHp * 12) : -12;
   const firstAttemptForContract = (previousBest?.attempts ?? 0) === 0;
-  const improvedContractScore = firstAttemptForContract || score > (previousBest?.score ?? -1);
   const now = Date.now();
-  if (improvedContractScore) {
-    await db.prepare(`UPDATE accounts
-      SET ranked_season_id = ?, ranked_rating = MAX(0, ranked_rating + ?),
-        ranked_placement_count = MIN(5, ranked_placement_count + 1),
-        ranked_contracts_played = ranked_contracts_played + ?, updated_at = ?
-      WHERE id = ?`)
-      .bind(input.seasonId, ratingDelta, firstAttemptForContract ? 1 : 0, now, input.accountId).run();
-  } else {
-    await db.prepare(`UPDATE accounts
-      SET ranked_season_id = ?, ranked_placement_count = MIN(5, ranked_placement_count + 1), updated_at = ?
-      WHERE id = ?`)
-      .bind(input.seasonId, now, input.accountId).run();
-  }
+  // RP is a per-match consequence, not a best-contract consequence. A death
+  // or abandon must therefore be applied even when this attempt does not
+  // improve the contract score used by the season leaderboard.
+  await db.prepare(`UPDATE accounts
+    SET ranked_season_id = ?, ranked_rating = MAX(0, ranked_rating + ?),
+      ranked_placement_count = MIN(5, ranked_placement_count + 1),
+      ranked_contracts_played = ranked_contracts_played + ?, updated_at = ?
+    WHERE id = ?`)
+    .bind(
+      input.seasonId,
+      ratingDelta,
+      firstAttemptForContract ? 1 : 0,
+      now,
+      input.accountId,
+    ).run();
 }
 
 export interface RankedLeaderboardEntry {
@@ -812,7 +891,7 @@ export async function rankedLeaderboard(
     ), totals AS (
       SELECT account_id, SUM(score) AS score, MIN(created_at) AS attained_at
       FROM scored
-      WHERE score_rank <= 5
+      WHERE score_rank <= ${RANKED_SCORED_CONTRACTS_PER_SEASON}
       GROUP BY account_id
     )
     SELECT a.id AS account_id, a.nickname AS nickname, a.profile_avatar AS profile_avatar,

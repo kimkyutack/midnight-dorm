@@ -5,7 +5,7 @@
 - 상태: 서버 구현 기준
 - 코드 기준점: `src/shared/map.ts`, `src/server/engine.ts`, `src/client/game/ThreeGameView.ts`
 
-사용자 표시 명칭은 `혼자하기`·`친구랑하기`로 변경하고 내부 서버 모드 키 `single`·`multi`는 기존 전적 호환을 위해 유지한다. 별도 14일 시즌형 랭크전과 48시간 고정 시드 계약은 `docs/spec/ranked-mode.md`에서 정의한다.
+사용자 표시 명칭은 `혼자하기`·`친구랑하기`로 변경하고 내부 서버 모드 키 `single`·`multi`는 기존 전적 호환을 위해 유지한다. 별도 4주 시즌형 랭크전과 48시간 고정 시드 계약은 `docs/spec/ranked-mode.md`에서 정의한다.
 
 ## 1. 맵 토폴로지
 

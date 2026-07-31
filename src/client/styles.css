@@ -450,148 +450,6 @@
   padding: 12px;
   text-align: center;
 }
-.custom-live-preview {
-  position: absolute;
-  z-index: 5;
-  top: 10px;
-  left: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid rgba(118, 224, 241, 0.52);
-  border-radius: 999px;
-  color: #dffcff;
-  background: rgba(3, 16, 24, 0.78);
-  box-shadow: 0 0 20px rgba(67, 204, 240, 0.16);
-  backdrop-filter: blur(10px);
-}
-.custom-live-preview span {
-  color: #76e4f8;
-  font-size: 10px;
-}
-.custom-live-preview small {
-  font-size: 9px;
-  font-weight: 900;
-}
-.live-cosmetic-modal {
-  z-index: 310;
-}
-.live-cosmetic-sheet {
-  width: min(92dvw, 460px);
-  padding: 16px;
-  border: 1px solid rgba(115, 227, 245, 0.48);
-  border-radius: 24px;
-  background: linear-gradient(160deg, #101d2c, #060c13 72%);
-  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.75);
-}
-.live-cosmetic-sheet header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.live-cosmetic-sheet header small {
-  color: #7ce9fa;
-  font-size: 9px;
-  font-weight: 950;
-  letter-spacing: 0.16em;
-}
-.live-cosmetic-sheet h2 {
-  margin: 3px 0 0;
-  font-size: 22px;
-}
-.live-cosmetic-sheet header button {
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 13px;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 24px;
-}
-.live-cosmetic-sheet > p {
-  margin: 12px 2px 0;
-  color: #b9c8cf;
-  font-size: 12px;
-  line-height: 1.55;
-}
-.live-cosmetic-stage {
-  position: relative;
-  height: min(58svh, 460px);
-  min-height: 320px;
-  margin-top: 14px;
-  overflow: hidden;
-  border: 1px solid rgba(133, 227, 241, 0.2);
-  border-radius: 18px;
-  background:
-    linear-gradient(rgba(7, 24, 30, 0.08), rgba(1, 6, 10, 0.72)),
-    url("/assets/environment/hospital-room-tile-v2.png") center / 96px;
-}
-.live-tile-room,
-.live-turret-room {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
-.live-tile-room img {
-  width: 68%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 16px;
-  animation: liveTileReveal 2.4s ease-in-out infinite;
-}
-.live-tile-room span {
-  position: absolute;
-  width: 78%;
-  height: 24%;
-  border-radius: 50%;
-  background: rgba(112, 236, 255, 0.25);
-  filter: blur(10px);
-  animation: liveTileSweep 2.4s ease-in-out infinite;
-}
-.live-turret-room img {
-  position: relative;
-  z-index: 2;
-  width: 48%;
-  object-fit: contain;
-  filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.65));
-  animation: liveTurretRecoil 1.25s ease-in-out infinite;
-}
-.live-turret-room i {
-  position: absolute;
-  z-index: 1;
-  left: 49%;
-  top: 23%;
-  width: 45%;
-  height: 5px;
-  transform: rotate(-24deg);
-  transform-origin: left center;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #fff, #6beafa, transparent);
-  box-shadow: 0 0 16px #5eefff;
-  animation: liveTurretShot 1.25s linear infinite;
-}
-@keyframes liveTileReveal {
-  0%, 12% { transform: perspective(500px) rotateY(86deg); filter: brightness(2); }
-  34%, 80% { transform: perspective(500px) rotateY(0); filter: brightness(1); }
-  100% { transform: perspective(500px) rotateY(-4deg); }
-}
-@keyframes liveTileSweep {
-  0% { transform: translateX(-90%) scaleX(0.5); opacity: 0; }
-  30% { opacity: 1; }
-  58%, 100% { transform: translateX(90%) scaleX(1.2); opacity: 0; }
-}
-@keyframes liveTurretRecoil {
-  0%, 66%, 100% { transform: translateY(0); }
-  72% { transform: translateY(7px); }
-}
-@keyframes liveTurretShot {
-  0%, 64% { opacity: 0; transform: rotate(-24deg) scaleX(0); }
-  68% { opacity: 1; transform: rotate(-24deg) scaleX(1); }
-  78%, 100% { opacity: 0; transform: rotate(-24deg) scaleX(1.2); }
-}
 .custom-preview > div:last-child > span {
   display: block;
   margin-bottom: 2px;
@@ -612,6 +470,9 @@
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
   padding: 9px;
+}
+.custom-catalog.has-ranked-notice {
+  grid-template-rows: 42px auto minmax(0, 1fr);
 }
 .custom-catalog nav {
   display: grid;
@@ -1227,6 +1088,9 @@
     grid-template-rows: 36px minmax(0, 1fr);
     padding: 7px;
   }
+  .custom-catalog.has-ranked-notice {
+    grid-template-rows: 36px auto minmax(0, 1fr);
+  }
   .custom-tab {
     min-height: 30px;
   }
@@ -1720,6 +1584,40 @@
   color: #90dde4;
   font-size: 8px;
 }
+.ranked-fair-play-modal {
+  width: min(calc(100dvw - 32px), 390px);
+}
+.ranked-fair-play-modal > small {
+  display: block;
+  margin-top: 12px;
+  color: rgba(226, 238, 243, 0.64);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.ranked-fair-play-points {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+}
+.ranked-fair-play-points p {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(133, 220, 237, 0.16);
+  border-radius: 12px;
+  background: rgba(24, 52, 67, 0.4);
+}
+.ranked-fair-play-points strong {
+  color: #8ce8ef;
+  font-size: 10px;
+}
+.ranked-fair-play-points span {
+  color: rgba(238, 246, 248, 0.78);
+  font-size: 10px;
+  line-height: 1.45;
+}
 .profile-display-intro {
   margin: -2px 0 13px;
   color: rgba(225, 237, 240, 0.58);
@@ -2044,6 +1942,34 @@
   font-size: 10px;
   line-height: 1.55;
 }
+.ranked-queue-rule {
+  display: grid;
+  gap: 3px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(139, 226, 242, 0.18);
+  border-radius: 13px;
+  background: linear-gradient(
+    135deg,
+    rgba(35, 101, 126, 0.25),
+    rgba(22, 31, 53, 0.55)
+  );
+}
+.ranked-queue-rule strong {
+  color: #8be7ef;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.ranked-queue-rule span {
+  color: #f1f7f8;
+  font-size: 10px;
+  font-weight: 850;
+}
+.ranked-queue-rule small {
+  color: rgba(225, 237, 241, 0.58);
+  font-size: 8px;
+  line-height: 1.45;
+}
 .ranked-queue-clock {
   display: grid;
   justify-items: center;
@@ -2057,6 +1983,60 @@
     rgba(42, 114, 151, 0.29),
     rgba(10, 26, 43, 0.58)
   );
+}
+.ranked-cosmetic-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  margin: 5px 2px 7px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 189, 92, 0.62);
+  border-radius: 13px;
+  background: black;
+  box-shadow:
+    0 0 18px rgba(238, 104, 232, 0.2),
+    inset 0 1px rgba(255, 255, 255, 0.08);
+}
+.ranked-cosmetic-notice > b {
+  display: grid;
+  min-width: 48px;
+  min-height: 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 220, 142, 0.7);
+  border-radius: 9px;
+  color: #26182f;
+  background: linear-gradient(145deg, #ffe9a5, #ffb75e);
+  font-size: 8px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+}
+.ranked-cosmetic-notice div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ranked-cosmetic-notice strong {
+  color: #fff3ca;
+  font-size: 10px;
+}
+.ranked-cosmetic-notice span {
+  color: rgba(244, 237, 251, 0.78);
+  font-size: 8px;
+  line-height: 1.35;
+}
+.ranked-skin-card-note {
+  display: inline-flex;
+  width: fit-content;
+  margin: 2px auto 1px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 194, 100, 0.5);
+  border-radius: 999px;
+  color: #ffe3a1;
+  background: rgba(72, 37, 74, 0.72);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 950;
 }
 .ranked-queue-clock span {
   color: #7fdef4;
@@ -2499,6 +2479,9 @@
     min-height: 0;
     padding: 6px;
     grid-template-rows: 35px minmax(0, 1fr);
+  }
+  .custom-catalog.has-ranked-notice {
+    grid-template-rows: 35px auto minmax(0, 1fr);
   }
   .custom-catalog nav {
     overflow-x: auto;
@@ -7001,6 +6984,7 @@ body.game-chat-active {
   font-weight: 950;
 }
 .purchase-confirm-actions {
+  margin-top: 10px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
@@ -10019,6 +10003,7 @@ body.game-chat-active {
 }
 .cyber-driver-kong-card-sprite {
   background-image: url("/assets/sprites/skins/skin-cyber-driver-kong/movement-sheet.png");
+  clip-path: inset(0 3px 0 3px);
 }
 .neon-rider-lulu-card,
 .cyber-driver-kong-card {
@@ -10217,6 +10202,7 @@ body.game-chat-active {
 }
 .custom-avatar-stage.neon-rider-lulu-preview .skin-preview-canvas,
 .custom-avatar-stage.cyber-driver-kong-preview .skin-preview-canvas {
+  clip-path: inset(0 2.5% 0 2.5%);
   width: min(94%, 346px);
   height: min(96%, 346px);
   filter:
