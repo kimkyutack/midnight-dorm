@@ -18,7 +18,10 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            // Release builds are uploaded as an Android App Bundle. R8 and resource
+            // shrinking remove unused native/plugin code without changing web assets.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

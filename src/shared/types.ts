@@ -444,6 +444,12 @@ export interface AccountProfile {
   ranked: RankedProfile;
   victories: number;
   customPoints: number;
+  /** Server-authoritative ad-removal entitlement used by reward and home UI. */
+  adFree: {
+    active: boolean;
+    plan: 'monthly' | 'permanent' | null;
+    expiresAt: number | null;
+  };
   ownedCosmetics: string[];
   appearance: AvatarAppearance;
   turretSkins: TurretSkinLoadout;

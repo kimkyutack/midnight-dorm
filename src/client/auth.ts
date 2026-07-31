@@ -47,6 +47,34 @@ export const dismissPromotion = (promotionId: 'summer' | 'cyberpunk'): Promise<A
   method: 'POST', body: JSON.stringify({ promotionId }),
 });
 
+export interface MatchRewardClaim {
+  profile: AccountProfile;
+  pointsAwarded: number;
+  multiplier: 1 | 2;
+  alreadyClaimed: boolean;
+}
+
+export async function claimMatchReward(
+  matchId: string,
+  multiplier: 1 | 2,
+  rewardedAdCompleted = false,
+): Promise<MatchRewardClaim> {
+  const response = await fetch('/api/rewards/match/claim', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ matchId, multiplier, rewardedAdCompleted }),
+  });
+  const data = await response.json() as MatchRewardClaim & { error?: string };
+  if (!response.ok || !data.profile) throw new Error(data.error ?? '전리품을 지급하지 못했습니다.');
+  return data;
+}
+
+export const purchaseAdFree = (plan: 'monthly' | 'permanent'): Promise<AccountProfile> =>
+  authRequest('/api/entitlements/ad-free/purchase', {
+    method: 'POST',
+    body: JSON.stringify({ plan }),
+  });
+
 export async function logoutAccount(): Promise<void> {
   try {
     const response = await fetch('/api/auth/logout', {

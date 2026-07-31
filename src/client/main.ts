@@ -90,8 +90,10 @@ import {
   dismissPromotion,
   equipCosmetic,
   getAccount,
+  claimMatchReward,
   loginAccount,
   logoutAccount,
+  purchaseAdFree,
   purchaseCosmetic,
   purchaseConsumable,
   registerAccount,
@@ -115,6 +117,10 @@ import {
   signOutGoogle,
 } from "./native/googleAuth";
 import { initializeNativeRuntime, isNativeApp } from "./native";
+import {
+  prepareStageClearReward,
+  showStageClearReward,
+} from "./native/admob";
 import { nativeWebSocketUrlSync } from "./native/runtime";
 import "./styles.css";
 
@@ -870,7 +876,7 @@ function homeScreen(): void {
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free" data-ad-free aria-label="광고 제거 예정"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -930,7 +936,7 @@ function homeScreen(): void {
   });
   app.querySelector("[data-ad-free]")?.addEventListener("click", () => {
     audio.play("button");
-    toast("광고 제거 기능은 추후 제공됩니다.");
+    showAdFreePurchase();
   });
   app
     .querySelector("[data-home-settings]")
@@ -943,6 +949,72 @@ function homeScreen(): void {
   void refreshSocialUnreadCount();
   startSocialRealtime();
   showSkinLaunchPromoCarousel();
+}
+
+function adFreeStatusText(profile: AccountProfile): string {
+  if (!profile.adFree.active) return "광고 제거 상품을 선택해주세요.";
+  if (profile.adFree.plan === "permanent") return "영구 광고 제거가 적용 중입니다.";
+  if (!profile.adFree.expiresAt) return "한 달 광고 제거가 적용 중입니다.";
+  return `${new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(profile.adFree.expiresAt)}까지 광고가 제거됩니다.`;
+}
+
+function showAdFreePurchase(): void {
+  const currentAccount = account;
+  if (!currentAccount) return;
+  const modal = dismissibleModal(
+    `<section class="panel compact ad-free-purchase" role="dialog" aria-modal="true" aria-labelledby="ad-free-title">
+      <header class="ad-free-purchase-header">
+        <div><span class="eyebrow">AD FREE</span><h2 id="ad-free-title">광고 제거</h2></div>
+        <button data-modal-close aria-label="닫기">×</button>
+      </header>
+      <p class="ad-free-status ${currentAccount.adFree.active ? "active" : ""}">${escapeHtml(adFreeStatusText(currentAccount))}</p>
+      <div class="ad-free-plans">
+        <button type="button" data-ad-free-plan="monthly" ${currentAccount.adFree.plan === "permanent" ? "disabled" : ""}>
+          <span>30 DAYS</span><strong>한 달 제거</strong><b>₩6,000</b>
+          <small>구매일부터 30일 동안 광고 없이 2배 전리품을 받습니다.</small>
+        </button>
+        <button type="button" class="permanent" data-ad-free-plan="permanent" ${currentAccount.adFree.plan === "permanent" ? "disabled" : ""}>
+          <span>FOREVER</span><strong>영구 제거</strong><b>₩30,000</b>
+          <small>기간 제한 없이 광고 없이 2배 전리품을 받습니다.</small>
+        </button>
+      </div>
+      <p class="ad-free-test-note">결제 연동 전 테스트 기간에는 버튼을 누르면 무료로 적용됩니다.</p>
+    </section>`,
+    "ad-free-purchase-modal",
+  );
+  modal
+    .querySelectorAll<HTMLButtonElement>("[data-ad-free-plan]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        const plan = button.dataset.adFreePlan === "permanent" ? "permanent" : "monthly";
+        modal
+          .querySelectorAll<HTMLButtonElement>("[data-ad-free-plan]")
+          .forEach((candidate) => {
+            candidate.disabled = true;
+          });
+        button.classList.add("loading");
+        void purchaseAdFree(plan)
+          .then((next) => {
+            account = next;
+            modal.remove();
+            homeScreen();
+            toast(plan === "permanent" ? "영구 광고 제거가 적용되었습니다." : "한 달 광고 제거가 적용되었습니다.");
+          })
+          .catch((error) => {
+            button.classList.remove("loading");
+            modal
+              .querySelectorAll<HTMLButtonElement>("[data-ad-free-plan]")
+              .forEach((candidate) => {
+                candidate.disabled = currentAccount.adFree.plan === "permanent";
+              });
+            toast(error instanceof Error ? error.message : "광고 제거 상품을 적용하지 못했습니다.");
+          });
+      }),
+    );
 }
 
 interface SkinLaunchCampaign {
@@ -3229,21 +3301,27 @@ function resultScreen(state: GameSnapshot): void {
   const reward = customizationReward(state.stageIndex);
   const tutorialVictory = victory && state.stageId === "tutorial-1";
   const rankedResult = Boolean(state.ranked);
+  const adFreeActive = Boolean(account?.adFree.active);
   const resultActions = tutorialVictory
     ? '<div class="result-actions tutorial-result-actions"><button class="btn primary" data-tutorial-home>홈으로 이동</button></div>'
-    : rankedResult
-      ? '<div class="result-actions ranked-result-actions"><button class="btn primary" data-leave>홈으로 이동</button></div>'
-      : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
+    : victory
+      ? `<div class="result-actions victory-claim-actions ${adFreeActive ? "ad-free" : ""}">
+          ${adFreeActive ? "" : '<button class="btn ghost" data-claim-reward="1">전리품 수령</button>'}
+          <button class="btn primary" data-claim-reward="2">${adFreeActive ? "2배 전리품 수령" : "2배 수령"}</button>
+        </div>`
+      : rankedResult
+        ? '<div class="result-actions ranked-result-actions"><button class="btn primary" data-leave>홈으로 이동</button></div>'
+        : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
   setContent(
     "result",
-    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "듀토리얼을 완료했습니다" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "기본 훈련을 모두 마쳤습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "이제 홈에서 이벤트와 모든 게임 기능을 이용할 수 있습니다." : "커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
+    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "듀토리얼을 완료했습니다" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "기본 훈련을 모두 마쳤습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "이제 홈에서 이벤트와 모든 게임 기능을 이용할 수 있습니다." : adFreeActive ? "광고 제거 혜택으로 2배 전리품을 바로 받을 수 있습니다." : "전리품 수령을 완료하면 포인트가 계정에 지급됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
     network?.rematch();
     audio.play("button");
   });
-  app.querySelector("[data-leave]")?.addEventListener("click", () => {
+  const leaveResultToHome = (): void => {
     const code = network?.code;
     network?.close();
     network = null;
@@ -3271,7 +3349,58 @@ function resultScreen(state: GameSnapshot): void {
       homePlayMode = next.selectedPlayMode;
       homeScreen();
     })().catch(() => authScreen());
-  });
+  };
+  app.querySelector("[data-leave]")?.addEventListener("click", leaveResultToHome);
+  if (victory && !tutorialVictory && account && isNativeApp && !adFreeActive) {
+    void prepareStageClearReward(account.id, state.matchId).catch(() => undefined);
+  }
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-claim-reward]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        const multiplier: 1 | 2 = button.dataset.claimReward === "2" ? 2 : 1;
+        const claimButtons = app.querySelectorAll<HTMLButtonElement>("[data-claim-reward]");
+        claimButtons.forEach((candidate) => {
+          candidate.disabled = true;
+        });
+        button.classList.add("loading");
+        void (async () => {
+          let rewardedAdCompleted = false;
+          if (multiplier === 2 && !adFreeActive) {
+            if (!account) throw new Error("로그인이 필요합니다.");
+            if (!isNativeApp) {
+              throw new Error("2배 보상형 광고는 Google Play 또는 App Store 앱에서 이용할 수 있습니다.");
+            }
+            await showStageClearReward(account.id, state.matchId);
+            rewardedAdCompleted = true;
+          }
+          let claim: Awaited<ReturnType<typeof claimMatchReward>> | null = null;
+          for (let attempt = 0; attempt < 5; attempt += 1) {
+            try {
+              claim = await claimMatchReward(state.matchId, multiplier, rewardedAdCompleted);
+              break;
+            } catch (error) {
+              if (
+                attempt >= 4
+                || !(error instanceof Error)
+                || !error.message.includes("정산이 아직")
+              ) throw error;
+              await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
+            }
+          }
+          if (!claim) throw new Error("전리품을 지급하지 못했습니다.");
+          account = claim.profile;
+          toast(`✦ ${claim.pointsAwarded.toLocaleString()} P를 받았습니다.`);
+          leaveResultToHome();
+        })().catch((error) => {
+          button.classList.remove("loading");
+          claimButtons.forEach((candidate) => {
+            candidate.disabled = false;
+          });
+          toast(error instanceof Error ? error.message : "전리품을 지급하지 못했습니다.");
+        });
+      }),
+    );
   const finishTutorialResult = async (): Promise<void> => {
     const code = network?.code;
     network?.close();

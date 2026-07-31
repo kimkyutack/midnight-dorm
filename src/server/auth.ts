@@ -19,6 +19,8 @@ const RANKED_CONTRACTS_PER_SEASON = 14;
 const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
 const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 const PROMOTION_IDS = new Set(['summer', 'cyberpunk']);
+const AD_FREE_ENTITLEMENT_ID = 'ad-removal';
+const AD_FREE_MONTH_MS = 30 * 24 * 60 * 60 * 1_000;
 
 /** Four-week seasons begin at Monday 00:00 KST. */
 export function rankedSeasonId(now = Date.now()): string {
@@ -72,6 +74,11 @@ interface ConsumableRow {
   quantity: number;
 }
 
+interface AdFreeEntitlementRow {
+  plan: string;
+  expires_at: number | null;
+}
+
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
   const columns = await db.prepare('PRAGMA table_info(accounts)').all<{ name: string }>();
   const existing = new Set(columns.results?.map((row) => row.name) ?? []);
@@ -123,6 +130,22 @@ async function ensureRankedResultColumns(db: D1Database): Promise<void> {
   if (missing.length > 0) await db.batch(missing);
 }
 
+async function ensureMatchRewardColumns(db: D1Database): Promise<void> {
+  const columns = await db.prepare('PRAGMA table_info(match_results)').all<{ name: string }>();
+  const existing = new Set(columns.results?.map((row) => row.name) ?? []);
+  const definitions = [
+    ['reward_points', 'INTEGER NOT NULL DEFAULT 0'],
+    ['reward_claimed_at', 'INTEGER NOT NULL DEFAULT 0'],
+    ['reward_multiplier', 'INTEGER NOT NULL DEFAULT 0'],
+  ] as const;
+  const missing = definitions
+    .filter(([column]) => !existing.has(column))
+    .map(([column, definition]) =>
+      db.prepare(`ALTER TABLE match_results ADD COLUMN ${column} ${definition}`),
+    );
+  if (missing.length > 0) await db.batch(missing);
+}
+
 export async function ensureAuthSchema(db: D1Database): Promise<void> {
   // D1 promises are request-scoped in Workers. Never cache this promise at module
   // scope: a later request would try to await I/O created by another request.
@@ -169,6 +192,17 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
       PRIMARY KEY (account_id, promotion_id)
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_promotion_dismissals_account ON account_promotion_dismissals(account_id, dismissed_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_entitlements (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      entitlement_id TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'mock',
+      starts_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, entitlement_id)
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_account_entitlements_expiry ON account_entitlements(entitlement_id, expires_at)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_consumable_uses (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, used_at INTEGER NOT NULL, target TEXT NOT NULL DEFAULT '{}', UNIQUE (match_id, account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_consumable_uses_match ON match_consumable_uses(match_id, account_id)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS ranked_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, season_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_number INTEGER NOT NULL, score INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), elapsed_seconds INTEGER NOT NULL, door_hp_ratio REAL NOT NULL, supplies_used INTEGER NOT NULL DEFAULT 0, rating_delta INTEGER NOT NULL DEFAULT 0, contribution_score REAL NOT NULL DEFAULT 0, contribution_rank INTEGER NOT NULL DEFAULT 0, participation_ratio REAL NOT NULL DEFAULT 0, died INTEGER NOT NULL DEFAULT 0, abandoned INTEGER NOT NULL DEFAULT 0, ghost_level INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
@@ -177,6 +211,20 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   ]);
   await ensureLegacyAuthColumns(db);
   await ensureRankedResultColumns(db);
+  await ensureMatchRewardColumns(db);
+  await db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_match_reward_claim
+    AFTER UPDATE OF reward_claimed_at ON match_results
+    WHEN OLD.reward_claimed_at = 0
+      AND NEW.reward_claimed_at > 0
+      AND NEW.victory = 1
+      AND NEW.reward_points > 0
+      AND NEW.reward_multiplier IN (1, 2)
+    BEGIN
+      UPDATE account_customization
+      SET custom_points = custom_points + (NEW.reward_points * NEW.reward_multiplier),
+          updated_at = NEW.reward_claimed_at
+      WHERE account_id = NEW.account_id;
+    END`).run();
   await db.prepare(`INSERT OR IGNORE INTO account_nickname_registry
     (normalized_nickname, account_id, created_at)
     SELECT lower(trim(nickname)), id, created_at FROM accounts
@@ -230,6 +278,7 @@ function profileFromRow(
   consumables: OwnedConsumable[],
   dismissedPromotionIds: string[],
   generalMatchCount: number,
+  adFreeEntitlement: AdFreeEntitlementRow | null,
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
@@ -304,6 +353,17 @@ function profileFromRow(
     },
     victories: row.victories,
     customPoints: customization?.custom_points ?? 0,
+    adFree: {
+      active: adFreeEntitlement?.plan === 'permanent'
+        || (
+          adFreeEntitlement?.plan === 'monthly'
+          && (adFreeEntitlement.expires_at ?? 0) > Date.now()
+        ),
+      plan: adFreeEntitlement?.plan === 'monthly' || adFreeEntitlement?.plan === 'permanent'
+        ? adFreeEntitlement.plan
+        : null,
+      expiresAt: adFreeEntitlement?.expires_at ?? null,
+    },
     // Old individual equipment purchases remain in the database for audit
     // purposes, but they are no longer part of an account's usable inventory.
     ownedCosmetics,
@@ -349,7 +409,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       ranked_contracts_played: 0,
     };
   }
-  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches] = await Promise.all([
+  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches, adFreeEntitlement] = await Promise.all([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id).first<CustomizationRow>(),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
@@ -378,6 +438,9 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
           SELECT 1 FROM ranked_results r
           WHERE r.match_id = m.match_id AND r.account_id = m.account_id
         )`).bind(row.id).first<{ count: number }>(),
+    db.prepare(`SELECT plan, expires_at FROM account_entitlements
+      WHERE account_id = ? AND entitlement_id = ?`)
+      .bind(row.id, AD_FREE_ENTITLEMENT_ID).first<AdFreeEntitlementRow>(),
   ]);
   const profile = profileFromRow(
     row,
@@ -387,6 +450,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
     (dismissedPromotions.results ?? []).map((item) => item.promotion_id),
     Math.max(0, generalMatches?.count ?? 0),
+    adFreeEntitlement,
   );
   profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);
   return profile;
@@ -925,6 +989,137 @@ export async function consumeMatchConsumable(
   return { ok: false, error: '보급 재고가 없거나 이번 판에 이미 사용했습니다.' };
 }
 
+async function purchaseMockAdFree(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) {
+    return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  }
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { plan?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: '광고 제거 상품을 확인해주세요.' }, { status: 400 });
+  }
+  if (body.plan !== 'monthly' && body.plan !== 'permanent') {
+    return Response.json({ error: '지원하지 않는 광고 제거 상품입니다.' }, { status: 400 });
+  }
+
+  const now = Date.now();
+  const current = await db.prepare(`SELECT plan, expires_at FROM account_entitlements
+    WHERE account_id = ? AND entitlement_id = ?`)
+    .bind(row.id, AD_FREE_ENTITLEMENT_ID)
+    .first<AdFreeEntitlementRow>();
+  if (current?.plan === 'permanent') {
+    return Response.json({ profile: await profileForRow(db, row) });
+  }
+  const expiresAt = body.plan === 'monthly'
+    ? Math.max(now, current?.expires_at ?? 0) + AD_FREE_MONTH_MS
+    : null;
+  await db.prepare(`INSERT INTO account_entitlements
+      (account_id, entitlement_id, plan, source, starts_at, expires_at, updated_at)
+    VALUES (?, ?, ?, 'mock', ?, ?, ?)
+    ON CONFLICT(account_id, entitlement_id) DO UPDATE SET
+      plan = excluded.plan,
+      source = excluded.source,
+      starts_at = excluded.starts_at,
+      expires_at = excluded.expires_at,
+      updated_at = excluded.updated_at`)
+    .bind(row.id, AD_FREE_ENTITLEMENT_ID, body.plan, now, expiresAt, now)
+    .run();
+  return Response.json({ profile: await profileForRow(db, row) });
+}
+
+async function claimMatchReward(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) {
+    return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  }
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { matchId?: string; multiplier?: number; rewardedAdCompleted?: boolean };
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: '전리품 요청을 확인해주세요.' }, { status: 400 });
+  }
+  const matchId = body.matchId?.trim() ?? '';
+  const multiplier = body.multiplier === 2 ? 2 : body.multiplier === 1 ? 1 : 0;
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(matchId) || multiplier === 0) {
+    return Response.json({ error: '전리품 요청이 올바르지 않습니다.' }, { status: 400 });
+  }
+
+  const entitlement = await db.prepare(`SELECT plan, expires_at FROM account_entitlements
+    WHERE account_id = ? AND entitlement_id = ?`)
+    .bind(row.id, AD_FREE_ENTITLEMENT_ID)
+    .first<AdFreeEntitlementRow>();
+  const adFreeActive = entitlement?.plan === 'permanent'
+    || (entitlement?.plan === 'monthly' && (entitlement.expires_at ?? 0) > Date.now());
+  // Native AdMob SSV must replace this temporary client completion flag before
+  // paid production launch. Ad-free accounts never need an ad completion flag.
+  if (multiplier === 2 && !adFreeActive && body.rewardedAdCompleted !== true) {
+    return Response.json({ error: '보상형 광고를 끝까지 시청해야 2배 전리품을 받을 수 있습니다.' }, { status: 409 });
+  }
+
+  const match = await db.prepare(`SELECT victory, reward_points, reward_claimed_at,
+      reward_multiplier
+    FROM match_results
+    WHERE match_id = ? AND account_id = ?`)
+    .bind(matchId, row.id)
+    .first<{
+      victory: number;
+      reward_points: number;
+      reward_claimed_at: number;
+      reward_multiplier: number;
+    }>();
+  if (!match) {
+    return Response.json(
+      { error: '전리품 정산이 아직 끝나지 않았습니다. 잠시 후 다시 시도해주세요.' },
+      { status: 404 },
+    );
+  }
+  if (match.victory !== 1 || match.reward_points <= 0) {
+    return Response.json({ error: '수령할 승리 전리품이 없습니다.' }, { status: 409 });
+  }
+
+  const now = Date.now();
+  // The result event and the reward claim can arrive on separate requests.
+  // Ensure the wallet row exists before the trigger credits points so a fast
+  // claim can never be marked complete without actually paying the player.
+  await db.prepare(`INSERT OR IGNORE INTO account_customization
+      (account_id, custom_points, appearance, updated_at)
+    VALUES (?, 0, ?, ?)`)
+    .bind(row.id, JSON.stringify(DEFAULT_APPEARANCE), now)
+    .run();
+  const claimed = await db.prepare(`UPDATE match_results
+    SET reward_claimed_at = ?, reward_multiplier = ?
+    WHERE match_id = ? AND account_id = ? AND reward_claimed_at = 0`)
+    .bind(now, multiplier, matchId, row.id)
+    .run();
+  const finalMatch = (claimed.meta.changes ?? 0) === 1
+    ? { ...match, reward_claimed_at: now, reward_multiplier: multiplier }
+    : await db.prepare(`SELECT victory, reward_points, reward_claimed_at,
+          reward_multiplier
+        FROM match_results
+        WHERE match_id = ? AND account_id = ?`)
+      .bind(matchId, row.id)
+      .first<{
+        victory: number;
+        reward_points: number;
+        reward_claimed_at: number;
+        reward_multiplier: number;
+      }>();
+  if (!finalMatch || finalMatch.reward_claimed_at <= 0) {
+    return Response.json({ error: '전리품 지급 상태를 확인하지 못했습니다.' }, { status: 503 });
+  }
+  const appliedMultiplier = finalMatch.reward_multiplier === 2 ? 2 : 1;
+  return Response.json({
+    profile: await profileForRow(db, row),
+    pointsAwarded: finalMatch.reward_points * appliedMultiplier,
+    multiplier: appliedMultiplier,
+    alreadyClaimed: (claimed.meta.changes ?? 0) === 0,
+  });
+}
+
 export async function routeAuth(
   request: Request,
   db: D1Database,
@@ -932,7 +1127,13 @@ export async function routeAuth(
   googleClientId?: string,
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/api/auth/') && !url.pathname.startsWith('/api/customize/') && !url.pathname.startsWith('/api/shop/')) return null;
+  if (
+    !url.pathname.startsWith('/api/auth/')
+    && !url.pathname.startsWith('/api/customize/')
+    && !url.pathname.startsWith('/api/shop/')
+    && !url.pathname.startsWith('/api/rewards/')
+    && !url.pathname.startsWith('/api/entitlements/')
+  ) return null;
   try {
     if (bootstrapSchema) await ensureAuthSchema(db);
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
@@ -947,6 +1148,8 @@ export async function routeAuth(
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);
+    if (url.pathname === '/api/rewards/match/claim' && request.method === 'POST') return claimMatchReward(request, db);
+    if (url.pathname === '/api/entitlements/ad-free/purchase' && request.method === 'POST') return purchaseMockAdFree(request, db);
     if (url.pathname === '/api/auth/me' && request.method === 'GET') {
       const profile = await authenticatedProfileFromReadySchema(request, db);
       return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
@@ -976,22 +1179,40 @@ export async function recordMatchResult(
   const eventBonus = input.victory && input.timeAttack ? 1.35 : 1;
   const xp = Math.round(baseXp * eventBonus);
   const points = Math.round(basePoints * eventBonus);
-  const inserted = await db.prepare(`INSERT OR IGNORE INTO match_results (match_id, account_id, play_mode, stage_index, victory, xp_awarded, elapsed_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(input.matchId, input.accountId, input.playMode, input.stageIndex, input.victory ? 1 : 0, xp, Math.floor(input.elapsed), Date.now()).run();
+  const now = Date.now();
+  const rewardClaimedAt = tutorialMatch && input.victory ? now : 0;
+  const rewardMultiplier = tutorialMatch && input.victory ? 1 : 0;
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO match_results (
+      match_id, account_id, play_mode, stage_index, victory, xp_awarded,
+      elapsed_seconds, reward_points, reward_claimed_at, reward_multiplier,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      input.matchId,
+      input.accountId,
+      input.playMode,
+      input.stageIndex,
+      input.victory ? 1 : 0,
+      xp,
+      Math.floor(input.elapsed),
+      points,
+      rewardClaimedAt,
+      rewardMultiplier,
+      now,
+    ).run();
   if ((inserted.meta.changes ?? 0) === 0) return;
   const xpColumn = input.playMode === 'solo' ? 'solo_xp' : 'multiplayer_xp';
   const stageColumn = input.playMode === 'solo' ? 'solo_stage_index' : 'multiplayer_stage_index';
   const nextStage = tutorialMatch
     ? 0
     : Math.min(STAGES.length - 1, input.stageIndex + (input.victory ? 1 : 0));
-  const now = Date.now();
   await db.batch([
     db.prepare(`UPDATE accounts SET ${xpColumn} = ${xpColumn} + ?, ${stageColumn} = MAX(${stageColumn}, ?), victories = victories + ?, tutorial_completed = MAX(tutorial_completed, ?), updated_at = ? WHERE id = ?`)
       .bind(xp, nextStage, input.victory ? 1 : 0, tutorialMatch && input.victory ? 1 : 0, now, input.accountId),
     db.prepare(`INSERT OR IGNORE INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
       .bind(input.accountId, JSON.stringify(DEFAULT_APPEARANCE), now),
     db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
-      .bind(points, now, input.accountId),
+      .bind(tutorialMatch ? points : 0, now, input.accountId),
   ]);
 }
 

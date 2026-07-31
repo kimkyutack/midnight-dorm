@@ -84,17 +84,24 @@ npm run db:migrate:remote
 5. UMP 동의 화면과 iOS ATT 안내 문구/심사 설명 확정
 
 `prepareStageClearReward()`와 `showStageClearReward()`는 스테이지 클리어
-2배 보상을 위한 준비 코드다. 광고 SDK가 클라이언트에서 성공했다고 보고해도
-보상을 지급하면 안 된다. AdMob Server-side verification 콜백의 서명,
-`user_id`, `custom_data.matchId`, 중복 transaction ID를 Worker가 검증한 뒤
-서버에서 보상을 지급해야 한다.
+2배 보상을 실행한다. 일반 승리는 결과 화면에서 `전리품 수령`을 눌러야
+기본 포인트가 지급되고, `2배 수령`은 광고가 끝난 뒤 지급된다. 광고 제거
+이용자는 광고 없이 2배 수령만 표시한다. 같은 `matchId + accountId`는 D1
+조건부 갱신과 트리거로 한 번만 지급된다.
+
+현재 개발 단계에서는 광고 SDK 완료 결과를 임시 승인 신호로 사용한다.
+출시 전에는 이 신호를 반드시 제거하고 AdMob Server-side verification 콜백의
+서명, `user_id`, `custom_data.matchId`, 중복 transaction ID를 Worker가 검증한
+경우에만 2배 지급을 허용해야 한다.
 
 ## 5. 인앱결제
 
 스토어 상품명과 가격은 Google Play/App Store가 반환한 `Product` 값을 UI에
 표시한다. 코드에 실제 통화 가격을 고정하지 않는다.
 
-현재 `STORE_VERIFICATION_ENABLED=false`이며 구매 버튼은 열리지 않는다.
+현재 `STORE_VERIFICATION_ENABLED=false`이며 실제 스토어 구매 버튼은 열리지
+않는다. 홈의 광고 제거 상품은 결제 UI와 entitlement 만 검증하기 위한 임시
+무료 구매다.
 출시 전에 다음 검증 작업을 완성해야 한다.
 
 - Android: Play Developer API로 package/product/purchase token 검증
@@ -108,6 +115,13 @@ npm run db:migrate:remote
 검증 구현 후에만 Worker 변수 `STORE_VERIFICATION_ENABLED=true`를 배포한다.
 현재 `/api/store/purchases/verify`는 영수증을 `pending`으로 접수할 뿐 포인트나
 스킨을 지급하지 않는다.
+
+광고 제거 entitlement는 `account_entitlements`의 `ad-removal` 행으로 관리한다.
+한 달 상품은 구매 시점부터 30일 만료일을 저장하며 재구매 시 남은 기간 뒤로
+30일을 연장한다. 영구 상품은 `expires_at = NULL`이다. 실제 결제를 연결하면
+무료 구매 API를 제거하고 검증 완료된 영수증 처리기만 이 행을 갱신해야 한다.
+
+D1에는 `0036_match_rewards_ad_free.sql`까지 적용되어야 한다.
 
 ## 6. 빌드
 
