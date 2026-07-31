@@ -11334,36 +11334,15 @@ body.game-chat-active {
 }
 
 .auth-google-web {
-  width: 54px;
-  height: 54px;
-  overflow: hidden;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-}
-
-.auth-google-web > div {
-  width: 54px !important;
-  height: 54px !important;
-  overflow: hidden !important;
-  display: grid !important;
-  place-items: center;
-  border-radius: 50% !important;
-}
-
-.auth-google-web iframe {
-  display: block !important;
-  max-width: none !important;
-  max-height: none !important;
-  border: 0 !important;
-  border-radius: 50% !important;
-  clip-path: circle(50% at 50% 50%);
-  opacity: 1;
 }
 
 .auth-google-loading {
-  width: 54px;
-  height: 54px;
+  width: 40px;
+  height: 40px;
   border: 1px solid rgba(139, 202, 226, 0.3);
   border-radius: 50%;
   background: rgba(245, 249, 250, 0.96);
@@ -11397,8 +11376,8 @@ body.game-chat-active {
 
 .gsi-material-button-icon svg {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
 }
 
 .gsi-material-button-state {
