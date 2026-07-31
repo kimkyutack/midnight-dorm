@@ -19,7 +19,7 @@ npm run dev
 
 ## 게임 흐름
 
-1. 최초 실행 시 복도 추격 티저를 본 뒤 계정을 만들거나 로그인합니다. 혼자하기·친구랑하기 등급, XP와 스테이지 진행도는 D1에 저장됩니다.
+1. 최초 실행 시 복도 추격 티저를 본 뒤 계정을 만들거나 로그인합니다. 네이티브 Google 신규 가입은 닉네임 중복 검사를 거쳐 계정을 만들고, 홈 대신 서버 권위형 8단계 첫 생존 훈련으로 바로 진입합니다. 훈련 완료 전에는 앱을 다시 실행해도 같은 훈련을 이어서 시작합니다.
 2. 게임 홈의 등급과 배지는 현재 선택한 `혼자하기 / 친구랑하기 / 랭크전`에 맞춰 표시됩니다.
 3. 혼자하기 또는 친구랑하기와 해금된 스테이지를 고릅니다. 친구랑하기에서 새 방을 만들면 8자리 초대 코드가 발급됩니다.
 4. 친구랑하기 참가자는 다른 기기에서 같은 URL을 열고 초대 코드로 입장합니다. 홈의 친구 아이콘에서는 친구 코드 추가, 1:1 채팅, 방 초대를 사용할 수 있습니다.
@@ -40,6 +40,7 @@ npm run test:e2e    # 독립 모바일 브라우저 2개의 멀티플레이 E2E
 npm run db:migrate:local   # 로컬 D1 스키마 적용
 npm run db:migrate:remote  # 운영 D1 스키마 적용
 npm run build       # Worker와 정적 클라이언트 프로덕션 빌드
+npm run build:native # 웹 번들 빌드 후 Android/iOS 프로젝트 동기화
 npm run preview     # 프로덕션 빌드 로컬 미리보기
 npm run deploy      # Cloudflare Workers 실제 배포
 ```
@@ -53,6 +54,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 - `src/server/engine.ts`: 20Hz 서버 권위 게임 상태, 경제, 건설, 업그레이드, 전투, 승패, 재접속
 - `src/server/GameRoom.ts`: 방 하나당 SQLite 기반 Durable Object 하나, WebSocket, 10Hz 스냅샷, 저장·자동 정리
 - `src/server/auth.ts`: D1 계정/세션, PBKDF2 비밀번호, 로그인 잠금, 판정 결과·XP 저장
+- `src/client/native`: Capacitor API 주소, Secure Storage 세션, Google 로그인, AdMob, 인앱결제 브리지
 - `src/server/bots.ts`: 서버 생존자 봇의 방 점유와 방어 설비 판단
 - `src/client`: 모바일 DOM UI, Three.js 3D 렌더링, 보간·로컬 이동 예측, 재접속, Web Audio
 - `tests`: 판정 단위 테스트와 12분 가속 서버 시뮬레이션
@@ -81,6 +83,14 @@ Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연�
 
 localStorage에는 임의 UUID, 음량·진동, 로컬 기록, 최근 코드, 재접속 토큰만 저장합니다. 계정, 비밀번호 해시, 세션, 등급, XP, 스테이지와 매치 결과는 D1에 저장합니다. 실제 기기 식별자는 수집하지 않습니다.
 
+## Android/iOS 앱
+
+Capacitor 네이티브 앱은 웹 번들을 앱 안에 포함하고 기존 Cloudflare Worker,
+Durable Objects, D1을 원격 서버로 사용합니다. 네이티브 세션은
+Keychain/Keystore에 저장하며 Google 로그인, AdMob 보상형 광고, Play/App Store
+인앱결제 확장 지점을 분리했습니다. 플랫폼별 OAuth·광고·스토어 설정과 출시
+체크리스트는 [`docs/native-app.md`](docs/native-app.md)를 기준으로 관리합니다.
+
 ## Cloudflare 배포
 
 SQLite Durable Object 마이그레이션, D1 binding과 정적 asset binding은 `wrangler.jsonc`에 포함돼 있습니다. `midnight-dorm-accounts` D1 데이터베이스와 실제 UUID도 현재 Cloudflare 계정 기준으로 연결돼 있습니다.
@@ -94,6 +104,8 @@ npm run deploy
 Cloudflare 인증이 이미 유효하면 두 번째 명령만 실행하면 됩니다. 프론트엔드와 `/api/rooms/*` WebSocket은 동일 Worker 도메인에서 제공됩니다.
 
 새 배포를 등록할 때는 `src/shared/appUpdates.ts`의 `APP_RELEASE_VERSION`을 올리고, 같은 버전·제목·요약을 넣은 D1 마이그레이션을 추가한 뒤 `npm run db:migrate:remote`를 배포 전에 실행합니다.
+
+출시 이벤트의 `다시 보지 않기` 설정은 브라우저가 아니라 D1 계정 데이터에 저장되므로, 다른 계정으로 로그인해도 각 계정의 이벤트 표시 상태가 독립적으로 유지됩니다.
 
 Cloudflare 대시보드에서 Git 리포지토리 빌드를 사용할 때는 각 명령을 `&&`로 연결하거나 별도 필드에 정확히 나눠 입력해야 합니다. `npm install npm run build npm run db:migrate:remote`처럼 공백만으로 이어 쓰면 `npm install`의 패키지 인자로 해석되어 `npm run build`와 D1 마이그레이션이 실행되지 않습니다.
 
@@ -111,6 +123,7 @@ Cloudflare 대시보드에서 Git 리포지토리 빌드를 사용할 때는 각
 ## 현재 제한사항
 
 - 오프라인 캐시는 로딩 셸만 제공하며, 실시간 매치는 연결 없이는 진행되지 않습니다.
-- 현재 계정은 아이디/비밀번호 방식입니다. 이메일 인증·비밀번호 찾기는 이메일 발송 서비스 연결 전까지 제공하지 않습니다.
+- 웹은 아이디/비밀번호 로그인을 유지하고, 네이티브 앱은 Google 로그인을 함께 지원합니다. 이메일 인증·비밀번호 찾기는 이메일 발송 서비스 연결 전까지 제공하지 않습니다.
+- 인앱결제 서버 검증은 기본 비활성 상태입니다. Google Play/App Store 검증과 환불 알림 처리가 완료되기 전에는 실제 상품을 지급하지 않습니다.
 - Three.js 3D 런타임이 포함되므로 클라이언트 번들은 추후 화면 단위 코드 분할 최적화가 필요합니다.
 - 개발 머신의 Node 22.14에서 빌드·E2E까지 검증한 Cloudflare Vite 조합을 고정했습니다. Cloudflare 플러그인을 최신판으로 올릴 때는 Node도 함께 갱신해야 합니다.

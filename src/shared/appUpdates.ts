@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.31.2";
+export const APP_RELEASE_VERSION = "2026.07.31.3";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "랭크전 공정 능력치와 기여도 RP 적용",
+  title: "첫 생존 훈련과 출시 이벤트 개선",
   summary:
-    "• 랭크전에서는 캐릭터 고유 능력만 적용하고 스킨 추가 능력은 제외합니다.\n• 공격·방어·제어·투자·생존 시간을 함께 계산하는 개인 기여도를 도입했습니다.\n• 사망과 중도 이탈은 기여도에 따라 RP가 감소하며, 후반 고기여 사망은 소량의 RP를 받을 수 있습니다.\n• 랭크 선택, 대기열, 외형 상점에서 적용 규칙을 미리 확인할 수 있습니다.",
-  publishedAt: 1785481200000,
+    "• 첫 생존 훈련의 포탑 피해와 안내 흐름을 다듬었습니다.\n• 훈련 중 설치·업그레이드가 끝나면 안내 창이 자동으로 닫힙니다.\n• 출시 이벤트의 다시 보지 않기 설정을 계정별로 저장해, 다른 계정의 이벤트가 숨겨지지 않습니다.",
+  publishedAt: 1785484800000,
 };
 
 /**

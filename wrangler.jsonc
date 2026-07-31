@@ -35,6 +35,8 @@
   ],
   "vars": {
     "DATA_ENV": "remote-d1",
+    "NATIVE_ALLOWED_ORIGINS": "capacitor://localhost,https://localhost,http://localhost",
+    "STORE_VERIFICATION_ENABLED": "false",
   },
   "env": {
     "e2e": {

@@ -6,3 +6,6 @@ playwright-report/
 coverage/
 .DS_Store
 *-lock.json
+.env.native
+.env*.local
+.dev.vars*

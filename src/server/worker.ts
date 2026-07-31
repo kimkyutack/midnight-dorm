@@ -8,6 +8,7 @@ import { createRoomCode, rankedMatchForContract, rankedMatchmakingTier, rankedSt
 import { routeMailbox } from './mailbox';
 import type { SocialPresence } from './SocialPresence';
 import { routeSocial } from './social';
+import { routeNativeStore } from './nativeStore';
 
 export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
@@ -16,6 +17,9 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   DATA_ENV: 'remote-d1' | 'local-e2e';
+  NATIVE_ALLOWED_ORIGINS?: string;
+  GOOGLE_WEB_CLIENT_ID?: string;
+  STORE_VERIFICATION_ENABLED?: string;
 }
 
 interface AppUpdateRow {
@@ -183,8 +187,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   return stub.fetch(new Request(target, { method: request.method, headers }));
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+async function routeWorkerRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, service: 'midnight-dorm', dataEnvironment: env.DATA_ENV, timestamp: Date.now() });
@@ -196,8 +199,18 @@ export default {
     if (mailboxResponse) return mailboxResponse;
     const socialResponse = await routeSocial(request, env.DB, env);
     if (socialResponse) return socialResponse;
-    const authResponse = await routeAuth(request, env.DB, env.DATA_ENV === 'local-e2e');
+    const authResponse = await routeAuth(
+      request,
+      env.DB,
+      env.DATA_ENV === 'local-e2e',
+      env.GOOGLE_WEB_CLIENT_ID,
+    );
     if (authResponse) return authResponse;
+    if (url.pathname.startsWith('/api/store/')) {
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+      const storeResponse = await routeNativeStore(request, env.DB, profile, env);
+      if (storeResponse) return storeResponse;
+    }
     const avatarMatch = url.pathname.match(/^\/api\/profile-avatar\/([a-zA-Z0-9-]{8,80})$/);
     if (avatarMatch && request.method === 'GET') {
       return profileAvatarResponse(env.DB, avatarMatch[1] as string, env.DATA_ENV === 'local-e2e');
@@ -217,6 +230,67 @@ export default {
     const match = url.pathname.match(/^\/api\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);
     if (match) return routeRoom(request, env, match[1] as string, match[2] as 'ws' | 'status');
     return env.ASSETS.fetch(request);
+}
+
+const DEFAULT_NATIVE_ORIGINS = ['capacitor://localhost', 'https://localhost', 'http://localhost'];
+
+function nativeOrigins(env: Env): Set<string> {
+  const configured = env.NATIVE_ALLOWED_ORIGINS
+    ?.split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  return new Set(configured?.length ? configured : DEFAULT_NATIVE_ORIGINS);
+}
+
+function nativeCorsHeaders(origin: string): HeadersInit {
+  return {
+    'access-control-allow-origin': origin,
+    'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    'access-control-allow-headers': 'authorization,content-type,x-midnight-native-platform',
+    'access-control-max-age': '86400',
+    vary: 'Origin',
+  };
+}
+
+function withNativeCors(response: Response, origin: string): Response {
+  const headers = new Headers(response.headers);
+  new Headers(nativeCorsHeaders(origin)).forEach((value, key) => headers.set(key, value));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const origin = request.headers.get('origin')?.replace(/\/+$/, '') ?? '';
+    const nativeOrigin = origin && nativeOrigins(env).has(origin);
+    const nativePlatform = request.headers.get('x-midnight-native-platform');
+    const nativeSocket = url.pathname.endsWith('/ws') && url.searchParams.has('nativeSession');
+    const verifiedNative = Boolean(nativeOrigin && (
+      nativePlatform === 'android' ||
+      nativePlatform === 'ios' ||
+      nativeSocket
+    ));
+
+    if (request.method === 'OPTIONS' && origin) {
+      if (!nativeOrigin) return new Response(null, { status: 403 });
+      return new Response(null, { status: 204, headers: nativeCorsHeaders(origin) });
+    }
+    if (origin && url.pathname.startsWith('/api/') && origin !== url.origin && !verifiedNative) {
+      return Response.json({ error: '허용되지 않은 앱 출처입니다.' }, { status: 403 });
+    }
+
+    let routedRequest = request;
+    if (verifiedNative) {
+      const headers = new Headers(request.headers);
+      headers.delete('origin');
+      headers.set('x-native-origin-verified', '1');
+      routedRequest = new Request(request, { headers });
+    }
+    const response = await routeWorkerRequest(routedRequest, env);
+    // A WebSocket upgrade response carries a Cloudflare-specific `webSocket`
+    // handle that cannot survive reconstructing the Response just to add CORS.
+    // Browser WebSockets do not use CORS response headers, so return it intact.
+    return verifiedNative && !nativeSocket ? withNativeCors(response, origin) : response;
   },
 } satisfies ExportedHandler<Env>;
 

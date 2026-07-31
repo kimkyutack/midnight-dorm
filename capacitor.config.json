@@ -1,0 +1,18 @@
+{
+  "appId": "com.midnightdorm.game",
+  "appName": "심야 병동: 협동 디펜스",
+  "webDir": "dist/client",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#02070b",
+      "showSpinner": false
+    }
+  }
+}

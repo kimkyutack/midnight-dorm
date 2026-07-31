@@ -448,6 +448,8 @@ export interface AccountProfile {
   appearance: AvatarAppearance;
   turretSkins: TurretSkinLoadout;
   consumables: OwnedConsumable[];
+  /** Launch campaigns the current account chose not to see again. */
+  dismissedPromotionIds: string[];
   /** The first-match survival training remains active until its first victory. */
   tutorialCompleted: boolean;
   createdAt: number;
@@ -455,13 +457,11 @@ export interface AccountProfile {
 
 export type TutorialStep =
   | 'claim-bed'
-  | 'build-turret'
   | 'upgrade-bed'
   | 'upgrade-door'
+  | 'build-turret'
   | 'upgrade-turret'
-  | 'retreat'
   | 'build-generator'
-  | 'build-frost'
   | 'build-net'
   | 'finish';
 
@@ -474,6 +474,12 @@ export interface TutorialState {
   pauseRemaining: number;
   retreatExplained: boolean;
   powerGranted: boolean;
+  /** The final turret hit is lethal only after the tutorial net has fired. */
+  netTriggered: boolean;
+  /** Two-second camera reveal after the net is installed and before combat. */
+  combatRevealRemaining: number;
+  /** The training ghost stays frozen until the reveal has fully completed. */
+  combatStarted: boolean;
 }
 
 export interface GameSnapshot {

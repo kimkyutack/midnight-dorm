@@ -25,6 +25,7 @@ import {
   isPositionOnRoomFloor,
   moveInWalkableArea,
 } from "../shared/map";
+import { tutorialGuidedBuildTile } from "../shared/tutorial";
 import { findPath } from "../shared/pathfinding";
 import {
   combinedItemEffects,
@@ -440,6 +441,9 @@ export class GameEngine {
             pauseRemaining: 0,
             retreatExplained: false,
             powerGranted: false,
+            netTriggered: false,
+            combatRevealRemaining: 0,
+            combatStarted: false,
           }
         : null,
       goldSuppressedUntil: 0,
@@ -595,6 +599,15 @@ export class GameEngine {
     this.state.repairSuppressedUntil ??= 0;
     this.state.lootDrops ??= [];
     this.state.contractUsed ??= false;
+    if (this.state.tutorial?.active) {
+      this.state.tutorial.netTriggered ??= false;
+      this.state.tutorial.pauseRemaining ??= 0;
+      this.state.tutorial.retreatExplained ??= false;
+      this.state.tutorial.powerGranted ??= false;
+      this.state.tutorial.combatRevealRemaining ??= 0;
+      this.state.tutorial.combatStarted ??=
+        this.state.tutorial.step === "finish";
+    }
     for (const ghost of this.state.ghosts) {
       ghost.displayName ??= "복도 순찰자";
       ghost.variant ??= "wanderer";
@@ -928,11 +941,15 @@ export class GameEngine {
     );
     this.state.players.push(player);
     if (this.state.tutorial?.active && !player.isBot && !this.state.tutorial.reservedRoomId) {
-      const reserved = this.map.rooms
+      const nearbyRooms = this.map.rooms
         .flatMap((room) => room.beds.map((bed) => ({ room, bed })))
         .sort((left, right) =>
           distance(player.position, left.bed) - distance(player.position, right.bed),
-        )[0]?.room;
+        )
+        .slice(0, 3);
+      const reserved = nearbyRooms.length > 0
+        ? nearbyRooms[this.rng.int(0, nearbyRooms.length - 1)]?.room
+        : undefined;
       this.state.tutorial.reservedRoomId = reserved?.id ?? this.map.rooms[0]?.id ?? null;
     }
     if (isEliteRank(player.displayRank)) {
@@ -1189,10 +1206,14 @@ export class GameEngine {
       case "draw-item":
         return this.drawItem(playerId, message.machineId);
       case "pickup-loot":
+        if (this.state.tutorial?.active)
+          return { ok: false, error: "훈련 중에는 안내된 행동만 할 수 있습니다." };
         return this.pickupLoot(playerId, message.lootId);
       case "set-consumable-loadout":
         return this.setConsumableLoadout(playerId, message.itemIds);
       case "use-consumable":
+        if (this.state.tutorial?.active)
+          return { ok: false, error: "훈련 중에는 전술 보급품을 사용할 수 없습니다." };
         return this.useConsumable(playerId, message);
       case "rematch":
         return this.voteRematch(playerId);
@@ -1217,14 +1238,18 @@ export class GameEngine {
     // Ranked contracts never reveal the selected ghost. First-time ranked
     // entrants receive a dedicated blackout rules card before the shared
     // event/countdown sequence.
-    this.state.status = this.state.ranked?.firstRankedMatch
+    this.state.status = this.state.tutorial?.active
+      ? "PLAYING"
+      : this.state.ranked?.firstRankedMatch
       ? 'RANKED_INTRO'
       : this.state.difficulty.modifier === 'time-attack'
         ? 'EVENT_INTRO'
         : this.state.ranked
           ? 'COUNTDOWN'
           : 'GHOST_INTRO';
-    this.state.countdown = this.countdownSecondsForMatch();
+    this.state.countdown = this.state.tutorial?.active
+      ? 0
+      : this.countdownSecondsForMatch();
     this.state.difficulty.introRemaining =
       this.state.status === 'RANKED_INTRO'
         ? 5
@@ -1615,11 +1640,24 @@ export class GameEngine {
       const guidedKind: Partial<Record<typeof this.state.tutorial.step, BuildingKind>> = {
         'build-turret': 'basic-turret',
         'build-generator': 'generator',
-        'build-frost': 'frost-turret',
         'build-net': 'ghost-net',
       };
       if (guidedKind[this.state.tutorial.step] !== kind) {
         return { ok: false, error: "훈련 안내에 표시된 설비부터 설치하세요." };
+      }
+      const guidedTile = tutorialGuidedBuildTile(
+        this.map,
+        this.state.buildings,
+        roomId,
+        this.state.tutorial.step,
+        playerId,
+      );
+      if (
+        !guidedTile ||
+        guidedTile.x !== tile.x ||
+        guidedTile.y !== tile.y
+      ) {
+        return { ok: false, error: "빛나는 안내 타일에 설비를 설치하세요." };
       }
     }
     if (this.state.status !== "COUNTDOWN" && this.state.status !== "PLAYING" && this.state.status !== 'OVERTIME')
@@ -1799,6 +1837,8 @@ export class GameEngine {
     playerId: string,
     message: Extract<ClientMessage, { type: "activate-building" }>,
   ): ActionResult {
+    if (this.state.tutorial?.active)
+      return { ok: false, error: "훈련 중에는 안내되지 않은 설비 기능을 사용할 수 없습니다." };
     const player = this.state.players.find((candidate) => candidate.id === playerId);
     const building = this.state.buildings.find((candidate) => candidate.id === message.buildingId);
     const room = building
@@ -2325,6 +2365,8 @@ export class GameEngine {
   }
 
   drawItem(playerId: string, machineId: string): ActionResult {
+    if (this.state.tutorial?.active)
+      return { ok: false, error: "훈련 중에는 랜덤 상자를 사용할 수 없습니다." };
     const player = this.state.players.find(
       (candidate) => candidate.id === playerId,
     );
@@ -2577,10 +2619,6 @@ export class GameEngine {
     const turret = buildings.find((building) => building.kind === 'basic-turret');
 
     if (tutorial.step === 'claim-bed' && room) {
-      tutorial.step = 'build-turret';
-      this.grantTutorialResource(player, 'gold', upgradeCost('basic-turret', 1, player.soloRank).gold);
-    }
-    if (tutorial.step === 'build-turret' && turret) {
       tutorial.step = 'upgrade-bed';
       this.grantTutorialResource(player, 'gold', upgradeCost('bed', 2, player.soloRank).gold);
     }
@@ -2593,43 +2631,22 @@ export class GameEngine {
       this.grantTutorialResource(player, 'gold', upgradeCost('reinforced-door', 2, player.soloRank).gold);
     }
     if (tutorial.step === 'upgrade-door' && room && room.doorLevel >= 2) {
+      tutorial.step = 'build-turret';
+      this.grantTutorialResource(player, 'gold', upgradeCost('basic-turret', 1, player.soloRank).gold);
+    }
+    if (tutorial.step === 'build-turret' && turret) {
       tutorial.step = 'upgrade-turret';
       this.grantTutorialResource(player, 'gold', upgradeCost('basic-turret', 2, player.soloRank).gold);
     }
     if (tutorial.step === 'upgrade-turret' && turret && turret.level >= 2) {
-      tutorial.step = 'retreat';
+      tutorial.step = 'build-generator';
+      this.grantTutorialResource(player, 'gold', upgradeCost('generator', 1, player.soloRank).gold);
     }
 
     const primaryGhost = this.state.ghosts.find((ghost) => ghost.variant !== 'minion');
     if (
-      tutorial.step === 'retreat' &&
-      primaryGhost?.retreating &&
-      !tutorial.retreatExplained
-    ) {
-      tutorial.retreatExplained = true;
-      tutorial.pauseRemaining = 3;
-      for (const survivor of this.state.players) survivor.velocity = { x: 0, y: 0 };
-    }
-
-    if (
-      tutorial.step === 'retreat' &&
-      tutorial.retreatExplained &&
-      tutorial.pauseRemaining <= 0
-    ) {
-      tutorial.step = 'build-generator';
-      tutorial.powerGranted = true;
-      this.grantTutorialResource(player, 'gold', upgradeCost('generator', 1, player.soloRank).gold);
-      this.grantTutorialResource(player, 'power', 450);
-    }
-    if (
       tutorial.step === 'build-generator' &&
       buildings.some((building) => building.kind === 'generator')
-    ) {
-      tutorial.step = 'build-frost';
-    }
-    if (
-      tutorial.step === 'build-frost' &&
-      buildings.some((building) => building.kind === 'frost-turret')
     ) {
       tutorial.step = 'build-net';
     }
@@ -2638,19 +2655,22 @@ export class GameEngine {
       buildings.some((building) => building.kind === 'ghost-net')
     ) {
       tutorial.step = 'finish';
+      tutorial.netTriggered = false;
+      tutorial.combatRevealRemaining = 2;
+      tutorial.combatStarted = false;
     }
-    if (tutorial.step === 'finish' && primaryGhost && primaryGhost.hp > 0 && turret) {
-      // The final lesson is a proof of the three-part setup, not another
-      // balance wall. The next Lv.2 turret shot is guaranteed to finish it.
+    if (
+      tutorial.step === 'finish' &&
+      tutorial.combatStarted &&
+      primaryGhost &&
+      primaryGhost.hp > 0 &&
+      turret
+    ) {
       primaryGhost.retreating = false;
       primaryGhost.healing = false;
       primaryGhost.targetRoomId = room?.id ?? null;
       primaryGhost.targetPlayerId = null;
       primaryGhost.path = [];
-      primaryGhost.hp = Math.min(
-        primaryGhost.hp,
-        Math.max(1, buildingStats('basic-turret', 2).value * 0.8),
-      );
     }
   }
 
@@ -2715,6 +2735,24 @@ export class GameEngine {
       if (this.state.countdown <= 0) this.beginPlaying();
     } else if (this.state.status === "PLAYING" || this.state.status === 'OVERTIME') {
       this.state.elapsed += dt;
+      const tutorial = this.state.tutorial;
+      if (
+        tutorial?.active &&
+        tutorial.step === "finish" &&
+        !tutorial.combatStarted
+      ) {
+        tutorial.combatRevealRemaining = Math.max(
+          0,
+          tutorial.combatRevealRemaining - dt,
+        );
+        if (tutorial.combatRevealRemaining <= 0) {
+          tutorial.combatStarted = true;
+          this.pendingEvents.push({
+            kind: "lights-on",
+            label: "귀신이 움직입니다",
+          });
+        }
+      }
       if (this.state.ranked) {
         for (const player of this.state.players) {
           if (player.alive && player.connected)
@@ -2818,7 +2856,10 @@ export class GameEngine {
               ? 0.84
               : 1;
       ghost.maxHp = this.state.tutorial?.active
-        ? Math.ceil(buildingStats('basic-turret', 2).value * 7)
+        // A Lv.2 tutorial turret visibly removes about one tenth per shot.
+        // Before the net lesson it cannot land a lethal hit; the net then
+        // prepares the final, one-shot finish.
+        ? Math.ceil(buildingStats('basic-turret', 2).value * 10)
         : (this.testMode ? maxHp * 0.34 : maxHp) *
           variantHp *
           this.stage.hpMultiplier *
@@ -3716,6 +3757,20 @@ export class GameEngine {
       if (resolveAfter >= 100) target.controlImmuneUntil = target.stunnedUntil + 2.5;
       target.netTriggeredTargetRoomId = room.id;
       target.path = [];
+      if (
+        this.state.tutorial?.active &&
+        this.state.tutorial.step === "finish" &&
+        target.variant !== "minion"
+      ) {
+        this.state.tutorial.netTriggered = true;
+        target.retreating = false;
+        target.healing = false;
+        target.targetRoomId = room.id;
+        target.hp = Math.min(
+          target.hp,
+          Math.max(1, buildingStats("basic-turret", 2).value * 0.8),
+        );
+      }
       building.cooldown = stats.rate;
       this.pendingEvents.push({
         kind: "ghost-net",
@@ -3876,7 +3931,14 @@ export class GameEngine {
       directionalMultiplier *
       vulnerabilityMultiplier *
       (ghost.retreating ? BALANCE.ghost.retreatDamageMultiplier : 1);
-    const next = Math.max(0, before - appliedDamage);
+    let next = Math.max(0, before - appliedDamage);
+    const tutorialAwaitingNet =
+      this.state.tutorial?.active &&
+      ghost.variant !== "minion" &&
+      !this.state.tutorial.netTriggered;
+    if (tutorialAwaitingNet) {
+      next = Math.max(Math.ceil(ghost.maxHp * 0.1), next);
+    }
     if (next <= 0 && ghost.barrierLayers > 0) {
       if (ghost.variant === "demolisher")
         this.resetDemolisherAbility(ghost, false);
@@ -4453,6 +4515,23 @@ export class GameEngine {
         ghost.contaminatedTiles = [];
         ghost.contaminationEndsAt = -1;
       }
+      return;
+    }
+    // The training ghost is a final-step target, not an early-game hazard.
+    // Keep it completely idle until the player has installed the net so the
+    // eight server-authoritative lessons cannot be interrupted by combat.
+    if (
+      this.state.tutorial?.active &&
+      (
+        this.state.tutorial.step !== "finish" ||
+        !this.state.tutorial.combatStarted
+      ) &&
+      ghost.variant !== "minion"
+    ) {
+      ghost.targetRoomId = null;
+      ghost.targetPlayerId = null;
+      ghost.path = [];
+      ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.2);
       return;
     }
     ghost.phase = ghost.level;
@@ -5469,7 +5548,10 @@ export class GameEngine {
       hp: BALANCE.player.maxHp,
       maxHp: BALANCE.player.maxHp,
       gold: BALANCE.player.startingGold + benefits.startingGoldBonus,
-      power: BALANCE.player.startingPower + benefits.startingPowerBonus,
+      power:
+        this.stage.id === "tutorial-1" && !isBot
+          ? 240
+          : BALANCE.player.startingPower + benefits.startingPowerBonus,
       goldIncomeElapsed: 0,
       powerIncomeElapsed: 0,
       roomId: null,

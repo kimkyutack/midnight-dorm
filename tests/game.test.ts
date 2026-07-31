@@ -11,6 +11,7 @@ import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
+import { tutorialGuidedBuildTile } from '../src/shared/tutorial';
 import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
 import type { ClientMessage, GameSnapshot, GhostState, PlayerState, Tile } from '../src/shared/types';
 import { GameEngine, type MatchConfig } from '../src/server/engine';
@@ -153,7 +154,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.3')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.4')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -1526,16 +1527,148 @@ describe('authoritative game rules', () => {
       deviceId: 'device-first-tutorial',
     });
 
+    expect(engine.snapshot().players.find((player) => player.id === joined.player.id)?.power).toBe(240);
     expect(engine.snapshot().tutorial).toEqual(expect.objectContaining({
       active: true,
       step: 'claim-bed',
     }));
-    expect(engine.snapshot().tutorial?.reservedRoomId).toBeTruthy();
-    expect(engine.snapshot().rooms.find(
-      (room) => room.id === engine.snapshot().tutorial?.reservedRoomId,
-    )).toBeDefined();
+    const reservedRoomId = engine.snapshot().tutorial?.reservedRoomId;
+    expect(reservedRoomId).toBeTruthy();
+    const nearestRoomIds = map.rooms
+      .map((room) => ({
+        id: room.id,
+        distance: Math.hypot(
+          room.bed.x - map.playerSpawn.x,
+          room.bed.y - map.playerSpawn.y,
+        ),
+      }))
+      .sort((left, right) => left.distance - right.distance)
+      .slice(0, 3)
+      .map((room) => room.id);
+    expect(nearestRoomIds).toContain(reservedRoomId);
+    const reservedMapRoom = map.rooms.find((room) => room.id === reservedRoomId);
+    expect(reservedMapRoom).toBeDefined();
+
     expect(engine.start(joined.player.id).ok).toBe(true);
-    expect(engine.snapshot().status).toBe('GHOST_INTRO');
+    expect(engine.snapshot().status).toBe('PLAYING');
+    expect(engine.snapshot().countdown).toBe(0);
+
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === joined.player.id,
+    );
+    if (!player || !reservedMapRoom) throw new Error('missing tutorial fixture');
+    player.position = { ...reservedMapRoom.bed };
+    player.velocity = { x: 1, y: 0 };
+    engine.restore(persisted);
+    expect(engine.interact(joined.player.id).ok).toBe(true);
+    expect(
+      engine.snapshot().players.find((candidate) => candidate.id === joined.player.id),
+    ).toEqual(expect.objectContaining({
+      position: reservedMapRoom.bed,
+      velocity: { x: 0, y: 0 },
+    }));
+
+    // The lesson advances immediately without a 30-second preparation timer.
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('upgrade-bed');
+    expect(engine.upgrade(joined.player.id, `door:${reservedRoomId}`).ok).toBe(false);
+    expect(engine.upgrade(joined.player.id, `bed:${reservedRoomId}:0`).ok).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('upgrade-door');
+    expect(engine.upgrade(joined.player.id, `door:${reservedRoomId}`).ok).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('build-turret');
+
+    const nextFreeTile = (): Tile => {
+      const tutorial = engine.snapshot().tutorial;
+      if (!tutorial) throw new Error('tutorial state is missing');
+      const tile = tutorialGuidedBuildTile(
+        map,
+        engine.snapshot().buildings,
+        reservedRoomId as string,
+        tutorial.step,
+        joined.player.id,
+      );
+      if (!tile) throw new Error('tutorial room has no free build tile');
+      return tile;
+    };
+
+    expect(
+      engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'generator').ok,
+    ).toBe(false);
+    expect(
+      engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'basic-turret').ok,
+    ).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('upgrade-turret');
+    const turret = engine.snapshot().buildings.find(
+      (building) => building.ownerId === joined.player.id && building.kind === 'basic-turret',
+    );
+    if (!turret) throw new Error('tutorial turret was not installed');
+    expect(engine.upgrade(joined.player.id, turret.id).ok).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('build-generator');
+
+    expect(
+      engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'generator').ok,
+    ).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial?.step).toBe('build-net');
+
+    for (
+      let index = 0;
+      index < 300 &&
+      (engine.snapshot().players.find((candidate) => candidate.id === joined.player.id)?.power ?? 0) < 250;
+      index += 1
+    ) {
+      engine.tick(0.1);
+    }
+    expect(
+      engine.snapshot().players.find((candidate) => candidate.id === joined.player.id)?.power,
+    ).toBeGreaterThanOrEqual(250);
+    expect(
+      engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'ghost-net').ok,
+    ).toBe(true);
+    engine.tick(0.05);
+    expect(engine.snapshot().tutorial).toEqual(expect.objectContaining({
+      active: true,
+      step: 'finish',
+      netTriggered: false,
+      combatRevealRemaining: expect.any(Number),
+      combatStarted: false,
+    }));
+    expect(engine.snapshot().tutorial?.combatRevealRemaining).toBeGreaterThan(0);
+    for (
+      let index = 0;
+      index < 50 && !engine.snapshot().tutorial?.combatStarted;
+      index += 1
+    )
+      engine.tick(0.1);
+    expect(engine.snapshot().tutorial?.combatStarted).toBe(true);
+    const tutorialGhost = engine.snapshot().ghosts.find(
+      (ghost) => ghost.variant !== 'minion',
+    );
+    expect(tutorialGhost?.maxHp).toBe(
+      Math.ceil(buildingStats('basic-turret', 2).value * 10),
+    );
+    expect(engine.removeBuilding(joined.player.id, turret.id).ok).toBe(false);
+    const remainingTile = map.rooms
+      .find((room) => room.id === reservedRoomId)
+      ?.buildTiles.find(
+        (tile) =>
+          !engine.snapshot().buildings.some(
+            (building) =>
+              building.tile.x === tile.x && building.tile.y === tile.y,
+          ),
+      );
+    if (!remainingTile) throw new Error('tutorial room has no remaining build tile');
+    expect(
+      engine.moveBuilding(joined.player.id, turret.id, {
+        ...remainingTile,
+        roomId: reservedRoomId as string,
+      }).ok,
+    ).toBe(false);
   });
 
   it('announces the stronger ghost exactly when the five-minute Time Attack expires', () => {

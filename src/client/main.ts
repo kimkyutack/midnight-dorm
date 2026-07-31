@@ -87,6 +87,7 @@ import type {
 } from "../shared/social";
 import { SynthAudio, type BackgroundTrack } from "./audio";
 import {
+  dismissPromotion,
   equipCosmetic,
   getAccount,
   loginAccount,
@@ -105,8 +106,19 @@ import { hydrateCatalogArt } from "./game/CatalogThumbnail3D";
 import { GameNetwork } from "./network";
 import { loadProfile, saveProfile } from "./storage";
 import { setupMobileViewportCompatibility } from "./viewport";
+import {
+  completeGoogleSignup,
+  googleLoginAvailable,
+  googleLoginUsesNativeButton,
+  mountGoogleWebButton,
+  signInWithGoogle,
+  signOutGoogle,
+} from "./native/googleAuth";
+import { initializeNativeRuntime, isNativeApp } from "./native";
+import { nativeWebSocketUrlSync } from "./native/runtime";
 import "./styles.css";
 
+initializeNativeRuntime();
 setupMobileViewportCompatibility();
 
 declare global {
@@ -173,11 +185,7 @@ const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
 const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
 const NEON_RIDER_LULU_SKIN_ID = "skin-look-cat-neon-rider";
 const CYBER_DRIVER_KONG_SKIN_ID = "skin-look-hamster-cyber-driver";
-const SUMMER_SPECIAL_PROMO_DISMISSED_KEY =
-  "midnight-dorm:promo:summer-special-skins:v1";
-const CYBERPUNK_SPECIAL_PROMO_DISMISSED_KEY =
-  "midnight-dorm:promo:cyberpunk-special-skins:v1";
-let skinLaunchPromoShownThisSession = false;
+let skinLaunchPromoShownForAccountId: string | null = null;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -930,7 +938,6 @@ function homeScreen(): void {
 
 interface SkinLaunchCampaign {
   id: "summer" | "cyberpunk";
-  dismissedKey: string;
   ownedSkinIds: readonly string[];
   targetSkinId: string;
   className: string;
@@ -946,7 +953,6 @@ interface SkinLaunchCampaign {
 const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
   {
     id: "summer",
-    dismissedKey: SUMMER_SPECIAL_PROMO_DISMISSED_KEY,
     ownedSkinIds: [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID],
     targetSkinId: LIFEGUARD_RAON_SKIN_ID,
     className: "summer-special-promo",
@@ -960,7 +966,6 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
   },
   {
     id: "cyberpunk",
-    dismissedKey: CYBERPUNK_SPECIAL_PROMO_DISMISSED_KEY,
     ownedSkinIds: [NEON_RIDER_LULU_SKIN_ID, CYBER_DRIVER_KONG_SKIN_ID],
     targetSkinId: NEON_RIDER_LULU_SKIN_ID,
     className: "cyberpunk-special-promo",
@@ -975,26 +980,33 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
 ] as const;
 
 function skinLaunchPromoDismissed(campaign: SkinLaunchCampaign): boolean {
-  try {
-    return window.localStorage.getItem(campaign.dismissedKey) === "1";
-  } catch {
-    return false;
-  }
+  return account?.dismissedPromotionIds.includes(campaign.id) ?? false;
 }
 
 function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
-  try {
-    window.localStorage.setItem(campaign.dismissedKey, "1");
-  } catch {
-    // Private browsing can reject storage writes. The session guard still
-    // prevents the promotion from reopening while this app instance is alive.
-  }
+  const currentAccount = account;
+  if (!currentAccount || skinLaunchPromoDismissed(campaign)) return;
+  account = {
+    ...currentAccount,
+    dismissedPromotionIds: [
+      ...currentAccount.dismissedPromotionIds,
+      campaign.id,
+    ],
+  };
+  void dismissPromotion(campaign.id)
+    .then((profile) => {
+      if (account?.id === currentAccount.id) account = profile;
+    })
+    .catch((error) => {
+      if (account?.id === currentAccount.id) account = currentAccount;
+      toast(error instanceof Error ? error.message : "이벤트 설정을 저장하지 못했습니다.");
+    });
 }
 
 function showSkinLaunchPromoCarousel(): void {
   if (
     !account ||
-    skinLaunchPromoShownThisSession
+    skinLaunchPromoShownForAccountId === account.id
   ) return;
   const currentAccount = account;
   const campaigns = SKIN_LAUNCH_CAMPAIGNS.filter(
@@ -1005,7 +1017,7 @@ function showSkinLaunchPromoCarousel(): void {
       ),
   );
   if (!campaigns.length) return;
-  skinLaunchPromoShownThisSession = true;
+  skinLaunchPromoShownForAccountId = currentAccount.id;
   let activeIndex = 0;
   const modal = document.createElement("div");
   modal.className = "modal-backdrop surfer-mong-promo-modal";
@@ -2034,12 +2046,76 @@ function cosmeticCollectionScreen(
     );
 }
 
-function authScreen(mode: "login" | "register" = "login"): void {
-  const registering = mode === "register";
+function continueAfterAuthentication(next: AccountProfile): void {
+  account = next;
+  homePlayMode = next.selectedPlayMode;
+  profile.nickname = next.nickname;
+  profile.mustReauthenticate = false;
+  saveProfile(profile);
+  if (!next.tutorialCompleted) {
+    loading();
+    void createRoom(true, "tutorial-1");
+    return;
+  }
+  homeScreen();
+}
+
+function googleNicknameScreen(
+  signupToken: string,
+  suggestedNickname = "",
+  errorMessage = "",
+): void {
   setContent(
     "auth",
-    `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>HORROR CO-OP DEFENSE</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br>새벽이 올 때까지 살아남으세요.</p></header><section class="auth-sheet"><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : ""}</small><h2>${registering ? "계정생성" : ""}</h2></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form><button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 계정이 있나요?" : "처음 오셨나요?"}</span><strong>${registering ? "로그인" : "새 계정"}</strong></button></section><footer class="auth-footnote">계정에는 게임 진행도와 등급만 저장됩니다.</footer></main>`,
+    `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>GOOGLE SURVIVOR</span><h1>심야 병동</h1><p>게임에서 사용할 이름을 정하면<br>첫 생존 훈련이 바로 시작됩니다.</p></header><section class="auth-sheet google-nickname-sheet"><div class="auth-heading"><small>ONE LAST STEP</small><h2>닉네임 설정</h2></div><form id="google-nickname-form" class="auth-form"><div class="auth-control"><label for="google-nickname">게임 닉네임</label><div><input id="google-nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" value="${escapeHtml(suggestedNickname)}" placeholder="2~12자 닉네임" required /></div></div><p class="auth-inline-error" data-nickname-error ${errorMessage ? "" : "hidden"}>${escapeHtml(errorMessage)}</p><button class="auth-submit" type="submit">가입완료</button></form><button class="auth-switch" type="button" data-google-cancel><span>다른 계정으로 로그인할까요?</span><strong>돌아가기</strong></button></section><footer class="auth-footnote">중복되지 않은 닉네임만 사용할 수 있습니다.</footer></main>`,
   );
+  const input = app.querySelector<HTMLInputElement>("#google-nickname");
+  input?.focus();
+  app.querySelector("[data-google-cancel]")?.addEventListener("click", () => {
+    void signOutGoogle().finally(() => authScreen());
+  });
+  app
+    .querySelector<HTMLFormElement>("#google-nickname-form")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const nickname = input?.value.trim() ?? "";
+      connectionOverlay("닉네임 중복을 확인하는 중…");
+      void completeGoogleSignup(signupToken, nickname)
+        .then(continueAfterAuthentication)
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : "닉네임을 저장하지 못했습니다.";
+          googleNicknameScreen(signupToken, nickname, message);
+        });
+    });
+}
+
+function authScreen(mode: "login" | "register" = "login"): void {
+  const registering = mode === "register";
+  const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span style="display: none;">Sign in with Google</span></div>';
+  const googleButton = !googleLoginAvailable
+    ? ""
+    : `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap"><button class="auth-google gsi-material-button" type="button"${googleLoginUsesNativeButton ? ' data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인"' : ' aria-hidden="true" tabindex="-1"'}>${googleIconMarkup}</button>${googleLoginUsesNativeButton ? "" : '<div class="auth-google-web" data-google-login-web aria-label="Google 계정으로 로그인"></div>'}</div>`;
+  setContent(
+    "auth",
+    `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>HORROR CO-OP DEFENSE</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br>새벽이 올 때까지 살아남으세요.</p></header><section class="auth-sheet"><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : ""}</small><h2>${registering ? "계정생성" : ""}</h2></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form>${googleButton}<button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 계정이 있나요?" : "처음 오셨나요?"}</span><strong>${registering ? "로그인" : "새 계정"}</strong></button></section><footer class="auth-footnote">계정에는 게임 진행도와 등급만 저장됩니다.</footer></main>`,
+  );
+  const handleGoogleResult = (result: Awaited<ReturnType<typeof signInWithGoogle>>): void => {
+    if (result.status === "nickname-required") {
+      googleNicknameScreen(result.signupToken, result.suggestedNickname);
+      return;
+    }
+    continueAfterAuthentication(result.profile);
+  };
+  const handleGoogleError = (error: unknown): void => {
+    authScreen(mode);
+    toast(error instanceof Error ? error.message : "Google 로그인에 실패했습니다.");
+  };
+  const googleWebButton = app.querySelector<HTMLElement>("[data-google-login-web]");
+  if (googleWebButton) {
+    void mountGoogleWebButton(googleWebButton, handleGoogleResult, handleGoogleError)
+      .catch(handleGoogleError);
+  }
   app
     .querySelector("[data-password-reveal]")
     ?.addEventListener("click", (event) => {
@@ -2082,14 +2158,7 @@ function authScreen(mode: "login" | "register" = "login"): void {
           ? registerAccount(username, nickname, password)
           : loginAccount(username, password)
       )
-        .then((next) => {
-          account = next;
-          homePlayMode = next.selectedPlayMode;
-          profile.nickname = next.nickname;
-          profile.mustReauthenticate = false;
-          saveProfile(profile);
-          homeScreen();
-        })
+        .then(continueAfterAuthentication)
         .catch((error) => {
           authScreen(mode);
           toast(
@@ -2097,6 +2166,13 @@ function authScreen(mode: "login" | "register" = "login"): void {
           );
         });
     });
+  app.querySelector<HTMLElement>("[data-google-login]")?.addEventListener("click", () => {
+    audio.play("button");
+    connectionOverlay("Google 계정에 로그인하는 중…");
+    void signInWithGoogle()
+      .then(handleGoogleResult)
+      .catch(handleGoogleError);
+  });
 }
 
 function roomMenu(): void {
@@ -2421,8 +2497,13 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     saveProfile(profile);
     if (firstWelcome) {
       firstWelcome = false;
-      renderForSnapshot(initial, true);
-      if (addSoloBots && initial.hostId === id) {
+      safelyProcessGameSnapshot(initial, [], true, null);
+      if (initial.tutorial?.active && initial.hostId === id) {
+        window.setTimeout(() => {
+          if (network === roomNetwork && snapshot?.status === "LOBBY")
+            roomNetwork.start();
+        }, 180);
+      } else if (addSoloBots && initial.hostId === id) {
         roomNetwork.addBot("easy");
         roomNetwork.addBot("normal");
         roomNetwork.addBot("normal");
@@ -2438,8 +2519,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       consumableTurretTargetingId = null;
       closeBuildPanel();
       game?.resetTransientInteraction();
-      renderForSnapshot(initial, false);
-      game?.updateSnapshot(initial, []);
+      safelyProcessGameSnapshot(initial, [], false, null);
     }
     updateTestApi();
   });
@@ -2457,10 +2537,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       soulVialTargetingId = null;
     }
     updateTestApi();
-    renderForSnapshot(next, false);
-    game?.updateSnapshot(next, events);
-    playEvents(events);
-    refreshSelectionPanel(previous);
+    safelyProcessGameSnapshot(next, events, false, previous);
     updateTestApi();
   });
   roomNetwork.on("connection", ({ state, attempt }) => {
@@ -2506,6 +2583,35 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (speaker) showQuickChatBubble(speaker.nickname, message);
   });
   roomNetwork.connect();
+}
+
+function recoverFromGameSnapshotFailure(error: unknown): void {
+  console.error("Game snapshot processing failed; requesting a clean resync", error);
+  selectedTile = null;
+  selectedTarget = null;
+  soulVialTargetingId = null;
+  soulVialArmPendingId = null;
+  consumableTurretTargetingId = null;
+  closeBuildPanel();
+  game?.resetTransientInteraction();
+  network?.resync();
+  toast("화면 동기화를 복구하고 있습니다.");
+}
+
+function safelyProcessGameSnapshot(
+  next: GameSnapshot,
+  events: GameEvent[],
+  force: boolean,
+  previous: GameSnapshot | null,
+): void {
+  try {
+    renderForSnapshot(next, force);
+    game?.updateSnapshot(next, events);
+    playEvents(events);
+    if (previous) refreshSelectionPanel(previous);
+  } catch (error) {
+    recoverFromGameSnapshotFailure(error);
+  }
 }
 
 function lobbyScreen(state: GameSnapshot): void {
@@ -2734,6 +2840,10 @@ function gameScreen(state: GameSnapshot): void {
       if (movementKeepaliveTimer)
         window.clearInterval(movementKeepaliveTimer);
       movementKeepaliveTimer = 0;
+      // Stop first, then interact on the same WebSocket. This prevents an
+      // older cached iOS movement intent from being replayed after the bed is
+      // claimed and visually ejecting the player from the room.
+      sendMovement(true);
       network?.interact();
       audio.play("button");
     },
@@ -2822,53 +2932,43 @@ const FIRST_MATCH_GUIDE_COPY: Record<
 > = {
   "claim-bed": {
     index: 1,
-    title: "안내된 빈 방에서 침대를 점유하세요",
+    title: "방 안에 들어가 침대를 점유하세요",
     description: "침대 가까이 가면 나타나는 잠자기 버튼을 누르세요.",
   },
-  "build-turret": {
-    index: 2,
-    title: "수호 포탑을 설치하세요",
-    description: "빈 타일의 +를 누르면 지금 필요한 설비만 표시됩니다.",
-  },
   "upgrade-bed": {
-    index: 3,
-    title: "침대를 Lv.2로 강화하세요",
-    description: "침대가 매초 생산하는 골드가 늘어납니다.",
+    index: 2,
+    title: "침대를 업그레이드 해보세요",
+    description: "침대 중앙의 강화 화살표를 눌러 Lv.2로 만드세요.",
   },
   "upgrade-door": {
+    index: 3,
+    title: "문을 업그레이드 해보세요",
+    description: "문 중앙의 강화 화살표를 눌러 Lv.2로 만드세요.",
+  },
+  "build-turret": {
     index: 4,
-    title: "문을 Lv.2로 강화하세요",
-    description: "문이 버티는 동안 포탑이 귀신을 공격합니다.",
+    title: "포탑을 설치 해보세요",
+    description: "빈 타일의 +를 누르고 수호 포탑을 설치하세요.",
   },
   "upgrade-turret": {
     index: 5,
-    title: "포탑을 Lv.2로 강화하세요",
-    description: "훈련 귀신은 강화한 포탑 7발로 처치할 수 있습니다.",
-  },
-  retreat: {
-    index: 6,
-    title: "귀신의 후퇴와 회복을 확인하세요",
-    description: "회색 HP는 후퇴 중인 체력입니다. 회복 전에 화력을 준비하세요.",
+    title: "포탑을 업그레이드 해보세요",
+    description: "포탑 중앙의 강화 화살표를 눌러 Lv.2로 만드세요.",
   },
   "build-generator": {
-    index: 7,
-    title: "달빛 발전기를 설치하세요",
-    description: "지원 전력 450이 지급됐습니다. 전력 설비의 기반입니다.",
-  },
-  "build-frost": {
-    index: 8,
-    title: "서리 스프레이를 설치하세요",
-    description: "귀신의 이동속도를 낮춰 포탑이 공격할 시간을 만드세요.",
+    index: 6,
+    title: "달빛 발전기를 설치 해보세요",
+    description: "발전기가 매초 전력 1을 생산합니다.",
   },
   "build-net": {
-    index: 9,
-    title: "그물 발사기를 설치하세요",
-    description: "HP가 낮아진 귀신을 묶어 마지막 공격을 확정하세요.",
+    index: 7,
+    title: "250 전력을 모아 그물을 설치하세요",
+    description: "시작 전력 240에 발전기로 10을 더 모아 설치하세요.",
   },
   finish: {
-    index: 10,
-    title: "방어 준비 완료",
-    description: "Lv.2 포탑의 다음 공격으로 훈련 귀신을 마무리하세요.",
+    index: 8,
+    title: "귀신을 물리치세요",
+    description: "그물이 적중한 뒤 포탑의 다음 한 발로 마무리하세요.",
   },
 };
 
@@ -2882,41 +2982,20 @@ function updateFirstMatchGuide(current: GameSnapshot): void {
     return;
   }
   const copy = FIRST_MATCH_GUIDE_COPY[tutorial.step];
-  const me = current.players.find((player) => player.id === playerId);
-  const reservedRoom = mapData?.rooms.find(
-    (room) => room.id === tutorial.reservedRoomId,
-  );
-  let direction = "";
-  let directionAngle = 0;
-  let distance = 0;
-  if (tutorial.step === "claim-bed" && me && reservedRoom) {
-    const dx = reservedRoom.bed.x - me.position.x;
-    const dy = reservedRoom.bed.y - me.position.y;
-    directionAngle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
-    distance = Math.max(1, Math.ceil(Math.hypot(dx, dy)));
-    direction =
-      Math.abs(dx) > Math.abs(dy)
-        ? dx >= 0
-          ? "오른쪽"
-          : "왼쪽"
-        : dy >= 0
-          ? "아래쪽"
-          : "위쪽";
-  }
   const paused = tutorial.pauseRemaining > 0;
   guide.classList.remove("hidden");
   guide.classList.toggle("retreat-lesson", paused);
-  const bedWaypoint =
-    tutorial.step === "claim-bed" && direction
-      ? `<div class="tutorial-bed-waypoint" data-tutorial-bed-waypoint><i style="--tutorial-direction:${directionAngle.toFixed(1)}deg" aria-hidden="true">↑</i><span><b>안내 침대</b><small>${direction} · 약 ${distance}칸</small></span></div>`
-      : "";
   guide.innerHTML = paused
     ? `<div class="tutorial-retreat-card"><span>GHOST RETREAT</span><strong>귀신이 회복하러 후퇴합니다</strong><div class="tutorial-ghost-hp"><i style="width:30%"></i><b></b></div><p>회색으로 남은 HP는 퇴각 구간입니다.<br/>귀신은 리스폰 구역에서 회복한 뒤 다시 돌아옵니다.</p></div>`
-    : `<div class="tutorial-guide-card"><b>${copy.index}/10</b><div><span>첫 생존 훈련</span><strong>${escapeHtml(copy.title)}</strong><p>${escapeHtml(copy.description)}</p></div>${bedWaypoint}</div>`;
+    : `<div class="tutorial-guide-card"><b>${copy.index}/8</b><div><span>첫 생존 훈련</span><strong>${escapeHtml(copy.title)}</strong><p>${escapeHtml(copy.description)}</p></div></div>`;
 }
 
 function updateHud(): void {
   if (!snapshot || currentView !== "game") return;
+  const tutorialActive = Boolean(snapshot.tutorial?.active);
+  app
+    .querySelector("#game-shell")
+    ?.classList.toggle("tutorial-mode", tutorialActive);
   const movementIntroLocked =
     snapshot.status === "RANKED_INTRO" ||
     snapshot.status === "GHOST_INTRO" ||
@@ -2926,7 +3005,9 @@ function updateHud(): void {
     ?.classList.toggle("intro-movement-locked", movementIntroLocked);
   if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
-  const cameraZoomLocked = Boolean(snapshot.ranked && me?.alive && !me.roomId);
+  const cameraZoomLocked = Boolean(
+    tutorialActive || (snapshot.ranked && me?.alive && !me.roomId),
+  );
   app
     .querySelector("#game-shell")
     ?.classList.toggle("camera-zoom-locked", cameraZoomLocked);
@@ -3027,7 +3108,7 @@ function updateHud(): void {
     }
   }
   if (phase) {
-    phase.hidden = showGhostPoster || isRankedIntro;
+    phase.hidden = tutorialActive || showGhostPoster || isRankedIntro;
     phase.classList.toggle("countdown", isCountdown);
     phase.classList.toggle("time-attack-intro", isEventIntro);
     if (isEventIntro) {
@@ -3048,7 +3129,7 @@ function updateHud(): void {
         : phase.textContent,
     );
   }
-  updateCountdownStartWarning(isCountdown);
+  updateCountdownStartWarning(isCountdown && !tutorialActive);
   const timeAttack = app.querySelector<HTMLElement>("[data-time-attack]");
   if (timeAttack) {
     const remaining = snapshot.difficulty.timeAttackRemaining;
@@ -3139,13 +3220,13 @@ function resultScreen(state: GameSnapshot): void {
   const tutorialVictory = victory && state.stageId === "tutorial-1";
   const rankedResult = Boolean(state.ranked);
   const resultActions = tutorialVictory
-    ? '<div class="result-actions tutorial-result-actions"><button class="btn ghost" data-tutorial-supplies>전술 보급 둘러보기</button><button class="btn primary" data-tutorial-easy>쉬움 1 시작</button></div>'
+    ? '<div class="result-actions tutorial-result-actions"><button class="btn primary" data-tutorial-home>홈으로 이동</button></div>'
     : rankedResult
       ? '<div class="result-actions ranked-result-actions"><button class="btn primary" data-leave>홈으로 이동</button></div>'
       : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
   setContent(
     "result",
-    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "첫 생존 훈련 완료" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "문 방어의 기본을 익혔습니다. 이제 실전에 도전할 수 있습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "보급품을 준비하거나 바로 쉬움 1에 도전하세요." : "커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
+    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "듀토리얼을 완료했습니다" : victory ? "새벽 생존" : "작전 실패"}</h1><p>${tutorialVictory ? "기본 훈련을 모두 마쳤습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "이제 홈에서 이벤트와 모든 게임 기능을 이용할 수 있습니다." : "커스텀 상점 포인트와 승리 XP가 계정에 저장됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
@@ -3181,9 +3262,7 @@ function resultScreen(state: GameSnapshot): void {
       homeScreen();
     })().catch(() => authScreen());
   });
-  const finishTutorialResult = async (
-    destination: "supplies" | "easy",
-  ): Promise<void> => {
+  const finishTutorialResult = async (): Promise<void> => {
     const code = network?.code;
     network?.close();
     network = null;
@@ -3196,20 +3275,13 @@ function resultScreen(state: GameSnapshot): void {
     }
     account = next;
     homePlayMode = next.selectedPlayMode;
-    if (destination === "supplies") supplyShopScreen();
-    else await createRoom(true, "easy-1");
+    homeScreen();
   };
   app
-    .querySelector("[data-tutorial-supplies]")
+    .querySelector("[data-tutorial-home]")
     ?.addEventListener("click", () => {
       audio.play("button");
-      void finishTutorialResult("supplies").catch(() => authScreen());
-    });
-  app
-    .querySelector("[data-tutorial-easy]")
-    ?.addEventListener("click", () => {
-      audio.play("button");
-      void finishTutorialResult("easy").catch(() => authScreen());
+      void finishTutorialResult().catch(() => authScreen());
     });
 }
 
@@ -3453,12 +3525,16 @@ function renderBuildPanel(tile: Tile): void {
   const tutorialGuidedKinds: Partial<Record<TutorialStep, BuildingKind>> = {
     "build-turret": "basic-turret",
     "build-generator": "generator",
-    "build-frost": "frost-turret",
     "build-net": "ghost-net",
   };
   const guidedKind = gameState.tutorial?.active
     ? tutorialGuidedKinds[gameState.tutorial.step]
     : undefined;
+  const tutorialBuildTab = gameState.tutorial?.active
+    ? gameState.tutorial.step === "build-net"
+      ? "power"
+      : "gold"
+    : null;
   const availableKinds: BuildingKind[] = guidedKind
     ? [guidedKind]
     : gameState.tutorial?.active
@@ -3565,33 +3641,36 @@ function renderBuildPanel(tile: Tile): void {
       })
       .join("") ||
     '<p class="empty-build-tab">구매한 전투 보급이 없습니다.</p>';
-  panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><nav class="build-resource-tabs"><button class="active" data-build-tab="gold">골드</button><button data-build-tab="power">전력</button><button data-build-tab="supply">보급</button></nav><section class="build-tab-panel" data-build-tab-panel="gold"><div class="build-grid">${goldCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="power"><div class="build-grid">${powerCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="supply"><div class="build-grid">${supplyCards}</div></section>`;
+  const initialBuildTab = tutorialBuildTab ?? "gold";
+  panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><nav class="build-resource-tabs ${tutorialBuildTab ? "tutorial-tab-locked" : ""}"><button class="${initialBuildTab === "gold" ? "active" : ""}" data-build-tab="gold"${tutorialBuildTab ? " disabled" : ""}>골드</button><button class="${initialBuildTab === "power" ? "active" : ""}" data-build-tab="power"${tutorialBuildTab ? " disabled" : ""}>전력</button><button data-build-tab="supply"${tutorialBuildTab ? " disabled" : ""}>보급</button></nav><section class="build-tab-panel ${initialBuildTab === "gold" ? "" : "hidden"}" data-build-tab-panel="gold"><div class="build-grid">${goldCards}</div></section><section class="build-tab-panel ${initialBuildTab === "power" ? "" : "hidden"}" data-build-tab-panel="power"><div class="build-grid">${powerCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="supply"><div class="build-grid">${supplyCards}</div></section>`;
   panel.classList.remove("hidden");
   refreshOpenPanelAffordability();
   hydrateCatalogArt(panel, {
     appearance: me.appearance,
     turretSkins: me.turretSkins,
   });
-  panel
-    .querySelectorAll<HTMLButtonElement>("[data-build-tab]")
-    .forEach((button) =>
-      button.addEventListener("click", () => {
-        const tab = button.dataset.buildTab;
-        panel
-          .querySelectorAll("[data-build-tab]")
-          .forEach((candidate) =>
-            candidate.classList.toggle("active", candidate === button),
-          );
-        panel
-          .querySelectorAll<HTMLElement>("[data-build-tab-panel]")
-          .forEach((section) =>
-            section.classList.toggle(
-              "hidden",
-              section.dataset.buildTabPanel !== tab,
-            ),
-          );
-      }),
-    );
+  if (!tutorialBuildTab) {
+    panel
+      .querySelectorAll<HTMLButtonElement>("[data-build-tab]")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          const tab = button.dataset.buildTab;
+          panel
+            .querySelectorAll("[data-build-tab]")
+            .forEach((candidate) =>
+              candidate.classList.toggle("active", candidate === button),
+            );
+          panel
+            .querySelectorAll<HTMLElement>("[data-build-tab-panel]")
+            .forEach((section) =>
+              section.classList.toggle(
+                "hidden",
+                section.dataset.buildTabPanel !== tab,
+              ),
+            );
+        }),
+      );
+  }
   panel
     .querySelectorAll<HTMLButtonElement>("[data-open-build-inventory]")
     .forEach((button) =>
@@ -3611,9 +3690,7 @@ function renderBuildPanel(tile: Tile): void {
         const actionKey = `build:${me.roomId}:${tileToBuild.x}:${tileToBuild.y}`;
         if (!claimAction(actionKey)) return;
         suppressTileSelection(900);
-        selectedTile = null;
-        selectedTarget = null;
-        panel.classList.add("hidden");
+        closeBuildPanel();
         panel
           .querySelectorAll<HTMLButtonElement>("[data-build]")
           .forEach((candidate) => {
@@ -3985,6 +4062,10 @@ function attemptUpgrade(
   // 전달되어 빈 타일 설치를 여는 일을 막는다.
   suppressTileSelection();
   network?.upgrade(selection.targetId);
+  if (snapshot.tutorial?.active) {
+    closeBuildPanel();
+    return;
+  }
   const button = app.querySelector<HTMLButtonElement>(
     `[data-upgrade="${selection.targetId}"]`,
   );
@@ -4974,8 +5055,7 @@ function stopSocialRealtime(): void {
 
 function startSocialRealtime(): void {
   if (!account || socialSocket || socialReconnectTimer) return;
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${location.host}/api/social/ws`);
+  const socket = new WebSocket(nativeWebSocketUrlSync("/api/social/ws"));
   socialSocket = socket;
   socket.addEventListener("message", (message) => {
     void refreshSocialUnreadCount();
@@ -5643,7 +5723,7 @@ document.addEventListener("visibilitychange", () => {
     network?.resync();
   }
 });
-if ("serviceWorker" in navigator && !devMode)
+if ("serviceWorker" in navigator && !devMode && !isNativeApp)
   window.addEventListener(
     "load",
     () =>
@@ -5656,7 +5736,7 @@ if ("serviceWorker" in navigator && !devMode)
   );
 
 loading();
-void checkForAppUpdate();
+if (!isNativeApp) void checkForAppUpdate();
 window.setTimeout(() => {
   const mobile =
     matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
@@ -5679,12 +5759,14 @@ async function resumeOrEnter(): Promise<void> {
     return;
   }
   const code = profile.recentRoomCode;
+  const tutorialRequired = !account.tutorialCompleted;
   if (
     freshMode ||
     !/^[A-Z2-9]{8}$/.test(code) ||
     !profile.reconnectTokens[code]
   ) {
-    homeScreen();
+    if (tutorialRequired) await createRoom(true, "tutorial-1");
+    else homeScreen();
     return;
   }
   try {
@@ -5693,6 +5775,7 @@ async function resumeOrEnter(): Promise<void> {
     connectToRoom(code, false);
   } catch {
     forgetRoom(code);
-    homeScreen();
+    if (tutorialRequired) await createRoom(true, "tutorial-1");
+    else homeScreen();
   }
 }

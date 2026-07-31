@@ -14,6 +14,7 @@ import {
 } from '../../shared/customization';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
+import { tutorialGuidedBuildTile } from '../../shared/tutorial';
 import type { AvatarAppearance, BuildingKind, BuildingState, GameEvent, GameSnapshot, GhostState, MapDefinition, PlayerState, RankId, RankedTier, RoomState, Tile, TurretKind, Vec2 } from '../../shared/types';
 import { AtlasSpriteActor, ghostAttackDuration, ghostSpriteDefinition, survivorSpriteDefinition } from './AtlasSpriteActor';
 import { facingDeltaForMotion } from './avatarMath';
@@ -2000,6 +2001,8 @@ export class ThreeGameView {
   private readonly hudMessages: HudMessage[] = [];
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraTarget = new THREE.Vector3();
+  private tutorialCameraFocus: Vec2 | null = null;
+  private tutorialCameraDistanceScale: number | null = null;
   private readonly blackoutProjectionA = new THREE.Vector3();
   private readonly blackoutProjectionB = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
@@ -2346,7 +2349,10 @@ export class ThreeGameView {
     const local = this.snapshotData?.players.find(
       (player) => player.id === this.playerId,
     );
-    return Boolean(this.snapshotData?.ranked && local?.alive && !local.roomId);
+    return Boolean(
+      this.snapshotData?.tutorial?.active ||
+      (this.snapshotData?.ranked && local?.alive && !local.roomId),
+    );
   }
 
   getPerformanceStats(): GamePerformanceStats {
@@ -2441,6 +2447,7 @@ export class ThreeGameView {
   }
 
   focusPlayer(playerId: string): void {
+    if (this.snapshotData.tutorial?.active) return;
     const view = this.playerViews.get(playerId);
     if (!view) return;
 
@@ -2510,7 +2517,7 @@ export class ThreeGameView {
     this.syncGhosts(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncContamination(snapshot.ghosts ?? [snapshot.ghost]);
     this.syncBeds(snapshot);
-    this.syncTutorialBedMarker(snapshot);
+    this.syncTutorialGuide(snapshot);
     this.syncBuildings(snapshot);
     this.syncLootDrops(snapshot);
     this.syncDoors(snapshot);
@@ -3566,7 +3573,9 @@ export class ThreeGameView {
     }
   }
 
-  private syncTutorialBedMarker(snapshot: GameSnapshot): void {
+  private tutorialTargetForSnapshot(
+    snapshot: GameSnapshot,
+  ): { tile: Tile; label: string } | null {
     const tutorial = snapshot.tutorial;
     const local = snapshot.players.find(
       (player) => player.id === this.playerId,
@@ -3574,17 +3583,126 @@ export class ThreeGameView {
     const room = tutorial?.reservedRoomId
       ? this.mapRoomById.get(tutorial.reservedRoomId)
       : undefined;
-    const visible = Boolean(
-      tutorial?.active &&
-        tutorial.step === "claim-bed" &&
-        local?.alive &&
-        !local.roomId &&
-        room,
+    if (!tutorial?.active || !local?.alive || !room) return null;
+    if (tutorial.step === "claim-bed")
+      return { tile: { ...room.bed, roomId: room.id }, label: "↓ 안내 침대" };
+    if (tutorial.step === "upgrade-bed")
+      return { tile: { ...room.bed, roomId: room.id }, label: "↓ 침대 클릭" };
+    if (tutorial.step === "upgrade-door")
+      return { tile: { ...room.door, roomId: room.id }, label: "↓ 문 클릭" };
+    if (
+      tutorial.step === "build-turret" ||
+      tutorial.step === "build-generator" ||
+      tutorial.step === "build-net"
+    ) {
+      const tile = tutorialGuidedBuildTile(
+        this.mapData,
+        snapshot.buildings,
+        room.id,
+        tutorial.step,
+        local.id,
+      );
+      if (!tile) return null;
+      const label =
+        tutorial.step === "build-turret"
+          ? "↓ 포탑 설치"
+          : tutorial.step === "build-generator"
+            ? "↓ 발전기 설치"
+            : "↓ 그물 설치";
+      return { tile, label };
+    }
+    if (tutorial.step === "upgrade-turret") {
+      const turret = snapshot.buildings.find(
+        (building) =>
+          building.ownerId === local.id &&
+          building.roomId === room.id &&
+          building.kind === "basic-turret",
+      );
+      if (turret)
+        return {
+          tile: { ...turret.tile, roomId: room.id },
+          label: "↓ 포탑 클릭",
+        };
+    }
+    return null;
+  }
+
+  private syncTutorialGuide(snapshot: GameSnapshot): void {
+    const tutorial = snapshot.tutorial;
+    const local = snapshot.players.find(
+      (player) => player.id === this.playerId,
     );
-    this.tutorialBedMarker.visible = visible;
-    if (!visible || !room) return;
-    this.tutorialBedMarker.position.copy(worldPoint(room.bed));
-    this.tutorialBedMarker.position.y = 0.075;
+    const room = tutorial?.reservedRoomId
+      ? this.mapRoomById.get(tutorial.reservedRoomId)
+      : undefined;
+    const target = this.tutorialTargetForSnapshot(snapshot);
+    this.tutorialBedMarker.visible = Boolean(target);
+    if (target) {
+      this.tutorialBedMarker.position.copy(worldPoint(target.tile));
+      this.tutorialBedMarker.position.y = 0.075;
+      updateTextBillboard(
+        this.tutorialBedMarkerLabel,
+        `tutorial-target:${tutorial?.step}:${target.label}`,
+        target.label,
+        "#fff4a8",
+        "rgba(4,20,35,.96)",
+        null,
+        false,
+        38,
+      );
+    }
+
+    if (!tutorial?.active || !local?.alive) {
+      this.tutorialCameraFocus = null;
+      this.tutorialCameraDistanceScale = null;
+      return;
+    }
+    if (tutorial.step === "claim-bed" && target) {
+      const dx = target.tile.x - local.position.x;
+      const dy = target.tile.y - local.position.y;
+      this.tutorialCameraFocus = {
+        x: local.position.x + dx * 0.5,
+        y: local.position.y + dy * 0.5,
+      };
+      // Keep the initial route framing stable while the player walks. Recomputing
+      // this from the remaining distance on every snapshot caused repeated zooms.
+      if (this.tutorialCameraDistanceScale === null) {
+        this.tutorialCameraDistanceScale = clamp(
+          Math.max(Math.abs(dx), Math.abs(dy)) / 6.2,
+          1 / Math.SQRT2,
+          1.25,
+        );
+      }
+      return;
+    }
+    if (
+      tutorial.step === "finish" &&
+      tutorial.combatRevealRemaining > 0
+    ) {
+      const ghost = (snapshot.ghosts ?? [snapshot.ghost]).find(
+        (candidate) => candidate.variant !== "minion" && candidate.hp > 0,
+      );
+      this.tutorialCameraFocus = ghost ? { ...ghost.position } : null;
+      this.tutorialCameraDistanceScale = 1 / Math.SQRT2;
+      return;
+    }
+    if (tutorial.step === "finish" && room) {
+      const turret = snapshot.buildings.find(
+        (building) =>
+          building.ownerId === local.id &&
+          building.roomId === room.id &&
+          building.kind === "basic-turret",
+      );
+      const anchor = turret?.tile ?? room.bed;
+      this.tutorialCameraFocus = {
+        x: (room.door.x + anchor.x) * 0.5,
+        y: (room.door.y + anchor.y) * 0.5,
+      };
+      this.tutorialCameraDistanceScale = 1;
+      return;
+    }
+    this.tutorialCameraFocus = target ? { ...target.tile } : { ...local.position };
+    this.tutorialCameraDistanceScale = 1 / Math.SQRT2;
   }
 
   private animateTutorialBedMarker(time: number): void {
@@ -5188,7 +5306,22 @@ export class ThreeGameView {
   }
 
   private updateCamera(dt: number): void {
-    if (this.followingPlayer) {
+    if (this.tutorialCameraFocus) {
+      this.desiredCameraTarget.set(
+        this.tutorialCameraFocus.x,
+        0,
+        this.tutorialCameraFocus.y,
+      );
+      if (
+        this.tutorialCameraDistanceScale !== null &&
+        Math.abs(
+          this.cameraDistanceScale - this.tutorialCameraDistanceScale,
+        ) > 0.001
+      ) {
+        this.cameraDistanceScale = this.tutorialCameraDistanceScale;
+        this.updateCameraProjection();
+      }
+    } else if (this.followingPlayer) {
       const view = this.playerViews.get(this.playerId);
       if (view) this.desiredCameraTarget.set(view.root.position.x, 0, view.root.position.z);
     }
@@ -5603,6 +5736,7 @@ export class ThreeGameView {
     if (
       building &&
       tile &&
+      !this.snapshotData.tutorial?.active &&
       building.roomId === local.roomId &&
       building.ownerId === local.id
     ) {
@@ -5654,6 +5788,7 @@ export class ThreeGameView {
     const dy = event.clientY - this.drag.y;
     if (Math.hypot(dx, dy) > 7) this.drag.moved = true;
     if (!this.drag.moved) return;
+    if (this.snapshotData.tutorial?.active) return;
     const panScale = 0.015 * this.cameraDistanceScale;
     this.desiredCameraTarget.x -= dx * panScale;
     this.desiredCameraTarget.z -= dy * panScale;
@@ -5828,6 +5963,15 @@ export class ThreeGameView {
     this.lastSelectionAt = now;
     const building = this.snapshotData.buildings.find((candidate) => candidate.tile.x === tile.x && candidate.tile.y === tile.y);
     if (building) {
+      if (
+        this.snapshotData.tutorial?.active &&
+        !(
+          this.snapshotData.tutorial.step === "upgrade-turret" &&
+          building.kind === "basic-turret" &&
+          building.ownerId === this.playerId
+        )
+      )
+        return;
       this.highlight(tile);
       window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'building', targetId: building.id, buildingId: building.id, roomId: building.roomId } }));
       return;
@@ -5835,12 +5979,22 @@ export class ThreeGameView {
     const bedTarget = this.mapData.rooms.flatMap((room) => room.beds.map((bed, bedIndex) => ({ room, bed, bedIndex })))
       .find(({ bed }) => bed.x === tile.x && bed.y === tile.y);
     if (bedTarget) {
+      if (
+        this.snapshotData.tutorial?.active &&
+        this.snapshotData.tutorial.step !== "upgrade-bed"
+      )
+        return;
       this.highlight(tile);
       window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'bed', targetId: `bed:${bedTarget.room.id}:${bedTarget.bedIndex}`, roomId: bedTarget.room.id } }));
       return;
     }
     const doorRoom = this.mapData.rooms.find((room) => room.door.x === tile.x && room.door.y === tile.y);
     if (doorRoom) {
+      if (
+        this.snapshotData.tutorial?.active &&
+        this.snapshotData.tutorial.step !== "upgrade-door"
+      )
+        return;
       this.highlight(tile);
       window.dispatchEvent(new CustomEvent<SceneSelection>('dorm:target-selected', { detail: { type: 'door', targetId: `door:${doorRoom.id}`, roomId: doorRoom.id } }));
       return;
@@ -5848,6 +6002,21 @@ export class ThreeGameView {
     const room = this.mapData.rooms.find((candidate) => candidate.buildTiles.some((buildTile) => buildTile.x === tile.x && buildTile.y === tile.y));
     if (!room) return;
     const selectedTile: Tile = { ...tile, roomId: room.id };
+    if (this.snapshotData.tutorial?.active) {
+      const local = this.snapshotData.players.find(
+        (player) => player.id === this.playerId,
+      );
+      const guided =
+        local &&
+        tutorialGuidedBuildTile(
+          this.mapData,
+          this.snapshotData.buildings,
+          room.id,
+          this.snapshotData.tutorial.step,
+          local.id,
+        );
+      if (!guided || guided.x !== tile.x || guided.y !== tile.y) return;
+    }
     this.highlight(tile);
     window.dispatchEvent(new CustomEvent<Tile>('dorm:tile-selected', { detail: selectedTile }));
   }

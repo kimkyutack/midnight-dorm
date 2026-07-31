@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "CLOUDFLARE_ENV=e2e WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --host 0.0.0.0",
+    "dev": "CLOUDFLARE_ENV=e2e WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --mode e2e --host 0.0.0.0",
     "icons": "node scripts/generate-icons.mjs",
     "sprites": "node scripts/normalize_sprite_atlases.mjs",
     "sprites:verify": "node scripts/normalize_sprite_atlases.mjs --verify",
@@ -15,6 +15,12 @@
     "db:migrate:local": "wrangler d1 migrations apply midnight-dorm-accounts --local",
     "db:migrate:remote": "wrangler d1 migrations apply midnight-dorm-accounts --remote",
     "build": "npm run icons && npm run typecheck && WRANGLER_LOG_PATH=.wrangler/logs/build.log vite build",
+    "build:native": "npm run icons && npm run typecheck && WRANGLER_LOG_PATH=.wrangler/logs/build-native.log vite build --mode native && npx cap sync",
+    "native:sync": "npx cap sync",
+    "native:add:android": "npx cap add android",
+    "native:add:ios": "npx cap add ios",
+    "native:open:android": "npx cap open android",
+    "native:open:ios": "npx cap open ios",
     "preview": "WRANGLER_LOG_PATH=.wrangler/logs/preview.log vite preview --host 0.0.0.0",
     "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
   },

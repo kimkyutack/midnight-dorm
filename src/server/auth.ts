@@ -3,6 +3,7 @@ import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, co
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
 import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributionSummary } from './rankedScoring';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -16,6 +17,8 @@ const RANKED_SEASON_MS = 28 * 24 * 60 * 60 * 1_000;
 const RANKED_CONTRACT_MS = 48 * 60 * 60 * 1_000;
 const RANKED_CONTRACTS_PER_SEASON = 14;
 const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
+const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+const PROMOTION_IDS = new Set(['summer', 'cyberpunk']);
 
 /** Four-week seasons begin at Monday 00:00 KST. */
 export function rankedSeasonId(now = Date.now()): string {
@@ -128,6 +131,29 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_identities (
+      provider TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (provider, subject),
+      UNIQUE (provider, account_id)
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_account_identities_account ON account_identities(account_id)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS pending_google_signups (
+      token_hash TEXT PRIMARY KEY,
+      subject TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
+      suggested_name TEXT NOT NULL DEFAULT '',
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_pending_google_signups_expiry ON pending_google_signups(expires_at)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_nickname_registry (
+      normalized_nickname TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, play_mode TEXT NOT NULL CHECK (play_mode IN ('solo', 'multiplayer')), stage_index INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), xp_awarded INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_customization (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, custom_points INTEGER NOT NULL DEFAULT 0 CHECK (custom_points >= 0), appearance TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
@@ -136,6 +162,13 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare(`CREATE TABLE IF NOT EXISTS account_turret_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, skins TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_consumables (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0), updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_promotion_dismissals (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      promotion_id TEXT NOT NULL,
+      dismissed_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, promotion_id)
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_account_promotion_dismissals_account ON account_promotion_dismissals(account_id, dismissed_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_consumable_uses (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, used_at INTEGER NOT NULL, target TEXT NOT NULL DEFAULT '{}', UNIQUE (match_id, account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_consumable_uses_match ON match_consumable_uses(match_id, account_id)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS ranked_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, season_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_number INTEGER NOT NULL, score INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), elapsed_seconds INTEGER NOT NULL, door_hp_ratio REAL NOT NULL, supplies_used INTEGER NOT NULL DEFAULT 0, rating_delta INTEGER NOT NULL DEFAULT 0, contribution_score REAL NOT NULL DEFAULT 0, contribution_rank INTEGER NOT NULL DEFAULT 0, participation_ratio REAL NOT NULL DEFAULT 0, died INTEGER NOT NULL DEFAULT 0, abandoned INTEGER NOT NULL DEFAULT 0, ghost_level INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
@@ -144,6 +177,10 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   ]);
   await ensureLegacyAuthColumns(db);
   await ensureRankedResultColumns(db);
+  await db.prepare(`INSERT OR IGNORE INTO account_nickname_registry
+    (normalized_nickname, account_id, created_at)
+    SELECT lower(trim(nickname)), id, created_at FROM accounts
+    WHERE length(trim(nickname)) BETWEEN 2 AND 12`).run();
 }
 
 const bytesToText = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
@@ -191,6 +228,7 @@ function profileFromRow(
   purchasedCosmetics: string[],
   turretLoadout: TurretLoadoutRow | null,
   consumables: OwnedConsumable[],
+  dismissedPromotionIds: string[],
   generalMatchCount: number,
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
@@ -272,6 +310,7 @@ function profileFromRow(
     appearance,
     turretSkins: parseTurretSkins(turretLoadout?.skins),
     consumables: normalizedConsumables,
+    dismissedPromotionIds: [...new Set(dismissedPromotionIds.filter((promotionId) => PROMOTION_IDS.has(promotionId)))],
     tutorialCompleted: Boolean(row.tutorial_completed),
     createdAt: row.created_at,
   };
@@ -310,7 +349,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       ranked_contracts_played: 0,
     };
   }
-  const [customization, cosmetics, turretLoadout, consumables, rankedScores, generalMatches] = await Promise.all([
+  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches] = await Promise.all([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id).first<CustomizationRow>(),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
@@ -319,6 +358,8 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       .bind(row.id).first<TurretLoadoutRow>(),
     db.prepare('SELECT item_id, quantity FROM account_consumables WHERE account_id = ? AND quantity > 0 ORDER BY updated_at DESC')
       .bind(row.id).all<ConsumableRow>(),
+    db.prepare('SELECT promotion_id FROM account_promotion_dismissals WHERE account_id = ? ORDER BY dismissed_at DESC')
+      .bind(row.id).all<{ promotion_id: string }>(),
     db.prepare(`WITH contract_attempts AS (
         SELECT score, created_at,
           ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY score DESC, created_at ASC) AS contract_rank
@@ -344,13 +385,22 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     cosmetics.results?.map((item) => item.item_id) ?? [],
     turretLoadout,
     (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
+    (dismissedPromotions.results ?? []).map((item) => item.promotion_id),
     Math.max(0, generalMatches?.count ?? 0),
   );
   profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);
   return profile;
 }
 
-function cookieValue(request: Request): string | null {
+function sessionToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization');
+  const bearer = authorization?.match(/^Bearer\s+([A-Za-z0-9_-]{20,200})$/i)?.[1];
+  if (bearer) return bearer;
+  const url = new URL(request.url);
+  if (url.pathname.endsWith('/ws')) {
+    const websocketToken = url.searchParams.get('nativeSession');
+    if (websocketToken && /^[A-Za-z0-9_-]{20,200}$/.test(websocketToken)) return websocketToken;
+  }
   const match = request.headers.get('cookie')?.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
   return match?.[1] ?? null;
 }
@@ -361,8 +411,31 @@ function sessionCookie(request: Request, token: string, maxAgeSeconds: number): 
 }
 
 function checkOrigin(request: Request): boolean {
+  if (request.headers.get('x-native-origin-verified') === '1') return true;
   const origin = request.headers.get('origin');
   return !origin || origin === new URL(request.url).origin;
+}
+
+function nativeSessionResponse(
+  request: Request,
+  profile: AccountProfile,
+  token: string,
+): Response {
+  const native = request.headers.get('x-native-origin-verified') === '1';
+  return Response.json(
+    { status: 'authenticated', profile, ...(native ? { sessionToken: token } : {}) },
+    { headers: { 'set-cookie': sessionCookie(request, token, SESSION_MS / 1_000) } },
+  );
+}
+
+function normalizedNickname(value: string): string {
+  return value.normalize('NFKC').trim().toLocaleLowerCase('ko-KR');
+}
+
+function validatedNickname(value: string | undefined): { nickname: string; normalized: string } | null {
+  const nickname = (value ?? '').normalize('NFKC').trim();
+  if (nickname.length < 2 || nickname.length > 12 || /[\u0000-\u001f\u007f]/.test(nickname)) return null;
+  return { nickname, normalized: normalizedNickname(nickname) };
 }
 
 function profileAvatarPayload(value: string): { mime: 'image/jpeg' | 'image/png' | 'image/webp'; encoded: string } | null {
@@ -407,7 +480,7 @@ async function authenticatedProfileFromReadySchema(request: Request, db: D1Datab
 }
 
 async function authenticatedRowFromReadySchema(request: Request, db: D1Database): Promise<AccountRow | null> {
-  const token = cookieValue(request);
+  const token = sessionToken(request);
   if (!token) return null;
   const row = await db.prepare(`SELECT a.* FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?`)
     .bind(await sha256(token), Date.now()).first<AccountRow>();
@@ -424,16 +497,20 @@ async function register(request: Request, db: D1Database): Promise<Response> {
   let body: { username?: string; nickname?: string; password?: string };
   try { body = await request.json(); } catch { return Response.json({ error: '입력값을 확인해주세요.' }, { status: 400 }); }
   const username = body.username?.trim().toLowerCase() ?? '';
-  const nickname = body.nickname?.trim() ?? '';
+  const nicknameInput = validatedNickname(body.nickname);
+  const nickname = nicknameInput?.nickname ?? '';
   const password = body.password ?? '';
   if (!/^[a-z0-9_]{4,20}$/.test(username)) return Response.json({ error: '아이디는 영문 소문자, 숫자, 밑줄 4~20자로 입력하세요.' }, { status: 400 });
-  if (nickname.length < 2 || nickname.length > 12) return Response.json({ error: '닉네임은 2~12자로 입력하세요.' }, { status: 400 });
+  if (!nicknameInput) return Response.json({ error: '닉네임은 2~12자로 입력하세요.' }, { status: 400 });
   if (password.length < 8 || password.length > 72) return Response.json({ error: '비밀번호는 8~72자로 입력하세요.' }, { status: 400 });
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const now = Date.now();
   const id = crypto.randomUUID();
   const existing = await db.prepare('SELECT id FROM accounts WHERE username = ?').bind(username).first<{ id: string }>();
   if (existing) return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
+  const nicknameOwner = await db.prepare('SELECT account_id FROM account_nickname_registry WHERE normalized_nickname = ?')
+    .bind(nicknameInput.normalized).first<{ account_id: string }>();
+  if (nicknameOwner) return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
   try {
     const passwordHash = encodePasswordHash(await derivePassword(password, salt));
     const session = await prepareSession();
@@ -444,15 +521,20 @@ async function register(request: Request, db: D1Database): Promise<Response> {
         .bind(id, JSON.stringify(DEFAULT_APPEARANCE), now),
       db.prepare(`INSERT INTO account_turret_loadouts (account_id, skins, updated_at) VALUES (?, ?, ?)`)
         .bind(id, JSON.stringify(DEFAULT_TURRET_SKINS), now),
+      db.prepare(`INSERT INTO account_nickname_registry (normalized_nickname, account_id, created_at)
+        VALUES (?, ?, ?)`).bind(nicknameInput.normalized, id, now),
       db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
         .bind(session.tokenHash, id, session.expiresAt, session.createdAt),
     ]);
     const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
-    return Response.json({ profile: await profileForRow(db, row as AccountRow) }, { headers: { 'set-cookie': sessionCookie(request, session.token, SESSION_MS / 1_000) } });
+    return nativeSessionResponse(request, await profileForRow(db, row as AccountRow), session.token);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/UNIQUE constraint failed[^\n]*accounts\.username/i.test(message)) {
       return Response.json({ error: '이미 사용 중인 아이디입니다.' }, { status: 409 });
+    }
+    if (/UNIQUE constraint failed[^\n]*account_nickname_registry/i.test(message)) {
+      return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
     }
     console.error('Account registration failed', error);
     return Response.json({ error: '계정 저장에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 503 });
@@ -486,14 +568,141 @@ async function login(request: Request, db: D1Database): Promise<Response> {
   }
   await db.prepare('UPDATE accounts SET login_failures = 0, locked_until = 0, last_login_at = ?, updated_at = ? WHERE id = ?').bind(now, now, row.id).run();
   const token = await createSession(db, row.id);
-  return Response.json({ profile: await profileForRow(db, row) }, { headers: { 'set-cookie': sessionCookie(request, token, SESSION_MS / 1_000) } });
+  return nativeSessionResponse(request, await profileForRow(db, row), token);
 }
 
 async function logout(request: Request, db: D1Database): Promise<Response> {
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
-  const token = cookieValue(request);
+  const token = sessionToken(request);
   if (token) await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
   return Response.json({ ok: true }, { headers: { 'set-cookie': sessionCookie(request, '', 0) } });
+}
+
+interface GoogleIdentityClaims {
+  sub: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+}
+
+async function googleLogin(
+  request: Request,
+  db: D1Database,
+  googleClientId: string | undefined,
+): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  if (!googleClientId) return Response.json({ error: 'Google 로그인이 서버에 설정되지 않았습니다.' }, { status: 503 });
+  let body: { idToken?: string };
+  try { body = await request.json(); } catch {
+    return Response.json({ error: 'Google 로그인 정보를 확인해주세요.' }, { status: 400 });
+  }
+  if (!body.idToken || body.idToken.length > 8_192) {
+    return Response.json({ error: 'Google ID 토큰이 올바르지 않습니다.' }, { status: 400 });
+  }
+
+  let claims: GoogleIdentityClaims;
+  try {
+    const verified = await jwtVerify(body.idToken, GOOGLE_JWKS, {
+      audience: googleClientId,
+      issuer: ['https://accounts.google.com', 'accounts.google.com'],
+    });
+    claims = verified.payload as unknown as GoogleIdentityClaims;
+  } catch (error) {
+    console.warn('Google ID token verification failed', error);
+    return Response.json({ error: 'Google 계정을 확인하지 못했습니다.' }, { status: 401 });
+  }
+  if (!claims.sub || !claims.email || claims.email_verified !== true) {
+    return Response.json({ error: '확인된 Google 계정이 필요합니다.' }, { status: 401 });
+  }
+
+  const identity = await db.prepare(`SELECT a.* FROM account_identities i
+    JOIN accounts a ON a.id = i.account_id
+    WHERE i.provider = 'google' AND i.subject = ?`)
+    .bind(claims.sub).first<AccountRow>();
+  if (!identity) {
+    const signupToken = bytesToText(crypto.getRandomValues(new Uint8Array(32)));
+    const now = Date.now();
+    const suggestedName = (claims.name?.normalize('NFKC').trim() || claims.email.split('@')[0] || '새 생존자').slice(0, 12);
+    await db.batch([
+      db.prepare('DELETE FROM pending_google_signups WHERE expires_at <= ? OR subject = ?')
+        .bind(now, claims.sub),
+      db.prepare(`INSERT INTO pending_google_signups
+        (token_hash, subject, email, suggested_name, expires_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(await sha256(signupToken), claims.sub, claims.email, suggestedName, now + 15 * 60_000, now),
+    ]);
+    return Response.json({
+      status: 'nickname-required',
+      signupToken,
+      suggestedNickname: suggestedName,
+    });
+  }
+
+  const now = Date.now();
+  await db.prepare('UPDATE accounts SET last_login_at = ?, updated_at = ? WHERE id = ?')
+    .bind(now, now, identity.id).run();
+  const token = await createSession(db, identity.id);
+  return nativeSessionResponse(request, await profileForRow(db, identity), token);
+}
+
+async function completeGoogleSignup(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  let body: { signupToken?: string; nickname?: string };
+  try { body = await request.json(); } catch {
+    return Response.json({ error: '가입 정보를 확인해주세요.' }, { status: 400 });
+  }
+  if (!body.signupToken || !/^[A-Za-z0-9_-]{20,200}$/.test(body.signupToken)) {
+    return Response.json({ error: 'Google 가입 인증이 만료되었습니다. 다시 로그인해주세요.' }, { status: 401 });
+  }
+  const nicknameInput = validatedNickname(body.nickname);
+  if (!nicknameInput) {
+    return Response.json({ error: '닉네임은 2~12자로 입력하세요.' }, { status: 400 });
+  }
+  const now = Date.now();
+  const pending = await db.prepare(`SELECT subject, email FROM pending_google_signups
+    WHERE token_hash = ? AND expires_at > ?`)
+    .bind(await sha256(body.signupToken), now)
+    .first<{ subject: string; email: string }>();
+  if (!pending) {
+    return Response.json({ error: 'Google 가입 인증이 만료되었습니다. 다시 로그인해주세요.' }, { status: 401 });
+  }
+  const duplicate = await db.prepare('SELECT account_id FROM account_nickname_registry WHERE normalized_nickname = ?')
+    .bind(nicknameInput.normalized).first<{ account_id: string }>();
+  if (duplicate) {
+    return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
+  }
+
+  const accountId = crypto.randomUUID();
+  const username = `g_${(await sha256(pending.subject)).slice(0, 18)}`;
+  const session = await prepareSession();
+  try {
+    await db.batch([
+      db.prepare(`INSERT INTO accounts
+        (id, username, nickname, password_hash, password_salt, created_at, updated_at, last_login_at)
+        VALUES (?, ?, ?, '', '', ?, ?, ?)`)
+        .bind(accountId, username, nicknameInput.nickname, now, now, now),
+      db.prepare(`INSERT INTO account_identities (provider, subject, account_id, created_at)
+        VALUES ('google', ?, ?, ?)`).bind(pending.subject, accountId, now),
+      db.prepare(`INSERT INTO account_nickname_registry (normalized_nickname, account_id, created_at)
+        VALUES (?, ?, ?)`).bind(nicknameInput.normalized, accountId, now),
+      db.prepare(`INSERT INTO account_customization (account_id, custom_points, appearance, updated_at)
+        VALUES (?, 0, ?, ?)`).bind(accountId, JSON.stringify(DEFAULT_APPEARANCE), now),
+      db.prepare(`INSERT INTO account_turret_loadouts (account_id, skins, updated_at)
+        VALUES (?, ?, ?)`).bind(accountId, JSON.stringify(DEFAULT_TURRET_SKINS), now),
+      db.prepare('INSERT INTO sessions (token_hash, account_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+        .bind(session.tokenHash, accountId, session.expiresAt, session.createdAt),
+      db.prepare('DELETE FROM pending_google_signups WHERE subject = ?').bind(pending.subject),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint failed[^\n]*(account_nickname_registry|accounts\.nickname)/i.test(message)) {
+      return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
+    }
+    console.error('Google account creation failed', error);
+    return Response.json({ error: 'Google 계정을 게임 계정에 연결하지 못했습니다.' }, { status: 503 });
+  }
+  const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(accountId).first<AccountRow>();
+  return nativeSessionResponse(request, await profileForRow(db, row as AccountRow), session.token);
 }
 
 async function setSelectedPlayMode(request: Request, db: D1Database): Promise<Response> {
@@ -545,6 +754,20 @@ async function setProfileAvatar(request: Request, db: D1Database): Promise<Respo
     .bind(avatarData ?? '', now, now, row.id).run();
   const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();
   return Response.json({ profile: await profileForRow(db, updated ?? row) });
+}
+
+async function dismissPromotion(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { promotionId?: unknown };
+  try { body = await request.json(); } catch { return Response.json({ error: '이벤트 정보를 확인해주세요.' }, { status: 400 }); }
+  if (typeof body.promotionId !== 'string' || !PROMOTION_IDS.has(body.promotionId))
+    return Response.json({ error: '지원하지 않는 이벤트입니다.' }, { status: 400 });
+  await db.prepare(`INSERT OR IGNORE INTO account_promotion_dismissals
+    (account_id, promotion_id, dismissed_at) VALUES (?, ?, ?)`)
+    .bind(row.id, body.promotionId, Date.now()).run();
+  return Response.json({ profile: await profileForRow(db, row) });
 }
 
 /**
@@ -702,17 +925,25 @@ export async function consumeMatchConsumable(
   return { ok: false, error: '보급 재고가 없거나 이번 판에 이미 사용했습니다.' };
 }
 
-export async function routeAuth(request: Request, db: D1Database, bootstrapSchema = false): Promise<Response | null> {
+export async function routeAuth(
+  request: Request,
+  db: D1Database,
+  bootstrapSchema = false,
+  googleClientId?: string,
+): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/auth/') && !url.pathname.startsWith('/api/customize/') && !url.pathname.startsWith('/api/shop/')) return null;
   try {
     if (bootstrapSchema) await ensureAuthSchema(db);
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
+    if (url.pathname === '/api/auth/google' && request.method === 'POST') return googleLogin(request, db, googleClientId);
+    if (url.pathname === '/api/auth/google/complete' && request.method === 'POST') return completeGoogleSignup(request, db);
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
     if (url.pathname === '/api/auth/play-mode' && request.method === 'POST') return setSelectedPlayMode(request, db);
     if (url.pathname === '/api/auth/profile-display' && request.method === 'POST') return setProfileDisplayMode(request, db);
     if (url.pathname === '/api/auth/profile-avatar' && request.method === 'POST') return setProfileAvatar(request, db);
+    if (url.pathname === '/api/auth/promotion-dismissals' && request.method === 'POST') return dismissPromotion(request, db);
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);

@@ -1,9 +1,11 @@
 import type { AccountProfile } from '../shared/types';
+import { setNativeSessionToken } from './native/runtime';
 
 async function authRequest(path: string, options?: RequestInit): Promise<AccountProfile> {
   const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...options?.headers } });
-  const data = await response.json() as { profile?: AccountProfile; error?: string };
+  const data = await response.json() as { profile?: AccountProfile; sessionToken?: string; error?: string };
   if (!response.ok || !data.profile) throw new Error(data.error ?? '계정 요청을 처리하지 못했습니다.');
+  if (data.sessionToken) await setNativeSessionToken(data.sessionToken);
   return data.profile;
 }
 
@@ -41,10 +43,18 @@ export const setProfileAvatar = (avatarData: string | null): Promise<AccountProf
   method: 'POST', body: JSON.stringify({ avatarData }),
 });
 
+export const dismissPromotion = (promotionId: 'summer' | 'cyberpunk'): Promise<AccountProfile> => authRequest('/api/auth/promotion-dismissals', {
+  method: 'POST', body: JSON.stringify({ promotionId }),
+});
+
 export async function logoutAccount(): Promise<void> {
-  const response = await fetch('/api/auth/logout', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-  });
-  if (!response.ok) throw new Error('로그아웃 요청을 처리하지 못했습니다.');
+  try {
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    if (!response.ok) throw new Error('로그아웃 요청을 처리하지 못했습니다.');
+  } finally {
+    await setNativeSessionToken(null);
+  }
 }

@@ -1,5 +1,6 @@
 import { BALANCE } from '../shared/balance';
 import type { BuildingKind, ClientMessage, ConsumableId, GameEvent, GameSnapshot, GameSnapshotFrame, MapDefinition, QuickChatPhrase, ServerMessage, Tile, Vec2 } from '../shared/types';
+import { nativeWebSocketUrlSync } from './native/runtime';
 
 export interface NetworkEvents {
   welcome: { playerId: string; map: MapDefinition; snapshot: GameSnapshot };
@@ -76,14 +77,13 @@ export class GameNetwork {
     this.reconnectTimer = null;
     this.stopped = false;
     this.emit('connection', { state: this.reconnectAttempts ? 'reconnecting' : 'connecting', attempt: this.reconnectAttempts });
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams({
       nickname: this.nickname,
       deviceId: this.deviceId,
       snapshotFrames: '1',
     });
     if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
-    const socket = new WebSocket(`${protocol}//${location.host}/api/rooms/${this.code}/ws?${params}`);
+    const socket = new WebSocket(nativeWebSocketUrlSync(`/api/rooms/${this.code}/ws`, params));
     socket.binaryType = 'arraybuffer';
     const generation = ++this.socketGeneration;
     this.ensureParserWorker();
