@@ -25,6 +25,8 @@ export interface CharacterTrait {
   goldPerSecond: number;
   powerPerSecond: number;
   extraDraws: number;
+  /** Added probability points shared by legendary and mythic random-box rewards. */
+  highRarityChanceBonus: number;
   unclaimedMoveSpeedMultiplier: number;
   turretRangeBonus: number;
   /** Added to Lv.1 for the first guardian turret the player constructs. */
@@ -46,6 +48,7 @@ const NONE: CharacterTrait = {
   goldPerSecond: 0,
   powerPerSecond: 0,
   extraDraws: 0,
+  highRarityChanceBonus: 0,
   unclaimedMoveSpeedMultiplier: 1,
   turretRangeBonus: 0,
   firstGuardianLevelBonus: 0,
@@ -160,6 +163,7 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     goldPerSecond: base.goldPerSecond * multiplier,
     powerPerSecond: base.powerPerSecond * multiplier,
     extraDraws: Math.round(base.extraDraws * multiplier),
+    highRarityChanceBonus: base.highRarityChanceBonus * multiplier,
     unclaimedMoveSpeedMultiplier: boostedMultiplier(base.unclaimedMoveSpeedMultiplier),
     turretRangeBonus: base.turretRangeBonus * multiplier,
     firstGuardianLevelBonus: Math.round(base.firstGuardianLevelBonus * multiplier),
@@ -178,6 +182,7 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     goldPerSecond: special.goldPerSecond ?? boosted.goldPerSecond,
     powerPerSecond: special.powerPerSecond ?? boosted.powerPerSecond,
     extraDraws: special.extraDraws ?? boosted.extraDraws,
+    highRarityChanceBonus: special.highRarityChanceBonus ?? boosted.highRarityChanceBonus,
     unclaimedMoveSpeedMultiplier: special.unclaimedMoveSpeedMultiplier ?? boosted.unclaimedMoveSpeedMultiplier,
     turretRangeBonus: special.turretRangeBonus ?? boosted.turretRangeBonus,
     firstGuardianLevelBonus: special.firstGuardianLevelBonus ?? boosted.firstGuardianLevelBonus,

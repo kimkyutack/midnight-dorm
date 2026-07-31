@@ -15,6 +15,8 @@ export interface SkinTraitOverride {
   goldPerSecond?: number;
   powerPerSecond?: number;
   extraDraws?: number;
+  /** Added probability points shared by legendary and mythic random-box rewards. */
+  highRarityChanceBonus?: number;
   unclaimedMoveSpeedMultiplier?: number;
   turretRangeBonus?: number;
   firstGuardianLevelBonus?: number;
@@ -70,6 +72,8 @@ const SKINS = [
   { id: 'skin-look-tiger-lifeguard', slot: 'skin', characterId: 'character-tiger', traitMultiplier: 2, traitOverride: { label: '해변 구조 지휘', description: '포탑 사거리가 2칸 늘고 공격속도가 20% 증가합니다.', turretRangeBonus: 2, turretRateMultiplier: 1 / 1.2 }, assetDirectory: 'skin-lifeguard-raon', label: '해변 구조대 라온', description: '구명 튜브와 호루라기를 갖추고 물보라를 가르며 달리는 여름 한정 스킨', symbol: '구', swatch: '#ef5548', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-cat-neon-rider', slot: 'skin', characterId: 'character-cat', traitMultiplier: 2, traitOverride: { label: '네온 오버클럭', description: '모든 포탑의 공격속도가 2배가 됩니다.', turretRateMultiplier: 0.5 }, assetDirectory: 'skin-neon-rider-lulu', label: '네온 라이더 루루', description: '네온 고글과 인라인 스케이트로 사이버 시티를 질주하는 프리미엄 스킨', symbol: '네', swatch: '#b347ff', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-hamster-cyber-driver', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 2, traitOverride: { label: 'Lv.5 양산 설계', description: '설치하는 모든 공격 포탑이 Lv.5로 시작합니다.', turretStartingLevel: 5 }, assetDirectory: 'skin-cyber-driver-kong', label: '사이버 드라이버 콩', description: '보랏빛 스포츠카와 무지개 휠로 네온 도로를 달리는 프리미엄 스킨', symbol: '카', swatch: '#803cff', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-crocodile-police-enforcer', slot: 'skin', characterId: 'character-crocodile', traitMultiplier: 2, traitOverride: { label: '강력계 화력 지휘', description: '모든 포탑의 피해가 100% 증가하고 공격속도가 10% 증가합니다.', turretDamageMultiplier: 2, turretRateMultiplier: 1 / 1.1 }, assetDirectory: 'skin-police-enforcer-croco', label: '강력계 크로크', description: '압도적인 체격과 무전 장비로 현장을 장악하는 프리미엄 경찰 스킨', symbol: '경', swatch: '#315d8f', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-monkey-secret-agent', slot: 'skin', characterId: 'character-monkey', traitMultiplier: 2, traitOverride: { label: '기밀 행운 조작', description: '램프 랜덤 뽑기를 3회 더 사용하고 신화·전설 아이템 확률이 5%p 증가합니다.', extraDraws: 3, highRarityChanceBonus: 0.05 }, assetDirectory: 'skin-secret-agent-monkey', label: '시크릿 에이전트 몽키', description: '검은 수트와 쌍수 사격 자세로 임무를 수행하는 프리미엄 비밀요원 스킨', symbol: '첩', swatch: '#98754f', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-hamster-ward', slot: 'skin', characterId: 'character-hamster', traitMultiplier: 1.5, label: '개구리 탐험가 콩', description: '탐험복을 입은 완성형 스킨', symbol: '햄', swatch: '#d6b583', unlock: { kind: 'points', price: 2_500 } },
@@ -85,9 +89,11 @@ export const DEFAULT_TILE_SKIN_ID = 'tile-basic-ward';
 export const WAVE_TILE_SKIN_ID = 'tile-wave-surfer';
 export const BEACH_SAND_TILE_SKIN_ID = 'tile-beach-lifeguard';
 export const CYBERPUNK_NEON_TILE_SKIN_ID = 'tile-cyberpunk-neon';
+export const SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID = 'tile-special-ops-headquarters';
 export const SURFER_WATER_TURRET_SKIN_ID = 'turret-basic-surfer-water';
 export const LIFEGUARD_PARASOL_TURRET_SKIN_ID = 'turret-basic-lifeguard-parasol';
 export const CYBERPUNK_LASER_TURRET_SKIN_ID = 'turret-basic-cyberpunk-laser';
+export const SPECIAL_OPS_TRACKER_TURRET_SKIN_ID = 'turret-basic-special-ops-tracker';
 
 const TILE_SKINS = [
   {
@@ -129,6 +135,16 @@ const TILE_SKINS = [
     unlock: { kind: 'points', price: 1_000 },
     assetDirectory: 'skin-cyberpunk-neon/neon-circuit-tile.webp',
   },
+  {
+    id: SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID,
+    slot: 'tile',
+    label: '특수수사본부 타일',
+    description: '방 바닥을 청회색 수사본부 타일로 바꿉니다.',
+    symbol: '수',
+    swatch: '#4f79a8',
+    unlock: { kind: 'points', price: 1_000 },
+    assetDirectory: 'skin-special-ops-headquarters/investigation-floor.webp',
+  },
 ] as const satisfies readonly CosmeticDefinition[];
 
 const TURRET_SKINS = [
@@ -165,6 +181,17 @@ const TURRET_SKINS = [
     swatch: '#f24dff',
     unlock: { kind: 'points', price: 1_500 },
     assetDirectory: 'skin-cyberpunk-laser',
+  },
+  {
+    id: SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
+    slot: 'turret',
+    turretKind: 'basic-turret',
+    label: '기밀 추적포',
+    description: '감시 장치부터 스마트 레일건까지 성장합니다.',
+    symbol: '추',
+    swatch: '#d5dce8',
+    unlock: { kind: 'points', price: 1_500 },
+    assetDirectory: 'skin-special-ops-tracker',
   },
   { id: 'turret-basic-toy', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 장난감', description: '둥근 별 장식과 크림색 포신', symbol: '별', swatch: '#f1b86b', unlock: { kind: 'points', price: 300 } },
   { id: 'turret-basic-pumpkin', slot: 'turret', turretKind: 'basic-turret', label: '수호포 · 호박등', description: '주황빛 눈이 반짝이는 호박 포대', symbol: '호', swatch: '#e87942', unlock: { kind: 'points', price: 520 } },

@@ -31,6 +31,7 @@ import {
   combinedItemEffects,
   DRAW_COSTS,
   getRandomItem,
+  randomItemForRoll,
   RANDOM_ITEMS,
 } from "../shared/randomItems";
 import {
@@ -2406,14 +2407,13 @@ export class GameEngine {
     player.gold -= cost.gold;
     player.power -= cost.power;
     player.drawCount += 1;
-    const totalWeight = RANDOM_ITEMS.reduce(
-      (sum, item) => sum + item.weight,
-      0,
+    const item = randomItemForRoll(
+      this.rng.next(),
+      characterTraitForMatch(
+        player.appearance,
+        Boolean(this.state.ranked),
+      ).highRarityChanceBonus,
     );
-    let roll = this.rng.next() * totalWeight;
-    const item =
-      RANDOM_ITEMS.find((candidate) => (roll -= candidate.weight) <= 0) ??
-      RANDOM_ITEMS[RANDOM_ITEMS.length - 1];
     if (!item)
       return { ok: false, error: "아이템 목록을 불러오지 못했습니다." };
     // A draw is no longer an invisible bag bonus.  The machine itself turns

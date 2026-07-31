@@ -119,3 +119,6 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - `네온 레이저포`의 15개 크로마키 원본은 `public/assets/turret-skins/skin-cyberpunk-laser/source/`, 정규화된 512px 투명 PNG는 같은 스킨 폴더의 `level-01.png`부터 `level-15.png`에 저장한다.
 - 레벨은 `권총 → 중권총 → 기관권총 → 기관단총 → 카빈 → 돌격소총 → 펄스 라이플 → 중화기 라이플 → 레일 라이플 → 레일건 → 플라즈마포 → 이온포 → 공성 빔포 → 중형 레이저포 → 레이저 요새` 순으로 형태가 변한다. 밝은 아이보리·건메탈 본체로 보라색 타일과 분리하고 네온색은 회로와 코어에 제한한다.
 - 마젠타를 사용하는 사이버펑크 원본은 범용 크로마 제거기의 마젠타 억제 단계를 사용하지 않는다. `scripts/remove_green_chroma_preserve_magenta.mjs`로 녹색 우세 픽셀만 제거한 뒤 동일한 512px 중심축에 정렬한다.
+- `특수수사본부 타일`의 런타임 자산은 `public/assets/tiles/skin-special-ops-headquarters/investigation-floor.webp`다. 청회색 콘크리트 중앙과 남색 금속 프레임을 사용하고 노란 수사선 및 적·청 경광 반사는 외곽에만 배치한다.
+- `기밀 추적포`는 `public/assets/turret-skins/skin-special-ops-tracker/level-01.png`부터 `level-15.png`까지 512px 투명 PNG로 저장한다. 모든 단계는 같은 중심축과 아래쪽 단일 포열 방향을 유지하고, 서류가방형 장치에서 금색 경찰 배지 스마트 레일건으로 형태가 확실히 성장해야 한다.
+- 두 자산은 내장 이미지 생성기로 만든 탑다운 원본을 `scripts/process_special_ops_theme_assets.mjs`로 크로마 제거·공통 스케일 정렬·WebP 변환한 결과다. 런타임에서는 원본 시트가 아니라 최종 타일 1장과 현재 레벨 포탑 1장만 로드한다.

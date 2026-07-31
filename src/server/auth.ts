@@ -18,7 +18,7 @@ const RANKED_CONTRACT_MS = 48 * 60 * 60 * 1_000;
 const RANKED_CONTRACTS_PER_SEASON = 14;
 const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
 const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
-const PROMOTION_IDS = new Set(['summer', 'cyberpunk']);
+const PROMOTION_IDS = new Set(['summer', 'cyberpunk', 'special-ops']);
 const AD_FREE_ENTITLEMENT_ID = 'ad-removal';
 const AD_FREE_MONTH_MS = 30 * 24 * 60 * 60 * 1_000;
 
@@ -1135,6 +1135,18 @@ export async function routeAuth(
     && !url.pathname.startsWith('/api/entitlements/')
   ) return null;
   try {
+    if (url.pathname === '/api/auth/google/config' && request.method === 'GET') {
+      if (!googleClientId) {
+        return Response.json(
+          { error: 'Google 로그인이 서버에 설정되지 않았습니다.' },
+          { status: 503, headers: { 'cache-control': 'no-store' } },
+        );
+      }
+      return Response.json(
+        { clientId: googleClientId },
+        { headers: { 'cache-control': 'public, max-age=300' } },
+      );
+    }
     if (bootstrapSchema) await ensureAuthSchema(db);
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);

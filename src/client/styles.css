@@ -2031,19 +2031,6 @@
   font-size: 8px;
   line-height: 1.35;
 }
-.ranked-skin-card-note {
-  display: inline-flex;
-  width: fit-content;
-  margin: 2px auto 1px;
-  padding: 2px 6px;
-  border: 1px solid rgba(255, 194, 100, 0.5);
-  border-radius: 999px;
-  color: #ffe3a1;
-  background: rgba(72, 37, 74, 0.72);
-  font-size: 7px;
-  font-style: normal;
-  font-weight: 950;
-}
 .ranked-queue-clock span {
   color: #7fdef4;
   font-size: 8px;
@@ -10158,6 +10145,78 @@ body.game-chat-active {
     0 0 23px rgba(154, 48, 255, 0.38),
     inset 0 0 20px rgba(240, 65, 255, 0.12);
 }
+.police-enforcer-croco-card-art,
+.secret-agent-monkey-card-art {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(3, 17, 28, 0.05), rgba(3, 12, 21, 0.38)),
+    url("/assets/cinematic/special-ops-city-backdrop.webp") center 57% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 224, 244, 0.34),
+    inset 0 -20px 30px rgba(3, 11, 20, 0.44);
+  animation: special-ops-city-drift 6.2s ease-in-out infinite alternate;
+}
+.police-enforcer-croco-card-art::before,
+.secret-agent-monkey-card-art::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(104deg, rgba(44, 139, 255, 0.23), transparent 35%),
+    linear-gradient(256deg, rgba(255, 70, 62, 0.2), transparent 36%),
+    repeating-linear-gradient(180deg, transparent 0 8px, rgba(255, 255, 255, 0.035) 9px, transparent 10px);
+  content: "";
+  pointer-events: none;
+  animation: special-ops-alert-glow 1.5s ease-in-out infinite alternate;
+}
+.police-enforcer-croco-card-art::after,
+.secret-agent-monkey-card-art::after {
+  right: 6%;
+  bottom: 1%;
+  left: 6%;
+  z-index: 1;
+  height: 19%;
+  border-radius: 50%;
+  background: linear-gradient(90deg, rgba(48, 132, 255, 0.28), rgba(255, 90, 53, 0.24));
+  filter: blur(8px);
+}
+.police-enforcer-croco-card-sprite,
+.secret-agent-monkey-card-sprite {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: min(100%, 114px);
+  height: min(100%, 114px);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 400% 300%;
+  filter:
+    drop-shadow(0 8px 5px rgba(0, 0, 0, 0.56))
+    drop-shadow(0 0 4px rgba(126, 188, 236, 0.44));
+  animation: surfer-card-frames 0.82s steps(1, end) infinite;
+}
+.police-enforcer-croco-card-sprite {
+  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png");
+  animation:
+    surfer-card-frames 0.88s steps(1, end) infinite,
+    police-card-stomp 0.88s ease-in-out infinite;
+}
+.secret-agent-monkey-card-sprite {
+  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png");
+  animation:
+    surfer-card-frames 0.72s steps(1, end) infinite,
+    agent-card-dash 0.72s ease-in-out infinite;
+}
+.police-enforcer-croco-card,
+.secret-agent-monkey-card {
+  background:
+    linear-gradient(155deg, rgba(10, 28, 42, 0.98), rgba(4, 12, 22, 0.99)) padding-box,
+    linear-gradient(125deg, #a9d9ff 0%, #3577bf 29%, #f4c371 58%, #f06755 78%, #d7efff 100%) border-box;
+  box-shadow:
+    0 0 0 1px rgba(133, 193, 239, 0.2),
+    0 0 21px rgba(39, 104, 167, 0.34),
+    inset 0 0 20px rgba(240, 179, 91, 0.08);
+}
 .cosmetic-new-badge {
   position: absolute !important;
   z-index: 8 !important;
@@ -10350,6 +10409,56 @@ body.game-chat-active {
     drop-shadow(0 16px 13px rgba(13, 0, 39, 0.58))
     drop-shadow(0 0 8px rgba(196, 79, 255, 0.72));
 }
+.custom-avatar-stage.police-enforcer-croco-preview,
+.custom-avatar-stage.secret-agent-monkey-preview {
+  background:
+    linear-gradient(180deg, rgba(5, 19, 31, 0.02), rgba(2, 10, 18, 0.31)),
+    url("/assets/cinematic/special-ops-city-backdrop.webp") center 58% / cover no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(158, 207, 243, 0.38),
+    inset 0 -34px 52px rgba(2, 8, 16, 0.44),
+    0 0 21px rgba(53, 117, 175, 0.24);
+  animation: special-ops-city-drift 7s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.police-enforcer-croco-preview::before,
+.custom-avatar-stage.secret-agent-monkey-preview::before {
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(105deg, rgba(35, 125, 255, 0.18), transparent 32%),
+    linear-gradient(255deg, rgba(255, 71, 58, 0.16), transparent 34%),
+    repeating-linear-gradient(180deg, transparent 0 10px, rgba(255, 255, 255, 0.035) 11px, transparent 12px);
+  box-shadow: none;
+  opacity: 0.78;
+  animation: special-ops-alert-glow 1.65s ease-in-out infinite alternate;
+}
+.custom-avatar-stage.police-enforcer-croco-preview::after,
+.custom-avatar-stage.secret-agent-monkey-preview::after {
+  position: absolute;
+  z-index: 0;
+  right: -7%;
+  bottom: -6%;
+  left: -7%;
+  height: 25%;
+  border-radius: 50%;
+  background: linear-gradient(90deg, rgba(45, 124, 255, 0.25), rgba(255, 86, 55, 0.2));
+  filter: blur(11px);
+  content: "";
+  pointer-events: none;
+}
+.custom-avatar-stage.police-enforcer-croco-preview .police-enforcer-croco-sprite-preview,
+.custom-avatar-stage.secret-agent-monkey-preview .secret-agent-monkey-sprite-preview {
+  z-index: 2;
+}
+.custom-avatar-stage.police-enforcer-croco-preview .skin-preview-canvas,
+.custom-avatar-stage.secret-agent-monkey-preview .skin-preview-canvas {
+  width: min(94%, 346px);
+  height: min(96%, 346px);
+  filter:
+    drop-shadow(0 16px 13px rgba(0, 0, 0, 0.58))
+    drop-shadow(0 0 7px rgba(106, 175, 229, 0.5));
+}
 
 @keyframes premium-card-sheen {
   0%,
@@ -10452,6 +10561,45 @@ body.game-chat-active {
     transform: translate(1px, -1px) rotate(0.5deg);
   }
 }
+@keyframes special-ops-city-drift {
+  from {
+    background-position: center 62%;
+  }
+  to {
+    background-position: center 55%;
+  }
+}
+@keyframes special-ops-alert-glow {
+  from {
+    opacity: 0.38;
+    filter: brightness(0.9);
+  }
+  to {
+    opacity: 0.88;
+    filter: brightness(1.2);
+  }
+}
+@keyframes police-card-stomp {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  55% {
+    transform: translateY(-1px);
+  }
+  72% {
+    transform: translateY(1px);
+  }
+}
+@keyframes agent-card-dash {
+  0%, 100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  52% {
+    opacity: 0.54;
+    transform: translateX(2px);
+  }
+}
 
 @media (orientation: portrait) {
   .custom-layout {
@@ -10470,7 +10618,9 @@ body.game-chat-active {
     height: min(100%, 104px);
   }
   .neon-rider-lulu-card-sprite,
-  .cyber-driver-kong-card-sprite {
+  .cyber-driver-kong-card-sprite,
+  .police-enforcer-croco-card-sprite,
+  .secret-agent-monkey-card-sprite {
     width: min(100%, 106px);
     height: min(100%, 106px);
   }
@@ -10497,7 +10647,17 @@ body.game-chat-active {
   .custom-avatar-stage.neon-rider-lulu-preview,
   .custom-avatar-stage.neon-rider-lulu-preview::before,
   .custom-avatar-stage.cyber-driver-kong-preview,
-  .custom-avatar-stage.cyber-driver-kong-preview::before {
+  .custom-avatar-stage.cyber-driver-kong-preview::before,
+  .police-enforcer-croco-card-art,
+  .police-enforcer-croco-card-art::before,
+  .police-enforcer-croco-card-sprite,
+  .secret-agent-monkey-card-art,
+  .secret-agent-monkey-card-art::before,
+  .secret-agent-monkey-card-sprite,
+  .custom-avatar-stage.police-enforcer-croco-preview,
+  .custom-avatar-stage.police-enforcer-croco-preview::before,
+  .custom-avatar-stage.secret-agent-monkey-preview,
+  .custom-avatar-stage.secret-agent-monkey-preview::before {
     animation: none;
   }
 }
@@ -10778,6 +10938,56 @@ body.game-chat-active {
   box-shadow:
     inset 0 1px rgba(255, 255, 255, 0.82),
     0 7px 20px rgba(181, 63, 255, 0.38);
+}
+.special-ops-premium-promo {
+  border-color: rgba(121, 184, 232, 0.94);
+  background: #07131e;
+  box-shadow:
+    0 0 0 3px rgba(64, 128, 190, 0.16),
+    0 26px 72px rgba(0, 0, 0, 0.7),
+    0 0 42px rgba(224, 96, 62, 0.22);
+}
+.special-ops-premium-promo .surfer-mong-promo-art {
+  background: #071724;
+}
+.special-ops-premium-promo .surfer-mong-promo-art::before {
+  background:
+    linear-gradient(180deg, rgba(2, 10, 20, 0.78) 0%, transparent 39%),
+    linear-gradient(0deg, rgba(2, 9, 17, 0.58) 0%, transparent 27%);
+}
+.special-ops-premium-promo .surfer-mong-promo-art::after {
+  background:
+    linear-gradient(105deg, rgba(42, 129, 255, 0.17), transparent 32%),
+    linear-gradient(255deg, rgba(255, 74, 57, 0.14), transparent 34%),
+    radial-gradient(circle at 14% 22%, #8ed1ff 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 16%, #ff9d80 0 1.5px, transparent 2.5px);
+}
+.special-ops-premium-promo .surfer-mong-promo-art > img {
+  object-position: center 52%;
+}
+.special-ops-premium-promo .surfer-mong-promo-copy {
+  top: clamp(18px, 3.8cqh, 31px);
+}
+.special-ops-premium-promo .surfer-mong-promo-copy > span {
+  color: #e5f3ff;
+  border-color: rgba(121, 184, 232, 0.62);
+  background: rgba(4, 20, 34, 0.76);
+}
+.special-ops-premium-promo .surfer-mong-promo-copy h2 {
+  background: linear-gradient(110deg, #fff, #9ed8ff 38%, #f4d190 67%, #ff967d);
+  background-clip: text;
+  color: transparent;
+  text-shadow:
+    0 5px 22px rgba(0, 0, 0, 0.88),
+    0 0 15px rgba(79, 148, 205, 0.42);
+}
+.special-ops-premium-promo .surfer-promo-shop {
+  border-color: rgba(216, 237, 255, 0.72);
+  color: #061726;
+  background: linear-gradient(135deg, #9fd9ff, #f2d48f 52%, #f47c64);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.82),
+    0 7px 20px rgba(45, 118, 179, 0.34);
 }
 .skin-promo-carousel-nav {
   position: absolute;

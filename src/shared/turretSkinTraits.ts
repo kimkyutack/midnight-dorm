@@ -41,6 +41,11 @@ export const TURRET_SKIN_TRAITS: Readonly<Record<string, TurretSkinTrait>> = {
     label: '네온 레이저',
     description: '사이버 총기 외형과 굵은 네온 레이저를 적용합니다.',
   },
+  'turret-basic-special-ops-tracker': {
+    ...neutral('basic-turret'),
+    label: '기밀 추적탄',
+    description: '특수수사 장비 외형과 청백색 추적탄 효과를 적용합니다.',
+  },
   'turret-basic-toy': {
     ...neutral('basic-turret'),
     label: '별빛 탄환',

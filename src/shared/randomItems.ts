@@ -78,6 +78,46 @@ export function getRandomItem(itemId: string): RandomItemDefinition | undefined 
   return RANDOM_ITEMS.find((item) => item.id === itemId);
 }
 
+const weightedPick = (
+  items: readonly RandomItemDefinition[],
+  rollUnit: number,
+): RandomItemDefinition | undefined => {
+  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight <= 0) return items[items.length - 1];
+  let roll = Math.min(0.999999999, Math.max(0, rollUnit)) * totalWeight;
+  return items.find((item) => (roll -= item.weight) <= 0) ?? items[items.length - 1];
+};
+
+/**
+ * Selects one random-box reward while allowing authored skins to add a small,
+ * explicit probability-point bonus to the legendary/mythic pool. The bonus
+ * changes only which rarity pool is chosen; relative weights inside each pool
+ * stay intact, so existing reward balance remains recognizable.
+ */
+export function randomItemForRoll(
+  rollUnit: number,
+  highRarityChanceBonus = 0,
+): RandomItemDefinition | undefined {
+  const roll = Math.min(0.999999999, Math.max(0, rollUnit));
+  const bonus = Math.min(0.95, Math.max(0, highRarityChanceBonus));
+  if (bonus <= 0) return weightedPick(RANDOM_ITEMS, roll);
+
+  const highRarity = RANDOM_ITEMS.filter(
+    (item) => item.rarity === 'legendary' || item.rarity === 'mythic',
+  );
+  const standardRarity = RANDOM_ITEMS.filter(
+    (item) => item.rarity !== 'legendary' && item.rarity !== 'mythic',
+  );
+  const highWeight = highRarity.reduce((sum, item) => sum + item.weight, 0);
+  const standardWeight = standardRarity.reduce((sum, item) => sum + item.weight, 0);
+  const baseHighChance = highWeight / Math.max(1, highWeight + standardWeight);
+  const highChance = Math.min(0.99, baseHighChance + bonus);
+  if (roll < highChance) {
+    return weightedPick(highRarity, roll / highChance);
+  }
+  return weightedPick(standardRarity, (roll - highChance) / (1 - highChance));
+}
+
 export function combinedItemEffects(itemIds: readonly { itemId: string; count: number }[]): Required<RandomItemEffect> {
   const result: Required<RandomItemEffect> = {
     goldPerSecond: 0,

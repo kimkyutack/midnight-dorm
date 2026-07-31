@@ -110,7 +110,6 @@ import { loadProfile, saveProfile } from "./storage";
 import { setupMobileViewportCompatibility } from "./viewport";
 import {
   completeGoogleSignup,
-  googleLoginAvailable,
   googleLoginUsesNativeButton,
   mountGoogleWebButton,
   signInWithGoogle,
@@ -191,6 +190,8 @@ const SURFER_MONG_SKIN_ID = "skin-look-puppy-surfer";
 const LIFEGUARD_RAON_SKIN_ID = "skin-look-tiger-lifeguard";
 const NEON_RIDER_LULU_SKIN_ID = "skin-look-cat-neon-rider";
 const CYBER_DRIVER_KONG_SKIN_ID = "skin-look-hamster-cyber-driver";
+const POLICE_ENFORCER_CROCO_SKIN_ID = "skin-look-crocodile-police-enforcer";
+const SECRET_AGENT_MONKEY_SKIN_ID = "skin-look-monkey-secret-agent";
 let skinLaunchPromoShownForAccountId: string | null = null;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
@@ -1018,7 +1019,7 @@ function showAdFreePurchase(): void {
 }
 
 interface SkinLaunchCampaign {
-  id: "summer" | "cyberpunk";
+  id: "summer" | "cyberpunk" | "special-ops";
   ownedSkinIds: readonly string[];
   targetSkinId: string;
   className: string;
@@ -1032,6 +1033,19 @@ interface SkinLaunchCampaign {
 }
 
 const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
+  {
+    id: "special-ops",
+    ownedSkinIds: [POLICE_ENFORCER_CROCO_SKIN_ID, SECRET_AGENT_MONKEY_SKIN_ID],
+    targetSkinId: POLICE_ENFORCER_CROCO_SKIN_ID,
+    className: "special-ops-premium-promo",
+    ariaLabel: "경찰과 비밀요원 프리미엄 스킨 동시 출시",
+    imageUrl: "/assets/cinematic/special-ops-premium-skins-event.webp",
+    imageAlt: "무전기로 현장을 지휘하는 강력계 크로크와 권총을 겨눈 시크릿 에이전트 몽키",
+    eyebrow: "SPECIAL OPS PREMIUM",
+    title: "극비 작전<br/>개시!",
+    body: "현장을 장악하는 강력계 크로크와<br/>그림자처럼 움직이는 몽키를 만나보세요.",
+    footnote: "프리미엄 2종 · 각 5,000 P",
+  },
   {
     id: "summer",
     ownedSkinIds: [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID],
@@ -1740,6 +1754,8 @@ function cosmeticCollectionScreen(
       : shopping && selectedSlot === "skin"
         ? [...catalog].sort((left, right) => {
             const premiumOrder = [
+              POLICE_ENFORCER_CROCO_SKIN_ID,
+              SECRET_AGENT_MONKEY_SKIN_ID,
               NEON_RIDER_LULU_SKIN_ID,
               CYBER_DRIVER_KONG_SKIN_ID,
               SURFER_MONG_SKIN_ID,
@@ -1767,14 +1783,18 @@ function cosmeticCollectionScreen(
       const premiumLifeguard = item.id === LIFEGUARD_RAON_SKIN_ID;
       const premiumNeonLulu = item.id === NEON_RIDER_LULU_SKIN_ID;
       const premiumCyberKong = item.id === CYBER_DRIVER_KONG_SKIN_ID;
+      const premiumPoliceCroco = item.id === POLICE_ENFORCER_CROCO_SKIN_ID;
+      const premiumSecretMonkey = item.id === SECRET_AGENT_MONKEY_SKIN_ID;
       const premiumSkin =
         premiumSurfer
         || premiumLifeguard
         || premiumNeonLulu
-        || premiumCyberKong;
+        || premiumCyberKong
+        || premiumPoliceCroco
+        || premiumSecretMonkey;
       const initialCatalogPreviewId =
         selectedSlot === "skin"
-          ? (previewItemId ?? NEON_RIDER_LULU_SKIN_ID)
+          ? (previewItemId ?? POLICE_ENFORCER_CROCO_SKIN_ID)
           : selectedSlot === "tile"
             ? (previewItemId ?? CYBERPUNK_NEON_TILE_SKIN_ID)
             : selectedSlot === "turret"
@@ -1852,10 +1872,6 @@ function cosmeticCollectionScreen(
         skinTraitInfo?.description ??
         turretTraitInfo?.description ??
         item.description;
-      const rankedSkinNote =
-        shopping && item.slot === "skin"
-          ? '<em class="ranked-skin-card-note">랭크전: 외형만 적용</em>'
-          : "";
       const authoredTurretArt =
         item.slot === "turret" ? turretSkinAssetUrl(item.id, 1) : undefined;
       const art =
@@ -1871,8 +1887,12 @@ function cosmeticCollectionScreen(
                   ? `<div class="catalog-art cosmetic-art neon-rider-lulu-card-art" style="--swatch:${item.swatch}"><span class="neon-rider-lulu-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 네온 스케이팅 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                   : premiumCyberKong
                     ? `<div class="catalog-art cosmetic-art cyber-driver-kong-card-art" style="--swatch:${item.swatch}"><span class="cyber-driver-kong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 사이버 드라이빙 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                    : premiumPoliceCroco
+                      ? `<div class="catalog-art cosmetic-art police-enforcer-croco-card-art" style="--swatch:${item.swatch}"><span class="police-enforcer-croco-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 현장 지휘 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                      : premiumSecretMonkey
+                        ? `<div class="catalog-art cosmetic-art secret-agent-monkey-card-art" style="--swatch:${item.swatch}"><span class="secret-agent-monkey-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 비밀 작전 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong>${rankedSkinNote}<small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -1894,7 +1914,7 @@ function cosmeticCollectionScreen(
   const initialPreviewItem =
     selectedSlot === "skin"
       ? shopping
-        ? cosmeticById(previewItemId ?? NEON_RIDER_LULU_SKIN_ID)
+        ? cosmeticById(previewItemId ?? POLICE_ENFORCER_CROCO_SKIN_ID)
         : undefined
       : selectedSlot === "tile"
         ? initialTilePreviewId
@@ -2175,9 +2195,7 @@ function googleNicknameScreen(
 function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span style="display: none;">Sign in with Google</span></div>';
-  const googleButton = !googleLoginAvailable
-    ? ""
-    : `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap"><button class="auth-google gsi-material-button" type="button"${googleLoginUsesNativeButton ? ' data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인"' : ' aria-hidden="true" tabindex="-1"'}>${googleIconMarkup}</button>${googleLoginUsesNativeButton ? "" : '<div class="auth-google-web" data-google-login-web aria-label="Google 계정으로 로그인"></div>'}</div>`;
+  const googleButton = `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap"><button class="auth-google gsi-material-button" type="button"${googleLoginUsesNativeButton ? ' data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인"' : ' aria-hidden="true" tabindex="-1"'}>${googleIconMarkup}</button>${googleLoginUsesNativeButton ? "" : '<div class="auth-google-web" data-google-login-web aria-label="Google 계정으로 로그인"></div>'}</div>`;
   setContent(
     "auth",
     `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>HORROR CO-OP DEFENSE</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br>새벽이 올 때까지 살아남으세요.</p></header><section class="auth-sheet"><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : ""}</small><h2>${registering ? "계정생성" : ""}</h2></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form>${googleButton}<button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 계정이 있나요?" : "처음 오셨나요?"}</span><strong>${registering ? "로그인" : "새 계정"}</strong></button></section><footer class="auth-footnote">계정에는 게임 진행도와 등급만 저장됩니다.</footer></main>`,

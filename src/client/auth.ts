@@ -43,7 +43,7 @@ export const setProfileAvatar = (avatarData: string | null): Promise<AccountProf
   method: 'POST', body: JSON.stringify({ avatarData }),
 });
 
-export const dismissPromotion = (promotionId: 'summer' | 'cyberpunk'): Promise<AccountProfile> => authRequest('/api/auth/promotion-dismissals', {
+export const dismissPromotion = (promotionId: 'summer' | 'cyberpunk' | 'special-ops'): Promise<AccountProfile> => authRequest('/api/auth/promotion-dismissals', {
   method: 'POST', body: JSON.stringify({ promotionId }),
 });
 

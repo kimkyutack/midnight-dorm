@@ -9,6 +9,8 @@ import {
   CYBERPUNK_LASER_TURRET_SKIN_ID,
   CYBERPUNK_NEON_TILE_SKIN_ID,
   LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+  SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID,
+  SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
 } from '../../shared/customization';
@@ -303,7 +305,7 @@ interface BedView {
 
 interface RoomTileSkinView {
   skinId: string;
-  transition: 'wave' | 'sand-vortex' | 'neon-collapse';
+  transition: 'wave' | 'sand-vortex' | 'neon-collapse' | 'investigation-scan';
   root: THREE.Group;
   baseFloor: THREE.InstancedMesh;
   settledFloor: THREE.InstancedMesh;
@@ -2392,6 +2394,7 @@ export class ThreeGameView {
       SURFER_WATER_TURRET_SKIN_ID,
       LIFEGUARD_PARASOL_TURRET_SKIN_ID,
       CYBERPUNK_LASER_TURRET_SKIN_ID,
+      SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
     ];
     const buildings: BuildingState[] = this.mapData.rooms
       .flatMap((room) =>
@@ -3063,6 +3066,8 @@ export class ThreeGameView {
           ? 'sand-vortex'
           : room.tileSkinId === CYBERPUNK_NEON_TILE_SKIN_ID
             ? 'neon-collapse'
+            : room.tileSkinId === SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID
+              ? 'investigation-scan'
             : 'wave';
       const root = new THREE.Group();
       root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
@@ -3096,6 +3101,8 @@ export class ThreeGameView {
               ? Math.hypot(tile.x - centerX, tile.y - centerY) * 105
               : transition === 'neon-collapse'
                 ? 560 + Math.hypot(tile.x - centerX, tile.y - centerY) * 78
+                : transition === 'investigation-scan'
+                  ? 360 + Math.hypot(tile.x - centerX, tile.y - centerY) * 90
               : Math.max(0, tile.x - minX) * 115,
         };
       });
@@ -3167,7 +3174,7 @@ export class ThreeGameView {
           effect.add(ring);
         }
         effect.position.set(centerX, 0.22, centerY);
-      } else {
+      } else if (transition === 'neon-collapse') {
         const city = new THREE.Group();
         city.name = 'neon-city';
         const buildingMaterial = new THREE.MeshBasicMaterial({
@@ -3235,6 +3242,71 @@ export class ThreeGameView {
           effect.add(pulse);
         }
         effect.position.set(centerX, 0.22, centerY);
+      } else {
+        const maxRadius = Math.max(
+          1.4,
+          Math.hypot(maxX - minX + 1, maxY - minY + 1) * 0.62,
+        );
+        const badgeMaterial = new THREE.MeshBasicMaterial({
+          color: 0xf2c85b,
+          transparent: true,
+          opacity: 0.94,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const badge = new THREE.Mesh(
+          new THREE.CircleGeometry(0.34, 6),
+          badgeMaterial,
+        );
+        badge.name = 'investigation-badge';
+        badge.rotation.x = -Math.PI / 2;
+        badge.position.y = 0.04;
+        badge.scale.setScalar(0.001);
+        badge.renderOrder = 2_503;
+        effect.add(badge);
+
+        for (const [name, color, radius] of [
+          ['investigation-scan-red', 0xff4f5f, 0.46],
+          ['investigation-scan-blue', 0x55bfff, 0.58],
+        ] as const) {
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(radius, radius + 0.055, 40),
+            new THREE.MeshBasicMaterial({
+              color,
+              transparent: true,
+              opacity: 0.72,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+          );
+          ring.name = name;
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = name.endsWith('red') ? 0.025 : 0.033;
+          ring.scale.setScalar(0.001);
+          ring.userData.maxScale = maxRadius / radius;
+          ring.renderOrder = 2_501;
+          effect.add(ring);
+        }
+
+        const controlLine = new THREE.Mesh(
+          new THREE.PlaneGeometry(maxX - minX + 1.15, 0.07),
+          new THREE.MeshBasicMaterial({
+            color: 0xf4d468,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        controlLine.name = 'investigation-control-line';
+        controlLine.rotation.x = -Math.PI / 2;
+        controlLine.position.set(0, 0.02, -(maxY - minY + 1) / 2);
+        controlLine.userData.depth = maxY - minY + 1;
+        controlLine.renderOrder = 2_502;
+        effect.add(controlLine);
+        effect.position.set(centerX, 0.22, centerY);
       }
       root.add(effect);
       this.scene.add(root);
@@ -3244,6 +3316,8 @@ export class ThreeGameView {
           ? 1_250 + Math.max(...tiles.map((tile) => tile.delay), 0)
           : transition === 'neon-collapse'
             ? 1_180 + Math.max(...tiles.map((tile) => tile.delay), 0)
+            : transition === 'investigation-scan'
+              ? 1_080 + Math.max(...tiles.map((tile) => tile.delay), 0)
           : 820 + Math.max(0, maxX - minX) * 115;
       const serverProgressMs = Math.max(
         0,
@@ -3280,7 +3354,7 @@ export class ThreeGameView {
           tile.mesh.rotation.y = 0;
           root.remove(tile.mesh);
         }
-        if (transition === 'neon-collapse') {
+        if (transition === 'neon-collapse' || transition === 'investigation-scan') {
           root.remove(effect);
           disposeTransientObject(effect);
         }
@@ -3316,7 +3390,7 @@ export class ThreeGameView {
         view.effect.rotation.y = elapsed * 0.0045;
         const vortexScale = 0.68 + Math.sin(Math.PI * sweep) * 0.48;
         view.effect.scale.setScalar(vortexScale);
-      } else {
+      } else if (view.transition === 'neon-collapse') {
         const city = view.effect.getObjectByName('neon-city');
         const rise = clamp(sweep / 0.32, 0, 1);
         const collapse = clamp((sweep - 0.34) / 0.28, 0, 1);
@@ -3338,15 +3412,41 @@ export class ThreeGameView {
           pulse.scale.setScalar(Math.max(0.001, pulseProgress * 4.2));
           pulse.rotation.z += 0.025;
         }
+      } else {
+        const badge = view.effect.getObjectByName('investigation-badge');
+        if (badge) {
+          const badgeProgress = clamp(sweep / 0.24, 0, 1);
+          const badgeScale = (1 - (1 - badgeProgress) ** 3) *
+            (1 + Math.sin(Math.PI * badgeProgress) * 0.22);
+          badge.scale.setScalar(Math.max(0.001, badgeScale));
+          badge.rotation.z = elapsed * 0.0012;
+        }
+        const scanProgress = clamp((sweep - 0.08) / 0.58, 0, 1);
+        for (const name of ['investigation-scan-red', 'investigation-scan-blue']) {
+          const ring = view.effect.getObjectByName(name);
+          if (!ring) continue;
+          const maxScale = Number(ring.userData.maxScale ?? 1);
+          ring.scale.setScalar(Math.max(0.001, scanProgress * maxScale));
+          ring.rotation.z += name.endsWith('red') ? 0.018 : -0.014;
+        }
+        const controlLine = view.effect.getObjectByName('investigation-control-line');
+        if (controlLine) {
+          const depth = Math.max(1, Number(controlLine.userData.depth ?? 1));
+          controlLine.position.z = -depth / 2 + depth * clamp((sweep - 0.18) / 0.54, 0, 1);
+        }
       }
       const effectOpacity =
         view.transition === 'sand-vortex'
           ? Math.sin(Math.PI * Math.min(1, sweep * 1.08))
           : view.transition === 'neon-collapse'
             ? Math.sin(Math.PI * Math.min(1, sweep / 0.82))
+            : view.transition === 'investigation-scan'
+              ? Math.sin(Math.PI * Math.min(1, sweep / 0.84))
           : Math.sin(Math.PI * sweep);
       view.effect.visible =
-        view.transition === 'neon-collapse' ? sweep < 0.86 : sweep < 1;
+        view.transition === 'neon-collapse' || view.transition === 'investigation-scan'
+          ? sweep < 0.88
+          : sweep < 1;
       view.effect.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const materials = Array.isArray(object.material)
@@ -3374,6 +3474,11 @@ export class ThreeGameView {
           tile.mesh.rotation.y = (1 - eased) * Math.PI;
           tile.mesh.position.y =
             ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.2;
+        } else if (view.transition === 'investigation-scan') {
+          tile.mesh.scale.z = Math.max(0.001, eased);
+          tile.mesh.rotation.y = (1 - eased) * Math.PI;
+          tile.mesh.position.y =
+            ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.18;
         } else {
           tile.mesh.rotation.z = (1 - eased) * (Math.PI / 2);
           tile.mesh.position.y =
@@ -3384,7 +3489,10 @@ export class ThreeGameView {
         view.complete = true;
         view.effect.visible = false;
         view.settledFloor.visible = true;
-        if (view.transition === 'neon-collapse') {
+        if (
+          view.transition === 'neon-collapse' ||
+          view.transition === 'investigation-scan'
+        ) {
           view.root.remove(view.effect);
           disposeTransientObject(view.effect);
         }
@@ -5192,7 +5300,35 @@ export class ThreeGameView {
       this.lastTurretVisualAt.set(sourceKey, born);
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
-      if (event.itemId === CYBERPUNK_LASER_TURRET_SKIN_ID) {
+      if (event.itemId === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) {
+        const line = this.acquireBeam(0xf4fbff);
+        if (line) {
+          const positions = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+          positions.setXYZ(0, from.x, from.y, from.z);
+          positions.setXYZ(1, to.x, to.y, to.z);
+          positions.needsUpdate = true;
+          line.geometry.computeBoundingSphere();
+          this.queuePooledEffect(line, this.beamPool, {
+            born,
+            duration: 125,
+            baseScale: line.scale.clone(),
+            scaleGrowth: 0,
+          });
+        }
+        if (this.effectQuality !== 'low') {
+          const impact = this.acquireImpactRing(0x55bfff);
+          if (impact) {
+            impact.position.copy(to);
+            impact.rotation.x = -Math.PI / 2;
+            this.queuePooledEffect(impact, this.impactRingPool, {
+              born,
+              duration: 150,
+              baseScale: impact.scale.clone(),
+              scaleGrowth: 0.52,
+            });
+          }
+        }
+      } else if (event.itemId === CYBERPUNK_LASER_TURRET_SKIN_ID) {
         const direction = to.clone().sub(from);
         const length = direction.length();
         if (length > 0.001) {

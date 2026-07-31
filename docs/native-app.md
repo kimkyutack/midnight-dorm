@@ -52,6 +52,11 @@ Apple 개인키는 프론트엔드 환경 변수에 절대 넣지 않는다.
 `http://localhost:5173`과 실제 웹 서비스 주소를 승인된 JavaScript 원본으로
 등록해야 한다.
 
+배포된 웹/PWA는 빌드 시점의 `VITE_GOOGLE_WEB_CLIENT_ID`가 없더라도
+`GET /api/auth/google/config`에서 Worker의 `GOOGLE_WEB_CLIENT_ID`를 받아
+Google 버튼을 초기화한다. OAuth 클라이언트 ID는 공개 식별자이며, 토큰 검증과
+계정 생성은 계속 Worker에서 수행한다.
+
 Cloudflare Worker에는 웹 클라이언트 ID를 설정한다.
 
 ```bash

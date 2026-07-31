@@ -14,6 +14,8 @@ const SURFER_MONG_SKIN_ID = 'skin-look-puppy-surfer';
 const LIFEGUARD_RAON_SKIN_ID = 'skin-look-tiger-lifeguard';
 const NEON_RIDER_LULU_SKIN_ID = 'skin-look-cat-neon-rider';
 const CYBER_DRIVER_KONG_SKIN_ID = 'skin-look-hamster-cyber-driver';
+const POLICE_ENFORCER_CROCO_SKIN_ID = 'skin-look-crocodile-police-enforcer';
+const SECRET_AGENT_MONKEY_SKIN_ID = 'skin-look-monkey-secret-agent';
 const SURF_FRAMES: readonly MovementFrame[] = ['idle', 'walk-1', 'walk-2', 'walk-3'];
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
@@ -102,6 +104,8 @@ export class AvatarPreview2D {
       'lifeguard-raon-preview',
       'neon-rider-lulu-preview',
       'cyber-driver-kong-preview',
+      'police-enforcer-croco-preview',
+      'secret-agent-monkey-preview',
     );
     this.root.remove();
   }
@@ -126,11 +130,21 @@ export class AvatarPreview2D {
     return this.appearance.skin === CYBER_DRIVER_KONG_SKIN_ID;
   }
 
+  private isPoliceEnforcerCroco(): boolean {
+    return this.appearance.skin === POLICE_ENFORCER_CROCO_SKIN_ID;
+  }
+
+  private isSecretAgentMonkey(): boolean {
+    return this.appearance.skin === SECRET_AGENT_MONKEY_SKIN_ID;
+  }
+
   private isAnimatedPremiumSkin(): boolean {
     return this.isSurferMong()
       || this.isLifeguardRaon()
       || this.isNeonRiderLulu()
-      || this.isCyberDriverKong();
+      || this.isCyberDriverKong()
+      || this.isPoliceEnforcerCroco()
+      || this.isSecretAgentMonkey();
   }
 
   private shouldAnimate(): boolean {
@@ -149,14 +163,20 @@ export class AvatarPreview2D {
     const lifeguardRaon = this.isLifeguardRaon();
     const neonRiderLulu = this.isNeonRiderLulu();
     const cyberDriverKong = this.isCyberDriverKong();
+    const policeEnforcerCroco = this.isPoliceEnforcerCroco();
+    const secretAgentMonkey = this.isSecretAgentMonkey();
     this.root.classList.toggle('surfer-mong-sprite-preview', surferMong);
     this.root.classList.toggle('lifeguard-raon-sprite-preview', lifeguardRaon);
     this.root.classList.toggle('neon-rider-lulu-sprite-preview', neonRiderLulu);
     this.root.classList.toggle('cyber-driver-kong-sprite-preview', cyberDriverKong);
+    this.root.classList.toggle('police-enforcer-croco-sprite-preview', policeEnforcerCroco);
+    this.root.classList.toggle('secret-agent-monkey-sprite-preview', secretAgentMonkey);
     this.host.classList.toggle('surfer-mong-preview', surferMong);
     this.host.classList.toggle('lifeguard-raon-preview', lifeguardRaon);
     this.host.classList.toggle('neon-rider-lulu-preview', neonRiderLulu);
     this.host.classList.toggle('cyber-driver-kong-preview', cyberDriverKong);
+    this.host.classList.toggle('police-enforcer-croco-preview', policeEnforcerCroco);
+    this.host.classList.toggle('secret-agent-monkey-preview', secretAgentMonkey);
   }
 
   private syncAnimation(): void {

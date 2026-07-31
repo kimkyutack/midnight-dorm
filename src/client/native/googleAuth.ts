@@ -2,13 +2,13 @@ import { GoogleSignIn } from '@capawesome/capacitor-google-sign-in';
 import type { AccountProfile } from '../../shared/types';
 import { isNativeApp, setNativeSessionToken } from './runtime';
 
-const googleWebClientId = (import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID as string | undefined)?.trim() ?? '';
+const bundledGoogleWebClientId = (import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID as string | undefined)?.trim() ?? '';
 let initialized = false;
 let googleWebScript: Promise<void> | null = null;
+let googleWebClientIdRequest: Promise<string> | null = null;
 let activeWebResultHandler: ((result: GoogleLoginResult) => void) | null = null;
 let activeWebErrorHandler: ((error: unknown) => void) | null = null;
 
-export const googleLoginAvailable = Boolean(googleWebClientId);
 export const googleLoginUsesNativeButton = isNativeApp;
 
 export type GoogleLoginResult =
@@ -19,9 +19,31 @@ export type GoogleLoginResult =
       suggestedNickname: string;
     };
 
+async function googleWebClientId(): Promise<string> {
+  if (bundledGoogleWebClientId) return bundledGoogleWebClientId;
+  if (!googleWebClientIdRequest) {
+    googleWebClientIdRequest = fetch('/api/auth/google/config', {
+      headers: { accept: 'application/json' },
+    })
+      .then(async (response) => {
+        const data = await response.json() as { clientId?: string; error?: string };
+        const clientId = data.clientId?.trim() ?? '';
+        if (!response.ok || !clientId) {
+          throw new Error(data.error ?? 'Google 로그인이 서버에 설정되지 않았습니다.');
+        }
+        return clientId;
+      })
+      .catch((error) => {
+        googleWebClientIdRequest = null;
+        throw error;
+      });
+  }
+  return googleWebClientIdRequest;
+}
+
 export async function initializeGoogleSignIn(): Promise<void> {
-  if (!isNativeApp || !googleLoginAvailable || initialized) return;
-  await GoogleSignIn.initialize({ clientId: googleWebClientId });
+  if (!isNativeApp || initialized) return;
+  await GoogleSignIn.initialize({ clientId: await googleWebClientId() });
   initialized = true;
 }
 
@@ -58,7 +80,7 @@ async function exchangeGoogleIdToken(idToken: string): Promise<GoogleLoginResult
 
 export async function signInWithGoogle(): Promise<GoogleLoginResult> {
   await initializeGoogleSignIn();
-  if (!isNativeApp || !googleLoginAvailable) {
+  if (!isNativeApp) {
     throw new Error('네이티브 Google 로그인을 사용할 수 없습니다.');
   }
   const result = await GoogleSignIn.signIn();
@@ -124,15 +146,16 @@ export async function mountGoogleWebButton(
   onResult: (result: GoogleLoginResult) => void,
   onError: (error: unknown) => void,
 ): Promise<void> {
-  if (isNativeApp || !googleLoginAvailable) return;
+  if (isNativeApp) return;
   activeWebResultHandler = onResult;
   activeWebErrorHandler = onError;
+  const clientId = await googleWebClientId();
   await loadGoogleWebScript();
   const google = window.google;
   if (!google) throw new Error('Google 로그인 모듈을 초기화하지 못했습니다.');
   if (!initialized) {
     google.accounts.id.initialize({
-      client_id: googleWebClientId,
+      client_id: clientId,
       ux_mode: 'popup',
       use_fedcm_for_prompt: true,
       callback: (response) => {
@@ -179,7 +202,6 @@ export async function completeGoogleSignup(
 }
 
 export async function signOutGoogle(): Promise<void> {
-  if (!googleLoginAvailable) return;
   if (isNativeApp) {
     await GoogleSignIn.signOut().catch(() => undefined);
     return;

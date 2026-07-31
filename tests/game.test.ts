@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -8,7 +8,7 @@ import { findPath } from '../src/shared/pathfinding';
 import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, recommendedRankForStage, RANK_VISUALS, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
-import { DRAW_COSTS, RANDOM_ITEMS } from '../src/shared/randomItems';
+import { DRAW_COSTS, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import { tutorialGuidedBuildTile } from '../src/shared/tutorial';
@@ -33,6 +33,7 @@ import { RANKED_BOT_NICKNAMES } from '../src/server/botNames';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 import { rankedSeasonRules } from '../src/shared/rankedRules';
 import { rankedRatingDelta } from '../src/server/rankedScoring';
+import { routeAuth } from '../src/server/auth';
 
 const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   seasonId: 'S-test',
@@ -154,7 +155,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.6')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -169,6 +170,28 @@ describe('app update versioning', () => {
     expect(refreshed.searchParams.get('app-update')).toBe(APP_RELEASE_VERSION);
     expect(refreshed.searchParams.get('force-refresh')).toBe('nonce-123');
     expect(refreshed.hash).toBe('#home');
+  });
+});
+
+describe('Google web login runtime configuration', () => {
+  it('serves the public Google client id without touching account storage', async () => {
+    const response = await routeAuth(
+      new Request('https://midnight.example/api/auth/google/config'),
+      {} as D1Database,
+      false,
+      'web-client.apps.googleusercontent.com',
+    );
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ clientId: 'web-client.apps.googleusercontent.com' });
+  });
+
+  it('reports a missing Worker Google configuration clearly', async () => {
+    const response = await routeAuth(
+      new Request('https://midnight.example/api/auth/google/config'),
+      {} as D1Database,
+    );
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toEqual({ error: 'Google 로그인이 서버에 설정되지 않았습니다.' });
   });
 });
 
@@ -753,6 +776,16 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-cyber-driver-kong/movement-sheet.png');
     expect(skinSleepUrl(cyberKongAppearance))
       .toBe('/assets/sprites/skins/skin-cyber-driver-kong/sleep.png');
+    const policeCrocoAppearance = { character: 'character-crocodile', skin: 'skin-look-crocodile-police-enforcer' };
+    expect(skinMovementSheetUrl(policeCrocoAppearance))
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png');
+    expect(skinSleepUrl(policeCrocoAppearance))
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png');
+    const secretAgentAppearance = { character: 'character-monkey', skin: 'skin-look-monkey-secret-agent' };
+    expect(skinMovementSheetUrl(secretAgentAppearance))
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png');
+    expect(skinSleepUrl(secretAgentAppearance))
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -858,15 +891,15 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(47);
+    expect(COSMETIC_CATALOG).toHaveLength(51);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'tile', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).toContain(DEFAULT_TILE_SKIN_ID);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(16);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(4);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(18);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(5);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
@@ -899,6 +932,17 @@ describe('survivor customization rules', () => {
     });
     expect(tileSkinTextureUrl(CYBERPUNK_NEON_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-cyberpunk-neon/neon-circuit-tile.webp',
+    );
+  });
+
+  it('sells the special-ops headquarters tile with its investigation scan asset', () => {
+    expect(cosmeticById(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toMatchObject({
+      slot: 'tile',
+      label: '특수수사본부 타일',
+      unlock: { kind: 'points', price: 1_000 },
+    });
+    expect(tileSkinTextureUrl(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toBe(
+      '/assets/tiles/skin-special-ops-headquarters/investigation-floor.webp',
     );
   });
 
@@ -953,6 +997,27 @@ describe('survivor customization rules', () => {
     );
   });
 
+  it('sells the special-ops tracker turret as a neutral 15-level cosmetic', () => {
+    expect(cosmeticById(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID)).toMatchObject({
+      slot: 'turret',
+      turretKind: 'basic-turret',
+      label: '기밀 추적포',
+      unlock: { kind: 'points', price: 1_500 },
+    });
+    expect(turretSkinTrait(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID)).toMatchObject({
+      turretKind: 'basic-turret',
+      damageMultiplier: 1,
+      rateMultiplier: 1,
+      frostSlowStrengthMultiplier: 1,
+    });
+    expect(turretSkinAssetUrl(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, 1)).toBe(
+      '/assets/turret-skins/skin-special-ops-tracker/level-01.png',
+    );
+    expect(turretSkinAssetUrl(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, 15)).toBe(
+      '/assets/turret-skins/skin-special-ops-tracker/level-15.png',
+    );
+  });
+
   it('uses base concept art for characters and complete art only for skin cards', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
@@ -960,6 +1025,8 @@ describe('survivor customization rules', () => {
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
     expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
+    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png');
+    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -1021,6 +1088,10 @@ describe('survivor customization rules', () => {
     expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const cyberKongSkin = cosmeticById('skin-look-hamster-cyber-driver');
     expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    const policeCrocoSkin = cosmeticById('skin-look-crocodile-police-enforcer');
+    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    const secretAgentSkin = cosmeticById('skin-look-monkey-secret-agent');
+    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
@@ -1028,6 +1099,8 @@ describe('survivor customization rules', () => {
         || item.id === 'skin-look-tiger-lifeguard'
         || item.id === 'skin-look-cat-neon-rider'
         || item.id === 'skin-look-hamster-cyber-driver'
+        || item.id === 'skin-look-crocodile-police-enforcer'
+        || item.id === 'skin-look-monkey-secret-agent'
         || item.unlock.price === 2_500
       ),
     )).toBe(true);
@@ -4809,6 +4882,18 @@ describe('requested progression and event rules', () => {
       .toBe(0.5);
     expect(characterTraitForAppearance({ character: 'character-gorilla', skin: 'skin-look-gorilla-ward' }).doorShieldRatio)
       .toBe(0.75);
+    const policeCroco = characterTraitForAppearance({
+      character: 'character-crocodile',
+      skin: 'skin-look-crocodile-police-enforcer',
+    });
+    expect(policeCroco.turretDamageMultiplier).toBe(2);
+    expect(policeCroco.turretRateMultiplier).toBeCloseTo(1 / 1.1, 6);
+    const secretAgentMonkey = characterTraitForAppearance({
+      character: 'character-monkey',
+      skin: 'skin-look-monkey-secret-agent',
+    });
+    expect(secretAgentMonkey.extraDraws).toBe(3);
+    expect(secretAgentMonkey.highRarityChanceBonus).toBe(0.05);
   });
 
   it('keeps base character passives but removes every skin stat in ranked matches', () => {
@@ -4824,6 +4909,10 @@ describe('requested progression and event rules', () => {
       character: 'character-fox',
       skin: 'skin-look-fox-ward',
     };
+    const premiumMonkey = {
+      character: 'character-monkey',
+      skin: 'skin-look-monkey-secret-agent',
+    };
 
     expect(characterTraitForMatch(premiumPuppy, true).goldPerSecond)
       .toBe(characterTrait('character-puppy').goldPerSecond);
@@ -4835,6 +4924,24 @@ describe('requested progression and event rules', () => {
     expect(characterTraitForMatch(premiumCat, false).turretRateMultiplier).toBe(0.5);
     expect(drawLimitForMatch(premiumFox, true))
       .toBe(drawLimitForCharacter('character-fox'));
+    expect(characterTraitForMatch(premiumMonkey, false).extraDraws).toBe(3);
+    expect(characterTraitForMatch(premiumMonkey, false).highRarityChanceBonus).toBe(0.05);
+    expect(characterTraitForMatch(premiumMonkey, true).extraDraws)
+      .toBe(characterTrait('character-monkey').extraDraws);
+    expect(characterTraitForMatch(premiumMonkey, true).highRarityChanceBonus).toBe(0);
+  });
+
+  it('adds the secret-agent five-point bonus only to legendary and mythic draws', () => {
+    const isHighRarity = (rarity?: string): boolean => rarity === 'legendary' || rarity === 'mythic';
+    let normalHighRarityDraws = 0;
+    let boostedHighRarityDraws = 0;
+    for (let index = 0; index < 10_000; index += 1) {
+      const roll = (index + 0.5) / 10_000;
+      if (isHighRarity(randomItemForRoll(roll)?.rarity)) normalHighRarityDraws += 1;
+      if (isHighRarity(randomItemForRoll(roll, 0.05)?.rarity)) boostedHighRarityDraws += 1;
+    }
+    expect(boostedHighRarityDraws - normalHighRarityDraws).toBeGreaterThanOrEqual(499);
+    expect(boostedHighRarityDraws - normalHighRarityDraws).toBeLessThanOrEqual(501);
   });
 
   it('settles ranked death and abandon RP from contribution without rewarding luck alone', () => {

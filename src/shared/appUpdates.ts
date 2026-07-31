@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.31.3";
+export const APP_RELEASE_VERSION = "2026.07.31.5";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "첫 생존 훈련과 출시 이벤트 개선",
+  title: "특수수사본부 테마",
   summary:
-    "• 첫 생존 훈련의 포탑 피해와 안내 흐름을 다듬었습니다.\n• 훈련 중 설치·업그레이드가 끝나면 안내 창이 자동으로 닫힙니다.\n• 출시 이벤트의 다시 보지 않기 설정을 계정별로 저장해, 다른 계정의 이벤트가 숨겨지지 않습니다.",
-  publishedAt: 1785484800000,
+    "• 청회색 수사본부 바닥과 수사 스캔 전환 연출을 가진 특수수사본부 타일을 추가했습니다.\n• 서류가방형 감시 장치에서 스마트 레일건까지 15단계로 성장하는 기밀 추적포를 추가했습니다.\n• 기밀 추적포에 성능 제한형 청백색 추적탄과 착탄 효과를 적용했습니다.",
+  publishedAt: 1785499200000,
 };
 
 /**
