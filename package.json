@@ -7,6 +7,7 @@
     "dev": "CLOUDFLARE_ENV=e2e WRANGLER_LOG_PATH=.wrangler/logs/dev.log vite --mode e2e --host 0.0.0.0",
     "icons": "node scripts/generate-icons.mjs",
     "sprites": "node scripts/normalize_sprite_atlases.mjs",
+    "sprites:repair-special-ops": "node scripts/repair_special_ops_sprites.mjs",
     "sprites:verify": "node scripts/normalize_sprite_atlases.mjs --verify",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

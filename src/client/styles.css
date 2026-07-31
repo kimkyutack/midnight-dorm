@@ -10253,13 +10253,13 @@ body.game-chat-active {
   animation: surfer-card-frames 0.82s steps(1, end) infinite;
 }
 .police-enforcer-croco-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png");
+  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v2");
   animation:
     surfer-card-frames 0.88s steps(1, end) infinite,
     police-card-stomp 0.88s ease-in-out infinite;
 }
 .secret-agent-monkey-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png");
+  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v2");
   animation:
     surfer-card-frames 0.72s steps(1, end) infinite,
     agent-card-dash 0.72s ease-in-out infinite;

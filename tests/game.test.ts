@@ -778,14 +778,14 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-cyber-driver-kong/sleep.png');
     const policeCrocoAppearance = { character: 'character-crocodile', skin: 'skin-look-crocodile-police-enforcer' };
     expect(skinMovementSheetUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v2');
     expect(skinSleepUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png?v=special-ops-v2');
     const secretAgentAppearance = { character: 'character-monkey', skin: 'skin-look-monkey-secret-agent' };
     expect(skinMovementSheetUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v2');
     expect(skinSleepUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png?v=special-ops-v2');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -1025,8 +1025,8 @@ describe('survivor customization rules', () => {
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
     expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
-    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png');
-    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png');
+    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v2');
+    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v2');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
