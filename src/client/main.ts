@@ -838,6 +838,15 @@ function homeScreen(): void {
     authScreen();
     return;
   }
+  // An unfinished first-match lesson is authoritative. Never expose the home
+  // screen (and, consequently, launch promotions) until its match result has
+  // been recorded for this account. This also recovers safely after a reload
+  // during any tutorial step.
+  if (!account.tutorialCompleted) {
+    loading();
+    window.setTimeout(() => void createRoom(true, "tutorial-1"), 0);
+    return;
+  }
   const currentAccount = account;
   const selectedNormalRank =
     homePlayMode === "multiplayer"
@@ -1006,6 +1015,7 @@ function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
 function showSkinLaunchPromoCarousel(): void {
   if (
     !account ||
+    !account.tutorialCompleted ||
     skinLaunchPromoShownForAccountId === account.id
   ) return;
   const currentAccount = account;

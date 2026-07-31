@@ -1613,8 +1613,18 @@ describe('authoritative game rules', () => {
     expect(
       engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'generator').ok,
     ).toBe(true);
-    engine.tick(0.05);
-    expect(engine.snapshot().tutorial?.step).toBe('build-net');
+
+    // The client can choose the net before the next simulation tick arrives.
+    // The engine must advance the generator objective synchronously for this
+    // action instead of rejecting it as an out-of-order build.
+    const netTile = tutorialGuidedBuildTile(
+      map,
+      engine.snapshot().buildings,
+      reservedRoomId as string,
+      'build-net',
+      joined.player.id,
+    );
+    if (!netTile) throw new Error('tutorial room has no guided net tile');
 
     for (
       let index = 0;
@@ -1628,7 +1638,7 @@ describe('authoritative game rules', () => {
       engine.snapshot().players.find((candidate) => candidate.id === joined.player.id)?.power,
     ).toBeGreaterThanOrEqual(250);
     expect(
-      engine.build(joined.player.id, reservedRoomId as string, nextFreeTile(), 'ghost-net').ok,
+      engine.build(joined.player.id, reservedRoomId as string, netTile, 'ghost-net').ok,
     ).toBe(true);
     engine.tick(0.05);
     expect(engine.snapshot().tutorial).toEqual(expect.objectContaining({

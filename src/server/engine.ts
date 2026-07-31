@@ -1637,6 +1637,10 @@ export class GameEngine {
     if (!player || !player.alive || !room)
       return { ok: false, error: "건설할 수 없습니다." };
     if (this.state.tutorial?.active) {
+      // Building actions can arrive between simulation ticks. Resolve the
+      // preceding tutorial objective now so a generator acknowledgement is
+      // never followed by a rejected ghost-net request from the same client.
+      this.updateTutorialProgress();
       const guidedKind: Partial<Record<typeof this.state.tutorial.step, BuildingKind>> = {
         'build-turret': 'basic-turret',
         'build-generator': 'generator',
@@ -2747,6 +2751,7 @@ export class GameEngine {
         );
         if (tutorial.combatRevealRemaining <= 0) {
           tutorial.combatStarted = true;
+          this.beginTutorialGhostCombat();
           this.pendingEvents.push({
             kind: "lights-on",
             label: "귀신이 움직입니다",
@@ -2880,6 +2885,25 @@ export class GameEngine {
       kind: "lights-on",
       label: "복도 불이 켜졌습니다. 귀신의 공격이 시작됩니다!",
     });
+  }
+
+  /**
+   * Tutorial matches enter PLAYING immediately, so the regular countdown
+   * initialisation never runs. Reset the practice ghost at the exact moment
+   * the final lesson releases it instead of leaving it with stage HP.
+   */
+  private beginTutorialGhostCombat(): void {
+    if (!this.state.tutorial?.active) return;
+    const maxHp = Math.ceil(buildingStats("basic-turret", 2).value * 10);
+    for (const ghost of this.state.ghosts) {
+      if (ghost.variant === "minion") continue;
+      ghost.maxHp = maxHp;
+      ghost.hp = maxHp;
+      ghost.retreating = false;
+      ghost.healing = false;
+      ghost.path = [];
+      ghost.attackCooldown = 0;
+    }
   }
 
   private beginOvertime(): void {
