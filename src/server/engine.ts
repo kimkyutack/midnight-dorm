@@ -326,6 +326,9 @@ export class GameEngine {
       lastLatchUntil: 0,
       lastDoorHitAt: -1_000_000,
       doorRegenAccumulator: -1,
+      freeRepairUntil: 0,
+      freeRepairReadyAt: 0,
+      freeRepairByPlayerId: null,
       doorAnchorUntil: 0,
       doorMaxHpMultiplier: 1,
       supplyTurretDamageUntil: 0,
@@ -753,6 +756,9 @@ export class GameEngine {
       room.lastLatchUntil ??= 0;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
       room.doorRegenAccumulator = finite(room.doorRegenAccumulator, -1);
+      room.freeRepairUntil = finite(room.freeRepairUntil, 0);
+      room.freeRepairReadyAt = finite(room.freeRepairReadyAt, 0);
+      room.freeRepairByPlayerId ??= null;
       room.doorAnchorUntil ??= 0;
       room.doorMaxHpMultiplier ??= 1;
       room.doorShieldMaxHp ??= 0;
@@ -1194,6 +1200,8 @@ export class GameEngine {
         );
       case "interact":
         return this.interact(playerId);
+      case "free-repair":
+        return this.startFreeRepair(playerId);
       case "build":
         return this.build(playerId, message.roomId, message.tile, message.kind);
       case "move-building":
@@ -1471,21 +1479,27 @@ export class GameEngine {
             velocityMagnitude
           : -1;
       // A release packet can close only the ordinary one-way-latency gap and
-      // only in the direction the server was already moving. This removes the
-      // visible 1–2 step rewind without accepting a client teleport.
+      // only in the direction the server was already moving. Mobile Safari
+      // may deliver the release after a short render stall, so clamp the
+      // correction instead of rejecting the whole position and visibly
+      // rewinding the survivor toward the room entrance.
       if (
         velocityMagnitude > 0.001 &&
         offsetDistance > 0.001 &&
-        offsetDistance <= 0.9 &&
         forwardDistance >= -0.02
       ) {
+        const correctionDistance = Math.min(offsetDistance, 1.35);
+        const correctionScale = correctionDistance / offsetDistance;
         const lockedRoom = player.lockedRoomId
           ? this.map.rooms.find((room) => room.id === player.lockedRoomId)
           : undefined;
         player.position = moveInWalkableArea(
           this.map,
           player.position,
-          offset,
+          {
+            x: offset.x * correctionScale,
+            y: offset.y * correctionScale,
+          },
           BALANCE.player.collisionRadius,
           0.12,
           lockedRoom
@@ -2773,6 +2787,7 @@ export class GameEngine {
       this.syncDynamicTurretLevels(buildingIndex);
       this.updateEconomy(dt);
       this.updateBuildings(dt, buildingIndex);
+      this.updateFreeDoorRepairs(dt);
       this.updateTutorialProgress();
       if ((this.state.tutorial?.pauseRemaining ?? 0) > 0) {
         this.sanitizeResources();
@@ -3870,6 +3885,76 @@ export class GameEngine {
         control === "slow" ? "slow-resistance" : "bind-resistance",
       label: `${control === "slow" ? "이속감소" : "속박"} 저항 ${milestone * 25}%`,
     });
+  }
+
+  private startFreeRepair(playerId: string): ActionResult {
+    if (this.state.status !== "PLAYING" && this.state.status !== "OVERTIME")
+      return { ok: false, error: "지금은 문을 수리할 수 없습니다." };
+    const player = this.state.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player?.alive || !player.roomId)
+      return { ok: false, error: "점유한 방에서만 문을 수리할 수 있습니다." };
+    const room = this.state.rooms.find(
+      (candidate) => candidate.id === player.roomId,
+    );
+    if (!room || !room.ownerIds.includes(playerId))
+      return { ok: false, error: "내 방의 문만 수리할 수 있습니다." };
+    if (room.doorHp <= 0)
+      return { ok: false, error: "파괴된 문은 수리할 수 없습니다." };
+    if (room.doorHp >= room.doorMaxHp)
+      return { ok: false, error: "문 HP가 이미 최대입니다." };
+    if (this.state.elapsed < this.state.repairSuppressedUntil)
+      return { ok: false, error: "현재 문 수리가 봉인되어 있습니다." };
+    if (this.state.elapsed < room.freeRepairUntil)
+      return { ok: false, error: "문을 수리하고 있습니다." };
+    if (this.state.elapsed < room.freeRepairReadyAt)
+      return {
+        ok: false,
+        error: `무료 수리는 ${Math.ceil(room.freeRepairReadyAt - this.state.elapsed)}초 후 다시 사용할 수 있습니다.`,
+      };
+    room.freeRepairUntil = this.state.elapsed + 5;
+    room.freeRepairReadyAt = room.freeRepairUntil + 60;
+    room.freeRepairByPlayerId = playerId;
+    this.pendingEvents.push({
+      kind: "door-repair",
+      playerId,
+      roomId: room.id,
+      amount: 15,
+      label: "무료 문 수리 시작",
+    });
+    return { ok: true };
+  }
+
+  private updateFreeDoorRepairs(dt: number): void {
+    const tickStart = this.state.elapsed - dt;
+    for (const room of this.state.rooms) {
+      if (
+        room.freeRepairUntil <= tickStart ||
+        room.doorHp <= 0 ||
+        room.doorHp >= room.doorMaxHp ||
+        this.state.elapsed < this.state.repairSuppressedUntil
+      )
+        continue;
+      const activeDuration = Math.max(
+        0,
+        Math.min(dt, room.freeRepairUntil - tickStart),
+      );
+      if (activeDuration <= 0) continue;
+      const before = room.doorHp;
+      room.doorHp = Math.min(
+        room.doorMaxHp,
+        room.doorHp + 15 * activeDuration,
+      );
+      const repairer = this.state.players.find(
+        (candidate) => candidate.id === room.freeRepairByPlayerId,
+      );
+      if (repairer)
+        repairer.rankedContribution.defenseValue += Math.max(
+          0,
+          room.doorHp - before,
+        );
+    }
   }
 
   private updateDoorRegeneration(dt: number): void {

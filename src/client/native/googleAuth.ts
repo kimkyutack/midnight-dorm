@@ -79,10 +79,8 @@ async function exchangeGoogleIdToken(idToken: string): Promise<GoogleLoginResult
 }
 
 export async function signInWithGoogle(): Promise<GoogleLoginResult> {
+  if (!isNativeApp) return signInWithGoogleWeb();
   await initializeGoogleSignIn();
-  if (!isNativeApp) {
-    throw new Error('네이티브 Google 로그인을 사용할 수 없습니다.');
-  }
   const result = await GoogleSignIn.signIn();
   return exchangeGoogleIdToken(result.idToken);
 }
@@ -109,6 +107,14 @@ interface GoogleAccountsApi {
         locale: 'ko';
       },
     ): void;
+    prompt(callback?: (notification: {
+      isNotDisplayed(): boolean;
+      isSkippedMoment(): boolean;
+      isDismissedMoment(): boolean;
+      getNotDisplayedReason?(): string;
+      getSkippedReason?(): string;
+      getDismissedReason?(): string;
+    }) => void): void;
     disableAutoSelect(): void;
   };
 }
@@ -177,6 +183,60 @@ export async function mountGoogleWebButton(
     theme: 'outline',
     size: 'large',
     locale: 'ko',
+  });
+}
+
+async function signInWithGoogleWeb(): Promise<GoogleLoginResult> {
+  if (isNativeApp) {
+    throw new Error('웹 Google 로그인을 사용할 수 없습니다.');
+  }
+  const clientId = await googleWebClientId();
+  await loadGoogleWebScript();
+  const google = window.google;
+  if (!google) throw new Error('Google 로그인 모듈을 초기화하지 못했습니다.');
+  return new Promise<GoogleLoginResult>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('Google 로그인 응답 시간이 초과되었습니다.'));
+    }, 60000);
+    const fail = (message: string): void => {
+      window.clearTimeout(timer);
+      reject(new Error(message));
+    };
+    google.accounts.id.initialize({
+      client_id: clientId,
+      ux_mode: 'popup',
+      use_fedcm_for_prompt: true,
+      callback: (response) => {
+        if (!response.credential) {
+          fail('Google 인증 정보를 받지 못했습니다.');
+          return;
+        }
+        void exchangeGoogleIdToken(response.credential)
+          .then((result) => {
+            window.clearTimeout(timer);
+            resolve(result);
+          })
+          .catch((error) => {
+            window.clearTimeout(timer);
+            reject(error);
+          });
+      },
+    });
+    initialized = true;
+    google.accounts.id.prompt((notification) => {
+      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+        const reason =
+          notification.getNotDisplayedReason?.() ??
+          notification.getSkippedReason?.() ??
+          'unknown';
+        fail(`Google 로그인 창을 열 수 없습니다. (${reason})`);
+        return;
+      }
+      if (notification.isDismissedMoment()) {
+        const reason = notification.getDismissedReason?.() ?? 'dismissed';
+        if (reason !== 'credential_returned') fail('Google 로그인이 취소되었습니다.');
+      }
+    });
   });
 }
 

@@ -171,7 +171,7 @@ export const BALANCE = {
       label: '문 수리대',
       description: '매초 문 HP를 회복합니다.',
       maxLevel: 3,
-      levels: [level(70, 0, 15, 1, 0), level(140, 0, 30, 1, 0), level(280, 0, 45, 1, 0)],
+      levels: [level(70, 0, 7.5, 1, 0), level(140, 0, 15, 1, 0), level(280, 0, 22.5, 1, 0)],
     },
     'electric-coil': {
       label: '별고리 코일',

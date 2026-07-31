@@ -5802,6 +5802,44 @@ html.mobile-viewport-compat .ghost-threat-poster {
     inset 0 1px rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
 }
+.round-btn.repair-action {
+  position: relative;
+  color: #efffe7;
+  border-color: rgba(183, 255, 105, 0.72);
+  background: linear-gradient(145deg, #63b918, #236d18);
+  box-shadow:
+    0 10px 28px rgba(16, 65, 14, 0.42),
+    inset 0 2px rgba(255, 255, 255, 0.32);
+}
+.round-btn.repair-action .game-action-icon {
+  width: 31px;
+  height: 31px;
+}
+.round-btn.repair-action small {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  min-width: 30px;
+  transform: translateX(-50%);
+  color: #f6ffe8;
+  font-size: 9px;
+  font-weight: 950;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.round-btn.repair-action.is-active {
+  border-color: #ecff9a;
+  background: linear-gradient(145deg, #8bd429, #2f8f1d);
+}
+.round-btn.repair-action:disabled {
+  opacity: 0.54;
+  filter: saturate(0.55);
+  cursor: not-allowed;
+}
+.round-btn.repair-action.is-active:disabled {
+  opacity: 0.92;
+  filter: none;
+}
 .quick-chat-picker {
   position: fixed;
   right: max(20px, calc(env(safe-area-inset-right) + 14px));

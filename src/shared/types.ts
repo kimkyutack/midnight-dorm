@@ -264,6 +264,12 @@ export interface RoomState {
   lastLatchUntil: number;
   lastDoorHitAt: number;
   doorRegenAccumulator: number;
+  /** Manual repair heals 15 HP/s until this authoritative match time. */
+  freeRepairUntil: number;
+  /** Manual repair becomes available 60 seconds after the active repair ends. */
+  freeRepairReadyAt: number;
+  /** Player who started the current repair, used for ranked contribution credit. */
+  freeRepairByPlayerId: string | null;
   /** Door anchor keeps the door at one HP until this server time. */
   doorAnchorUntil: number;
   /** Applied by a one-time cursed contract and retained through door upgrades. */
@@ -534,6 +540,7 @@ export type GameEventKind =
   | 'turret-fire'
   | 'ghost-hit'
   | 'door-hit'
+  | 'door-repair'
   | 'player-hit'
   | 'death'
   | 'ghost-level-up'
@@ -597,6 +604,7 @@ export type ClientMessage =
       releasePosition?: Vec2;
     })
   | (BaseMessage & { type: 'interact' })
+  | (BaseMessage & { type: 'free-repair' })
   | (BaseMessage & { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind })
   | (BaseMessage & { type: 'move-building'; buildingId: string; tile: Tile })
   | (BaseMessage & { type: 'upgrade'; targetId: string })

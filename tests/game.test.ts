@@ -2593,7 +2593,7 @@ describe('authoritative game rules', () => {
   it('sells the door repair stand for gold while other support devices use power', () => {
     expect(upgradeCost('repair-drone', 1)).toEqual({ gold: 70, power: 0 });
     expect([1, 2, 3].map((level) => buildingStats('repair-drone', level).value))
-      .toEqual([15, 30, 45]);
+      .toEqual([7.5, 15, 22.5]);
     expect(upgradeCost('electric-coil', 1)).toEqual({ gold: 0, power: 25 });
     expect(upgradeCost('shield-device', 1)).toEqual({ gold: 0, power: 30 });
 
@@ -2612,6 +2612,35 @@ describe('authoritative game rules', () => {
     const updated = engine.snapshot().players.find((candidate) => candidate.id === playerId);
     expect(updated?.gold).toBe(0);
     expect(updated?.power).toBe(0);
+  });
+
+  it('repairs an occupied door for five seconds and enforces a one-minute cooldown', () => {
+    const { engine, ids } = setup();
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const roomId = assigned(engine, playerId).roomId;
+    const persisted = engine.serialize();
+    const room = persisted.snapshot.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) throw new Error('missing free-repair room');
+    room.doorHp = room.doorMaxHp - 75;
+    room.lastDoorHitAt = persisted.snapshot.elapsed;
+    engine.restore(persisted);
+
+    expect(engine.handle(playerId, envelope({ type: 'free-repair' }, 80)).ok).toBe(true);
+    for (let index = 0; index < 12; index += 1) engine.tick(0.1);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === roomId)?.doorHp)
+      .toBeCloseTo(room.doorMaxHp - 3, 5);
+    engine.tick(0.1);
+    expect(engine.snapshot().rooms.find((candidate) => candidate.id === roomId)?.doorHp)
+      .toBeCloseTo(room.doorMaxHp, 5);
+    const duringCooldown = engine.serialize();
+    const cooldownRoom = duringCooldown.snapshot.rooms.find((candidate) => candidate.id === roomId);
+    if (!cooldownRoom) throw new Error('missing cooldown room');
+    cooldownRoom.doorHp -= 1;
+    engine.restore(duringCooldown);
+    const cooldownAttempt = engine.handle(playerId, envelope({ type: 'free-repair' }, 81));
+    expect(cooldownAttempt.ok).toBe(false);
+    expect(cooldownAttempt.error).toContain('초 후');
   });
 
   it('builds a seven-level power gem with doubled costs and doubled gold income', () => {
@@ -2912,6 +2941,7 @@ describe('protocol and lifecycle', () => {
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 0, dy: 0, inputSequence: 2, releasePosition: { x: 3.2, y: 4.1 } })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 1, dy: 0, inputSequence: 3, releasePosition: { x: 3.2, y: 4.1 } })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'move', sequence: 1, timestamp: 2, dx: 0, dy: 0, inputSequence: 4, releasePosition: { x: null, y: 4.1 } })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ type: 'free-repair', sequence: 1, timestamp: 2 })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1.5, y: 2 }, kind: 'nuke' })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ type: 'build', sequence: 1, timestamp: 2, roomId: 'room-1', tile: { x: 1, y: 2 }, kind: 'hide-and-seek-doll' })).ok).toBe(true);
     expect(parseClientMessage(JSON.stringify({ type: 'activate-building', sequence: 1, timestamp: 2, buildingId: 'building-1', action: 'hide-and-seek' })).ok).toBe(true);
@@ -4451,7 +4481,7 @@ describe('requested progression and event rules', () => {
     }
     expect(engine.snapshot().rooms.find((candidate) => candidate.id === room.id)?.doorHp).toBe(400);
     expect(hitCount).toBeGreaterThan(0);
-    expect(buildingStats('repair-drone', 3).value).toBe(45);
+    expect(buildingStats('repair-drone', 3).value).toBe(22.5);
   });
 
   it('retreats toward the respawn area below twenty percent HP', () => {

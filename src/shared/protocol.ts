@@ -2,7 +2,7 @@ import { SHOP_CONSUMABLE_IDS } from './shopConsumables';
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
 
 const clientTypes = new Set([
-  'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'build', 'move-building', 'upgrade',
+  'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'free-repair', 'build', 'move-building', 'upgrade',
   'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'quick-chat', 'game-chat', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([

@@ -110,8 +110,6 @@ import { loadProfile, saveProfile } from "./storage";
 import { setupMobileViewportCompatibility } from "./viewport";
 import {
   completeGoogleSignup,
-  googleLoginUsesNativeButton,
-  mountGoogleWebButton,
   signInWithGoogle,
   signOutGoogle,
 } from "./native/googleAuth";
@@ -1202,9 +1200,12 @@ function homeUtilityIcon(kind: "mail" | "social" | "settings"): string {
   return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 9v4M24 35v4M39 24h-4M13 24H9M34.6 13.4l-2.8 2.8M16.2 31.8l-2.8 2.8M34.6 34.6l-2.8-2.8M16.2 16.2l-2.8-2.8"/><circle cx="24" cy="24" r="8"/><path d="M24 5.5c2.3 0 4.2 1.9 4.2 4.2l2.5 1c1.7-1.5 4.3-1.3 5.8.4 1.5 1.7 1.3 4.3-.4 5.8l1 2.5c2.3 0 4.2 1.9 4.2 4.2s-1.9 4.2-4.2 4.2l-1 2.5c1.5 1.7 1.3 4.3-.4 5.8-1.7 1.5-4.3 1.3-5.8-.4l-2.5 1c0 2.3-1.9 4.2-4.2 4.2s-4.2-1.9-4.2-4.2l-2.5-1c-1.7 1.5-4.3 1.3-5.8-.4-1.5-1.7-1.3-4.3.4-5.8l-1-2.5c-2.3 0-4.2-1.9-4.2-4.2s1.9-4.2 4.2-4.2l1-2.5c-1.5-1.7-1.3-4.3.4-5.8 1.7-1.5 4.3-1.3 5.8.4l2.5-1c0-2.3 1.9-4.2 4.2-4.2Z"/></svg>';
 }
 
-function gameActionIcon(kind: "bag" | "bed"): string {
+function gameActionIcon(kind: "bag" | "bed" | "repair"): string {
   if (kind === "bag") {
     return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M18 22h28l5 33H13z"/><path d="M23 24v-5c0-6 4-10 9-10s9 4 9 10v5M20 35h24M27 42h10v8H27z"/><circle cx="20" cy="29" r="2"/><circle cx="44" cy="29" r="2"/></svg>';
+  }
+  if (kind === "repair") {
+    return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M39 12a15 15 0 0 0-18 19L8 44l12 12 13-13a15 15 0 0 0 19-18l-9 9-10-3-3-10z"/><path d="m12 44 8 8m19-40-9 9m13 13 9-9"/></svg>';
   }
   return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M9 43h46v10H9zM13 26h38c3 0 5 2 5 5v12H8V31c0-3 2-5 5-5z"/><path d="M13 26v-8h15c4 0 7 3 7 7v1M14 53v4m36-4v4"/><circle cx="19" cy="22" r="4"/></svg>';
 }
@@ -2205,9 +2206,7 @@ function googleNicknameScreen(
 function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span style="display: none;">Sign in with Google</span></div>';
-  const googleControl = googleLoginUsesNativeButton
-    ? `<button class="auth-google gsi-material-button" type="button" data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인">${googleIconMarkup}</button>`
-    : `<div class="auth-google-web" data-google-login-web><div class="auth-google-loading" aria-hidden="true">${googleIconMarkup}</div></div>`;
+  const googleControl = `<button class="auth-google gsi-material-button" type="button" data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인">${googleIconMarkup}</button>`;
   const googleButton = `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap">${googleControl}</div>`;
   setContent(
     "auth",
@@ -2224,14 +2223,6 @@ function authScreen(mode: "login" | "register" = "login"): void {
     authScreen(mode);
     toast(error instanceof Error ? error.message : "Google 로그인에 실패했습니다.");
   };
-  const googleWebButton = app.querySelector<HTMLElement>("[data-google-login-web]");
-  if (googleWebButton) {
-    void mountGoogleWebButton(googleWebButton, handleGoogleResult, handleGoogleError)
-      .catch((error) => {
-        googleWebButton.classList.add("is-error");
-        toast(error instanceof Error ? error.message : "Google 로그인 버튼을 불러오지 못했습니다.");
-      });
-  }
   app
     .querySelector("[data-password-reveal]")
     ?.addEventListener("click", (event) => {
@@ -2704,6 +2695,8 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
   roomNetwork.connect();
 }
 
+let lastSnapshotRecoveryAt = 0;
+
 function recoverFromGameSnapshotFailure(error: unknown): void {
   console.error("Game snapshot processing failed; requesting a clean resync", error);
   selectedTile = null;
@@ -2713,8 +2706,12 @@ function recoverFromGameSnapshotFailure(error: unknown): void {
   consumableTurretTargetingId = null;
   closeBuildPanel();
   game?.resetTransientInteraction();
-  network?.resync();
-  toast("화면 동기화를 복구하고 있습니다.");
+  const now = performance.now();
+  if (now - lastSnapshotRecoveryAt >= 1_000) {
+    lastSnapshotRecoveryAt = now;
+    network?.resync();
+    toast("화면 동기화를 복구하고 있습니다.");
+  }
 }
 
 function safelyProcessGameSnapshot(
@@ -2726,10 +2723,28 @@ function safelyProcessGameSnapshot(
   try {
     renderForSnapshot(next, force);
     game?.updateSnapshot(next, events);
-    playEvents(events);
-    if (previous) refreshSelectionPanel(previous);
   } catch (error) {
     recoverFromGameSnapshotFailure(error);
+    return;
+  }
+  // Optional sound/toast/selection UI must never invalidate an otherwise
+  // valid authoritative frame. Safari layout timing can throw while a modal
+  // is being detached; treating that as a snapshot failure caused resync
+  // loops, poster flicker and visible movement rewinds on iPhone.
+  try {
+    playEvents(events);
+  } catch (error) {
+    console.warn("Game event presentation skipped", error);
+  }
+  if (previous) {
+    try {
+      refreshSelectionPanel(previous);
+    } catch (error) {
+      console.warn("Selection panel refresh skipped", error);
+      selectedTile = null;
+      selectedTarget = null;
+      closeBuildPanel();
+    }
   }
 }
 
@@ -2875,7 +2890,7 @@ function gameScreen(state: GameSnapshot): void {
       : "생존자";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
     '[data-camera="rotate-left"]',
@@ -2912,6 +2927,12 @@ function gameScreen(state: GameSnapshot): void {
   app
     .querySelector("[data-quick-chat]")
     ?.addEventListener("click", showQuickChatPicker);
+  app
+    .querySelector("[data-free-repair]")
+    ?.addEventListener("click", () => {
+      audio.play("button");
+      network?.freeRepair();
+    });
   window.addEventListener(
     "dorm:tile-selected",
     onTileSelected as EventListener,
@@ -3162,6 +3183,53 @@ function updateHud(): void {
   app
     .querySelector("[data-interact]")
     ?.classList.toggle("hidden", Boolean(me?.roomId) || !me?.alive);
+  const freeRepairButton = app.querySelector<HTMLButtonElement>(
+    "[data-free-repair]",
+  );
+  if (freeRepairButton) {
+    const freeRepairLocked =
+      snapshot.repairSuppressedUntil > snapshot.elapsed;
+    const repairActive = Boolean(
+      room && snapshot.elapsed < room.freeRepairUntil,
+    );
+    const repairCooldown = Boolean(
+      room && !repairActive && snapshot.elapsed < room.freeRepairReadyAt,
+    );
+    const repairAvailablePhase =
+      snapshot.status === "PLAYING" || snapshot.status === "OVERTIME";
+    const repairVisible = Boolean(me?.alive && room && repairAvailablePhase);
+    const repairDisabled =
+      !repairVisible ||
+      repairActive ||
+      repairCooldown ||
+      freeRepairLocked ||
+      !room ||
+      room.doorHp <= 0 ||
+      room.doorHp >= room.doorMaxHp;
+    freeRepairButton.classList.toggle("hidden", !repairVisible);
+    freeRepairButton.classList.toggle("is-active", repairActive);
+    freeRepairButton.classList.toggle("is-cooldown", repairCooldown);
+    freeRepairButton.disabled = repairDisabled;
+    const time = freeRepairButton.querySelector<HTMLElement>(
+      "[data-free-repair-time]",
+    );
+    if (time)
+      time.textContent = repairActive
+        ? `${Math.max(1, Math.ceil((room?.freeRepairUntil ?? 0) - snapshot.elapsed))}초`
+        : repairCooldown
+          ? `${Math.max(1, Math.ceil((room?.freeRepairReadyAt ?? 0) - snapshot.elapsed))}초`
+          : freeRepairLocked
+            ? "봉인"
+            : "수리";
+    freeRepairButton.setAttribute(
+      "aria-label",
+      repairActive
+        ? "무료 문 수리 중"
+        : repairCooldown
+          ? `무료 문 수리 ${Math.ceil((room?.freeRepairReadyAt ?? 0) - snapshot.elapsed)}초 후 사용 가능`
+          : "5초간 초당 15 무료 문 수리",
+    );
+  }
   updateHudTeammates();
   setText("[data-gold]", me ? Math.floor(me.gold).toString() : "0");
   setText("[data-power]", me ? Math.floor(me.power).toString() : "0");
@@ -3222,7 +3290,11 @@ function updateHud(): void {
         ghostPoster.classList.toggle("is-fading", fading);
         const artVariant =
           leadGhost.variant === "minion" ? "undead" : leadGhost.variant;
-        ghostPoster.innerHTML = `<div class="ghost-threat-paper"><img src="/assets/ghost-intros/ghost-warning-frame.png" alt="" aria-hidden="true"/><img class="ghost-threat-art" src="/assets/sprites/ghosts/${artVariant}/concept.png" alt="${escapeHtml(poster.title)} 일러스트"/><div class="ghost-threat-copy"><span>HOSTILE ENTITY</span><strong>${escapeHtml(poster.title)}</strong><p>${escapeHtml(poster.warning)}</p></div></div>`;
+        const posterKey = `${artVariant}:${poster.title}:${poster.warning}`;
+        if (ghostPoster.dataset.posterKey !== posterKey) {
+          ghostPoster.dataset.posterKey = posterKey;
+          ghostPoster.innerHTML = `<div class="ghost-threat-paper"><img src="/assets/ghost-intros/ghost-warning-frame.png" alt="" aria-hidden="true" decoding="async"/><img class="ghost-threat-art" src="/assets/sprites/ghosts/${artVariant}/concept.png" alt="${escapeHtml(poster.title)} 일러스트" decoding="async"/><div class="ghost-threat-copy"><span>HOSTILE ENTITY</span><strong>${escapeHtml(poster.title)}</strong><p>${escapeHtml(poster.warning)}</p></div></div>`;
+        }
       }
     }
   }
@@ -4496,6 +4568,7 @@ function playEvents(events: GameEvent[]): void {
       "upgrade",
       "turret-fire",
       "door-hit",
+      "door-repair",
       "player-hit",
       "ghost-level-up",
       "ghost-retreat",
@@ -4531,6 +4604,10 @@ function playEvents(events: GameEvent[]): void {
     (event) => event.kind === "upgrade" && event.playerId === playerId,
   );
   if (upgrade?.label) toast(`${upgrade.label} 업그레이드 완료`);
+  const freeRepair = events.find(
+    (event) => event.kind === "door-repair" && event.playerId === playerId,
+  );
+  if (freeRepair?.label) toast(`${freeRepair.label} · 5초간 초당 15`);
   const demolition = events.find(
     (event) =>
       event.kind === "building-remove" &&

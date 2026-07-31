@@ -47,6 +47,11 @@ export class GameNetwork {
   private lastSnapshot: GameSnapshot | null = null;
   private parserWorker: Worker | null = null;
   private parserRequestId = 0;
+  private readonly pendingParserRequests = new Map<
+    number,
+    { raw: string | ArrayBuffer; generation: number }
+  >();
+  private lastParserFailureAt = 0;
   private socketGeneration = 0;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
   reconnectToken = '';
@@ -98,7 +103,15 @@ export class GameNetwork {
     });
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket) return;
-      this.parseIncoming(event.data as string | ArrayBuffer, generation);
+      const raw = event.data as string | ArrayBuffer | Blob;
+      if (raw instanceof Blob) {
+        void raw.arrayBuffer().then((buffer) => {
+          if (this.socket === socket && generation === this.socketGeneration)
+            this.parseIncoming(buffer, generation);
+        }).catch(() => this.handleParserFailure());
+        return;
+      }
+      this.parseIncoming(raw, generation);
     });
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return;
@@ -138,6 +151,7 @@ export class GameNetwork {
     this.socket = null;
     this.parserWorker?.terminate();
     this.parserWorker = null;
+    this.pendingParserRequests.clear();
   }
 
   send(message: ClientIntent): void {
@@ -171,6 +185,7 @@ export class GameNetwork {
     });
   }
   interact(): void { this.send({ type: 'interact' }); }
+  freeRepair(): void { this.send({ type: 'free-repair' }); }
   build(roomId: string, tile: Tile, kind: BuildingKind): void {
     const now = performance.now();
     if (now - this.lastBuildSentAt < BALANCE.buildInputCooldownMs) return;
@@ -207,14 +222,20 @@ export class GameNetwork {
         'message',
         (event: MessageEvent<ParserWorkerResponse>) => {
           const response = event.data;
+          const pending = this.pendingParserRequests.get(response.id);
+          this.pendingParserRequests.delete(response.id);
           if (response.generation !== this.socketGeneration) return;
           if (!response.ok) {
-            this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' });
+            if (pending) this.parseIncomingOnMain(pending.raw, pending.generation);
+            else this.handleParserFailure();
             return;
           }
           this.receive(response.message);
         },
       );
+      const disableWorker = (): void => this.disableParserWorker();
+      worker.addEventListener('error', disableWorker);
+      worker.addEventListener('messageerror', disableWorker);
       this.parserWorker = worker;
     } catch {
       this.parserWorker = null;
@@ -231,18 +252,45 @@ export class GameNetwork {
         generation,
         raw,
       };
-      if (raw instanceof ArrayBuffer)
-        this.parserWorker.postMessage(request, [raw]);
-      else this.parserWorker.postMessage(request);
+      // Mobile Safari can abort a module worker while decoding a large frame.
+      // Keep the original payload so the exact snapshot can be parsed on the
+      // main thread instead of being lost as a detached ArrayBuffer.
+      this.pendingParserRequests.set(request.id, { raw, generation });
+      this.parserWorker.postMessage(request);
       return;
     }
+    this.parseIncomingOnMain(raw, generation);
+  }
+
+  private parseIncomingOnMain(
+    raw: string | ArrayBuffer,
+    generation: number,
+  ): void {
+    if (generation !== this.socketGeneration) return;
     try {
       const text =
         typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
       this.receive(JSON.parse(text) as ServerMessage);
     } catch {
-      this.emit('error', { message: '서버 메시지를 읽지 못했습니다.' });
+      this.handleParserFailure();
     }
+  }
+
+  private disableParserWorker(): void {
+    const pending = [...this.pendingParserRequests.values()];
+    this.pendingParserRequests.clear();
+    this.parserWorker?.terminate();
+    this.parserWorker = null;
+    for (const request of pending)
+      this.parseIncomingOnMain(request.raw, request.generation);
+  }
+
+  private handleParserFailure(): void {
+    const now = performance.now();
+    if (now - this.lastParserFailureAt < 1_000) return;
+    this.lastParserFailureAt = now;
+    this.resync();
+    this.emit('error', { message: '화면 동기화를 다시 맞추고 있습니다.' });
   }
 
   private receive(message: ServerMessage): void {
