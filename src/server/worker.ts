@@ -258,6 +258,22 @@ function withNativeCors(response: Response, origin: string): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+function withGooglePopupHeaders(response: Response): Response {
+  if (response.status === 101) return response;
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('text/html')) return response;
+  const headers = new Headers(response.headers);
+  // Google Identity Services uses a popup when FedCM is unavailable or
+  // disabled. Keep the opener relationship for that fallback without
+  // weakening isolation for unrelated cross-origin documents.
+  headers.set('cross-origin-opener-policy', 'same-origin-allow-popups');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -290,7 +306,10 @@ export default {
     // A WebSocket upgrade response carries a Cloudflare-specific `webSocket`
     // handle that cannot survive reconstructing the Response just to add CORS.
     // Browser WebSockets do not use CORS response headers, so return it intact.
-    return verifiedNative && !nativeSocket ? withNativeCors(response, origin) : response;
+    const responseWithCors = verifiedNative && !nativeSocket
+      ? withNativeCors(response, origin)
+      : response;
+    return withGooglePopupHeaders(responseWithCors);
   },
 } satisfies ExportedHandler<Env>;
 
