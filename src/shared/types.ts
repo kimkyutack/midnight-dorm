@@ -468,6 +468,7 @@ export interface AccountProfile {
 }
 
 export type TutorialStep =
+  | 'pickup-loot'
   | 'claim-bed'
   | 'upgrade-bed'
   | 'upgrade-door'
@@ -482,6 +483,8 @@ export interface TutorialState {
   step: TutorialStep;
   /** Bots never reserve this room, so the player always has a clear route. */
   reservedRoomId: string | null;
+  /** The single corridor reward that begins the guided route. */
+  guidedLootId: string | null;
   /** During the recovery lesson the whole simulation is deliberately paused. */
   pauseRemaining: number;
   retreatExplained: boolean;

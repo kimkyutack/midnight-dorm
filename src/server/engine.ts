@@ -24,6 +24,7 @@ import {
   isBuildTile,
   isPositionOnRoomFloor,
   moveInWalkableArea,
+  tileKey,
 } from "../shared/map";
 import { tutorialGuidedBuildTile } from "../shared/tutorial";
 import { findPath } from "../shared/pathfinding";
@@ -440,8 +441,9 @@ export class GameEngine {
       tutorial: this.stage.id === 'tutorial-1'
         ? {
             active: true,
-            step: 'claim-bed',
+            step: 'pickup-loot',
             reservedRoomId: null,
+            guidedLootId: null,
             pauseRemaining: 0,
             retreatExplained: false,
             powerGranted: false,
@@ -958,6 +960,7 @@ export class GameEngine {
         ? nearbyRooms[this.rng.int(0, nearbyRooms.length - 1)]?.room
         : undefined;
       this.state.tutorial.reservedRoomId = reserved?.id ?? this.map.rooms[0]?.id ?? null;
+      this.spawnTutorialLoot(this.state.tutorial.reservedRoomId);
     }
     if (isEliteRank(player.displayRank)) {
       this.pendingEvents.push({
@@ -1215,8 +1218,16 @@ export class GameEngine {
       case "draw-item":
         return this.drawItem(playerId, message.machineId);
       case "pickup-loot":
-        if (this.state.tutorial?.active)
-          return { ok: false, error: "훈련 중에는 안내된 행동만 할 수 있습니다." };
+        if (this.state.tutorial?.active) {
+          if (
+            this.state.tutorial.step !== 'pickup-loot' ||
+            message.lootId !== this.state.tutorial.guidedLootId
+          )
+            return { ok: false, error: "훈련 안내에 표시된 아이템부터 주워보세요." };
+          const result = this.pickupLoot(playerId, message.lootId);
+          if (result.ok) this.state.tutorial.step = 'claim-bed';
+          return result;
+        }
         return this.pickupLoot(playerId, message.lootId);
       case "set-consumable-loadout":
         return this.setConsumableLoadout(playerId, message.itemIds);
@@ -2553,6 +2564,43 @@ export class GameEngine {
     const item = getRandomItem(drop.itemId);
     this.pendingEvents.push({ kind: 'item-pickup', playerId, itemId: drop.itemId, label: item?.label ?? '랜덤 보상', rarity: item?.rarity, position: { ...drop.tile } });
     return { ok: true };
+  }
+
+  private spawnTutorialLoot(roomId: string | null): void {
+    const tutorial = this.state.tutorial;
+    if (!tutorial?.active || tutorial.guidedLootId || !roomId) return;
+    const room = this.map.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) return;
+    const respawnKeys = new Set(
+      this.map.respawnZones.map((zone) => tileKey(zone.x, zone.y)),
+    );
+    const candidates = this.map.corridorTiles
+      .filter((tile) => {
+        const fromDoor = Math.abs(tile.x - room.door.x) + Math.abs(tile.y - room.door.y);
+        return fromDoor >= 2 && fromDoor <= 5 && !respawnKeys.has(tileKey(tile.x, tile.y));
+      })
+      .sort((left, right) => {
+        const leftRoute = distance(this.map.playerSpawn, left) + distance(left, room.door);
+        const rightRoute = distance(this.map.playerSpawn, right) + distance(right, room.door);
+        return leftRoute - rightRoute;
+      });
+    const tile = candidates[0] ?? this.map.corridorTiles
+      .filter((candidate) => tileKey(candidate.x, candidate.y) !== tileKey(room.door.x, room.door.y))
+      .sort((left, right) => distance(left, room.door) - distance(right, room.door))[0];
+    if (!tile) return;
+    let lootId: string;
+    do {
+      lootId = `tutorial-loot:${++this.lootCounter}`;
+    } while (this.state.lootDrops.some((candidate) => candidate.id === lootId));
+    this.state.lootDrops = [{
+      id: lootId,
+      itemId: 'copper-pig',
+      tile: { ...tile },
+      spawnedAt: 0,
+      landsAt: 0,
+      carriedBy: null,
+    }];
+    tutorial.guidedLootId = lootId;
   }
 
   private placeCarriedLoot(player: PlayerState, room: RoomState): void {

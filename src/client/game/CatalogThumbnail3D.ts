@@ -380,10 +380,44 @@ function buildingState(kind: BuildingKind, skinId = ''): BuildingState {
   };
 }
 
+// iOS WebKit frequently discards decoded image surfaces while the main game
+// WebGL canvas is busy. Keep one decoded Image per catalog URL alive for the
+// app session so reopening an install/loadout sheet does not decode it again.
+const retainedCatalogImages = new Map<string, HTMLImageElement>();
+const retainedCatalogImageLoads = new Map<string, Promise<void>>();
+
+function retainCatalogImage(source: string): Promise<void> {
+  const existing = retainedCatalogImageLoads.get(source);
+  if (existing) return existing;
+  const retained = new Image();
+  retained.decoding = 'async';
+  retained.loading = 'eager';
+  retainedCatalogImages.set(source, retained);
+  const loaded = new Promise<void>((resolve) => {
+    const done = (): void => resolve();
+    retained.addEventListener('load', done, { once: true });
+    retained.addEventListener('error', done, { once: true });
+    retained.src = source;
+    if (retained.complete) done();
+  }).then(async () => {
+    if (retained.naturalWidth > 0 && 'decode' in retained) {
+      await retained.decode().catch(() => undefined);
+    }
+  });
+  retainedCatalogImageLoads.set(source, loaded);
+  return loaded;
+}
+
 function setImage(image: HTMLImageElement, source: string): void {
   if (!image.isConnected) return;
-  image.src = source;
-  image.classList.add('ready');
+  image.decoding = 'async';
+  image.loading = 'eager';
+  image.dataset.catalogSource = source;
+  if (image.getAttribute('src') !== source) image.src = source;
+  void retainCatalogImage(source).then(() => {
+    if (image.isConnected && image.dataset.catalogSource === source)
+      image.classList.add('ready');
+  });
 }
 
 export interface CatalogArtOptions {
@@ -404,6 +438,20 @@ export function buildingCatalogAssetUrl(
       ? turretSkins[kind as keyof TurretSkinLoadout]
       : undefined;
   return buildingAssetUrl(kind, 1, undefined, skinId);
+}
+
+export function preloadBuildingCatalogArt(
+  kinds: readonly BuildingKind[],
+  turretSkins: TurretSkinLoadout = DEFAULT_TURRET_SKINS,
+): void {
+  kinds.forEach((kind) => {
+    const source = buildingCatalogAssetUrl(kind, turretSkins) ?? buildingFallbackArt(kind);
+    void retainCatalogImage(source);
+  });
+}
+
+export function preloadSupplyCatalogArt(ids: readonly ConsumableId[]): void {
+  ids.forEach((id) => void retainCatalogImage(`/assets/consumables/${id}.png`));
 }
 
 /** 현재 화면에 있는 카드만 실제 게임 모델로 그려, 모바일 WebGL 부하를 제한한다. */

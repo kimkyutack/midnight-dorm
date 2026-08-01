@@ -270,11 +270,15 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
     }
     if (url.pathname === '/api/social/friends/request' && request.method === 'POST') {
       if (!sameOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
-      const body = await request.json<{ friendCode?: unknown }>().catch(() => ({}));
-      const requestBody = body as { friendCode?: unknown };
+      const body = await request.json<{ friendCode?: unknown; accountId?: unknown }>().catch(() => ({}));
+      const requestBody = body as { friendCode?: unknown; accountId?: unknown };
       const friendCode = typeof requestBody.friendCode === 'string' ? requestBody.friendCode.replace(/\s+/g, '').toUpperCase() : '';
-      if (!/^FD-[A-F0-9]{8}$/.test(friendCode)) return Response.json({ error: '친구 코드 형식을 확인해주세요.' }, { status: 400 });
-      const target = await db.prepare('SELECT id FROM accounts WHERE friend_code = ?').bind(friendCode).first<{ id: string }>();
+      const accountId = typeof requestBody.accountId === 'string' ? requestBody.accountId.trim() : '';
+      if (!/^FD-[A-F0-9]{8}$/.test(friendCode) && !/^[a-zA-Z0-9-]{8,80}$/.test(accountId))
+        return Response.json({ error: '친구 대상을 확인해주세요.' }, { status: 400 });
+      const target = accountId
+        ? await db.prepare('SELECT id FROM accounts WHERE id = ?').bind(accountId).first<{ id: string }>()
+        : await db.prepare('SELECT id FROM accounts WHERE friend_code = ?').bind(friendCode).first<{ id: string }>();
       if (!target) return Response.json({ error: '해당 친구 코드를 찾지 못했습니다.' }, { status: 404 });
       if (target.id === profile.id) return Response.json({ error: '자기 자신은 친구로 추가할 수 없습니다.' }, { status: 400 });
       const today = Date.now() - 24 * 60 * 60_000;
@@ -309,10 +313,17 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
       if (!existing) return Response.json({ error: '친구 관계를 찾지 못했습니다.' }, { status: 404 });
       const pair = pairFor(profile.id, otherId as string);
       if (action === 'accept') {
+        if (existing.status === 'accepted') return Response.json({ ok: true, alreadyAccepted: true });
         if (existing.status !== 'pending' || existing.requested_by_id === profile.id)
           return Response.json({ error: '수락할 친구 요청이 없습니다.' }, { status: 409 });
-        await db.prepare(`UPDATE friendships SET status = 'accepted', accepted_at = ?
-          WHERE account_low_id = ? AND account_high_id = ?`).bind(Date.now(), pair.low, pair.high).run();
+        const accepted = await db.prepare(`UPDATE friendships SET status = 'accepted', accepted_at = ?
+          WHERE account_low_id = ? AND account_high_id = ? AND status = 'pending' AND requested_by_id = ?`)
+          .bind(Date.now(), pair.low, pair.high, otherId).run();
+        if ((accepted.meta.changes ?? 0) === 0) {
+          const current = await friendshipFor(db, profile.id, otherId as string);
+          if (current?.status === 'accepted') return Response.json({ ok: true, alreadyAccepted: true });
+          return Response.json({ error: '수락할 친구 요청이 없습니다.' }, { status: 409 });
+        }
         await push(env, otherId as string, { type: 'friend-accepted', fromAccountId: profile.id });
       } else if (action === 'decline') {
         if (existing.status !== 'pending') return Response.json({ error: '거절할 친구 요청이 없습니다.' }, { status: 409 });

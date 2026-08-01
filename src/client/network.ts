@@ -53,6 +53,9 @@ export class GameNetwork {
   >();
   private lastParserFailureAt = 0;
   private socketGeneration = 0;
+  private leavePending = false;
+  private leaveAttempts = 0;
+  private leaveRetryTimer: number | null = null;
   private readonly listeners = new Map<keyof NetworkEvents, Set<(value: never) => void>>();
   reconnectToken = '';
   playerId = '';
@@ -78,6 +81,15 @@ export class GameNetwork {
   }
 
   connect(): void {
+    const existingSocket = this.socket;
+    if (existingSocket && (
+      existingSocket.readyState === WebSocket.CONNECTING ||
+      existingSocket.readyState === WebSocket.OPEN
+    )) {
+      if (existingSocket.readyState === WebSocket.OPEN && this.leavePending)
+        this.flushPendingLeave();
+      return;
+    }
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopped = false;
@@ -100,6 +112,7 @@ export class GameNetwork {
       this.reconnectAttempts = 0;
       this.emit('connection', { state: 'connected', attempt: 0 });
       this.startHeartbeat();
+      if (this.leavePending) this.flushPendingLeave();
     });
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket) return;
@@ -117,7 +130,11 @@ export class GameNetwork {
       if (this.socket !== socket) return;
       this.socket = null;
       this.stopHeartbeat();
-      if (!this.stopped && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      if (this.leavePending && !this.stopped) {
+        this.reconnectAttempts += 1;
+        this.emit('connection', { state: 'reconnecting', attempt: this.reconnectAttempts });
+        this.reconnectTimer = window.setTimeout(() => this.connect(), 120);
+      } else if (!this.stopped && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         this.reconnectAttempts += 1;
         this.emit('connection', { state: 'reconnecting', attempt: this.reconnectAttempts });
         const baseDelay = Math.min(
@@ -144,6 +161,7 @@ export class GameNetwork {
 
   close(): void {
     this.stopped = true;
+    this.clearPendingLeave();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopHeartbeat();
@@ -154,21 +172,27 @@ export class GameNetwork {
     this.pendingParserRequests.clear();
   }
 
-  send(message: ClientIntent): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
+  send(message: ClientIntent): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
     if (
       message.type === 'move' &&
       this.socket.bufferedAmount > MAX_CLIENT_MOVE_BUFFER_BYTES
     )
-      return;
+      return false;
     this.socket.send(JSON.stringify({ ...message, sequence: ++this.sequence, timestamp: Date.now() }));
+    return true;
   }
 
   ready(ready: boolean): void { this.send({ type: 'ready', ready }); }
   start(): void { this.send({ type: 'start' }); }
   addBot(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): void { this.send({ type: 'add-bot', difficulty }); }
   removeBot(botId: string): void { this.send({ type: 'remove-bot', botId }); }
-  leaveRoom(): void { this.send({ type: 'leave-room' }); }
+  leaveRoom(): void {
+    this.leavePending = true;
+    this.leaveAttempts = 0;
+    this.stopped = false;
+    this.flushPendingLeave();
+  }
   kickPlayer(playerId: string): void { this.send({ type: 'kick-player', playerId }); }
   move(
     dx: number,
@@ -320,6 +344,7 @@ export class GameNetwork {
     else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });
     else if (message.type === 'game-chat') this.emit('gameChat', { playerId: message.playerId, message: message.message });
     else if (message.type === 'room-exit') {
+      this.clearPendingLeave();
       this.stopped = true;
       this.stopHeartbeat();
       this.emit('roomExit', { reason: message.reason });
@@ -335,5 +360,37 @@ export class GameNetwork {
   private stopHeartbeat(): void {
     if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
     this.pingTimer = null;
+  }
+
+  private flushPendingLeave(): void {
+    if (!this.leavePending || this.stopped) return;
+    if (this.leaveRetryTimer !== null)
+      window.clearTimeout(this.leaveRetryTimer);
+    this.leaveRetryTimer = null;
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      this.connect();
+      return;
+    }
+    this.send({ type: 'leave-room' });
+    this.leaveAttempts += 1;
+    this.leaveRetryTimer = window.setTimeout(() => {
+      this.leaveRetryTimer = null;
+      if (!this.leavePending || this.stopped) return;
+      if (this.leaveAttempts >= 3 && this.socket?.readyState === WebSocket.OPEN) {
+        // A suspended mobile WebSocket may still report OPEN while the peer is
+        // gone. Reconnect once so the queued leave intent reaches the room.
+        this.socket.close(4001, 'retry room leave');
+        return;
+      }
+      this.flushPendingLeave();
+    }, 900);
+  }
+
+  private clearPendingLeave(): void {
+    this.leavePending = false;
+    this.leaveAttempts = 0;
+    if (this.leaveRetryTimer !== null)
+      window.clearTimeout(this.leaveRetryTimer);
+    this.leaveRetryTimer = null;
   }
 }

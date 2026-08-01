@@ -12,8 +12,8 @@ export const isPositionOnRoomFloor = (
 };
 
 // Keep eight distinct rooms, but avoid the long empty-looking hallways of
-// the 49×31 ward. The compact 4×2 layout removes a further strip of unused
-// corridor while retaining enough room for eight distinct room shapes.
+// the 49×31 ward. Placement regions are arranged compactly while every room
+// still receives its own width, depth, and silhouette.
 const MAP_WIDTH = 39;
 const MAP_HEIGHT = 25;
 const DIRECTIONS = [
@@ -51,36 +51,39 @@ const withoutCells = (cells: readonly Cell[], removed: readonly Cell[]): Cell[] 
   return cells.filter(([x, y]) => !removedKeys.has(tileKey(x, y)));
 };
 
+const combineCells = (...groups: readonly Cell[][]): Cell[] => {
+  const cells = new Map<string, Cell>();
+  for (const group of groups)
+    for (const cell of group) cells.set(tileKey(cell[0], cell[1]), cell);
+  return [...cells.values()];
+};
+
 const ROOM_TEMPLATES: readonly RoomTemplate[] = [
-  // Every live ward contains these eight templates once. Their floor areas
-  // are deliberately all different (20 through 27 tiles), so the 4×2
-  // placement grid never makes the rooms feel like equally sized cells.
+  // Every ward contains eight silhouettes with different area and span.
+  // The seven-tile straight room, chunky L/T rooms and small five-tile room
+  // prevent the procedural 4×2 placement from reading as eight rectangles.
+  { id: 'compact-five', label: '5칸 폭 소형 병실', cells: rectangle(5, 4) },
+  { id: 'straight-seven', label: '7칸 일자 병실', cells: rectangle(7, 3) },
+  {
+    id: 'slim-seven',
+    label: '긴 세로형 병실',
+    cells: withoutCells(rectangle(4, 6), [[3, 0], [3, 5]]),
+  },
+  {
+    id: 'corner-seven',
+    label: '7칸 ㄱ자 병실',
+    cells: combineCells(rectangle(3, 5), rectangle(7, 2).map(([x, y]) => [x, y + 3] as const)),
+  },
+  {
+    id: 't-wing',
+    label: 'T자 병실',
+    cells: combineCells(rectangle(6, 3), rectangle(2, 6).map(([x, y]) => [x + 2, y] as const)),
+  },
   { id: 'square', label: '정방형 병실', cells: rectangle(5, 5) },
-  { id: 'wide', label: '가로형 병실', cells: rectangle(6, 4) },
-  {
-    id: 'tall',
-    label: '세로형 병실',
-    cells: withoutCells(rectangle(4, 6), [[3, 0]]),
-  },
-  {
-    id: 'left-l',
-    label: '왼쪽 ㄴ자 병실',
-    cells: withoutCells(rectangle(5, 5), [[3, 0], [4, 0], [3, 1], [4, 1]]),
-  },
-  {
-    id: 'right-l',
-    label: '오른쪽 ㄱ자 병실',
-    cells: withoutCells(rectangle(5, 5), [[0, 4], [1, 4], [0, 3]]),
-  },
   {
     id: 'stepped',
     label: '계단형 병실',
     cells: withoutCells(rectangle(6, 5), [[0, 0], [0, 1], [5, 3], [5, 4]]),
-  },
-  {
-    id: 'clipped',
-    label: '모서리 절단 병실',
-    cells: withoutCells(rectangle(5, 5), [[0, 0], [4, 0], [0, 4], [4, 4], [2, 0]]),
   },
   {
     id: 'u-suite',
@@ -310,7 +313,7 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
           reserved.add(tileKey(center.x + dx, center.y + dy));
   }
 
-  // Give every room a stable 4×2 neighbourhood before adding its seeded
+  // Give every room a stable slot in a 4-column × 2-row placement grid before adding its seeded
   // offset. This keeps layouts varied without allowing all rooms to cluster
   // along one edge and leave an empty half-map of corridor behind.
   const slotEdgesX = Array.from({ length: 5 }, (_, index) =>
@@ -337,10 +340,14 @@ function createCandidate(seed: number, playMode: PlayMode): MapDefinition | null
     const dimensions = dimensionsFor(template);
     const slot = slots[templateIndex];
     if (!slot) return null;
-    const minX = slot.left + 1;
-    const maxX = slot.right - dimensions.width - 1;
-    const minY = slot.top + 1;
-    const maxY = slot.bottom - dimensions.height - 1;
+    // A room may use the complete slot. Its generated perimeter still keeps
+    // the floor separated from neighbouring rooms, and collision validation
+    // rejects the occasional seeded overlap. This is what allows real
+    // seven-tile horizontal rooms inside the compact map.
+    const minX = slot.left;
+    const maxX = slot.right - dimensions.width;
+    const minY = slot.top;
+    const maxY = slot.bottom - dimensions.height;
     if (maxX < minX || maxY < minY) return null;
     let placement: RoomDraft | null = null;
     for (let attempt = 0; attempt < 40; attempt += 1) {

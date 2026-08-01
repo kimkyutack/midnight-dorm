@@ -39,6 +39,7 @@ export class AvatarPreview2D {
   private readonly host: HTMLElement;
   private readonly homePresentation: boolean;
   private readonly root = document.createElement('div');
+  private readonly movementEffect = document.createElement('span');
   private readonly canvas = document.createElement('canvas');
   private readonly context: CanvasRenderingContext2D;
   private appearance: AvatarAppearance;
@@ -68,6 +69,9 @@ export class AvatarPreview2D {
     this.root.dataset.character = appearance.character;
     this.root.dataset.skin = appearance.skin;
     this.canvas.dataset.skinId = appearance.skin;
+    this.movementEffect.className = 'special-ops-skin-motion-effect';
+    this.movementEffect.setAttribute('aria-hidden', 'true');
+    this.root.appendChild(this.movementEffect);
     this.root.appendChild(this.canvas);
     this.host.insertBefore(this.root, this.host.firstChild);
     this.updatePresentationClasses();
@@ -171,6 +175,8 @@ export class AvatarPreview2D {
     this.root.classList.toggle('cyber-driver-kong-sprite-preview', cyberDriverKong);
     this.root.classList.toggle('police-enforcer-croco-sprite-preview', policeEnforcerCroco);
     this.root.classList.toggle('secret-agent-monkey-sprite-preview', secretAgentMonkey);
+    this.movementEffect.classList.toggle('croco-stomp-effect', policeEnforcerCroco);
+    this.movementEffect.classList.toggle('monkey-dash-effect', secretAgentMonkey);
     this.host.classList.toggle('surfer-mong-preview', surferMong);
     this.host.classList.toggle('lifeguard-raon-preview', lifeguardRaon);
     this.host.classList.toggle('neon-rider-lulu-preview', neonRiderLulu);

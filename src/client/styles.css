@@ -310,6 +310,19 @@
 .supply-shop-screen {
   overflow: auto;
 }
+.supply-shop-tabs {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  width: min(1060px, 100%);
+  margin: 12px auto 0;
+  padding: 5px;
+  border: 1px solid rgba(143, 222, 230, 0.18);
+  border-radius: 14px;
+  background: rgba(7, 16, 24, 0.86);
+}
 .supply-brief,
 .supply-grid {
   position: relative;
@@ -1727,12 +1740,74 @@
     0 0 0 4px rgba(83, 197, 213, 0.1),
     0 8px 22px rgba(0, 0, 0, 0.42);
 }
-.profile-photo-editor > strong {
-  font-size: 14px;
-}
-.profile-photo-editor > div {
+.profile-photo-actions {
   display: flex;
   gap: 7px;
+}
+.profile-name-editor {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.profile-name-editor strong {
+  font-size: 14px;
+}
+.profile-name-editor button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  min-height: 25px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(141, 219, 227, 0.24);
+  border-radius: 8px;
+  color: #a4e8ee;
+  background: rgba(48, 100, 108, 0.2);
+  font-size: 13px;
+}
+.profile-nickname-modal {
+  z-index: 112;
+}
+.profile-nickname-sheet {
+  width: min(84cqw, 400px);
+}
+.profile-nickname-form {
+  display: grid;
+  gap: 9px;
+}
+.profile-nickname-form label {
+  color: rgba(224, 236, 238, 0.72);
+  font-size: 10px;
+  font-weight: 800;
+}
+.profile-nickname-form input {
+  width: 100%;
+  min-height: 45px;
+  padding: 0 13px;
+  border: 1px solid rgba(154, 220, 227, 0.24);
+  border-radius: 13px;
+  color: #f2f7f8;
+  background: rgba(7, 17, 24, 0.8);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.profile-nickname-form input:focus {
+  border-color: #8edce4;
+  box-shadow: 0 0 0 3px rgba(92, 205, 217, 0.11);
+}
+.profile-nickname-form p {
+  min-height: 16px;
+  margin: 0;
+  color: rgba(223, 235, 237, 0.56);
+  font-size: 9px;
+}
+.profile-nickname-form p.available {
+  color: #75e4bb;
+}
+.profile-nickname-form p.error {
+  color: #ff9aaf;
 }
 .profile-photo-editor .btn {
   min-height: 30px;
@@ -3576,7 +3651,7 @@
 }
 .loadout-item {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   min-width: 0;
@@ -3591,15 +3666,19 @@
   border-color: rgba(121, 226, 236, 0.6);
   background: rgba(32, 83, 91, 0.58);
 }
-.loadout-item i {
+.loadout-item-art {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
   border-radius: 8px;
-  color: #a8f2f4;
   background: rgba(70, 142, 151, 0.28);
-  font-style: normal;
+}
+.loadout-item-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .loadout-item span {
   min-width: 0;
@@ -4841,6 +4920,42 @@ select {
 .player-copy {
   min-width: 0;
 }
+.player-name-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+.player-name-row > strong {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+}
+.lobby-content .player-name {
+  font-size: 9px;
+}
+.lobby-friend-add {
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(127, 220, 229, 0.34);
+  border-radius: 8px;
+  color: #9ce9ef;
+  background: rgba(54, 115, 124, 0.24);
+  font-size: 13px;
+  font-weight: 900;
+}
+.lobby-friend-add.sent {
+  color: #7de7bb;
+  border-color: rgba(125, 231, 187, 0.35);
+}
 .player-copy > strong,
 .player-copy > span {
   display: flex;
@@ -4859,6 +4974,7 @@ select {
 .player-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ready-badge {
   margin-left: auto;
@@ -5334,6 +5450,57 @@ select {
 }
 .hud-player-list.hidden {
   display: none;
+}
+.opening-minimap {
+  position: fixed;
+  z-index: 22;
+  top: max(150px, calc(env(safe-area-inset-top) + 142px));
+  left: max(9px, env(safe-area-inset-left));
+  width: clamp(126px, 31vw, 166px);
+  padding: 5px;
+  border: 1px solid rgba(133, 224, 240, 0.38);
+  border-radius: 12px;
+  background: rgba(4, 12, 21, 0.88);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.42),
+    inset 0 0 18px rgba(66, 190, 218, 0.06);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.opening-minimap.hidden {
+  display: none;
+}
+.opening-minimap canvas {
+  display: block;
+  width: 100%;
+  height: clamp(88px, 22vw, 112px);
+  border-radius: 8px;
+}
+.opening-minimap > div {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 4px;
+  color: rgba(225, 242, 246, 0.72);
+  font-size: 6px;
+  font-weight: 850;
+}
+.opening-minimap span::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 3px;
+  border-radius: 50%;
+  content: "";
+}
+.opening-minimap .self::before {
+  background: #ff3d50;
+}
+.opening-minimap .team::before {
+  background: #5be2f5;
+}
+.opening-minimap .loot::before {
+  background: #ffd55c;
 }
 .hud-teammate {
   position: relative;
@@ -6142,6 +6309,35 @@ body.game-chat-active {
   z-index: -1;
   content: "";
   background: rgba(0, 3, 10, 0.72);
+}
+
+.tutorial-upgrade-lock .tutorial-upgrade-pointer {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  margin: -2px 0 8px;
+  color: #fff1a5;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+  pointer-events: none;
+}
+.tutorial-upgrade-lock .tutorial-upgrade-pointer i {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: #17202d;
+  background: linear-gradient(180deg, #fff8b2, #ffc85e);
+  box-shadow: 0 0 18px rgba(255, 211, 98, 0.72);
+  font-size: 22px;
+  font-style: normal;
+  animation: tutorial-upgrade-point 760ms ease-in-out infinite alternate;
+}
+@keyframes tutorial-upgrade-point {
+  from { transform: translateY(5px); }
+  to { transform: translateY(-2px); }
 }
 .tutorial-retreat-card {
   padding: 22px 18px;
@@ -10228,14 +10424,37 @@ body.game-chat-active {
 }
 .police-enforcer-croco-card-art::after,
 .secret-agent-monkey-card-art::after {
-  right: 6%;
-  bottom: 1%;
-  left: 6%;
   z-index: 1;
-  height: 19%;
+  pointer-events: none;
+}
+.police-enforcer-croco-card-art::after {
+  right: 12%;
+  bottom: -2%;
+  left: 12%;
+  height: 28%;
+  border-radius: 46%;
+  background:
+    linear-gradient(32deg, transparent 45%, rgba(65, 38, 21, 0.9) 47% 50%, transparent 52%) 50% 50% / 32% 100%,
+    linear-gradient(-34deg, transparent 45%, rgba(65, 38, 21, 0.82) 47% 50%, transparent 52%) 50% 50% / 36% 100%,
+    radial-gradient(ellipse at center, rgba(239, 194, 117, 0.58), rgba(155, 98, 49, 0.18) 46%, transparent 72%);
+  filter: blur(0.3px);
+  animation: police-ground-impact 0.88s ease-out infinite;
+}
+.secret-agent-monkey-card-art::after {
+  right: 19%;
+  bottom: 18%;
+  left: 3%;
+  height: 28%;
   border-radius: 50%;
-  background: linear-gradient(90deg, rgba(48, 132, 255, 0.28), rgba(255, 90, 53, 0.24));
-  filter: blur(8px);
+  background: repeating-linear-gradient(
+    168deg,
+    transparent 0 9px,
+    rgba(184, 233, 255, 0.72) 10px 12px,
+    transparent 13px 19px
+  );
+  filter: blur(0.8px);
+  transform: skewX(-18deg);
+  animation: agent-wind-trail 0.72s ease-in-out infinite;
 }
 .police-enforcer-croco-card-sprite,
 .secret-agent-monkey-card-sprite {
@@ -10247,19 +10466,17 @@ body.game-chat-active {
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 400% 300%;
-  filter:
-    drop-shadow(0 8px 5px rgba(0, 0, 0, 0.56))
-    drop-shadow(0 0 4px rgba(126, 188, 236, 0.44));
+  filter: drop-shadow(0 8px 5px rgba(0, 0, 0, 0.56));
   animation: surfer-card-frames 0.82s steps(1, end) infinite;
 }
 .police-enforcer-croco-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v2");
+  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v3");
   animation:
     surfer-card-frames 0.88s steps(1, end) infinite,
     police-card-stomp 0.88s ease-in-out infinite;
 }
 .secret-agent-monkey-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v2");
+  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v3");
   animation:
     surfer-card-frames 0.72s steps(1, end) infinite,
     agent-card-dash 0.72s ease-in-out infinite;
@@ -10510,11 +10727,48 @@ body.game-chat-active {
 }
 .custom-avatar-stage.police-enforcer-croco-preview .skin-preview-canvas,
 .custom-avatar-stage.secret-agent-monkey-preview .skin-preview-canvas {
+  position: relative;
+  z-index: 2;
   width: min(94%, 346px);
   height: min(96%, 346px);
-  filter:
-    drop-shadow(0 16px 13px rgba(0, 0, 0, 0.58))
-    drop-shadow(0 0 7px rgba(106, 175, 229, 0.5));
+  filter: drop-shadow(0 16px 13px rgba(0, 0, 0, 0.58));
+}
+.special-ops-skin-motion-effect {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  pointer-events: none;
+}
+.police-enforcer-croco-sprite-preview .special-ops-skin-motion-effect.croco-stomp-effect {
+  bottom: 10%;
+  left: 25%;
+  display: block;
+  width: 50%;
+  height: 19%;
+  border-radius: 48%;
+  background:
+    linear-gradient(30deg, transparent 45%, rgba(59, 34, 20, 0.94) 47% 50%, transparent 52%) 50% 50% / 31% 100%,
+    linear-gradient(-33deg, transparent 45%, rgba(59, 34, 20, 0.9) 47% 50%, transparent 52%) 50% 50% / 36% 100%,
+    radial-gradient(ellipse at center, rgba(242, 199, 125, 0.65), rgba(164, 105, 54, 0.22) 48%, transparent 72%);
+  transform-origin: 50% 62%;
+  animation: police-ground-impact 0.92s ease-out infinite;
+}
+.secret-agent-monkey-sprite-preview .special-ops-skin-motion-effect.monkey-dash-effect {
+  bottom: 22%;
+  left: 7%;
+  display: block;
+  width: 48%;
+  height: 24%;
+  border-radius: 50%;
+  background: repeating-linear-gradient(
+    168deg,
+    transparent 0 13px,
+    rgba(176, 231, 255, 0.76) 14px 16px,
+    transparent 17px 26px
+  );
+  filter: blur(0.8px);
+  transform: skewX(-20deg);
+  animation: agent-wind-trail 0.72s ease-in-out infinite;
 }
 
 @keyframes premium-card-sheen {
@@ -10647,6 +10901,20 @@ body.game-chat-active {
     transform: translateY(1px);
   }
 }
+@keyframes police-ground-impact {
+  0%, 35%, 100% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  52% {
+    opacity: 0.88;
+    transform: scale(1.04);
+  }
+  78% {
+    opacity: 0.26;
+    transform: scale(1.26);
+  }
+}
 @keyframes agent-card-dash {
   0%, 100% {
     opacity: 1;
@@ -10655,6 +10923,16 @@ body.game-chat-active {
   52% {
     opacity: 0.54;
     transform: translateX(2px);
+  }
+}
+@keyframes agent-wind-trail {
+  0%, 100% {
+    opacity: 0.14;
+    translate: -7% 2%;
+  }
+  48% {
+    opacity: 0.82;
+    translate: 9% -2%;
   }
 }
 
@@ -10714,7 +10992,8 @@ body.game-chat-active {
   .custom-avatar-stage.police-enforcer-croco-preview,
   .custom-avatar-stage.police-enforcer-croco-preview::before,
   .custom-avatar-stage.secret-agent-monkey-preview,
-  .custom-avatar-stage.secret-agent-monkey-preview::before {
+  .custom-avatar-stage.secret-agent-monkey-preview::before,
+  .special-ops-skin-motion-effect {
     animation: none;
   }
 }

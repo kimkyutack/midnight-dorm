@@ -37,7 +37,6 @@ const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
 const LOCAL_MAX_PREDICTION_LEAD = 2.6;
-const LOCAL_INPUT_RELEASE_RECONCILE_GRACE_MS = 180;
 const LOCAL_INPUT_RELEASE_ACK_TIMEOUT_MS = 1_500;
 const MAX_RECONCILE_STEP = 0.18;
 const FLOOR_TILE_HEIGHT = 0.08;
@@ -126,14 +125,26 @@ export function limitLocalPredictionLead(
   };
 }
 
-export function shouldWaitForReleaseAcknowledgement(
+export function shouldHoldReleasedPrediction(
   releaseInputSequence: number | null,
   authoritativeInputSequence: number | undefined,
   now: number,
   timeoutAt: number,
+  rendered: Vec2,
+  authoritative: Vec2,
+  lastInput: Vec2,
 ): boolean {
   if (releaseInputSequence === null || now >= timeoutAt) return false;
-  return (authoritativeInputSequence ?? 0) < releaseInputSequence;
+  if ((authoritativeInputSequence ?? 0) < releaseInputSequence) return true;
+  const offsetX = authoritative.x - rendered.x;
+  const offsetY = authoritative.y - rendered.y;
+  if (Math.hypot(offsetX, offsetY) <= 0.04) return false;
+  // The release packet can be acknowledged by a snapshot whose position was
+  // sampled just before the packet's forward correction was applied. Pulling
+  // to that acknowledged-but-still-trailing point produces the visible
+  // one/two-step rewind after lifting a finger. Keep the rendered survivor at
+  // the release point until the following authoritative frame catches up.
+  return offsetX * lastInput.x + offsetY * lastInput.y < -0.025;
 }
 
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
@@ -354,6 +365,10 @@ interface PortraitMovementDrag {
   id: number;
   startX: number;
   startY: number;
+  outputX: number;
+  outputY: number;
+  lastUpdateAt: number;
+  active: boolean;
 }
 
 interface BuildingDragCandidate {
@@ -2062,7 +2077,6 @@ export class ThreeGameView {
   private localInput: Vec2 = { x: 0, y: 0 };
   private localInputSequence = 0;
   private lastNonZeroLocalInput: Vec2 = { x: 0, y: 0 };
-  private localInputReleaseGraceUntil = 0;
   private localInputReleaseSequence: number | null = null;
   private localInputReleaseAckTimeoutAt = 0;
   private drag: PointerDrag | null = null;
@@ -2316,15 +2330,11 @@ export class ThreeGameView {
   }
 
   setLocalInput(input: Vec2, inputSequence?: number): void {
-    const wasMoving = Math.hypot(this.localInput.x, this.localInput.y) > 0.001;
     const isMoving = Math.hypot(input.x, input.y) > 0.001;
     if (isMoving) {
       this.lastNonZeroLocalInput = input;
       this.localInputReleaseSequence = null;
       this.localInputReleaseAckTimeoutAt = 0;
-    } else if (wasMoving) {
-      this.localInputReleaseGraceUntil =
-        performance.now() + LOCAL_INPUT_RELEASE_RECONCILE_GRACE_MS;
     }
     this.localInput = input;
     if (inputSequence !== undefined) {
@@ -2333,8 +2343,7 @@ export class ThreeGameView {
         inputSequence,
       );
       // sendMovement() updates the visual input once before assigning the
-      // packet sequence, so the sequenced zero can arrive here after
-      // `wasMoving` already became false. Record every sequenced release.
+      // packet sequence, so always record the sequenced zero as the release.
       if (!isMoving) {
         this.localInputReleaseSequence = inputSequence;
         this.localInputReleaseAckTimeoutAt =
@@ -3692,6 +3701,12 @@ export class ThreeGameView {
       ? this.mapRoomById.get(tutorial.reservedRoomId)
       : undefined;
     if (!tutorial?.active || !local?.alive || !room) return null;
+    if (tutorial.step === "pickup-loot") {
+      const loot = snapshot.lootDrops.find(
+        (drop) => drop.id === tutorial.guidedLootId && !drop.carriedBy,
+      );
+      if (loot) return { tile: { ...loot.tile }, label: "↓ 아이템 줍기" };
+    }
     if (tutorial.step === "claim-bed")
       return { tile: { ...room.bed, roomId: room.id }, label: "↓ 안내 침대" };
     if (tutorial.step === "upgrade-bed")
@@ -3765,7 +3780,7 @@ export class ThreeGameView {
       this.tutorialCameraDistanceScale = null;
       return;
     }
-    if (tutorial.step === "claim-bed" && target) {
+    if ((tutorial.step === "pickup-loot" || tutorial.step === "claim-bed") && target) {
       const dx = target.tile.x - local.position.x;
       const dy = target.tile.y - local.position.y;
       this.tutorialCameraFocus = {
@@ -4437,39 +4452,27 @@ export class ThreeGameView {
         }
       } else {
         const now = performance.now();
-        const waitingForReleaseAcknowledgement =
+        const holdReleasedPrediction =
           isLocal &&
           !lying &&
-          shouldWaitForReleaseAcknowledgement(
+          shouldHoldReleasedPrediction(
             this.localInputReleaseSequence,
             player.lastInputSeq,
             now,
             this.localInputReleaseAckTimeoutAt,
+            { x: view.root.position.x, y: view.root.position.z },
+            { x: view.target.x, y: view.target.z },
+            this.lastNonZeroLocalInput,
           );
         if (
           isLocal &&
           this.localInputReleaseSequence !== null &&
-          (player.lastInputSeq ?? 0) >= this.localInputReleaseSequence
+          !holdReleasedPrediction
         ) {
           this.localInputReleaseSequence = null;
           this.localInputReleaseAckTimeoutAt = 0;
         }
-        let skipTrailingReleaseReconcile = waitingForReleaseAcknowledgement;
-        if (
-          !skipTrailingReleaseReconcile &&
-          isLocal &&
-          !lying &&
-          now < this.localInputReleaseGraceUntil
-        ) {
-          const targetOffsetX = view.target.x - view.root.position.x;
-          const targetOffsetZ = view.target.z - view.root.position.z;
-          const targetTrailsLastInput =
-            targetOffsetX * this.lastNonZeroLocalInput.x +
-              targetOffsetZ * this.lastNonZeroLocalInput.y <
-            -0.025;
-          skipTrailingReleaseReconcile = targetTrailsLastInput;
-        }
-        if (!skipTrailingReleaseReconcile) {
+        if (!holdReleasedPrediction) {
           this.reconcilePlayerPosition(
             view,
             isLocal ? 13 : 10.5,
@@ -5841,6 +5844,10 @@ export class ThreeGameView {
         id: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
+        outputX: 0,
+        outputY: 0,
+        lastUpdateAt: event.timeStamp,
+        active: false,
       };
       this.dispatchPortraitMovement(0, 0);
       return;
@@ -5892,8 +5899,31 @@ export class ThreeGameView {
         dx = (dx / magnitude) * radius;
         dy = (dy / magnitude) * radius;
       }
-      if (magnitude < 6) this.dispatchPortraitMovement(0, 0);
-      else this.dispatchPortraitMovement(dx / radius, dy / radius);
+      const drag = this.portraitMovementDrag;
+      const deadZone = drag.active ? 4 : 7;
+      if (magnitude < deadZone) {
+        drag.active = false;
+        drag.outputX = 0;
+        drag.outputY = 0;
+        drag.lastUpdateAt = event.timeStamp;
+        this.dispatchPortraitMovement(0, 0);
+      } else {
+        const desiredX = dx / radius;
+        const desiredY = dy / radius;
+        const elapsed = clamp(event.timeStamp - drag.lastUpdateAt, 4, 48);
+        const reversing =
+          drag.outputX * desiredX + drag.outputY * desiredY < -0.02;
+        const alpha = !drag.active
+          ? 1
+          : reversing
+            ? 0.82
+            : 1 - Math.exp(-elapsed / 24);
+        drag.outputX += (desiredX - drag.outputX) * alpha;
+        drag.outputY += (desiredY - drag.outputY) * alpha;
+        drag.lastUpdateAt = event.timeStamp;
+        drag.active = true;
+        this.dispatchPortraitMovement(drag.outputX, drag.outputY);
+      }
       return;
     }
     if (!this.pointerPositions.has(event.pointerId)) return;

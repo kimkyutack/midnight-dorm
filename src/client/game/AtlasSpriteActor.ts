@@ -62,10 +62,82 @@ interface AtlasLayer {
   hideWhenSleeping: boolean;
 }
 
+type SpecialOpsMotionKind = 'croco-stomp' | 'monkey-dash';
+
+interface SpecialOpsMotionEffect {
+  kind: SpecialOpsMotionKind;
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  material: THREE.MeshBasicMaterial;
+}
+
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
 const GHOST_ATLAS_VERSION = 'ghost-atlas-v5';
 let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
+const specialOpsEffectTextures = new Map<SpecialOpsMotionKind, THREE.CanvasTexture>();
+
+function specialOpsEffectTexture(kind: SpecialOpsMotionKind): THREE.CanvasTexture {
+  const cached = specialOpsEffectTextures.get(kind);
+  if (cached) return cached;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to create special-ops movement effect');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  if (kind === 'croco-stomp') {
+    const dust = context.createRadialGradient(128, 79, 7, 128, 79, 72);
+    dust.addColorStop(0, 'rgba(255, 222, 151, .72)');
+    dust.addColorStop(0.38, 'rgba(205, 157, 89, .42)');
+    dust.addColorStop(1, 'rgba(126, 77, 34, 0)');
+    context.fillStyle = dust;
+    context.ellipse(128, 79, 91, 32, 0, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = 'rgba(63, 35, 20, .92)';
+    context.lineWidth = 5;
+    context.lineCap = 'round';
+    const cracks: Array<[
+      [number, number],
+      [number, number],
+      [number, number],
+    ]> = [
+      [[128, 76], [97, 91], [74, 113]],
+      [[128, 76], [154, 94], [187, 111]],
+      [[128, 76], [126, 101], [115, 122]],
+      [[128, 76], [145, 101], [143, 123]],
+    ];
+    for (const crack of cracks) {
+      const [start, middle, end] = crack;
+      context.beginPath();
+      context.moveTo(start[0], start[1]);
+      context.lineTo(middle[0], middle[1]);
+      context.lineTo(end[0], end[1]);
+      context.stroke();
+    }
+  } else {
+    const trail = context.createLinearGradient(18, 64, 226, 64);
+    trail.addColorStop(0, 'rgba(185, 239, 255, 0)');
+    trail.addColorStop(0.35, 'rgba(151, 218, 255, .2)');
+    trail.addColorStop(0.72, 'rgba(239, 250, 255, .82)');
+    trail.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    context.strokeStyle = trail;
+    context.lineCap = 'round';
+    for (let index = 0; index < 5; index += 1) {
+      context.lineWidth = 7 - index;
+      context.beginPath();
+      context.moveTo(20 + index * 9, 34 + index * 14);
+      context.bezierCurveTo(76, 20 + index * 13, 145, 48 + index * 7, 225, 44 + index * 9);
+      context.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  specialOpsEffectTextures.set(kind, texture);
+  return texture;
+}
 
 /**
  * Network/cache failures must never make a boss effectively invisible.  The
@@ -289,6 +361,7 @@ export class AtlasSpriteActor {
   private readonly movementSideFacesLeft: boolean;
   private readonly attackSideFacesLeft: boolean;
   private readonly frontBackSwapped: boolean;
+  private readonly movementEffect: SpecialOpsMotionEffect | null;
   private disposed = false;
 
   constructor(definition: AtlasSpriteDefinition) {
@@ -301,6 +374,7 @@ export class AtlasSpriteActor {
     this.object.position.y = 0.24;
     this.object.scale.setScalar(this.size);
     this.addLayer(definition, definition.renderOrder, false);
+    this.movementEffect = this.createMovementEffect(definition.name, definition.renderOrder - 1);
     this.setFrame('movement', 0);
   }
 
@@ -316,11 +390,13 @@ export class AtlasSpriteActor {
   setMovement(dx: number, dz: number, moving: boolean, time: number, seed = 0): void {
     if (moving) this.facing = spriteFacingFromDelta(dx, dz, this.facing);
     this.setFrame('movement', movementFrameAt(time, moving, seed));
+    this.updateMovementEffect(dx, dz, moving, time, seed);
   }
 
   setIdle(direction: SpriteDirection = this.facing.direction, mirrored = this.facing.mirrored): void {
     this.facing = { direction, mirrored };
     this.setFrame('movement', 0);
+    if (this.movementEffect) this.movementEffect.mesh.visible = false;
   }
 
   setFacingFromDelta(dx: number, dz: number): void {
@@ -330,10 +406,12 @@ export class AtlasSpriteActor {
   setSleep(mirrored = false): void {
     this.facing = { direction: 'side', mirrored };
     this.setFrame('sleep', 0);
+    if (this.movementEffect) this.movementEffect.mesh.visible = false;
   }
 
   setAttack(elapsed: number, duration: number): void {
     this.setFrame('attack', attackFrameAt(elapsed, duration));
+    if (this.movementEffect) this.movementEffect.mesh.visible = false;
   }
 
   setSkillPrepare(elapsed: number, duration: number): void {
@@ -376,7 +454,60 @@ export class AtlasSpriteActor {
       layer.mesh.geometry.dispose();
       layer.material.dispose();
     }
+    if (this.movementEffect) {
+      this.movementEffect.mesh.geometry.dispose();
+      this.movementEffect.material.dispose();
+    }
     this.layers.length = 0;
+  }
+
+  private createMovementEffect(name: string, renderOrder: number): SpecialOpsMotionEffect | null {
+    const kind: SpecialOpsMotionKind | null = name === 'skin-look-crocodile-police-enforcer'
+      ? 'croco-stomp'
+      : name === 'skin-look-monkey-secret-agent'
+        ? 'monkey-dash'
+        : null;
+    if (!kind) return null;
+    const material = new THREE.MeshBasicMaterial({
+      map: specialOpsEffectTexture(kind),
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(0, -0.012, kind === 'croco-stomp' ? 0.23 : 0.2);
+    mesh.renderOrder = renderOrder;
+    mesh.visible = false;
+    mesh.name = `${name}-${kind}-effect`;
+    this.object.add(mesh);
+    return { kind, mesh, material };
+  }
+
+  private updateMovementEffect(dx: number, dz: number, moving: boolean, time: number, seed: number): void {
+    const effect = this.movementEffect;
+    if (!effect) return;
+    effect.mesh.visible = moving;
+    if (!moving) return;
+    const seededTime = time + seed * 137;
+    if (effect.kind === 'croco-stomp') {
+      const phase = (seededTime % 520) / 520;
+      const pulse = Math.max(0, 1 - Math.abs(phase - 0.42) / 0.28);
+      effect.material.opacity = 0.18 + pulse * 0.72;
+      const scale = 0.82 + pulse * 0.42;
+      effect.mesh.scale.set(scale, scale, scale);
+      effect.mesh.position.x = Math.floor(seededTime / 520) % 2 === 0 ? -0.13 : 0.13;
+      effect.mesh.rotation.y = 0;
+      return;
+    }
+    const pulse = 0.72 + Math.sin(seededTime * 0.018) * 0.18;
+    effect.material.opacity = pulse;
+    effect.mesh.scale.set(1.05 + pulse * 0.28, 0.82 + pulse * 0.12, 1);
+    effect.mesh.position.x = -Math.sign(dx || 1) * 0.22;
+    effect.mesh.position.z = 0.2 + Math.sign(dz) * 0.08;
+    effect.mesh.rotation.y = Math.atan2(dx, dz || 0.0001);
   }
 
   private addLayer(definition: AtlasLayerDefinition, renderOrder: number, hideWhenSleeping: boolean): void {

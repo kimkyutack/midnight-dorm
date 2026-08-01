@@ -769,6 +769,60 @@ async function completeGoogleSignup(request: Request, db: D1Database): Promise<R
   return nativeSessionResponse(request, await profileForRow(db, row as AccountRow), session.token);
 }
 
+async function checkNicknameAvailability(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { nickname?: string };
+  try { body = await request.json(); } catch {
+    return Response.json({ error: '닉네임을 확인해주세요.' }, { status: 400 });
+  }
+  const input = validatedNickname(body.nickname);
+  if (!input) return Response.json({ error: '닉네임은 2~12자로 입력하세요.' }, { status: 400 });
+  const owner = await db.prepare(
+    'SELECT account_id FROM account_nickname_registry WHERE normalized_nickname = ?',
+  ).bind(input.normalized).first<{ account_id: string }>();
+  return Response.json({
+    nickname: input.nickname,
+    available: !owner || owner.account_id === row.id,
+  });
+}
+
+async function setNickname(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { nickname?: string };
+  try { body = await request.json(); } catch {
+    return Response.json({ error: '닉네임을 확인해주세요.' }, { status: 400 });
+  }
+  const input = validatedNickname(body.nickname);
+  if (!input) return Response.json({ error: '닉네임은 2~12자로 입력하세요.' }, { status: 400 });
+  const owner = await db.prepare(
+    'SELECT account_id FROM account_nickname_registry WHERE normalized_nickname = ?',
+  ).bind(input.normalized).first<{ account_id: string }>();
+  if (owner && owner.account_id !== row.id)
+    return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
+  const now = Date.now();
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM account_nickname_registry WHERE account_id = ?').bind(row.id),
+      db.prepare(`INSERT INTO account_nickname_registry
+        (normalized_nickname, account_id, created_at) VALUES (?, ?, ?)`)
+        .bind(input.normalized, row.id, now),
+      db.prepare('UPDATE accounts SET nickname = ?, updated_at = ? WHERE id = ?')
+        .bind(input.nickname, now, row.id),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint failed[^\n]*(account_nickname_registry|accounts\.nickname)/i.test(message))
+      return Response.json({ error: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해주세요.' }, { status: 409 });
+    throw error;
+  }
+  const updated = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first<AccountRow>();
+  return Response.json({ profile: await profileForRow(db, updated ?? { ...row, nickname: input.nickname }) });
+}
+
 async function setSelectedPlayMode(request: Request, db: D1Database): Promise<Response> {
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   const row = await authenticatedRowFromReadySchema(request, db);
@@ -1153,6 +1207,8 @@ export async function routeAuth(
     if (url.pathname === '/api/auth/google' && request.method === 'POST') return googleLogin(request, db, googleClientId);
     if (url.pathname === '/api/auth/google/complete' && request.method === 'POST') return completeGoogleSignup(request, db);
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logout(request, db);
+    if (url.pathname === '/api/auth/nickname/check' && request.method === 'POST') return checkNicknameAvailability(request, db);
+    if (url.pathname === '/api/auth/nickname' && request.method === 'POST') return setNickname(request, db);
     if (url.pathname === '/api/auth/play-mode' && request.method === 'POST') return setSelectedPlayMode(request, db);
     if (url.pathname === '/api/auth/profile-display' && request.method === 'POST') return setProfileDisplayMode(request, db);
     if (url.pathname === '/api/auth/profile-avatar' && request.method === 'POST') return setProfileAvatar(request, db);

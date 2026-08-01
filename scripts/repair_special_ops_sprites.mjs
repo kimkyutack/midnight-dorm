@@ -77,6 +77,37 @@ async function keepPrimaryAlphaComponent(input) {
   return sharp(data, { raw: info }).png().toBuffer();
 }
 
+/**
+ * Generated special-ops art was exported against a pale matte.  Removing one
+ * outer alpha ring clears that matte without touching white uniform details
+ * inside the silhouette.  Runtime motion effects are rendered separately so
+ * they are not mistaken for body fragments by this cleanup pass.
+ */
+async function removeOuterAlphaRing(input) {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const originalAlpha = new Uint8Array(info.width * info.height);
+  for (let pixel = 0; pixel < originalAlpha.length; pixel += 1) {
+    originalAlpha[pixel] = data[pixel * 4 + 3];
+  }
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const pixel = y * info.width + x;
+      if (originalAlpha[pixel] <= 3) continue;
+      const touchesTransparency =
+        x === 0 || y === 0 || x === info.width - 1 || y === info.height - 1 ||
+        originalAlpha[pixel - 1] <= 3 ||
+        originalAlpha[pixel + 1] <= 3 ||
+        originalAlpha[pixel - info.width] <= 3 ||
+        originalAlpha[pixel + info.width] <= 3;
+      if (touchesTransparency) data[pixel * 4 + 3] = 0;
+    }
+  }
+  return sharp(data, { raw: info }).png().toBuffer();
+}
+
 async function frameMetrics(input) {
   const { data, info } = await sharp(input)
     .ensureAlpha()
@@ -276,7 +307,10 @@ async function repairSpriteSet({ directory, sources }) {
     for (let column = 0; column < ACTIONS.length; column += 1) {
       const action = ACTIONS[column];
       const source = cleanedSources.get(`${direction}:${sources[column]}`);
-      const repaired = await alignFrame(source, scale);
+      const repaired = await alignFrame(
+        await removeOuterAlphaRing(await alignFrame(source, scale)),
+        1,
+      );
       await fs.writeFile(path.join(framesDirectory, `${direction}-${action}.png`), repaired);
       repairedFrames.set(`${direction}:${action}`, repaired);
     }
@@ -286,7 +320,9 @@ async function repairSpriteSet({ directory, sources }) {
   const sleepTarget = path.join(root, 'sleep.png');
   await fs.writeFile(
     sleepTarget,
-    await keepPrimaryAlphaComponent(await fs.readFile(sleepTarget)),
+    await removeOuterAlphaRing(
+      await keepPrimaryAlphaComponent(await fs.readFile(sleepTarget)),
+    ),
   );
 
   const composites = [];
@@ -294,6 +330,44 @@ async function repairSpriteSet({ directory, sources }) {
     for (let column = 0; column < ACTIONS.length; column += 1) {
       composites.push({
         input: repairedFrames.get(`${DIRECTIONS[row]}:${ACTIONS[column]}`),
+        left: column * CELL_SIZE,
+        top: row * CELL_SIZE,
+      });
+    }
+  }
+  await sharp({
+    create: {
+      width: CELL_SIZE * ACTIONS.length,
+      height: CELL_SIZE * DIRECTIONS.length,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite(composites)
+    .png()
+    .toFile(path.join(root, 'movement-sheet.png'));
+}
+
+async function realignSpriteSet({ directory }) {
+  const root = path.join(ROOT, 'public/assets/sprites/skins', directory);
+  const framesDirectory = path.join(root, 'frames');
+  const alignedFrames = new Map();
+
+  for (const direction of DIRECTIONS) {
+    for (const action of ACTIONS) {
+      const source = await fs.readFile(path.join(framesDirectory, `${direction}-${action}.png`));
+      const aligned = await alignFrame(source, 1);
+      await fs.writeFile(path.join(framesDirectory, `${direction}-${action}.png`), aligned);
+      alignedFrames.set(`${direction}:${action}`, aligned);
+    }
+  }
+
+  await fs.writeFile(path.join(root, 'concept.png'), alignedFrames.get('front:idle'));
+  const composites = [];
+  for (let row = 0; row < DIRECTIONS.length; row += 1) {
+    for (let column = 0; column < ACTIONS.length; column += 1) {
+      composites.push({
+        input: alignedFrames.get(`${DIRECTIONS[row]}:${ACTIONS[column]}`),
         left: column * CELL_SIZE,
         top: row * CELL_SIZE,
       });
@@ -338,4 +412,7 @@ if (crocodileSheet || crocodileSleep) {
   );
 }
 
-for (const repair of REPAIRS) await repairSpriteSet(repair);
+for (const repair of REPAIRS) {
+  if (cliOptions.has('--realign-only')) await realignSpriteSet(repair);
+  else await repairSpriteSet(repair);
+}

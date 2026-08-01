@@ -43,6 +43,24 @@ export const setProfileAvatar = (avatarData: string | null): Promise<AccountProf
   method: 'POST', body: JSON.stringify({ avatarData }),
 });
 
+export async function checkNicknameAvailability(
+  nickname: string,
+): Promise<{ nickname: string; available: boolean }> {
+  const response = await fetch('/api/auth/nickname/check', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  });
+  const data = await response.json() as { nickname?: string; available?: boolean; error?: string };
+  if (!response.ok || typeof data.available !== 'boolean')
+    throw new Error(data.error ?? '닉네임 중복 여부를 확인하지 못했습니다.');
+  return { nickname: data.nickname ?? nickname.trim(), available: data.available };
+}
+
+export const setNickname = (nickname: string): Promise<AccountProfile> => authRequest('/api/auth/nickname', {
+  method: 'POST', body: JSON.stringify({ nickname }),
+});
+
 export const dismissPromotion = (promotionId: 'summer' | 'cyberpunk' | 'special-ops'): Promise<AccountProfile> => authRequest('/api/auth/promotion-dismissals', {
   method: 'POST', body: JSON.stringify({ promotionId }),
 });

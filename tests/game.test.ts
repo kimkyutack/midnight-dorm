@@ -19,7 +19,7 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { limitLocalPredictionLead, shouldWaitForReleaseAcknowledgement } from '../src/client/game/ThreeGameView';
+import { limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
@@ -457,10 +457,15 @@ describe('deterministic shared world', () => {
     expect(next.x).toBeCloseTo(7.65);
   });
 
-  it('does not reconcile a released drag to a bot-claim frame before the release is acknowledged', () => {
-    expect(shouldWaitForReleaseAcknowledgement(9, 8, 500, 2_000)).toBe(true);
-    expect(shouldWaitForReleaseAcknowledgement(9, 9, 500, 2_000)).toBe(false);
-    expect(shouldWaitForReleaseAcknowledgement(9, 8, 2_000, 2_000)).toBe(false);
+  it('holds a released drag until both its input and forward position are acknowledged', () => {
+    const rendered = { x: 8.2, y: 5 };
+    const trailing = { x: 7.6, y: 5 };
+    const caughtUp = { x: 8.18, y: 5 };
+    const input = { x: 1, y: 0 };
+    expect(shouldHoldReleasedPrediction(9, 8, 500, 2_000, rendered, trailing, input)).toBe(true);
+    expect(shouldHoldReleasedPrediction(9, 9, 500, 2_000, rendered, trailing, input)).toBe(true);
+    expect(shouldHoldReleasedPrediction(9, 9, 500, 2_000, rendered, caughtUp, input)).toBe(false);
+    expect(shouldHoldReleasedPrediction(9, 8, 2_000, 2_000, rendered, trailing, input)).toBe(false);
   });
 
   it('treats every rounded point inside a room floor tile as room interior', () => {
@@ -778,14 +783,14 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-cyber-driver-kong/sleep.png');
     const policeCrocoAppearance = { character: 'character-crocodile', skin: 'skin-look-crocodile-police-enforcer' };
     expect(skinMovementSheetUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v2');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v3');
     expect(skinSleepUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png?v=special-ops-v2');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png?v=special-ops-v3');
     const secretAgentAppearance = { character: 'character-monkey', skin: 'skin-look-monkey-secret-agent' };
     expect(skinMovementSheetUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v2');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v3');
     expect(skinSleepUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png?v=special-ops-v2');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png?v=special-ops-v3');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -1025,8 +1030,8 @@ describe('survivor customization rules', () => {
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
     expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
-    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v2');
-    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v2');
+    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v3');
+    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v3');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -1206,6 +1211,12 @@ describe('authoritative game rules', () => {
   it('lets the ghost patrol corridors during the thirty-second blackout phase', () => {
     const { engine, ids } = setup(1, false, { ranked: RANKED_OPENING });
     const ghostSpawn = { ...engine.map.ghostSpawn };
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find((candidate) => candidate.id === ids[0]);
+    const shelteredTile = engine.map.rooms[0]?.floorTiles[0];
+    if (!player || !shelteredTile) throw new Error('missing ranked blackout fixture');
+    player.position = { ...shelteredTile };
+    engine.restore(persisted);
     expect(engine.start(ids[0] as string).ok).toBe(true);
     expect(engine.snapshot().status).toBe('COUNTDOWN');
     expect(engine.snapshot().countdown).toBe(30);
@@ -1603,7 +1614,7 @@ describe('authoritative game rules', () => {
     expect(engine.snapshot().players.find((player) => player.id === joined.player.id)?.power).toBe(240);
     expect(engine.snapshot().tutorial).toEqual(expect.objectContaining({
       active: true,
-      step: 'claim-bed',
+      step: 'pickup-loot',
     }));
     const reservedRoomId = engine.snapshot().tutorial?.reservedRoomId;
     expect(reservedRoomId).toBeTruthy();
@@ -1625,6 +1636,24 @@ describe('authoritative game rules', () => {
     expect(engine.start(joined.player.id).ok).toBe(true);
     expect(engine.snapshot().status).toBe('PLAYING');
     expect(engine.snapshot().countdown).toBe(0);
+
+    const guidedLootId = engine.snapshot().tutorial?.guidedLootId;
+    const guidedLoot = engine.snapshot().lootDrops.find((drop) => drop.id === guidedLootId);
+    expect(guidedLoot).toBeDefined();
+    expect(engine.snapshot().lootDrops).toHaveLength(1);
+
+    const pickupState = engine.serialize();
+    const pickupPlayer = pickupState.snapshot.players.find(
+      (candidate) => candidate.id === joined.player.id,
+    );
+    if (!pickupPlayer || !guidedLoot) throw new Error('missing tutorial loot fixture');
+    pickupPlayer.position = { ...guidedLoot.tile };
+    engine.restore(pickupState);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'pickup-loot',
+      lootId: guidedLoot.id,
+    })).ok).toBe(true);
+    expect(engine.snapshot().tutorial?.step).toBe('claim-bed');
 
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find(
