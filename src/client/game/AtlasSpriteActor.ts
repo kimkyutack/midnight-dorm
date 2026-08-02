@@ -74,47 +74,27 @@ const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, TextureCacheEntry>();
 const GHOST_ATLAS_VERSION = 'ghost-atlas-v5';
 let fallbackGhostAtlas: THREE.CanvasTexture | null = null;
-const specialOpsEffectTextures = new Map<SpecialOpsMotionKind, THREE.CanvasTexture>();
+const specialOpsEffectTextures = new Map<SpecialOpsMotionKind, THREE.Texture>();
 
-function specialOpsEffectTexture(kind: SpecialOpsMotionKind): THREE.CanvasTexture {
+function specialOpsEffectTexture(kind: SpecialOpsMotionKind): THREE.Texture {
   const cached = specialOpsEffectTextures.get(kind);
   if (cached) return cached;
+  if (kind === 'croco-stomp') {
+    const texture = textureLoader.load('/assets/effects/croco-ground-impact.png?v=special-ops-v4');
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    specialOpsEffectTextures.set(kind, texture);
+    return texture;
+  }
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 128;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Unable to create special-ops movement effect');
   context.clearRect(0, 0, canvas.width, canvas.height);
-  if (kind === 'croco-stomp') {
-    const dust = context.createRadialGradient(128, 79, 7, 128, 79, 72);
-    dust.addColorStop(0, 'rgba(255, 222, 151, .72)');
-    dust.addColorStop(0.38, 'rgba(205, 157, 89, .42)');
-    dust.addColorStop(1, 'rgba(126, 77, 34, 0)');
-    context.fillStyle = dust;
-    context.ellipse(128, 79, 91, 32, 0, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = 'rgba(63, 35, 20, .92)';
-    context.lineWidth = 5;
-    context.lineCap = 'round';
-    const cracks: Array<[
-      [number, number],
-      [number, number],
-      [number, number],
-    ]> = [
-      [[128, 76], [97, 91], [74, 113]],
-      [[128, 76], [154, 94], [187, 111]],
-      [[128, 76], [126, 101], [115, 122]],
-      [[128, 76], [145, 101], [143, 123]],
-    ];
-    for (const crack of cracks) {
-      const [start, middle, end] = crack;
-      context.beginPath();
-      context.moveTo(start[0], start[1]);
-      context.lineTo(middle[0], middle[1]);
-      context.lineTo(end[0], end[1]);
-      context.stroke();
-    }
-  } else {
+  {
     const trail = context.createLinearGradient(18, 64, 226, 64);
     trail.addColorStop(0, 'rgba(185, 239, 255, 0)');
     trail.addColorStop(0.35, 'rgba(151, 218, 255, .2)');
@@ -495,8 +475,9 @@ export class AtlasSpriteActor {
     if (effect.kind === 'croco-stomp') {
       const phase = (seededTime % 520) / 520;
       const pulse = Math.max(0, 1 - Math.abs(phase - 0.42) / 0.28);
-      effect.material.opacity = 0.18 + pulse * 0.72;
-      const scale = 0.82 + pulse * 0.42;
+      effect.mesh.visible = pulse > 0.04;
+      effect.material.opacity = pulse * 0.82;
+      const scale = 0.74 + pulse * 0.32;
       effect.mesh.scale.set(scale, scale, scale);
       effect.mesh.position.x = Math.floor(seededTime / 520) % 2 === 0 ? -0.13 : 0.13;
       effect.mesh.rotation.y = 0;

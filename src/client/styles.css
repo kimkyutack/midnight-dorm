@@ -10432,12 +10432,8 @@ body.game-chat-active {
   bottom: -2%;
   left: 12%;
   height: 28%;
-  border-radius: 46%;
-  background:
-    linear-gradient(32deg, transparent 45%, rgba(65, 38, 21, 0.9) 47% 50%, transparent 52%) 50% 50% / 32% 100%,
-    linear-gradient(-34deg, transparent 45%, rgba(65, 38, 21, 0.82) 47% 50%, transparent 52%) 50% 50% / 36% 100%,
-    radial-gradient(ellipse at center, rgba(239, 194, 117, 0.58), rgba(155, 98, 49, 0.18) 46%, transparent 72%);
-  filter: blur(0.3px);
+  background: url("/assets/effects/croco-ground-impact.png?v=special-ops-v4") center / contain no-repeat;
+  filter: drop-shadow(0 2px 2px rgba(55, 29, 13, 0.48));
   animation: police-ground-impact 0.88s ease-out infinite;
 }
 .secret-agent-monkey-card-art::after {
@@ -10470,13 +10466,13 @@ body.game-chat-active {
   animation: surfer-card-frames 0.82s steps(1, end) infinite;
 }
 .police-enforcer-croco-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v3");
+  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v4");
   animation:
     surfer-card-frames 0.88s steps(1, end) infinite,
     police-card-stomp 0.88s ease-in-out infinite;
 }
 .secret-agent-monkey-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v3");
+  background-image: url("/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v4");
   animation:
     surfer-card-frames 0.72s steps(1, end) infinite,
     agent-card-dash 0.72s ease-in-out infinite;
@@ -10745,11 +10741,8 @@ body.game-chat-active {
   display: block;
   width: 50%;
   height: 19%;
-  border-radius: 48%;
-  background:
-    linear-gradient(30deg, transparent 45%, rgba(59, 34, 20, 0.94) 47% 50%, transparent 52%) 50% 50% / 31% 100%,
-    linear-gradient(-33deg, transparent 45%, rgba(59, 34, 20, 0.9) 47% 50%, transparent 52%) 50% 50% / 36% 100%,
-    radial-gradient(ellipse at center, rgba(242, 199, 125, 0.65), rgba(164, 105, 54, 0.22) 48%, transparent 72%);
+  background: url("/assets/effects/croco-ground-impact.png?v=special-ops-v4") center / contain no-repeat;
+  filter: drop-shadow(0 2px 2px rgba(55, 29, 13, 0.48));
   transform-origin: 50% 62%;
   animation: police-ground-impact 0.92s ease-out infinite;
 }

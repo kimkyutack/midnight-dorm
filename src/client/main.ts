@@ -3801,7 +3801,7 @@ function resultScreen(state: GameSnapshot): void {
           if (multiplier === 2 && !adFreeActive) {
             if (!account) throw new Error("로그인이 필요합니다.");
             if (!isNativeApp) {
-              throw new Error("2배 보상형 광고는 Google Play 또는 App Store 앱에서 이용할 수 있습니다.");
+              throw new Error("Chrome·Safari·PWA에서는 AdMob 광고가 실행되지 않습니다. Google Play 또는 App Store에서 설치한 앱에서 이용해주세요.");
             }
             await showStageClearReward(account.id, state.matchId);
             rewardedAdCompleted = true;
