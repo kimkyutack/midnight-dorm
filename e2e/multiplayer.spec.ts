@@ -1368,9 +1368,9 @@ test("three bots visibly pathfind through doors before the normal countdown ends
       page.locator("#game-root canvas[data-shadows='off']"),
     ).toBeVisible();
     await expect(page.getByTestId("game-blackout")).not.toHaveClass(/is-active/);
-    await expect(page.getByRole("button", { name: "카메라 확대" })).toBeVisible();
+    await expect(page.locator('[data-camera="zoom-in"]')).toBeHidden();
     await expect(
-      page.locator("#game-root canvas[data-camera-zoom-locked='false']"),
+      page.locator("#game-root canvas[data-camera-zoom-locked='true']"),
     ).toBeVisible();
     expect(
       await page.evaluate(() => window.__DORM_TEST__?.cameraZoom()),

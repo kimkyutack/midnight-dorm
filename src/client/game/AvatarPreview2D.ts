@@ -68,6 +68,8 @@ export class AvatarPreview2D {
     this.context.imageSmoothingEnabled = true;
     this.root.dataset.character = appearance.character;
     this.root.dataset.skin = appearance.skin;
+    this.root.dataset.avatarView = this.direction;
+    this.root.dataset.animationStep = '-1';
     this.canvas.dataset.skinId = appearance.skin;
     this.movementEffect.className = 'special-ops-skin-motion-effect';
     this.movementEffect.setAttribute('aria-hidden', 'true');
@@ -91,6 +93,7 @@ export class AvatarPreview2D {
 
   setView(view: AvatarSpriteView): void {
     this.direction = view;
+    this.root.dataset.avatarView = view;
     this.canvas.dataset.avatarView = view;
     this.render('idle');
   }
@@ -195,6 +198,7 @@ export class AvatarPreview2D {
     if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
     this.animationFrame = 0;
     this.homeStep = -1;
+    this.root.dataset.animationStep = '-1';
   }
 
   private render(frame: MovementFrame): void {
@@ -233,6 +237,7 @@ export class AvatarPreview2D {
     const step = Math.floor(time / (this.isAnimatedPremiumSkin() ? 230 : 360)) % 4;
     if (step !== this.homeStep) {
       this.homeStep = step;
+      this.root.dataset.animationStep = String(step);
       this.render(this.presentationFrame());
     }
     this.animationFrame = this.shouldAnimate()

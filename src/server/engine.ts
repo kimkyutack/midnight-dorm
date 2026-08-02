@@ -45,6 +45,7 @@ import {
   recommendedRankForStage,
   TIME_ATTACK_EXPIRED_MESSAGE,
   timeAttackChanceForStage,
+  type GhostStageSkill,
   type StageDefinition,
 } from "../shared/progression";
 import { SeededRandom, hashString } from "../shared/rng";
@@ -335,6 +336,8 @@ export class GameEngine {
       supplyTurretDamageUntil: 0,
       supplyTurretRateUntil: 0,
       supplyTurretLevelUntil: 0,
+      goldSuppressedUntil: 0,
+      goldSuppressedByGhostId: null,
     }));
     const timeAttack = this.ranked
       ? this.ranked.modifier === 'time-attack'
@@ -498,6 +501,7 @@ export class GameEngine {
       healingStartHp: 0,
       retreatCount: 0,
       skillCooldown: variant === "caster" ? 8 : 20,
+      pendingStageSkill: null,
       abilityCooldown:
         variant === "teleporter" ? 12 : variant === "undead" ? 10 : 20,
       controlResolve: 0,
@@ -601,10 +605,9 @@ export class GameEngine {
         this.state.ranked.seasonRules,
       );
     }
-    this.state.goldSuppressedUntil = Math.min(
-      this.state.elapsed + 5,
-      Math.max(0, finite(this.state.goldSuppressedUntil, 0)),
-    );
+    // Legacy snapshots stored one global lock. Never restore it into every
+    // room: that was the source of unrelated survivors losing all income.
+    this.state.goldSuppressedUntil = 0;
     this.state.repairSuppressedUntil = Math.min(
       this.state.elapsed + 5,
       Math.max(0, finite(this.state.repairSuppressedUntil, 0)),
@@ -644,6 +647,12 @@ export class GameEngine {
       ghost.healingStartHp ??= ghost.hp;
       ghost.retreatCount ??= 0;
       ghost.skillCooldown ??= 20;
+      if (
+        ghost.pendingStageSkill !== 'turret-jam' &&
+        ghost.pendingStageSkill !== 'gold-lock' &&
+        ghost.pendingStageSkill !== 'repair-lock' &&
+        ghost.pendingStageSkill !== 'door-crush'
+      ) ghost.pendingStageSkill = null;
       ghost.abilityCooldown ??=
         ghost.variant === "teleporter"
           ? 12
@@ -760,6 +769,11 @@ export class GameEngine {
       room.supplyTurretDamageUntil ??= 0;
       room.supplyTurretRateUntil ??= 0;
       room.supplyTurretLevelUntil ??= 0;
+      room.goldSuppressedUntil = Math.min(
+        this.state.elapsed + 5,
+        Math.max(0, finite(room.goldSuppressedUntil, 0)),
+      );
+      room.goldSuppressedByGhostId ??= null;
       room.lastLatchArmedBy ??= null;
       room.lastLatchUntil ??= 0;
       room.lastDoorHitAt = finite(room.lastDoorHitAt, -1_000_000);
@@ -773,6 +787,7 @@ export class GameEngine {
       room.doorShieldHp ??= 0;
       this.refreshDoorShield(room, false);
     }
+    this.syncGoldSuppressionState();
     for (const building of this.state.buildings) {
       building.skinId ??=
         DEFAULT_TURRET_SKINS[
@@ -3339,6 +3354,7 @@ export class GameEngine {
   }
 
   private updateEconomy(dt: number): void {
+    this.syncGoldSuppressionState();
     for (const player of this.state.players) {
       if (!player.alive || !player.roomId) continue;
       const room = this.state.rooms.find(
@@ -3403,7 +3419,7 @@ export class GameEngine {
       player.goldIncomeElapsed += dt;
       while (player.goldIncomeElapsed + 1e-9 >= 1) {
         player.goldIncomeElapsed -= 1;
-        if (this.state.elapsed < this.state.goldSuppressedUntil) continue;
+        if (this.state.elapsed < room.goldSuppressedUntil) continue;
         player.gold += effectiveBedGoldPerSecond + placedItemGoldPerSecond + inventoryGoldPerSecond + buildingGoldPerSecond;
         // 침대 수입과 생산 건물 수입을 한 덩어리로 합치면 무덤 위에
         // 전체 금액이 표시돼 어떤 건물이 벌어들였는지 알 수 없다.
@@ -4825,7 +4841,16 @@ export class GameEngine {
 
     if (ghost.skillCooldown <= 0) {
       if (ghost.variant === "minion") ghost.skillCooldown = 20;
-      else if (this.stage.skills.length > 0) this.useStageSkill(ghost);
+      else if (this.stage.skills.length > 0) {
+        ghost.pendingStageSkill ??=
+          this.stage.skills[this.rng.int(0, this.stage.skills.length - 1)] ?? null;
+        // Gold lock is not a remote/global cast. Hold the selected skill until
+        // this same ghost performs a legal hit against its target door.
+        if (ghost.pendingStageSkill && ghost.pendingStageSkill !== 'gold-lock') {
+          this.useStageSkill(ghost, ghost.pendingStageSkill);
+          ghost.pendingStageSkill = null;
+        }
+      }
       else if (ghost.variant === "caster") {
         this.turretSuppressedUntil = this.state.elapsed + 5;
         ghost.skillCooldown = Math.max(12, 25 - ghost.level);
@@ -4933,6 +4958,14 @@ export class GameEngine {
     }
     ghost.attackCooldown -= dt;
     if (ghost.attackCooldown > 0) return;
+    if (
+      room.doorHp > 0 &&
+      canStrikeDoor &&
+      ghost.pendingStageSkill === 'gold-lock'
+    ) {
+      this.useStageSkill(ghost, 'gold-lock');
+      ghost.pendingStageSkill = null;
+    }
     const combatants = Math.max(
       1,
       this.state.players.filter((player) => player.alive).length,
@@ -5290,19 +5323,30 @@ export class GameEngine {
     });
   }
 
-  private useStageSkill(ghost: GhostState): void {
-    const skill =
-      this.stage.skills[this.rng.int(0, this.stage.skills.length - 1)];
+  private useStageSkill(ghost: GhostState, skill: GhostStageSkill): void {
     let label = "";
+    let eventPosition = { ...ghost.position };
+    let eventRoomId: string | undefined;
     if (skill === "turret-jam") {
       this.turretSuppressedUntil = this.state.elapsed + 3;
       label = "포탑 무효화 3초";
     } else if (skill === "gold-lock") {
-      if (this.state.elapsed >= this.state.goldSuppressedUntil) {
-        this.state.goldSuppressedUntil = this.state.elapsed + 5;
+      const room = this.state.rooms.find(
+        (candidate) => candidate.id === ghost.targetRoomId,
+      );
+      const mapRoom = this.map.rooms.find(
+        (candidate) => candidate.id === ghost.targetRoomId,
+      );
+      if (room && mapRoom && room.doorHp > 0 && this.canGhostStrikeDoor(ghost, mapRoom)) {
+        eventPosition = { ...mapRoom.door };
+        eventRoomId = room.id;
+      }
+      if (room && eventRoomId && this.state.elapsed >= room.goldSuppressedUntil) {
+        room.goldSuppressedUntil = this.state.elapsed + 5;
+        room.goldSuppressedByGhostId = ghost.id;
         label = "골드 획득 봉인 5초";
       } else {
-        // Twin ghosts may cast in adjacent ticks. An already active global
+        // Twin ghosts may strike in adjacent ticks. An already active room
         // lock must never keep being pushed forward indefinitely.
         label = "골드 획득 봉인 연장 무효";
       }
@@ -5326,10 +5370,52 @@ export class GameEngine {
     );
     this.pendingEvents.push({
       kind: "ghost-skill",
-      position: { ...ghost.position },
+      position: eventPosition,
+      roomId: eventRoomId,
       targetId: ghost.id,
+      itemId: skill,
       label,
     });
+  }
+
+  /**
+   * A room lock is valid only while its attacker is still positioned to hit
+   * that intact door. Retreat, recovery, stun, target changes, displacement,
+   * and a broken door all release income immediately on the next economy tick.
+   */
+  private syncGoldSuppressionState(): void {
+    for (const room of this.state.rooms) {
+      if (room.goldSuppressedUntil <= this.state.elapsed) {
+        room.goldSuppressedUntil = 0;
+        room.goldSuppressedByGhostId = null;
+        continue;
+      }
+      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+      const sealingGhost = room.goldSuppressedByGhostId
+        ? this.state.ghosts.find(
+            (ghost) => ghost.id === room.goldSuppressedByGhostId,
+          )
+        : undefined;
+      const activelyAttacked = Boolean(
+        room.doorHp > 0 &&
+        mapRoom &&
+        sealingGhost &&
+        sealingGhost.hp > 0 &&
+        !sealingGhost.retreating &&
+        !sealingGhost.healing &&
+        this.state.elapsed >= sealingGhost.stunnedUntil &&
+        sealingGhost.targetRoomId === room.id &&
+        this.canGhostStrikeDoor(sealingGhost, mapRoom),
+      );
+      if (!activelyAttacked) {
+        room.goldSuppressedUntil = 0;
+        room.goldSuppressedByGhostId = null;
+      }
+    }
+    this.state.goldSuppressedUntil = Math.max(
+      0,
+      ...this.state.rooms.map((room) => room.goldSuppressedUntil),
+    );
   }
 
   private teleportToAnotherDoor(ghost: GhostState): void {

@@ -278,6 +278,10 @@ export interface RoomState {
   supplyTurretDamageUntil: number;
   supplyTurretRateUntil: number;
   supplyTurretLevelUntil: number;
+  /** Gold production is sealed only while a ghost is actively attacking this room's door. */
+  goldSuppressedUntil: number;
+  /** Ghost currently maintaining this room's gold seal. */
+  goldSuppressedByGhostId: string | null;
 }
 
 export interface BuildingState {
@@ -355,6 +359,8 @@ export interface GhostState {
   healingStartHp: number;
   retreatCount: number;
   skillCooldown: number;
+  /** Gold lock waits here until this ghost's next legal door strike. */
+  pendingStageSkill?: 'turret-jam' | 'gold-lock' | 'repair-lock' | 'door-crush' | null;
   abilityCooldown: number;
   /** High-difficulty control adaptation. It survives recovery retreats. */
   controlResolve: number;
@@ -523,6 +529,7 @@ export interface GameSnapshot {
   ranked: RankedMatchState | null;
   /** Present only in the mandatory first-victory training match. */
   tutorial: TutorialState | null;
+  /** Deprecated aggregate retained for legacy snapshot compatibility. */
   goldSuppressedUntil: number;
   repairSuppressedUntil: number;
   winner: 'survivors' | 'ghost' | null;

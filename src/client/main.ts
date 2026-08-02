@@ -103,7 +103,11 @@ import {
   setNickname,
   setSelectedPlayMode,
 } from "./auth";
-import { ThreeGameView, type SceneSelection } from "./game/ThreeGameView";
+import {
+  cameraZoomLockedForSnapshot,
+  ThreeGameView,
+  type SceneSelection,
+} from "./game/ThreeGameView";
 import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { AvatarPreview2D } from "./game/AvatarPreview2D";
 import {
@@ -3082,9 +3086,12 @@ function gameScreen(state: GameSnapshot): void {
     profileDisplay && me
       ? `${escapeHtml(profileDisplay.labelText)} · ${escapeHtml(me.nickname)}`
       : "생존자";
+  const initialGameShellClass = cameraZoomLockedForSnapshot(state, playerId)
+    ? ' class="camera-zoom-locked"'
+    : "";
   setContent(
     "game",
-    `<main id="game-shell"><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat"><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn secondary hidden" data-inventory aria-label="가방">${gameActionIcon("bag")}</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
     '[data-camera="rotate-left"]',
@@ -3345,9 +3352,7 @@ function updateHud(): void {
     ?.classList.toggle("intro-movement-locked", movementIntroLocked);
   if (movementIntroLocked) resetMovementForIntro();
   const me = snapshot.players.find((player) => player.id === playerId);
-  const cameraZoomLocked = Boolean(
-    tutorialActive || (snapshot.ranked && me?.alive && !me.roomId),
-  );
+  const cameraZoomLocked = cameraZoomLockedForSnapshot(snapshot, playerId);
   app
     .querySelector("#game-shell")
     ?.classList.toggle("camera-zoom-locked", cameraZoomLocked);
@@ -3457,10 +3462,31 @@ function updateHud(): void {
   const retreating = snapshot.ghosts.some(
     (ghost) => ghost.retreating || ghost.healing,
   );
-  const goldLocked = snapshot.goldSuppressedUntil > snapshot.elapsed;
+  const goldLocked = Boolean(
+    room && room.goldSuppressedUntil > snapshot.elapsed,
+  );
+  const goldLockRemaining = goldLocked
+    ? Math.max(0, (room?.goldSuppressedUntil ?? 0) - snapshot.elapsed)
+    : 0;
+  app
+    .querySelector("#game-shell")
+    ?.classList.toggle("gold-lock-active", goldLocked);
+  app
+    .querySelector("[data-gold-stat]")
+    ?.classList.toggle("gold-locked", goldLocked);
+  const goldLockNotice = app.querySelector<HTMLElement>(
+    "[data-gold-lock-notice]",
+  );
+  goldLockNotice?.classList.toggle("hidden", !goldLocked);
+  setText(
+    "[data-gold-lock-time]",
+    goldLocked
+      ? `귀신이 내 문 공격 중 · ${Math.ceil(goldLockRemaining)}초`
+      : "",
+  );
   const repairLocked = snapshot.repairSuppressedUntil > snapshot.elapsed;
   const skillWarning = goldLocked
-    ? `⚠ 골드 획득 봉인 ${Math.ceil(snapshot.goldSuppressedUntil - snapshot.elapsed)}초`
+    ? `⚠ 골드 획득 봉인 ${Math.ceil(goldLockRemaining)}초`
     : repairLocked
       ? `⚠ 문 수리 봉인 ${Math.ceil(snapshot.repairSuppressedUntil - snapshot.elapsed)}초`
       : null;
@@ -4970,6 +4996,18 @@ function playEvents(events: GameEvent[]): void {
   );
   if (controlResistance?.label)
     toast(`귀신의 ${controlResistance.label}이 올랐습니다.`);
+  const localRoomId = snapshot?.players.find(
+    (player) => player.id === playerId,
+  )?.roomId;
+  const localGoldLock = events.find(
+    (event) =>
+      event.kind === "ghost-skill" &&
+      event.itemId === "gold-lock" &&
+      event.roomId === localRoomId &&
+      event.label === "골드 획득 봉인 5초",
+  );
+  if (localGoldLock)
+    toast("귀신이 내 문을 공격해 골드 획득이 봉인됐습니다.");
   const lightsOn = events.find((event) => event.kind === "lights-on");
   if (lightsOn?.label) toast(lightsOn.label);
   if (

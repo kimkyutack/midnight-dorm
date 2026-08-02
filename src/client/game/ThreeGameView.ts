@@ -147,6 +147,14 @@ export function shouldHoldReleasedPrediction(
   return offsetX * lastInput.x + offsetY * lastInput.y < -0.025;
 }
 
+export function cameraZoomLockedForSnapshot(
+  snapshot: GameSnapshot | null | undefined,
+  playerId: string,
+): boolean {
+  const local = snapshot?.players.find((player) => player.id === playerId);
+  return Boolean(snapshot?.tutorial?.active || (local?.alive && !local.roomId));
+}
+
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
   wanderer: 0xff315f,
   swift: 0xff7438,
@@ -266,12 +274,14 @@ interface GhostView {
   telegraph: THREE.Mesh;
   targetMarker: THREE.Mesh;
   confused: THREE.Sprite;
+  goldLock: THREE.Sprite;
 }
 
 interface BuildingView {
   root: THREE.Group;
   barrel: THREE.Group | null;
   upgrade: THREE.Sprite;
+  goldLock: THREE.Sprite;
   modelLevel: number;
   skinId: string;
   kind: BuildingKind;
@@ -307,9 +317,18 @@ interface DoorView {
   impactUntil: number;
 }
 
+interface DoorHudCard {
+  state: RoomState;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface BedView {
   root: THREE.Group;
   upgrade: THREE.Sprite;
+  goldLock: THREE.Sprite;
   roomId: string;
   bedIndex: number;
 }
@@ -2370,13 +2389,7 @@ export class ThreeGameView {
   getCameraZoom(): number { return Math.round((1 / this.cameraDistanceScale) * 100) / 100; }
 
   isCameraZoomLocked(): boolean {
-    const local = this.snapshotData?.players.find(
-      (player) => player.id === this.playerId,
-    );
-    return Boolean(
-      this.snapshotData?.tutorial?.active ||
-      (this.snapshotData?.ranked && local?.alive && !local.roomId),
-    );
+    return cameraZoomLockedForSnapshot(this.snapshotData, this.playerId);
   }
 
   getPerformanceStats(): GamePerformanceStats {
@@ -3676,9 +3689,30 @@ export class ThreeGameView {
       upgrade.position.set(0, 0.54, 0);
       upgrade.renderOrder = 11_200;
       upgrade.visible = false;
-      bed.add(upgrade);
+      const goldLock = makeBillboard(192, 192);
+      goldLock.scale.set(0.5, 0.5, 1);
+      goldLock.position.set(0, 0.7, -0.06);
+      goldLock.renderOrder = 11_340;
+      goldLock.visible = false;
+      updateTextBillboard(
+        goldLock,
+        'gold-lock',
+        '🔒',
+        '#ffe48a',
+        'rgba(65,18,88,.94)',
+        null,
+        false,
+        72,
+      );
+      bed.add(upgrade, goldLock);
       this.scene.add(bed);
-      this.bedViews.set(`${room.id}:${index}`, { root: bed, upgrade, roomId: room.id, bedIndex: index });
+      this.bedViews.set(`${room.id}:${index}`, {
+        root: bed,
+        upgrade,
+        goldLock,
+        roomId: room.id,
+        bedIndex: index,
+      });
     });
   }
 
@@ -3687,6 +3721,14 @@ export class ThreeGameView {
     const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     for (const view of this.bedViews.values()) {
       const room = snapshot.rooms.find((candidate) => candidate.id === view.roomId);
+      const roomGoldLocked =
+        (room?.goldSuppressedUntil ?? 0) > snapshot.elapsed;
+      view.goldLock.visible = roomGoldLocked;
+      if (roomGoldLocked) {
+        const pulse =
+          1 + Math.sin(snapshot.elapsed * 10 + view.bedIndex) * 0.08;
+        view.goldLock.scale.set(0.5 * pulse, 0.5 * pulse, 1);
+      }
       const level = room?.bedLevels[view.bedIndex] ?? 1;
       const nextCost = level < maxBuildingLevel('bed', rank ?? 'beginner')
         ? upgradeCost('bed', level + 1, rank ?? 'beginner')
@@ -3963,6 +4005,37 @@ export class ThreeGameView {
         confused.scale.set(0.72, 0.5, 1);
         confused.position.set(0, ghost.variant === 'giant' ? 3.72 : ghost.variant === 'minion' ? 1.47 : 2.72, ghost.variant === 'giant' ? -1.26 : ghost.variant === 'minion' ? -0.54 : -1.05);
         confused.visible = false;
+        const goldLock = makeBillboard(768, 160);
+        goldLock.scale.set(
+          ghost.variant === 'minion' ? 1.8 : 2.9,
+          ghost.variant === 'minion' ? 0.48 : 0.68,
+          1,
+        );
+        goldLock.position.set(
+          0,
+          ghost.variant === 'giant'
+            ? 3.82
+            : ghost.variant === 'minion'
+              ? 1.52
+              : 2.82,
+          ghost.variant === 'giant'
+            ? -1.34
+            : ghost.variant === 'minion'
+              ? -0.58
+              : -1.1,
+        );
+        goldLock.renderOrder = 11_350;
+        goldLock.visible = false;
+        updateTextBillboard(
+          goldLock,
+          'gold-lock',
+          '🔒 골드 획득 봉인',
+          '#ffe48a',
+          'rgba(65,18,88,.94)',
+          null,
+          false,
+          44,
+        );
         const abilityColor =
           ghost.variant === 'wallpaper' ? 0xb856ff : 0xff304f;
         const telegraph = effectMesh(
@@ -3992,7 +4065,7 @@ export class ThreeGameView {
         targetMarker.rotation.x = -Math.PI / 2;
         targetMarker.renderOrder = 8_590;
         targetMarker.visible = false;
-        root.add(label, hp, confused, telegraph);
+        root.add(label, hp, confused, goldLock, telegraph);
         this.scene.add(targetMarker);
         // Minion waves can contain twelve actors. A dynamic point light for
         // every minion multiplies the fragment-lighting cost while adding
@@ -4022,6 +4095,7 @@ export class ThreeGameView {
           telegraph,
           targetMarker,
           confused,
+          goldLock,
         };
         this.ghostViews.set(ghost.id, view);
       }
@@ -4037,6 +4111,20 @@ export class ThreeGameView {
       if (confused) {
         updateTextBillboard(view.confused, `dizzy:${Math.ceil(ghost.confusedUntil - this.snapshotData.elapsed)}`, '💫', '#fff0b4', 'rgba(44,20,78,.86)');
         view.confused.position.x = Math.sin(performance.now() * 0.012 + view.seed) * 0.12;
+      }
+      const goldLockActive = this.snapshotData.rooms.some(
+        (room) =>
+          room.goldSuppressedUntil > this.snapshotData.elapsed &&
+          room.goldSuppressedByGhostId === ghost.id,
+      );
+      view.goldLock.visible = goldLockActive;
+      if (goldLockActive) {
+        const pulse = 1 + Math.sin(this.snapshotData.elapsed * 11) * 0.045;
+        view.goldLock.scale.set(
+          (ghost.variant === 'minion' ? 1.8 : 2.9) * pulse,
+          (ghost.variant === 'minion' ? 0.48 : 0.68) * pulse,
+          1,
+        );
       }
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
@@ -4167,12 +4255,28 @@ export class ThreeGameView {
         upgrade.position.set(0, 0.48, 0);
         upgrade.renderOrder = 11_200;
         upgrade.visible = false;
-        model.root.add(upgrade);
+        const goldLock = makeBillboard(192, 192);
+        goldLock.scale.set(0.5, 0.5, 1);
+        goldLock.position.set(0, 0.72, -0.06);
+        goldLock.renderOrder = 11_340;
+        goldLock.visible = false;
+        updateTextBillboard(
+          goldLock,
+          'gold-lock',
+          '🔒',
+          '#ffe48a',
+          'rgba(65,18,88,.94)',
+          null,
+          false,
+          72,
+        );
+        model.root.add(upgrade, goldLock);
         this.scene.add(model.root);
         view = {
           root: model.root,
           barrel: model.barrel,
           upgrade,
+          goldLock,
           modelLevel: visualLevel,
           skinId: building.skinId,
           kind: building.kind,
@@ -4194,6 +4298,14 @@ export class ThreeGameView {
       // swap without rebuilding their models or textures.
       if (this.buildingDrag?.buildingId !== building.id) {
         view.root.position.copy(worldPoint(building.tile));
+      }
+      const roomGoldLocked =
+        (this.roomStateById.get(building.roomId)?.goldSuppressedUntil ?? 0) >
+        snapshot.elapsed;
+      view.goldLock.visible = roomGoldLocked;
+      if (roomGoldLocked) {
+        const pulse = 1 + Math.sin(snapshot.elapsed * 10 + building.id.length) * 0.08;
+        view.goldLock.scale.set(0.5 * pulse, 0.5 * pulse, 1);
       }
       const overloadUntil =
         overloadUntilByOwner.get(building.ownerId) ?? 0;
@@ -4360,26 +4472,17 @@ export class ThreeGameView {
         this.doorViews.set(room.id, view);
       }
       const intact = state.doorHp > 0;
-      const ratio = state.doorHp / Math.max(1, state.doorMaxHp);
       view.closedTarget =
         intact && (state.ownerIds.length > 0 || shouldCloseForSearch) ? 1 : 0;
       view.panel.visible = intact;
       if (view.visualLevel !== state.doorLevel) applyDoorVisual(view, state.doorLevel);
-      updateTextBillboard(view.label, `${state.doorLevel}`, `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`, '#d8f8ff', 'rgba(5,8,17,.86)', null, false, 54);
-      updateBarBillboard(view.hp, `${Math.ceil(state.doorHp)}:${Math.ceil(state.doorMaxHp)}:${intact}`, ratio, intact ? `${Math.ceil(state.doorHp)} / ${Math.ceil(state.doorMaxHp)}` : '파괴됨', ratio > 0.5 ? '#55dfa0' : ratio > 0.22 ? '#ffc85f' : '#ff5578', 44);
-      view.shield.visible = state.doorShieldMaxHp > 0;
-      if (view.shield.visible) {
-        const shieldRatio =
-          state.doorShieldHp / Math.max(1, state.doorShieldMaxHp);
-        updateBarBillboard(
-          view.shield,
-          `${Math.ceil(state.doorShieldHp)}:${Math.ceil(state.doorShieldMaxHp)}`,
-          shieldRatio,
-          `방어막 ${Math.ceil(state.doorShieldHp)} / ${Math.ceil(state.doorShieldMaxHp)}`,
-          shieldRatio > 0 ? '#72dfff' : '#566173',
-          38,
-        );
-      }
+      // Building labels and resource popups live on the 2D HUD canvas, which
+      // always composites above WebGL sprites. Door information therefore
+      // moves to that same canvas and is drawn last so dense construction can
+      // never cover its name or HP.
+      view.label.visible = false;
+      view.hp.visible = false;
+      view.shield.visible = false;
       const local = snapshot.players.find((player) => player.id === this.playerId);
       const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
       const nextCost = intact && state.doorLevel < maxBuildingLevel('reinforced-door', rank ?? 'beginner')
@@ -5054,8 +5157,8 @@ export class ThreeGameView {
     const height = Math.max(1, this.host.clientHeight);
     const context = this.hudContext;
     context.clearRect(0, 0, width, height);
-    this.renderBuildingHud(context, width, height);
-    if (this.hudMessages.length === 0) return;
+    const doorCards = this.visibleDoorHudCards(width, height);
+    this.renderBuildingHud(context, width, height, doorCards);
 
     const projected = new THREE.Vector3();
     context.textAlign = 'center';
@@ -5090,6 +5193,12 @@ export class ThreeGameView {
       const textWidth = context.measureText(message.text).width;
       const boxWidth = Math.min(width * 0.78, textWidth + 20);
       const boxHeight = 24;
+      if (doorCards.some((card) =>
+        x + boxWidth / 2 >= card.x - card.width / 2 &&
+        x - boxWidth / 2 <= card.x + card.width / 2 &&
+        y + boxHeight / 2 >= card.y - card.height / 2 &&
+        y - boxHeight / 2 <= card.y + card.height / 2
+      )) continue;
       context.save();
       context.globalAlpha = clamp(opacity, 0, 1);
       context.fillStyle = message.background;
@@ -5106,12 +5215,108 @@ export class ThreeGameView {
       context.fillText(message.text, x, y, boxWidth - 12);
       context.restore();
     }
+    this.renderDoorHud(context, doorCards);
+  }
+
+  private visibleDoorHudCards(width: number, height: number): DoorHudCard[] {
+    const projected = new THREE.Vector3();
+    const cards: DoorHudCard[] = [];
+    for (const [roomId, view] of this.doorViews) {
+      const state = this.roomStateById.get(roomId);
+      if (!state) continue;
+      projected
+        .set(view.root.position.x, 0.94, view.root.position.z - 0.88)
+        .project(this.camera);
+      if (
+        projected.z < -1 || projected.z > 1 ||
+        projected.x < -1.12 || projected.x > 1.12 ||
+        projected.y < -1.12 || projected.y > 1.12
+      ) continue;
+      const cardHeight = state.doorShieldMaxHp > 0 ? 52 : 44;
+      cards.push({
+        state,
+        x: (projected.x * 0.5 + 0.5) * width,
+        y: (-projected.y * 0.5 + 0.5) * height,
+        width: 150,
+        height: cardHeight,
+      });
+    }
+    return cards;
+  }
+
+  private renderDoorHud(
+    context: CanvasRenderingContext2D,
+    cards: readonly DoorHudCard[],
+  ): void {
+    for (const card of cards) {
+      const { state } = card;
+      const left = card.x - card.width / 2;
+      const top = card.y - card.height / 2;
+      const intact = state.doorHp > 0;
+      const hpRatio = clamp(state.doorHp / Math.max(1, state.doorMaxHp), 0, 1);
+      const hpColor = !intact
+        ? '#566173'
+        : hpRatio > 0.5 ? '#55dfa0' : hpRatio > 0.22 ? '#ffc85f' : '#ff5578';
+      context.save();
+      context.fillStyle = 'rgba(5,8,17,.94)';
+      context.strokeStyle = intact ? 'rgba(133,221,236,.7)' : 'rgba(255,85,120,.72)';
+      context.lineWidth = 1;
+      context.beginPath();
+      context.roundRect(left, top, card.width, card.height, 8);
+      context.fill();
+      context.stroke();
+
+      context.textBaseline = 'middle';
+      context.font = '800 9px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      context.textAlign = 'left';
+      context.fillStyle = '#d8f8ff';
+      context.fillText(
+        `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`,
+        left + 8,
+        top + 11,
+        card.width - 58,
+      );
+      context.textAlign = 'right';
+      context.fillStyle = intact ? '#f5fbff' : '#ff7892';
+      context.fillText(
+        intact ? `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}` : '파괴됨',
+        left + card.width - 8,
+        top + 11,
+        52,
+      );
+
+      const barLeft = left + 8;
+      const barWidth = card.width - 16;
+      const hpTop = top + 21;
+      context.fillStyle = 'rgba(255,255,255,.12)';
+      context.fillRect(barLeft, hpTop, barWidth, 7);
+      context.fillStyle = hpColor;
+      context.fillRect(barLeft, hpTop, barWidth * hpRatio, 7);
+
+      if (state.doorShieldMaxHp > 0) {
+        const shieldRatio = clamp(
+          state.doorShieldHp / Math.max(1, state.doorShieldMaxHp),
+          0,
+          1,
+        );
+        context.textAlign = 'left';
+        context.font = '750 8px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+        context.fillStyle = '#b7eeff';
+        context.fillText('방어막', barLeft, top + 39);
+        context.fillStyle = 'rgba(255,255,255,.12)';
+        context.fillRect(barLeft + 34, top + 36, barWidth - 34, 6);
+        context.fillStyle = shieldRatio > 0 ? '#72dfff' : '#566173';
+        context.fillRect(barLeft + 34, top + 36, (barWidth - 34) * shieldRatio, 6);
+      }
+      context.restore();
+    }
   }
 
   private renderBuildingHud(
     context: CanvasRenderingContext2D,
     width: number,
     height: number,
+    doorCards: readonly DoorHudCard[],
   ): void {
     if (this.buildingViews.size === 0) return;
     const projected = new THREE.Vector3();
@@ -5150,6 +5355,15 @@ export class ThreeGameView {
           28,
           Math.min(86, context.measureText(view.levelLabel).width + 10),
         );
+        if (doorCards.some((card) =>
+          labelPoint[0] + labelWidth / 2 >= card.x - card.width / 2 &&
+          labelPoint[0] - labelWidth / 2 <= card.x + card.width / 2 &&
+          labelPoint[1] + 7 >= card.y - card.height / 2 &&
+          labelPoint[1] - 7 <= card.y + card.height / 2
+        )) {
+          context.restore();
+          continue;
+        }
         context.fillStyle = view.levelBackground;
         context.beginPath();
         context.roundRect(
@@ -5174,6 +5388,45 @@ export class ThreeGameView {
 
   private playEvent(event: GameEvent): void {
     const now = performance.now();
+    if (
+      event.kind === 'ghost-skill' &&
+      event.itemId === 'gold-lock' &&
+      event.label === '골드 획득 봉인 5초' &&
+      event.targetId
+    ) {
+      const caster = this.ghostViews.get(event.targetId);
+      if (caster) {
+        const casterPosition = {
+          x: caster.target.x,
+          y: caster.target.z,
+        };
+        this.queueHudMessage({
+          key: `gold-lock-caster:${event.targetId}:${now}`,
+          text: '🔒 골드 획득 봉인',
+          color: '#ffe48a',
+          background: 'rgba(65,18,88,.94)',
+          position: casterPosition,
+          duration: 1_800,
+          rise: 0.55,
+        });
+        if (
+          this.effects.length < this.effectLimit() &&
+          this.isEffectVisible(casterPosition)
+        ) {
+          const casterRing = this.acquireImpactRing(0xd984ff);
+          if (casterRing) {
+            casterRing.position.set(casterPosition.x, 1.05, casterPosition.y);
+            casterRing.lookAt(this.camera.position);
+            this.queuePooledEffect(casterRing, this.impactRingPool, {
+              born: now,
+              duration: 520,
+              baseScale: casterRing.scale.clone(),
+              scaleGrowth: 1.8,
+            });
+          }
+        }
+      }
+    }
     if (event.kind === 'ghost-hit' && event.targetId) {
       const target = this.ghostViews.get(event.targetId);
       if (target) {

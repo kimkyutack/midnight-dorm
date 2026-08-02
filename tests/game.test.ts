@@ -18,8 +18,8 @@ import { GameEngine, type MatchConfig } from '../src/server/engine';
 import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
-import { attackFrameAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
+import { attackFrameAt, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
+import { cameraZoomLockedForSnapshot, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
@@ -155,8 +155,8 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.2')).toBe(true);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.3')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.1')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
   });
@@ -847,6 +847,32 @@ describe('survivor customization rules', () => {
     expect(attackFrameAt(240, 480)).toBe(1);
     expect(attackFrameAt(480, 480)).toBe(2);
     expect(survivorSpriteId('unknown-character')).toBe('character-bunny');
+  });
+
+  it('shows the crocodile ground impact only on alternating landing frames', () => {
+    expect(crocoStompStateAt(0)).toMatchObject({
+      visible: true,
+      footOffsetX: 0.15,
+    });
+    expect(crocoStompStateAt(260).visible).toBe(false);
+    expect(crocoStompStateAt(520)).toMatchObject({
+      visible: true,
+      footOffsetX: -0.15,
+    });
+    expect(crocoStompStateAt(780).visible).toBe(false);
+  });
+
+  it('locks camera zoom for every living survivor until a bed is claimed', () => {
+    const opening = {
+      players: [{ id: 'local', alive: true, roomId: null }],
+      tutorial: null,
+    } as unknown as GameSnapshot;
+    expect(cameraZoomLockedForSnapshot(opening, 'local')).toBe(true);
+    opening.players[0]!.roomId = 'room-1';
+    expect(cameraZoomLockedForSnapshot(opening, 'local')).toBe(false);
+    opening.players[0]!.roomId = null;
+    opening.players[0]!.alive = false;
+    expect(cameraZoomLockedForSnapshot(opening, 'local')).toBe(false);
   });
 
   it('keeps independently authored ghost movement and attack side rows facing their targets', () => {
@@ -3987,15 +4013,142 @@ describe('requested progression and event rules', () => {
     ).toBeGreaterThan(999_999);
   });
 
-  it('bounds a restored gold lock to its documented five-second duration', () => {
+  it('discards a legacy global gold lock instead of stopping every room', () => {
     const { engine, ids } = setup(1, true);
     begin(engine, ids[0] as string);
     const persisted = engine.serialize();
     persisted.snapshot.goldSuppressedUntil = persisted.snapshot.elapsed + 500;
     engine.restore(persisted);
+    expect(engine.snapshot().goldSuppressedUntil).toBe(0);
     expect(
-      engine.snapshot().goldSuppressedUntil - engine.snapshot().elapsed,
-    ).toBeLessThanOrEqual(5);
+      engine.snapshot().rooms.every((room) => room.goldSuppressedUntil === 0),
+    ).toBe(true);
+  });
+
+  it('seals only the attacked room on a real door strike and releases it when the ghost leaves', () => {
+    const { engine, ids } = setup(2, true, { stageId: 'hell-1' });
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const targetPlayer = persisted.snapshot.players.find(
+      (player) => player.id === ids[0],
+    );
+    const otherPlayer = persisted.snapshot.players.find(
+      (player) => player.id === ids[1],
+    );
+    const targetRoom = persisted.snapshot.rooms.find(
+      (room) => room.id === targetPlayer?.roomId,
+    );
+    const mapRoom = engine.map.rooms.find(
+      (room) => room.id === targetRoom?.id,
+    );
+    const approach = mapRoom
+      ? engine.map.corridorTiles.find(
+          (tile) =>
+            (tile.x !== mapRoom.door.x || tile.y !== mapRoom.door.y) &&
+            Math.abs(tile.x - mapRoom.door.x) + Math.abs(tile.y - mapRoom.door.y) === 1,
+        )
+      : undefined;
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!targetPlayer || !otherPlayer || !targetRoom || !mapRoom || !approach || !ghost)
+      throw new Error('missing gold-lock test setup');
+    targetPlayer.goldIncomeElapsed = 0;
+    otherPlayer.goldIncomeElapsed = 0;
+    ghost.position = { ...approach };
+    ghost.targetRoomId = targetRoom.id;
+    ghost.targetPlayerId = null;
+    ghost.path = [];
+    ghost.attackCooldown = 0;
+    ghost.skillCooldown = 0;
+    ghost.pendingStageSkill = 'gold-lock';
+    ghost.abilityCooldown = 999;
+    persisted.snapshot.ghost = ghost;
+    engine.restore(persisted);
+    engine.drainEvents();
+
+    engine.tick(0.1);
+    const activated = engine.snapshot();
+    const lockedRoom = activated.rooms.find((room) => room.id === targetRoom.id);
+    expect(lockedRoom?.goldSuppressedUntil).toBeGreaterThan(activated.elapsed);
+    expect(lockedRoom?.goldSuppressedByGhostId).toBe(ghost.id);
+    expect(engine.drainEvents()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'ghost-skill',
+        itemId: 'gold-lock',
+        roomId: targetRoom.id,
+        position: mapRoom.door,
+        label: '골드 획득 봉인 5초',
+      }),
+      expect.objectContaining({ kind: 'door-hit', roomId: targetRoom.id }),
+    ]));
+
+    const targetGold = activated.players.find((player) => player.id === targetPlayer.id)?.gold ?? 0;
+    const otherGold = activated.players.find((player) => player.id === otherPlayer.id)?.gold ?? 0;
+    for (let index = 0; index < 10; index += 1) engine.tick(0.1);
+    expect(
+      engine.snapshot().players.find((player) => player.id === targetPlayer.id)?.gold,
+    ).toBe(targetGold);
+    expect(
+      engine.snapshot().players.find((player) => player.id === otherPlayer.id)?.gold,
+    ).toBeGreaterThan(otherGold);
+
+    const released = engine.serialize();
+    const releasedGhost = released.snapshot.ghosts[0];
+    const releasedPlayer = released.snapshot.players.find(
+      (player) => player.id === targetPlayer.id,
+    );
+    if (!releasedGhost || !releasedPlayer) throw new Error('missing release setup');
+    releasedGhost.retreating = true;
+    releasedGhost.targetRoomId = null;
+    releasedGhost.position = { ...engine.map.ghostSpawn };
+    releasedPlayer.goldIncomeElapsed = 0.95;
+    released.snapshot.ghost = releasedGhost;
+    engine.restore(released);
+    expect(
+      engine.snapshot().rooms.find((room) => room.id === targetRoom.id)?.goldSuppressedUntil,
+    ).toBe(0);
+    expect(
+      engine.snapshot().rooms.find((room) => room.id === targetRoom.id)
+        ?.goldSuppressedByGhostId,
+    ).toBeNull();
+    const goldBeforeReleaseTick = engine.snapshot().players.find(
+      (player) => player.id === targetPlayer.id,
+    )?.gold ?? 0;
+    engine.tick(0.1);
+    expect(
+      engine.snapshot().players.find((player) => player.id === targetPlayer.id)?.gold,
+    ).toBeGreaterThan(goldBeforeReleaseTick);
+  });
+
+  it('keeps paying gold while a pending gold lock ghost is away from the door', () => {
+    const { engine, ids } = setup(1, true, { stageId: 'hell-1' });
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === ids[0],
+    );
+    const ghost = persisted.snapshot.ghosts[0];
+    if (!player || !player.roomId || !ghost) throw new Error('missing pending lock setup');
+    player.goldIncomeElapsed = 0.95;
+    ghost.position = { ...engine.map.ghostSpawn };
+    ghost.targetRoomId = player.roomId;
+    ghost.skillCooldown = 0;
+    ghost.pendingStageSkill = 'gold-lock';
+    ghost.abilityCooldown = 999;
+    persisted.snapshot.ghost = ghost;
+    const goldBefore = player.gold;
+    engine.restore(persisted);
+    engine.tick(0.1);
+    expect(
+      engine.snapshot().players.find((candidate) => candidate.id === player.id)?.gold,
+    ).toBeGreaterThan(goldBefore);
+    expect(
+      engine.snapshot().rooms.find((room) => room.id === player.roomId)?.goldSuppressedUntil,
+    ).toBe(0);
+    expect(
+      engine.drainEvents().some(
+        (event) => event.kind === 'ghost-skill' && event.itemId === 'gold-lock',
+      ),
+    ).toBe(false);
   });
 
   it('starts with twenty gold and pays no bed income before a bed is occupied', () => {

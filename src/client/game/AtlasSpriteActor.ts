@@ -269,6 +269,30 @@ export function movementFrameAt(time: number, moving: boolean, seed = 0): number
   return phase === 1 ? 1 : phase === 3 ? 3 : 0;
 }
 
+export interface CrocoStompState {
+  visible: boolean;
+  opacity: number;
+  expansion: number;
+  footOffsetX: number;
+}
+
+/** Keeps each ground impact on the footfall between the two lifted-leg frames. */
+export function crocoStompStateAt(time: number, seed = 0): CrocoStompState {
+  const seededTime = time + seed * 137;
+  const cycleTime = ((seededTime % 1_040) + 1_040) % 1_040;
+  const step = Math.floor(cycleTime / 260);
+  const landingElapsed = cycleTime % 260;
+  const progress = Math.min(1, landingElapsed / 185);
+  const landing = step === 0 || step === 2;
+  const opacity = landing ? Math.pow(1 - progress, 1.35) * 0.86 : 0;
+  return {
+    visible: opacity > 0.035,
+    opacity,
+    expansion: progress,
+    footOffsetX: step === 0 ? 0.15 : -0.15,
+  };
+}
+
 export function attackFrameAt(elapsed: number, duration: number): number {
   if (duration <= 0) return 2;
   return Math.min(2, Math.max(0, Math.floor((elapsed / duration) * 3)));
@@ -473,13 +497,15 @@ export class AtlasSpriteActor {
     if (!moving) return;
     const seededTime = time + seed * 137;
     if (effect.kind === 'croco-stomp') {
-      const phase = (seededTime % 520) / 520;
-      const pulse = Math.max(0, 1 - Math.abs(phase - 0.42) / 0.28);
-      effect.mesh.visible = pulse > 0.04;
-      effect.material.opacity = pulse * 0.82;
-      const scale = 0.74 + pulse * 0.32;
+      const stomp = crocoStompStateAt(time, seed);
+      effect.mesh.visible = stomp.visible;
+      effect.material.opacity = stomp.opacity;
+      const scale = 0.78 + stomp.expansion * 0.34;
       effect.mesh.scale.set(scale, scale, scale);
-      effect.mesh.position.x = Math.floor(seededTime / 520) % 2 === 0 ? -0.13 : 0.13;
+      effect.mesh.position.x = this.facing.direction === 'side'
+        ? this.facing.mirrored ? -0.21 : 0.21
+        : stomp.footOffsetX * (this.facing.direction === 'back' ? -1 : 1);
+      effect.mesh.position.z = this.facing.direction === 'back' ? 0.19 : 0.23;
       effect.mesh.rotation.y = 0;
       return;
     }

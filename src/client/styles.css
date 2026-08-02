@@ -2171,7 +2171,7 @@
   width: 30px;
   height: 30px;
   object-fit: contain;
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.52));
+  filter: none;
 }
 .queue-tier {
   width: 30px;
@@ -5146,7 +5146,7 @@ select {
   width: 28px;
   height: 28px;
   object-fit: contain;
-  filter: drop-shadow(0 0 6px rgba(128, 220, 255, 0.45));
+  filter: none;
 }
 .rank-badge-lg {
   flex-basis: 36px;
@@ -5170,9 +5170,8 @@ select {
 }
 
 /*
- * The rank files share a nominal canvas, not a visual anchor. Normalize their
- * measured alpha bounds so every progression and season badge occupies 90%
- * of the same square and is centered in home, profile, lobby and rankings.
+ * PNG rank files are physically normalized to the same transparent canvas.
+ * Only the three authored SVG ranks still need viewport compensation.
  */
 img[src*="/assets/ranks/"]:not([src*="/crown-"]) {
   --rank-art-scale: 1;
@@ -5183,22 +5182,9 @@ img[src*="/assets/ranks/"]:not([src*="/crown-"]) {
     scale(var(--rank-art-scale));
   transform-origin: center;
 }
-img[src$="/assets/ranks/beginner.png"] { --rank-art-scale: 1.3964; --rank-art-shift-x: -10.909%; --rank-art-shift-y: -4.909%; }
-img[src$="/assets/ranks/intermediate.png"] { --rank-art-scale: 1.3513; --rank-art-shift-x: 0.792%; --rank-art-shift-y: -4.619%; }
-img[src$="/assets/ranks/expert.png"] { --rank-art-scale: 1.3017; --rank-art-shift-x: 13.729%; --rank-art-shift-y: -4.322%; }
-img[src$="/assets/ranks/master.png"] { --rank-art-scale: 1.3474; --rank-art-shift-x: -10.263%; --rank-art-shift-y: 8.158%; }
-img[src$="/assets/ranks/veteran.png"] { --rank-art-scale: 1.242; --rank-art-shift-x: 1.092%; --rank-art-shift-y: 6.186%; }
-img[src$="/assets/ranks/legend.png"] { --rank-art-scale: 1.2729; --rank-art-shift-x: 13.301%; --rank-art-shift-y: 7.956%; }
 img[src$="/assets/ranks/transcendent.svg"] { --rank-art-scale: 0.9681; --rank-art-shift-y: -0.378%; }
 img[src$="/assets/ranks/immortal.svg"] { --rank-art-scale: 0.9763; }
 img[src$="/assets/ranks/absolute.svg"] { --rank-art-scale: 0.9521; --rank-art-shift-y: -0.372%; }
-img[src$="/assets/ranks/season-bronze.png"] { --rank-art-scale: 1.4006; --rank-art-shift-x: -2.599%; --rank-art-shift-y: 0.41%; }
-img[src$="/assets/ranks/season-silver.png"] { --rank-art-scale: 1.3513; --rank-art-shift-x: -1.584%; --rank-art-shift-y: 0.924%; }
-img[src$="/assets/ranks/season-gold.png"] { --rank-art-scale: 1.3357; --rank-art-shift-x: -1.043%; --rank-art-shift-y: 0.913%; }
-img[src$="/assets/ranks/season-platinum.png"] { --rank-art-scale: 1.328; --rank-art-shift-x: 0.13%; --rank-art-shift-y: 0.908%; }
-img[src$="/assets/ranks/season-diamond.png"] { --rank-art-scale: 1.3796; --rank-art-shift-x: 1.751%; --rank-art-shift-y: -0.539%; }
-img[src$="/assets/ranks/season-master.png"] { --rank-art-scale: 1.2488; --rank-art-shift-x: 2.805%; --rank-art-shift-y: -2.073%; }
-img[src$="/assets/ranks/season-challenger.png"] { --rank-art-scale: 1.135; --rank-art-shift-x: 2.217%; --rank-art-shift-y: -1.995%; }
 .rank-tag {
   display: inline-block;
   margin-right: 2px;
@@ -5317,14 +5303,27 @@ img[src$="/assets/ranks/season-challenger.png"] { --rank-art-scale: 1.135; --ran
   opacity: 0.52;
   animation: local-danger-breathe 1.15s ease-in-out infinite alternate;
 }
+#game-shell.gold-lock-active::after {
+  box-shadow:
+    inset 0 0 68px rgba(147, 57, 255, 0.48),
+    inset 0 0 150px rgba(39, 2, 78, 0.42);
+  animation: gold-lock-vignette 0.95s ease-in-out infinite alternate;
+}
 @keyframes local-danger-breathe {
   from { opacity: 0.3; }
   to { opacity: 0.62; }
+}
+@keyframes gold-lock-vignette {
+  from { filter: saturate(0.86); }
+  to { filter: saturate(1.24) brightness(0.92); }
 }
 @media (prefers-reduced-motion: reduce) {
   #game-shell.local-danger::before {
     animation: none;
     opacity: 0.42;
+  }
+  #game-shell.gold-lock-active::after {
+    animation: none;
   }
 }
 #game-root,
@@ -5668,6 +5667,77 @@ img[src$="/assets/ranks/season-challenger.png"] { --rank-art-scale: 1.135; --ran
 .stat strong {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.stat.gold-locked i {
+  color: #e4b8ff;
+  background: rgba(155, 69, 255, 0.24);
+  box-shadow: 0 0 15px rgba(161, 73, 255, 0.62);
+  animation: gold-lock-icon 0.72s steps(2, end) infinite;
+}
+.stat.gold-locked span,
+.stat.gold-locked strong {
+  color: #e3b9ff;
+  text-shadow: 0 0 10px rgba(172, 92, 255, 0.72);
+}
+@keyframes gold-lock-icon {
+  50% { opacity: 0.48; }
+}
+.gold-lock-notice {
+  position: absolute;
+  top: 108px;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 9px 15px 9px 10px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(220, 155, 255, 0.7);
+  border-radius: 16px;
+  color: #f4e7ff;
+  background: linear-gradient(135deg, rgba(48, 10, 76, 0.94), rgba(14, 7, 28, 0.94));
+  box-shadow:
+    0 0 0 1px rgba(167, 73, 255, 0.18),
+    0 10px 34px rgba(37, 0, 72, 0.55),
+    0 0 24px rgba(165, 72, 255, 0.28);
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+}
+.gold-lock-notice > i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 12px;
+  background: rgba(174, 82, 255, 0.2);
+  box-shadow: inset 0 0 12px rgba(215, 153, 255, 0.22);
+  font-style: normal;
+  font-size: 20px;
+}
+.gold-lock-notice > div {
+  display: grid;
+  gap: 1px;
+}
+.gold-lock-notice span {
+  color: #c98cff;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+}
+.gold-lock-notice strong {
+  font-size: 12px;
+  line-height: 1.15;
+}
+.gold-lock-notice small {
+  color: #d7c5e4;
+  font-size: 8px;
+  font-weight: 750;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat.gold-locked i { animation: none; }
 }
 .network-pill {
   margin-left: auto;
@@ -10766,14 +10836,26 @@ body.game-chat-active {
 }
 .police-enforcer-croco-sprite-preview .special-ops-skin-motion-effect.croco-stomp-effect {
   bottom: 10%;
-  left: 25%;
-  display: block;
-  width: 50%;
-  height: 19%;
+  left: var(--croco-impact-left, 16%);
+  width: 38%;
+  height: 17%;
   background: url("/assets/effects/croco-ground-impact.png?v=special-ops-v4") center / contain no-repeat;
   filter: drop-shadow(0 2px 2px rgba(55, 29, 13, 0.48));
   transform-origin: 50% 62%;
-  animation: police-ground-impact 0.92s ease-out infinite;
+}
+.police-enforcer-croco-sprite-preview[data-animation-step="0"] .croco-stomp-effect,
+.police-enforcer-croco-sprite-preview[data-animation-step="2"] .croco-stomp-effect {
+  display: block;
+  animation: police-foot-impact 230ms ease-out both;
+}
+.police-enforcer-croco-sprite-preview[data-animation-step="0"] .croco-stomp-effect {
+  --croco-impact-left: 47%;
+}
+.police-enforcer-croco-sprite-preview[data-animation-step="2"] .croco-stomp-effect {
+  --croco-impact-left: 15%;
+}
+.police-enforcer-croco-sprite-preview[data-avatar-view="side"] .croco-stomp-effect {
+  --croco-impact-left: 48%;
 }
 .secret-agent-monkey-sprite-preview .special-ops-skin-motion-effect.monkey-dash-effect {
   bottom: 22%;
@@ -10935,6 +11017,16 @@ body.game-chat-active {
   78% {
     opacity: 0.26;
     transform: scale(1.26);
+  }
+}
+@keyframes police-foot-impact {
+  from {
+    opacity: 0.9;
+    transform: scale(0.76);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.18);
   }
 }
 @keyframes agent-card-dash {

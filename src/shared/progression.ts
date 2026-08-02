@@ -146,10 +146,10 @@ export const rankedBadgeImage = (tier: RankedTier): string => `/assets/ranks/sea
 export const rankedCrownImage = (tier: 'bronze' | 'silver' | 'gold'): string => `/assets/ranks/crown-${tier}.png`;
 
 /**
- * Alpha-content measurements for the rank artwork canvases. The source PNGs
- * use the same 512px canvas but have very different transparent padding; the
- * three SVG ranks use a 128px viewBox. DOM and Three.js renderers share these
- * measurements so every badge has one visual size and a true center anchor.
+ * Alpha-content measurements for the rank artwork canvases. PNG badges are
+ * normalized to a centered 460px artwork box by scripts/normalize-rank-badges.mjs;
+ * the three SVG ranks retain their authored 128px viewBox. DOM and Three.js
+ * renderers share these measurements so every badge has one visual anchor.
  */
 export interface BadgeArtworkLayout {
   canvasSize: number;
@@ -170,25 +170,25 @@ export interface BadgeArtworkViewport {
 export const BADGE_TARGET_VISUAL_FILL = 0.9;
 
 const RANK_BADGE_ARTWORK: Readonly<Record<RankId, BadgeArtworkLayout>> = {
-  beginner: { canvasSize: 512, centerX: 296, centerY: 274, visualExtent: 330 },
-  intermediate: { canvasSize: 512, centerX: 253, centerY: 273.5, visualExtent: 341 },
-  expert: { canvasSize: 512, centerX: 202, centerY: 273, visualExtent: 354 },
-  master: { canvasSize: 512, centerX: 295, centerY: 225, visualExtent: 342 },
-  veteran: { canvasSize: 512, centerX: 251.5, centerY: 230.5, visualExtent: 371 },
-  legend: { canvasSize: 512, centerX: 202.5, centerY: 224, visualExtent: 362 },
+  beginner: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  intermediate: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  expert: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  master: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  veteran: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  legend: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
   transcendent: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 119 },
   immortal: { canvasSize: 128, centerX: 64, centerY: 64, visualExtent: 118 },
   absolute: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 121 },
 };
 
 const RANKED_BADGE_ARTWORK: Readonly<Record<RankedTier, BadgeArtworkLayout>> = {
-  bronze: { canvasSize: 512, centerX: 265.5, centerY: 254.5, visualExtent: 329 },
-  silver: { canvasSize: 512, centerX: 262, centerY: 252.5, visualExtent: 341 },
-  gold: { canvasSize: 512, centerX: 260, centerY: 252.5, visualExtent: 345 },
-  platinum: { canvasSize: 512, centerX: 255.5, centerY: 252.5, visualExtent: 347 },
-  diamond: { canvasSize: 512, centerX: 249.5, centerY: 258, visualExtent: 334 },
-  master: { canvasSize: 512, centerX: 244.5, centerY: 264.5, visualExtent: 369 },
-  challenger: { canvasSize: 512, centerX: 246, centerY: 265, visualExtent: 406 },
+  bronze: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  silver: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  gold: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  platinum: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  diamond: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  master: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
+  challenger: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
 };
 
 export function badgeArtworkViewport(
