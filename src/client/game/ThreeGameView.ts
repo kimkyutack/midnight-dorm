@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
-import { isEliteRank, rankBadgeImage, rankBenefits, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
+import { badgeArtworkViewport, isEliteRank, rankBadgeArtworkLayout, rankBadgeImage, rankBenefits, rankedBadgeArtworkLayout, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
 import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
 import { characterTraitForMatch } from '../../shared/characterTraits';
@@ -475,12 +475,24 @@ function makeDoorBarBillboard(): THREE.Sprite {
 const rankBadgeTextures = new Map<RankId, THREE.Texture>();
 const rankedBadgeTextures = new Map<RankedTier, THREE.Texture>();
 
+function normalizeBadgeTexture(
+  texture: THREE.Texture,
+  layout: ReturnType<typeof rankBadgeArtworkLayout>,
+): void {
+  const viewport = badgeArtworkViewport(layout);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(viewport.textureRepeat, viewport.textureRepeat);
+  texture.offset.set(viewport.textureOffsetX, viewport.textureOffsetY);
+}
+
 function rankBadgeTexture(rank: RankId): THREE.Texture {
   let texture = rankBadgeTextures.get(rank);
   if (!texture) {
     texture = new THREE.TextureLoader().load(rankBadgeImage(rank));
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
+    normalizeBadgeTexture(texture, rankBadgeArtworkLayout(rank));
     rankBadgeTextures.set(rank, texture);
   }
   return texture;
@@ -492,6 +504,7 @@ function rankedBadgeTexture(tier: RankedTier): THREE.Texture {
     texture = new THREE.TextureLoader().load(rankedBadgeImage(tier));
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
+    normalizeBadgeTexture(texture, rankedBadgeArtworkLayout(tier));
     rankedBadgeTextures.set(tier, texture);
   }
   return texture;

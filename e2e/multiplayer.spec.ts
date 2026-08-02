@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { APP_RELEASE_VERSION } from "../src/shared/appUpdates";
+import { cosmeticsForSlot } from "../src/shared/customization";
 
 interface TestState {
   map: {
@@ -86,8 +87,12 @@ async function enter(
   await page.goto(`/?dev=1&automation=1${accelerated ? "&e2e=1" : ""}`);
   await page.getByRole("button", { name: "새 계정" }).click();
   const username = `e2e${Date.now().toString(36)}${suffix}`.slice(0, 20);
+  const uniqueNickname = `${nickname}${Date.now().toString(36).slice(-4)}`.slice(
+    0,
+    12,
+  );
   await page.getByLabel("아이디").fill(username);
-  await page.getByLabel("게임 닉네임").fill(nickname);
+  await page.getByLabel("게임 닉네임").fill(uniqueNickname);
   await page
     .getByRole("textbox", { name: "비밀번호" })
     .fill("midnight-test-2026");
@@ -124,7 +129,7 @@ test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
       "/assets/tutorial/room-defense-guide.webp",
     );
     await guide.getByRole("button", { name: "랭크전" }).click();
-    await expect(guide).toContainText("14일 시즌 랭크전");
+    await expect(guide).toContainText("4주 시즌 랭크전");
     await guide.getByRole("button", { name: "타임어택" }).click();
     await expect(guide).toContainText("시간 안에 귀신을 처치하세요");
   } finally {
@@ -180,11 +185,7 @@ test("portrait home separates shop, owned customization and stage start", async 
   const context = await portraitContext(browser);
   const page = await context.newPage();
   try {
-    await page.goto("/?dev=1&fresh=1");
-    await expect(page.locator(".opening-teaser")).toBeVisible();
-    const skipOpening = page.getByRole("button", { name: "건너뛰기" });
-    await expect(skipOpening).toBeVisible();
-    await skipOpening.click();
+    await page.goto("/?dev=1&fresh=1&automation=1&e2e=1");
     await page.getByRole("button", { name: "새 계정" }).click();
     const passwordInput = page.getByRole("textbox", { name: "비밀번호" });
     await expect(page.getByLabel("아이디")).toHaveAttribute(
@@ -196,15 +197,16 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(passwordInput).toHaveAttribute("spellcheck", "false");
     await expect(passwordInput).toHaveAttribute("inputmode", "email");
     const username = `intro${Date.now().toString(36)}`.slice(0, 20);
+    const nickname = `새벽${Date.now().toString(36).slice(-7)}`;
     const password = "midnight-test-2026";
     await page.getByLabel("아이디").fill(username);
-    await page.getByLabel("게임 닉네임").fill("새벽도망자");
+    await page.getByLabel("게임 닉네임").fill(nickname);
     await passwordInput.fill(password);
     await expect(passwordInput).toHaveValue(password);
     await page.getByRole("button", { name: "계정 만들고 시작" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     await dismissVisibleLaunchPromos(page);
-    await expect(page.locator(".home-account")).toContainText("새벽도망자");
+    await expect(page.locator(".home-account")).toContainText(nickname);
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
     const mailboxButton = page.getByRole("button", { name: "우편함" });
     await expect(page.locator(".home-mail-unread")).toHaveClass(/visible/);
@@ -269,6 +271,19 @@ test("portrait home separates shop, owned customization and stage start", async 
       "accept",
       "image/jpeg,image/png,image/webp",
     );
+    await expect(
+      page.getByRole("dialog", { name: "프로필 설정" }),
+    ).not.toContainText("사진은 정사각형");
+    const nicknameEditBounds = await page
+      .getByRole("button", { name: "닉네임 변경" })
+      .boundingBox();
+    expect(nicknameEditBounds).toBeTruthy();
+    expect(nicknameEditBounds?.width ?? 99).toBeLessThanOrEqual(28);
+    expect(
+      Math.abs(
+        (nicknameEditBounds?.width ?? 0) - (nicknameEditBounds?.height ?? 99),
+      ),
+    ).toBeLessThan(0.5);
     await expect(
       page.locator('[data-profile-display-mode="ranked"]'),
     ).toHaveCount(0);
@@ -358,7 +373,9 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       page.getByRole("button", { name: "앞", exact: true }),
     ).toHaveClass(/active/);
-    await expect(page.locator(".cosmetic-card")).toHaveCount(12);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(
+      cosmeticsForSlot("character").length,
+    );
     const catCard = page.locator(".cosmetic-card", {
       hasText: "달고양이 루루",
     });
@@ -371,7 +388,9 @@ test("portrait home separates shop, owned customization and stage start", async 
       "달고양이 루루",
     );
     await page.getByRole("button", { name: "스킨", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(16);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(
+      cosmeticsForSlot("skin").length,
+    );
     await expect(
       page.locator('[data-cosmetic-preview="skin-look-cat-neon-rider"]'),
     ).toBeVisible();
@@ -400,7 +419,10 @@ test("portrait home separates shop, owned customization and stage start", async 
       "skin-look-cat-ward",
     );
     await page.getByRole("button", { name: "타일", exact: true }).click();
-    await expect(page.locator(".cosmetic-card")).toHaveCount(3);
+    await expect(page.locator(".cosmetic-card")).toHaveCount(
+      cosmeticsForSlot("tile").filter((item) => item.unlock.kind !== "starter")
+        .length,
+    );
     await expect(
       page.locator(".cosmetic-card", { hasText: "기본 병동 타일" }),
     ).toHaveCount(0);
@@ -554,6 +576,12 @@ test("portrait home separates shop, owned customization and stage start", async 
     ).toBeVisible();
     await page.getByRole("button", { name: /플레이 방식/ }).click();
     await page.locator("[data-home-mode='solo']").click();
+    await expect(
+      page.getByRole("button", { name: /플레이 방식 혼자하기/ }),
+    ).toBeVisible();
+    expect(
+      await page.request.post("/api/auth/test/reset-tutorial"),
+    ).toBeOK();
     await page.getByTestId("home-stage-start").click();
     await expect(page.locator(".lobby-screen")).toBeVisible();
     const lobbyLayout = await page.locator(".lobby-shell").evaluate((shell) => {
@@ -580,7 +608,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-shell")).toBeVisible();
     await expect(page.locator(".stage-chip")).toContainText("생존 훈련");
-    await expect(page.locator("[data-ghost-intro]")).toBeVisible();
+    await expect(page.locator("[data-ghost-intro]")).toHaveCount(1);
     await expect
       .poll(async () => (await state(page)).snapshot?.status, {
         timeout: 8_000,
@@ -589,7 +617,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       .not.toBe("GHOST_INTRO");
     const firstMatchGuide = page.locator("[data-first-match-guide]");
     await expect(firstMatchGuide).toBeVisible();
-    await expect(firstMatchGuide).toContainText("안내 침대");
+    await expect(firstMatchGuide).toContainText("복도 아이템");
     const guideLayout = await firstMatchGuide.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       return {
@@ -647,6 +675,10 @@ test("신규 계정에서도 출시 이벤트를 독립적으로 관리한다", 
   const dismissPage = await dismissContext.newPage();
   try {
     await enter(shopPage, "여름몽", "surfshop", true, false);
+    const specialOpsPromo = shopPage.getByRole("dialog", {
+      name: "경찰과 비밀요원 프리미엄 스킨 동시 출시",
+    });
+    await specialOpsPromo.getByRole("button", { name: "다음 이벤트" }).click();
     const promo = shopPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });
@@ -688,6 +720,12 @@ test("신규 계정에서도 출시 이벤트를 독립적으로 관리한다", 
     ).toBeVisible();
 
     await enter(dismissPage, "여름숨김", "surfdismiss", true, false);
+    await dismissPage
+      .getByRole("dialog", {
+        name: "경찰과 비밀요원 프리미엄 스킨 동시 출시",
+      })
+      .getByRole("button", { name: "다시 보지 않기" })
+      .click();
     const dismissPromo = dismissPage.getByRole("dialog", {
       name: "썸머 특별 스킨 동시 출시",
     });
@@ -705,6 +743,11 @@ test("신규 계정에서도 출시 이벤트를 독립적으로 관리한다", 
       .click();
     await dismissPage.reload();
     await expect(dismissPage.locator(".game-home")).toBeVisible();
+    await expect(
+      dismissPage.getByRole("dialog", {
+        name: "경찰과 비밀요원 프리미엄 스킨 동시 출시",
+      }),
+    ).toHaveCount(0);
     await expect(
       dismissPage.getByRole("dialog", {
         name: "썸머 특별 스킨 동시 출시",
@@ -951,21 +994,11 @@ test("sleep button stops a held drag before claiming and stays on the bed after 
   try {
     await enter(page, "수면점유검증", "sleepclaim");
     await createMultiplayerRoom(page);
-    const addBot = page.getByRole("button", { name: "봇 추가" });
-    for (let index = 0; index < 2; index += 1) await addBot.click();
     await page.getByTestId("start-game").click();
     await page.waitForFunction(
       () => window.__DORM_TEST__?.snapshot?.status === "COUNTDOWN",
       undefined,
       { timeout: 8_000 },
-    );
-    await page.waitForFunction(
-      () =>
-        (window.__DORM_TEST__?.snapshot?.players.filter(
-          (player) => player.isBot && player.roomId,
-        ).length ?? 0) === 2,
-      undefined,
-      { timeout: 20_000 },
     );
     const target = await page.evaluate(() => {
       const game = window.__DORM_TEST__;

@@ -48,6 +48,12 @@ export const BALANCE = {
   buildInputCooldownMs: 350,
   maxHumanPlayers: 4,
   maxPlayersWithBots: 4,
+  resource: {
+    // High-level beds, reward buildings and golden turrets can legitimately
+    // pass the old 999,999 clamp during a long match. Keep a finite safety
+    // ceiling for serialization without making normal income silently stop.
+    maxStored: 999_999_999_999,
+  },
   reconnectMs: 90_000,
   inactiveCleanupMs: 180_000,
   // Two seconds of a fixed ghost poster followed by a two-second fade. The

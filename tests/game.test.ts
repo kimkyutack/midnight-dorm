@@ -5,7 +5,7 @@ import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TR
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
-import { getStage, higherRank, rankBadgeSymbol, rankBenefits, rankFromXp, recommendedRankForStage, RANK_VISUALS, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
+import { BADGE_TARGET_VISUAL_FILL, badgeArtworkViewport, difficultyRuleForStage, getStage, higherRank, rankBadgeArtworkLayout, rankBadgeSymbol, rankBenefits, rankedBadgeArtworkLayout, rankFromXp, recommendedRankForStage, RANK_VISUALS, stagePressureScale, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
@@ -155,7 +155,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.31.6')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.07.27.4')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -516,6 +516,43 @@ describe('deterministic shared world', () => {
     ] as const;
     expect(new Set(ranks.map((rank) => rankBadgeSymbol(rank))).size).toBe(ranks.length);
     expect(ranks.every((rank) => RANK_VISUALS[rank].hatLabel.length > 0)).toBe(true);
+  });
+
+  it('normalizes every progression and season badge to one centered visual box', () => {
+    const layouts = [
+      ...([
+        'beginner', 'intermediate', 'expert', 'master', 'veteran', 'legend',
+        'transcendent', 'immortal', 'absolute',
+      ] as const).map(rankBadgeArtworkLayout),
+      ...([
+        'bronze', 'silver', 'gold', 'platinum', 'diamond', 'master',
+        'challenger',
+      ] as const).map(rankedBadgeArtworkLayout),
+    ];
+    for (const layout of layouts) {
+      const viewport = badgeArtworkViewport(layout);
+      expect(
+        (layout.visualExtent * viewport.cssScale) / layout.canvasSize,
+      ).toBeCloseTo(BADGE_TARGET_VISUAL_FILL, 8);
+      expect(
+        ((layout.centerX - layout.canvasSize / 2) * viewport.cssScale) /
+          layout.canvasSize +
+          viewport.cssShiftXPercent / 100,
+      ).toBeCloseTo(0, 8);
+      expect(
+        ((layout.centerY - layout.canvasSize / 2) * viewport.cssScale) /
+          layout.canvasSize +
+          viewport.cssShiftYPercent / 100,
+      ).toBeCloseTo(0, 8);
+      expect(
+        (layout.centerX / layout.canvasSize - viewport.textureOffsetX) /
+          viewport.textureRepeat,
+      ).toBeCloseTo(0.5, 8);
+      expect(
+        ((1 - layout.centerY / layout.canvasSize) - viewport.textureOffsetY) /
+          viewport.textureRepeat,
+      ).toBeCloseTo(0.5, 8);
+    }
   });
 
   it('defines ten ordered door materials and holds the last material for future extension levels', () => {
@@ -3104,6 +3141,23 @@ describe('accelerated long simulation', () => {
 });
 
 describe('requested progression and event rules', () => {
+  it('smooths inferno five pressure and removes the stacked extra barrier', () => {
+    const infernoFour = getStage('inferno-4');
+    const infernoFive = getStage('inferno-5');
+    expect(stagePressureScale(30)).toBe(1);
+    expect(stagePressureScale(31)).toBeCloseTo(0.98, 8);
+    expect(stagePressureScale(35)).toBeCloseTo(0.9, 8);
+    expect(stagePressureScale(344)).toBeCloseTo(0.9, 8);
+    expect(infernoFive.hpMultiplier / infernoFour.hpMultiplier).toBeLessThan(1.01);
+    expect(infernoFive.damageMultiplier / infernoFour.damageMultiplier).toBeLessThan(1.01);
+    expect(difficultyRuleForStage(infernoFive).barrierLayers).toBe(1);
+    expect(difficultyRuleForStage(infernoFive).directionalShield).toBe(true);
+    expect(difficultyRuleForStage(getStage('epic-1')).barrierLayers).toBe(2);
+    expect(
+      difficultyRuleForStage(getStage('apocalypse-99')).barrierLayers,
+    ).toBe(8);
+  });
+
   it('maps ranked brackets to increasingly difficult non-normal stages', () => {
     expect([
       rankedStageForTier('bronze'),
@@ -3912,6 +3966,36 @@ describe('requested progression and event rules', () => {
           tile.y === Math.round(state.ghost.position.y),
       ),
     ).toBe(true);
+  });
+
+  it('keeps high-level gold income above the former 999,999 cutoff', () => {
+    const { engine, ids } = setup(1, true);
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing high-income player');
+    player.gold = 999_999;
+    player.goldIncomeElapsed = 0.95;
+    engine.restore(persisted);
+    engine.tick(0.1);
+    expect(
+      engine.snapshot().players.find((candidate) => candidate.id === playerId)
+        ?.gold,
+    ).toBeGreaterThan(999_999);
+  });
+
+  it('bounds a restored gold lock to its documented five-second duration', () => {
+    const { engine, ids } = setup(1, true);
+    begin(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    persisted.snapshot.goldSuppressedUntil = persisted.snapshot.elapsed + 500;
+    engine.restore(persisted);
+    expect(
+      engine.snapshot().goldSuppressedUntil - engine.snapshot().elapsed,
+    ).toBeLessThanOrEqual(5);
   });
 
   it('starts with twenty gold and pays no bed income before a bed is occupied', () => {

@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.07.31.5";
+export const APP_RELEASE_VERSION = "2026.08.02.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "특수수사본부 테마",
+  title: "프로필 UI와 전투 밸런스 안정화",
   summary:
-    "• 청회색 수사본부 바닥과 수사 스캔 전환 연출을 가진 특수수사본부 타일을 추가했습니다.\n• 서류가방형 감시 장치에서 스마트 레일건까지 15단계로 성장하는 기밀 추적포를 추가했습니다.\n• 기밀 추적포에 성능 제한형 청백색 추적탄과 착탄 효과를 적용했습니다.",
-  publishedAt: 1785499200000,
+    "• 프로필의 닉네임 수정 버튼을 작은 정사각형으로 다듬고 불필요한 사진 안내 문구를 제거했습니다.\n• 일반·시즌 등급 이미지를 같은 정사각형 슬롯의 중앙에 동일한 크기로 정렬했습니다.\n• 불지옥 5 이후 난이도 압력을 완화하고, 고레벨 경기에서 골드 획득이 999,999에 멈추는 문제를 수정했습니다.",
+  publishedAt: 1785650400000,
 };
 
 /**

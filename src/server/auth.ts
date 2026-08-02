@@ -538,6 +538,10 @@ async function prepareSession(): Promise<{ token: string; tokenHash: string; cre
   };
 }
 
+function friendCodeFor(accountId: string): string {
+  return `FD-${accountId.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+}
+
 async function authenticatedProfileFromReadySchema(request: Request, db: D1Database): Promise<AccountProfile | null> {
   const row = await authenticatedRowFromReadySchema(request, db);
   return row ? profileForRow(db, row) : null;
@@ -556,7 +560,11 @@ export async function getAuthenticatedProfile(request: Request, db: D1Database, 
   return authenticatedProfileFromReadySchema(request, db);
 }
 
-async function register(request: Request, db: D1Database): Promise<Response> {
+async function register(
+  request: Request,
+  db: D1Database,
+  completeTutorial = false,
+): Promise<Response> {
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   let body: { username?: string; nickname?: string; password?: string };
   try { body = await request.json(); } catch { return Response.json({ error: '입력값을 확인해주세요.' }, { status: 400 }); }
@@ -579,8 +587,8 @@ async function register(request: Request, db: D1Database): Promise<Response> {
     const passwordHash = encodePasswordHash(await derivePassword(password, salt));
     const session = await prepareSession();
     await db.batch([
-      db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(id, username, nickname, passwordHash, bytesToText(salt), now, now),
+      db.prepare(`INSERT INTO accounts (id, username, nickname, password_hash, password_salt, friend_code, tutorial_completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(id, username, nickname, passwordHash, bytesToText(salt), friendCodeFor(id), completeTutorial ? 1 : 0, now, now),
       db.prepare(`INSERT INTO account_customization (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
         .bind(id, JSON.stringify(DEFAULT_APPEARANCE), now),
       db.prepare(`INSERT INTO account_turret_loadouts (account_id, skins, updated_at) VALUES (?, ?, ?)`)
@@ -742,9 +750,9 @@ async function completeGoogleSignup(request: Request, db: D1Database): Promise<R
   try {
     await db.batch([
       db.prepare(`INSERT INTO accounts
-        (id, username, nickname, password_hash, password_salt, created_at, updated_at, last_login_at)
-        VALUES (?, ?, ?, '', '', ?, ?, ?)`)
-        .bind(accountId, username, nicknameInput.nickname, now, now, now),
+        (id, username, nickname, password_hash, password_salt, friend_code, created_at, updated_at, last_login_at)
+        VALUES (?, ?, ?, '', '', ?, ?, ?, ?)`)
+        .bind(accountId, username, nicknameInput.nickname, friendCodeFor(accountId), now, now, now),
       db.prepare(`INSERT INTO account_identities (provider, subject, account_id, created_at)
         VALUES ('google', ?, ?, ?)`).bind(pending.subject, accountId, now),
       db.prepare(`INSERT INTO account_nickname_registry (normalized_nickname, account_id, created_at)
@@ -1202,7 +1210,20 @@ export async function routeAuth(
       );
     }
     if (bootstrapSchema) await ensureAuthSchema(db);
-    if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, db);
+    if (url.pathname === '/api/auth/register' && request.method === 'POST') {
+      return register(request, db, bootstrapSchema);
+    }
+    if (
+      bootstrapSchema
+      && url.pathname === '/api/auth/test/reset-tutorial'
+      && request.method === 'POST'
+    ) {
+      const row = await authenticatedRowFromReadySchema(request, db);
+      if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      await db.prepare('UPDATE accounts SET tutorial_completed = 0, updated_at = ? WHERE id = ?')
+        .bind(Date.now(), row.id).run();
+      return Response.json({ ok: true });
+    }
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, db);
     if (url.pathname === '/api/auth/google' && request.method === 'POST') return googleLogin(request, db, googleClientId);
     if (url.pathname === '/api/auth/google/complete' && request.method === 'POST') return completeGoogleSignup(request, db);

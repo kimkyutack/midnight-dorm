@@ -601,8 +601,14 @@ export class GameEngine {
         this.state.ranked.seasonRules,
       );
     }
-    this.state.goldSuppressedUntil ??= 0;
-    this.state.repairSuppressedUntil ??= 0;
+    this.state.goldSuppressedUntil = Math.min(
+      this.state.elapsed + 5,
+      Math.max(0, finite(this.state.goldSuppressedUntil, 0)),
+    );
+    this.state.repairSuppressedUntil = Math.min(
+      this.state.elapsed + 5,
+      Math.max(0, finite(this.state.repairSuppressedUntil, 0)),
+    );
     this.state.lootDrops ??= [];
     this.state.contractUsed ??= false;
     if (this.state.tutorial?.active) {
@@ -5292,8 +5298,14 @@ export class GameEngine {
       this.turretSuppressedUntil = this.state.elapsed + 3;
       label = "포탑 무효화 3초";
     } else if (skill === "gold-lock") {
-      this.state.goldSuppressedUntil = this.state.elapsed + 5;
-      label = "골드 획득 봉인 5초";
+      if (this.state.elapsed >= this.state.goldSuppressedUntil) {
+        this.state.goldSuppressedUntil = this.state.elapsed + 5;
+        label = "골드 획득 봉인 5초";
+      } else {
+        // Twin ghosts may cast in adjacent ticks. An already active global
+        // lock must never keep being pushed forward indefinitely.
+        label = "골드 획득 봉인 연장 무효";
+      }
     } else if (skill === "repair-lock") {
       this.state.repairSuppressedUntil = this.state.elapsed + 5;
       label = "문 수리 봉인 5초";
@@ -5644,8 +5656,8 @@ export class GameEngine {
 
   private sanitizeResources(): void {
     for (const player of this.state.players) {
-      player.gold = clamp(player.gold, 0, 999_999);
-      player.power = clamp(player.power, 0, 999_999);
+      player.gold = clamp(player.gold, 0, BALANCE.resource.maxStored);
+      player.power = clamp(player.power, 0, BALANCE.resource.maxStored);
       player.hp = clamp(player.hp, 0, player.maxHp);
     }
     for (const room of this.state.rooms) {

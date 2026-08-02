@@ -96,14 +96,17 @@ const DIFFICULTY_MODIFIERS: Readonly<Record<string, DifficultyModifierPreset>> =
   hard: { timeAttackChance: 0, controlAdaptation: false, barrierLayers: 0, directionalShield: false },
   nightmare: { timeAttackChance: 0.07, controlAdaptation: true, barrierLayers: 0, directionalShield: false },
   hell: { timeAttackChance: 0.12, controlAdaptation: true, barrierLayers: 1, directionalShield: false },
-  inferno: { timeAttackChance: 0.18, controlAdaptation: true, barrierLayers: 2, directionalShield: true },
-  epic: { timeAttackChance: 0.25, controlAdaptation: true, barrierLayers: 3, directionalShield: true },
-  mythic: { timeAttackChance: 0.30, controlAdaptation: true, barrierLayers: 4, directionalShield: true },
-  legendary: { timeAttackChance: 0.35, controlAdaptation: true, barrierLayers: 5, directionalShield: true },
-  calamity: { timeAttackChance: 0.40, controlAdaptation: true, barrierLayers: 6, directionalShield: true },
-  cataclysm: { timeAttackChance: 0.45, controlAdaptation: true, barrierLayers: 7, directionalShield: true },
-  ruin: { timeAttackChance: 0.50, controlAdaptation: true, barrierLayers: 8, directionalShield: true },
-  apocalypse: { timeAttackChance: 0.55, controlAdaptation: true, barrierLayers: 9, directionalShield: true },
+  // Directional shielding already adds a second strategy requirement at
+  // inferno. Keeping the old extra barrier layer on top of it made the first
+  // mid-game wall much steeper than the numeric stage curve suggested.
+  inferno: { timeAttackChance: 0.18, controlAdaptation: true, barrierLayers: 1, directionalShield: true },
+  epic: { timeAttackChance: 0.25, controlAdaptation: true, barrierLayers: 2, directionalShield: true },
+  mythic: { timeAttackChance: 0.30, controlAdaptation: true, barrierLayers: 3, directionalShield: true },
+  legendary: { timeAttackChance: 0.35, controlAdaptation: true, barrierLayers: 4, directionalShield: true },
+  calamity: { timeAttackChance: 0.40, controlAdaptation: true, barrierLayers: 5, directionalShield: true },
+  cataclysm: { timeAttackChance: 0.45, controlAdaptation: true, barrierLayers: 6, directionalShield: true },
+  ruin: { timeAttackChance: 0.50, controlAdaptation: true, barrierLayers: 7, directionalShield: true },
+  apocalypse: { timeAttackChance: 0.55, controlAdaptation: true, barrierLayers: 8, directionalShield: true },
 };
 
 /** The random roll is made once by the room engine and then stored in its snapshot. */
@@ -142,6 +145,85 @@ export function rankedTierForRating(rating: number): RankedTier {
 export const rankedBadgeImage = (tier: RankedTier): string => `/assets/ranks/season-${tier}.png`;
 export const rankedCrownImage = (tier: 'bronze' | 'silver' | 'gold'): string => `/assets/ranks/crown-${tier}.png`;
 
+/**
+ * Alpha-content measurements for the rank artwork canvases. The source PNGs
+ * use the same 512px canvas but have very different transparent padding; the
+ * three SVG ranks use a 128px viewBox. DOM and Three.js renderers share these
+ * measurements so every badge has one visual size and a true center anchor.
+ */
+export interface BadgeArtworkLayout {
+  canvasSize: number;
+  centerX: number;
+  centerY: number;
+  visualExtent: number;
+}
+
+export interface BadgeArtworkViewport {
+  cssScale: number;
+  cssShiftXPercent: number;
+  cssShiftYPercent: number;
+  textureOffsetX: number;
+  textureOffsetY: number;
+  textureRepeat: number;
+}
+
+export const BADGE_TARGET_VISUAL_FILL = 0.9;
+
+const RANK_BADGE_ARTWORK: Readonly<Record<RankId, BadgeArtworkLayout>> = {
+  beginner: { canvasSize: 512, centerX: 296, centerY: 274, visualExtent: 330 },
+  intermediate: { canvasSize: 512, centerX: 253, centerY: 273.5, visualExtent: 341 },
+  expert: { canvasSize: 512, centerX: 202, centerY: 273, visualExtent: 354 },
+  master: { canvasSize: 512, centerX: 295, centerY: 225, visualExtent: 342 },
+  veteran: { canvasSize: 512, centerX: 251.5, centerY: 230.5, visualExtent: 371 },
+  legend: { canvasSize: 512, centerX: 202.5, centerY: 224, visualExtent: 362 },
+  transcendent: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 119 },
+  immortal: { canvasSize: 128, centerX: 64, centerY: 64, visualExtent: 118 },
+  absolute: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 121 },
+};
+
+const RANKED_BADGE_ARTWORK: Readonly<Record<RankedTier, BadgeArtworkLayout>> = {
+  bronze: { canvasSize: 512, centerX: 265.5, centerY: 254.5, visualExtent: 329 },
+  silver: { canvasSize: 512, centerX: 262, centerY: 252.5, visualExtent: 341 },
+  gold: { canvasSize: 512, centerX: 260, centerY: 252.5, visualExtent: 345 },
+  platinum: { canvasSize: 512, centerX: 255.5, centerY: 252.5, visualExtent: 347 },
+  diamond: { canvasSize: 512, centerX: 249.5, centerY: 258, visualExtent: 334 },
+  master: { canvasSize: 512, centerX: 244.5, centerY: 264.5, visualExtent: 369 },
+  challenger: { canvasSize: 512, centerX: 246, centerY: 265, visualExtent: 406 },
+};
+
+export function badgeArtworkViewport(
+  layout: BadgeArtworkLayout,
+): BadgeArtworkViewport {
+  const cropSize = layout.visualExtent / BADGE_TARGET_VISUAL_FILL;
+  const cssScale = layout.canvasSize / cropSize;
+  return {
+    cssScale,
+    cssShiftXPercent:
+      (-(layout.centerX - layout.canvasSize / 2) * cssScale * 100) /
+      layout.canvasSize,
+    cssShiftYPercent:
+      (-(layout.centerY - layout.canvasSize / 2) * cssScale * 100) /
+      layout.canvasSize,
+    textureOffsetX: (layout.centerX - cropSize / 2) / layout.canvasSize,
+    textureOffsetY:
+      1 - (layout.centerY + cropSize / 2) / layout.canvasSize,
+    textureRepeat: cropSize / layout.canvasSize,
+  };
+}
+
+export const rankBadgeArtworkLayout = (rank: RankId): BadgeArtworkLayout =>
+  RANK_BADGE_ARTWORK[rank];
+
+export const rankedBadgeArtworkLayout = (
+  tier: RankedTier,
+): BadgeArtworkLayout => RANKED_BADGE_ARTWORK[tier];
+
+/** Inferno 1~5 eases into the combined shield rules, then stays 10% softer. */
+export function stagePressureScale(index: number): number {
+  if (index < 31) return 1;
+  return Math.max(0.9, 1 - (index - 30) * 0.02);
+}
+
 export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
   Array.from({ length: tier.count }, (_, offset) => ({ tier, level: offset + 1 })),
 ).map(({ tier, level }, index) => {
@@ -151,6 +233,13 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
   const earlyIndex = Math.min(index, 120);
   const earlyPressure = earlyIndex / 120;
   const endgameIndex = Math.max(0, index - 120);
+  const pressureScale = stagePressureScale(index);
+  const rawHpPressure =
+    earlyIndex * 0.037 +
+    earlyPressure * earlyPressure * 0.65 +
+    endgameIndex * 0.018;
+  const rawDamagePressure =
+    earlyIndex * 0.023 + earlyPressure * 0.45 + endgameIndex * 0.011;
   const skills: GhostStageSkill[] = [];
   if (index >= 11) skills.push('turret-jam');
   if (index >= 21) skills.push('gold-lock');
@@ -162,8 +251,8 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
     tier: tier.id,
     level,
     label: `${tier.label} ${level}`,
-    hpMultiplier: Number((1 + earlyIndex * 0.037 + earlyPressure * earlyPressure * 0.65 + endgameIndex * 0.018).toFixed(3)),
-    damageMultiplier: Number((1 + earlyIndex * 0.023 + earlyPressure * 0.45 + endgameIndex * 0.011).toFixed(3)),
+    hpMultiplier: Number((1 + rawHpPressure * pressureScale).toFixed(3)),
+    damageMultiplier: Number((1 + rawDamagePressure * pressureScale).toFixed(3)),
     speedMultiplier: Number(Math.min(1.55, 1 + index * 0.0016).toFixed(3)),
     levelHpGrowth: Number(Math.min(0.38, 0.16 + index * 0.0007).toFixed(3)),
     levelDamageGrowth: Number(Math.min(0.30, 0.11 + index * 0.00056).toFixed(3)),
