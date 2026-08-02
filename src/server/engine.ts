@@ -32,6 +32,7 @@ import {
   combinedItemEffects,
   DRAW_COSTS,
   getRandomItem,
+  isGoldProducingBuilding,
   randomItemForRoll,
   RANDOM_ITEMS,
 } from "../shared/randomItems";
@@ -3384,7 +3385,8 @@ export class GameEngine {
       const goldBuildings = this.state.buildings.filter(
         (building) =>
           building.ownerId === player.id &&
-          (building.kind === "gem-core" || building.kind === "starter-grave") &&
+          isGoldProducingBuilding(building) &&
+          building.kind !== 'random-item' &&
           !this.isBuildingContaminated(building),
       );
       // Keep the bed's floating income to the bed's own production. Random
@@ -3394,7 +3396,12 @@ export class GameEngine {
         buildingStats("bed", bedLevel).value *
         rankBenefits(activeRank).bedGoldMultiplier * productionMultiplier;
       const placedItemGoldPerSecond = placedItemBuildings.reduce(
-        (total, building) => total + (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0) * productionMultiplier,
+        (total, building) =>
+          total +
+          (isGoldProducingBuilding(building)
+            ? (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0) *
+              productionMultiplier
+            : 0),
         0,
       );
       const inventoryGoldPerSecond = inventoryEffects.goldPerSecond * productionMultiplier;
@@ -3442,6 +3449,7 @@ export class GameEngine {
             label: "보관 아이템",
           });
         for (const building of placedItemBuildings) {
+          if (!isGoldProducingBuilding(building)) continue;
           const item = getRandomItem(building.itemId ?? '');
           const amount = (item?.effect.goldPerSecond ?? 0) * productionMultiplier;
           if (amount <= 0) continue;

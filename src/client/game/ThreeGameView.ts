@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequirement } from '../../shared/balance';
 import { badgeArtworkViewport, isEliteRank, rankBadgeArtworkLayout, rankBadgeImage, rankBenefits, rankedBadgeArtworkLayout, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
-import { combinedItemEffects, getRandomItem } from '../../shared/randomItems';
+import { combinedItemEffects, getRandomItem, isGoldProducingBuilding } from '../../shared/randomItems';
 import { characterTraitForMatch } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
@@ -153,6 +153,36 @@ export function cameraZoomLockedForSnapshot(
 ): boolean {
   const local = snapshot?.players.find((player) => player.id === playerId);
   return Boolean(snapshot?.tutorial?.active || (local?.alive && !local.roomId));
+}
+
+export function goldSealIndicatorVisibleForBuilding(
+  snapshot: GameSnapshot,
+  building: BuildingState,
+): boolean {
+  const room = snapshot.rooms.find((candidate) => candidate.id === building.roomId);
+  return Boolean(
+    room &&
+      room.goldSuppressedUntil > snapshot.elapsed &&
+      isGoldProducingBuilding(building),
+  );
+}
+
+export function goldSealIndicatorVisibleForBed(
+  snapshot: GameSnapshot,
+  roomId: string,
+  bedIndex: number,
+): boolean {
+  const room = snapshot.rooms.find((candidate) => candidate.id === roomId);
+  return Boolean(
+    room &&
+      room.goldSuppressedUntil > snapshot.elapsed &&
+      snapshot.players.some(
+        (player) =>
+          player.alive &&
+          player.roomId === roomId &&
+          player.bedIndex === bedIndex,
+      ),
+  );
 }
 
 const GHOST_GLOW_COLORS: Record<GhostState['variant'], number> = {
@@ -3721,8 +3751,11 @@ export class ThreeGameView {
     const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
     for (const view of this.bedViews.values()) {
       const room = snapshot.rooms.find((candidate) => candidate.id === view.roomId);
-      const roomGoldLocked =
-        (room?.goldSuppressedUntil ?? 0) > snapshot.elapsed;
+      const roomGoldLocked = goldSealIndicatorVisibleForBed(
+        snapshot,
+        view.roomId,
+        view.bedIndex,
+      );
       view.goldLock.visible = roomGoldLocked;
       if (roomGoldLocked) {
         const pulse =
@@ -4299,9 +4332,10 @@ export class ThreeGameView {
       if (this.buildingDrag?.buildingId !== building.id) {
         view.root.position.copy(worldPoint(building.tile));
       }
-      const roomGoldLocked =
-        (this.roomStateById.get(building.roomId)?.goldSuppressedUntil ?? 0) >
-        snapshot.elapsed;
+      const roomGoldLocked = goldSealIndicatorVisibleForBuilding(
+        snapshot,
+        building,
+      );
       view.goldLock.visible = roomGoldLocked;
       if (roomGoldLocked) {
         const pulse = 1 + Math.sin(snapshot.elapsed * 10 + building.id.length) * 0.08;

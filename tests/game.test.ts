@@ -8,7 +8,7 @@ import { findPath } from '../src/shared/pathfinding';
 import { BADGE_TARGET_VISUAL_FILL, badgeArtworkViewport, difficultyRuleForStage, getStage, higherRank, rankBadgeArtworkLayout, rankBadgeSymbol, rankBenefits, rankedBadgeArtworkLayout, rankFromXp, recommendedRankForStage, RANK_VISUALS, stagePressureScale, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
-import { DRAW_COSTS, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
+import { DRAW_COSTS, isGoldProducingBuilding, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import { tutorialGuidedBuildTile } from '../src/shared/tutorial';
@@ -19,7 +19,7 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { cameraZoomLockedForSnapshot, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
+import { cameraZoomLockedForSnapshot, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
@@ -155,8 +155,8 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.3')).toBe(true);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.1')).toBe(false);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.2')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
   });
@@ -3167,6 +3167,41 @@ describe('accelerated long simulation', () => {
 });
 
 describe('requested progression and event rules', () => {
+  it('marks only recurring gold-producing buildings for gold seal indicators', () => {
+    expect(isGoldProducingBuilding({ kind: 'gem-core' })).toBe(true);
+    expect(isGoldProducingBuilding({ kind: 'starter-grave' })).toBe(true);
+    expect(
+      isGoldProducingBuilding({ kind: 'random-item', itemId: 'copper-pig' }),
+    ).toBe(true);
+    expect(
+      isGoldProducingBuilding({ kind: 'random-item', itemId: 'moon-battery' }),
+    ).toBe(false);
+    expect(isGoldProducingBuilding({ kind: 'generator' })).toBe(false);
+    expect(isGoldProducingBuilding({ kind: 'basic-turret' })).toBe(false);
+
+    const snapshot = {
+      elapsed: 10,
+      rooms: [{ id: 'room-1', goldSuppressedUntil: 15 }],
+      players: [
+        { id: 'owner', alive: true, roomId: 'room-1', bedIndex: 0 },
+      ],
+    } as unknown as GameSnapshot;
+    const goldBuilding = {
+      id: 'gold-building',
+      roomId: 'room-1',
+      kind: 'gem-core',
+    } as unknown as GameSnapshot['buildings'][number];
+    const powerBuilding = {
+      id: 'power-building',
+      roomId: 'room-1',
+      kind: 'generator',
+    } as unknown as GameSnapshot['buildings'][number];
+    expect(goldSealIndicatorVisibleForBuilding(snapshot, goldBuilding)).toBe(true);
+    expect(goldSealIndicatorVisibleForBuilding(snapshot, powerBuilding)).toBe(false);
+    expect(goldSealIndicatorVisibleForBed(snapshot, 'room-1', 0)).toBe(true);
+    expect(goldSealIndicatorVisibleForBed(snapshot, 'room-1', 1)).toBe(false);
+  });
+
   it('smooths inferno five pressure and removes the stacked extra barrier', () => {
     const infernoFour = getStage('inferno-4');
     const infernoFive = getStage('inferno-5');

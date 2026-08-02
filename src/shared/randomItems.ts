@@ -1,4 +1,4 @@
-import type { ItemRarity } from './types';
+import type { BuildingState, ItemRarity } from './types';
 
 export interface RandomItemEffect {
   goldPerSecond?: number;
@@ -76,6 +76,18 @@ export const RANDOM_ITEMS: readonly RandomItemDefinition[] = [
 
 export function getRandomItem(itemId: string): RandomItemDefinition | undefined {
   return RANDOM_ITEMS.find((item) => item.id === itemId);
+}
+
+/** True only when a placed structure's own recurring output includes gold. */
+export function isGoldProducingBuilding(
+  building: Pick<BuildingState, 'kind' | 'itemId'>,
+): boolean {
+  if (building.kind === 'gem-core' || building.kind === 'starter-grave')
+    return true;
+  return Boolean(
+    building.kind === 'random-item' &&
+      (getRandomItem(building.itemId ?? '')?.effect.goldPerSecond ?? 0) > 0,
+  );
 }
 
 const weightedPick = (
