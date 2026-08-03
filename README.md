@@ -64,7 +64,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 
 ## 계정, 등급과 스테이지
 
-현재 전투 수치와 계산식은 [`docs/spec/balance.md`](docs/spec/balance.md), 차기 전략 난이도와 타임어택은 [`docs/spec/difficulty-modifiers.md`](docs/spec/difficulty-modifiers.md), 플레이 방식과 14일 시즌 랭크전은 [`docs/spec/ranked-mode.md`](docs/spec/ranked-mode.md), 화면 스타일과 모바일 UX는 [`docs/spec/visual-design.md`](docs/spec/visual-design.md), 다음 업데이트와 사용자 유지 개선안은 [`docs/spec/next-update-roadmap.md`](docs/spec/next-update-roadmap.md)를 기준으로 관리합니다.
+현재 전투 수치와 계산식은 [`docs/spec/balance.md`](docs/spec/balance.md), 차기 전략 난이도와 타임어택은 [`docs/spec/difficulty-modifiers.md`](docs/spec/difficulty-modifiers.md), 플레이 방식과 14일 시즌 랭크전은 [`docs/spec/ranked-mode.md`](docs/spec/ranked-mode.md), 귀신 술래잡기 미니게임은 [`docs/spec/hide-and-seek-mode.md`](docs/spec/hide-and-seek-mode.md), 화면 스타일과 모바일 UX는 [`docs/spec/visual-design.md`](docs/spec/visual-design.md), 다음 업데이트와 사용자 유지 개선안은 [`docs/spec/next-update-roadmap.md`](docs/spec/next-update-roadmap.md)를 기준으로 관리합니다.
 
 - 혼자하기 등급과 친구랑하기 등급은 `하수 → 중수 → 고수 → 초고수 → 베테랑 → 레전드 → 초월 → 불멸 → 절대자`로 별도 계산합니다. 초월은 20,000 XP, 불멸은 50,000 XP, 절대자는 100,000 XP부터 적용합니다.
 - 랭크전은 일반 진행 등급과 분리된 14일 시즌 경쟁입니다. 48시간 계약 7개 중 최고 5개 점수를 합산하며, 계약별 대기열은 RP 범위를 점차 넓혀 4명의 실제 참가자를 우선 매칭하고 40초 뒤에만 빈 자리를 봇으로 보충합니다. 시즌 종료 후 순위 보상을 지급한 뒤 현재 시즌 순위표를 초기화합니다.
