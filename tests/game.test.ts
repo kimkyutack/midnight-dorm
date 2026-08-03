@@ -21,6 +21,7 @@ import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDe
 import { attackFrameAt, crocoStompPlacementForFacing, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { cameraZoomLockedForSnapshot, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
+import { nativeApiResourceUrl } from '../src/client/native/runtime';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
@@ -785,6 +786,16 @@ describe('generated mobile game art', () => {
 });
 
 describe('survivor customization rules', () => {
+  it('resolves API-backed profile images against the native Worker origin', () => {
+    const avatar = '/api/profile-avatar/account-1?v=123';
+    expect(nativeApiResourceUrl(avatar, true, 'https://game.example')).toBe(
+      'https://game.example/api/profile-avatar/account-1?v=123',
+    );
+    expect(nativeApiResourceUrl(avatar, false, 'https://game.example')).toBe(avatar);
+    expect(nativeApiResourceUrl('/assets/ui/default-profile.svg', true, 'https://game.example'))
+      .toBe('/assets/ui/default-profile.svg');
+  });
+
   it('uses neutral base atlases by default and complete atlases only for selected skins', () => {
     expect(skinMovementSheetUrl(DEFAULT_APPEARANCE))
       .toBe('/assets/paperdoll/bases/character-bunny/movement-sheet.png');

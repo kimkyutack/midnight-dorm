@@ -128,7 +128,7 @@ import {
   prepareStageClearReward,
   showStageClearReward,
 } from "./native/admob";
-import { nativeWebSocketUrlSync } from "./native/runtime";
+import { nativeApiResourceUrl, nativeWebSocketUrlSync } from "./native/runtime";
 import "./styles.css";
 
 initializeNativeRuntime();
@@ -502,11 +502,14 @@ const profileBadgeHtml = (
 ): string =>
   `<span class="rank-identity ${display.className}"><img class="rank-badge ${badgeClass}" src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}" /><b>${escapeHtml(display.rankText)}</b></span>`;
 const DEFAULT_PROFILE_AVATAR = "/assets/ui/default-profile.svg";
+const profileAvatarSource = (
+  avatarUrl: string | null | undefined,
+): string => nativeApiResourceUrl(avatarUrl || DEFAULT_PROFILE_AVATAR);
 const profileAvatarHtml = (
   avatarUrl: string | null | undefined,
   className = "player-face profile-avatar",
 ): string =>
-  `<img class="${className}" src="${escapeHtml(avatarUrl || DEFAULT_PROFILE_AVATAR)}" alt="" />`;
+  `<img class="${className}" src="${escapeHtml(profileAvatarSource(avatarUrl))}" alt="" />`;
 const playerPortraitHtml = (player: PlayerState): string =>
   // The same default profile artwork is used everywhere.  Falling back to a
   // character face in-game made the lobby/home identity appear to change.
@@ -882,8 +885,7 @@ function homeScreen(): void {
       ? currentAccount.multiplayerRank
       : currentAccount.soloRank;
   const profileDisplay = accountProfileDisplayInfo(currentAccount);
-  const profileAvatar =
-    currentAccount.profileAvatarUrl ?? DEFAULT_PROFILE_AVATAR;
+  const profileAvatar = profileAvatarSource(currentAccount.profileAvatarUrl);
   const benefits = rankBenefits(selectedNormalRank);
   const stage = selectedHomeStage(currentAccount, homePlayMode);
   const modeLabel =
@@ -1527,7 +1529,7 @@ function showProfileDisplayPicker(): void {
     })
     .join("");
   const modal = dismissibleModal(
-    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>PROFILE SETTINGS</small><h2 id="profile-display-title">프로필 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><section class="profile-photo-editor"><img src="${escapeHtml(currentAccount.profileAvatarUrl ?? DEFAULT_PROFILE_AVATAR)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/><div class="profile-name-editor"><strong>${escapeHtml(currentAccount.nickname)}</strong><button type="button" data-profile-nickname-edit aria-label="닉네임 변경">✎</button></div><div class="profile-photo-actions"><label class="btn ghost profile-photo-select">사진 선택<input type="file" accept="image/jpeg,image/png,image/webp" data-profile-photo-input/></label><button class="btn ghost" data-profile-avatar-reset ${currentAccount.profileAvatarUrl ? "" : "disabled"}>기본 이미지</button></div></section><h3 class="profile-display-heading">인게임 라벨 설정</h3><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
+    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>PROFILE SETTINGS</small><h2 id="profile-display-title">프로필 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><section class="profile-photo-editor"><img src="${escapeHtml(profileAvatarSource(currentAccount.profileAvatarUrl))}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/><div class="profile-name-editor"><strong>${escapeHtml(currentAccount.nickname)}</strong><button type="button" data-profile-nickname-edit aria-label="닉네임 변경">✎</button></div><div class="profile-photo-actions"><label class="btn ghost profile-photo-select">사진 선택<input type="file" accept="image/jpeg,image/png,image/webp" data-profile-photo-input/></label><button class="btn ghost" data-profile-avatar-reset ${currentAccount.profileAvatarUrl ? "" : "disabled"}>기본 이미지</button></div></section><h3 class="profile-display-heading">인게임 라벨 설정</h3><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
     "home-picker-modal profile-display-modal",
   );
   modal
@@ -5688,7 +5690,7 @@ function startSocialRealtime(): void {
 }
 
 function socialAvatarMarkup(person: SocialPerson, compact = false): string {
-  const avatar = person.avatarUrl ?? DEFAULT_PROFILE_AVATAR;
+  const avatar = profileAvatarSource(person.avatarUrl);
   return `<img class="social-avatar ${compact ? "compact" : ""}" src="${escapeHtml(avatar)}" alt="${escapeHtml(person.nickname)} 프로필 사진"/>`;
 }
 

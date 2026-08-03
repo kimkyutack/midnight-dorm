@@ -49,6 +49,20 @@ function nativeApiUrl(value: string): string {
   return `${nativeApiBaseUrl}${value}`;
 }
 
+/**
+ * Browser-managed resources such as <img src> do not pass through the fetch
+ * bridge. Resolve API-backed media against the remote Worker explicitly in a
+ * Capacitor app while leaving bundled assets and normal web URLs untouched.
+ */
+export function nativeApiResourceUrl(
+  value: string,
+  native = isNativeApp,
+  apiBase = nativeApiBaseUrl,
+): string {
+  if (!native || !apiBase || !value.startsWith('/api/')) return value;
+  return `${apiBase}${value}`;
+}
+
 export function installNativeFetchBridge(): void {
   if (!isNativeApp || fetchInstalled) return;
   fetchInstalled = true;
