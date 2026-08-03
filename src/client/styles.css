@@ -1167,8 +1167,8 @@
 }
 .home-profile-quick-actions {
   display: grid;
-  grid-template-columns: 36px;
-  gap: 5px;
+  grid-template-columns: 58px;
+  gap: 7px;
 }
 .home-update-notice,
 .home-event-missions,
@@ -1176,12 +1176,14 @@
 .home-ranking-shortcut,
 .home-guide {
   display: grid;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
-  min-height: 36px;
-  padding: 3px;
+  width: 58px;
+  min-width: 58px;
+  height: 62px;
+  min-height: 62px;
+  padding: 4px 3px 5px;
+  grid-template-rows: 37px minmax(11px, auto);
   place-items: center;
+  gap: 2px;
   border: 1px solid rgba(110, 222, 240, 0.34);
   border-radius: 12px;
   color: #edf7f8;
@@ -1214,8 +1216,8 @@
 .home-ad-free img,
 .home-ranking-shortcut img {
   display: block;
-  width: 29px;
-  height: 29px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.52));
 }
@@ -1230,9 +1232,22 @@
   );
 }
 .home-event-missions img {
-  width: 31px;
-  height: 31px;
+  width: 37px;
+  height: 37px;
   border-radius: 9px;
+}
+.home-quick-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(231, 245, 247, 0.9);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-event-alert {
   display: none;
@@ -1305,15 +1320,15 @@
   );
 }
 .home-ranking-shortcut img {
-  width: 32px;
-  height: 32px;
+  width: 39px;
+  height: 39px;
 }
 .home-guide {
   color: #9cecf1;
 }
 .home-guide svg {
-  width: 21px;
-  height: 21px;
+  width: 34px;
+  height: 34px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -9636,18 +9651,33 @@ body.game-chat-active {
   .home-update-notice,
   .home-event-missions,
   .home-ad-free,
-  .home-ranking-shortcut {
-    width: 34px;
-    min-width: 34px;
-    height: 34px;
-    min-height: 34px;
+  .home-ranking-shortcut,
+  .home-guide {
+    width: 54px;
+    min-width: 54px;
+    height: 58px;
+    min-height: 58px;
+    grid-template-rows: 34px minmax(10px, auto);
+    gap: 1px;
   }
   .home-update-notice img,
   .home-event-missions img,
   .home-ad-free img,
   .home-ranking-shortcut img {
-    width: 27px;
-    height: 27px;
+    width: 34px;
+    height: 34px;
+  }
+  .home-event-missions img {
+    width: 35px;
+    height: 35px;
+  }
+  .home-ranking-shortcut img,
+  .home-guide svg {
+    width: 36px;
+    height: 36px;
+  }
+  .home-quick-label {
+    font-size: 7px;
   }
   .home-avatar-showcase {
     left: 0;
