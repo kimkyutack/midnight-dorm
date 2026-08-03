@@ -21,6 +21,7 @@ export interface BotBedTarget {
 export type BotIntent =
   | { type: 'move'; dx: number; dy: number }
   | { type: 'interact' }
+  | { type: 'free-repair' }
   | { type: 'build'; roomId: string; tile: Tile; kind: BuildingKind }
   | { type: 'move-building'; buildingId: string; tile: Tile }
   | { type: 'upgrade'; targetId: string }
@@ -42,8 +43,11 @@ const distance = (a: { x: number; y: number }, b: { x: number; y: number }): num
 /** Stable roles make a bot team combine defence, firepower and control. */
 export function botStrategyFor(bot: Pick<PlayerState, 'id' | 'nickname'>): BotStrategy {
   const nicknameIndex = Number(bot.nickname.match(/(\d+)$/)?.[1] ?? Number.NaN);
-  const stableIndex = Number.isFinite(nicknameIndex)
-    ? Math.max(0, nicknameIndex - 1)
+  const idIndex = Number(bot.id.match(/^bot-(\d+)-/)?.[1] ?? Number.NaN);
+  const stableIndex = Number.isFinite(idIndex)
+    ? Math.max(0, idIndex - 1)
+    : Number.isFinite(nicknameIndex)
+      ? Math.max(0, nicknameIndex - 1)
     : [...bot.id].reduce((total, character) => total + character.charCodeAt(0), 0);
   return (['guardian', 'gunner', 'controller'] as const)[stableIndex % 3] ?? 'guardian';
 }
@@ -154,6 +158,16 @@ export function decideBotIntent(
       !ghost.retreating &&
       !ghost.healing,
   );
+  const pressuredGhost = snapshot.ghosts.find(
+    (ghost) => ghost.targetRoomId === room.id && ghost.hp > 0 && !ghost.healing,
+  );
+  const finishingGhost = snapshot.ghosts.find(
+    (ghost) =>
+      ghost.hp > 0 &&
+      !ghost.healing &&
+      ghost.retreating &&
+      distance(ghost.position, mapRoom.door) <= 7,
+  );
   const doorRatio = room.doorHp / Math.max(1, room.doorMaxHp);
   const stagePressure = Math.floor(snapshot.stageIndex / 40);
   const doorGoal = Math.min(
@@ -184,6 +198,7 @@ export function decideBotIntent(
       (strategy === 'gunner' ? 1 : 0),
   );
   const repair = owned.find((building) => building.kind === 'repair-drone');
+  const finisherNet = owned.find((building) => building.kind === 'ghost-net');
   const generator = owned.find(
     (building) => building.kind === 'generator' && building.ownerId === bot.id,
   );
@@ -197,6 +212,17 @@ export function decideBotIntent(
     (building) => building.kind === 'power-panel' && building.ownerId === bot.id,
   );
 
+  const freeRepairThreshold =
+    difficulty === 'easy' ? 0.45 : difficulty === 'normal' ? 0.62 : 0.78;
+  if (
+    pressure &&
+    doorRatio <= freeRepairThreshold &&
+    room.doorHp > 0 &&
+    snapshot.elapsed >= room.freeRepairReadyAt &&
+    snapshot.elapsed >= snapshot.repairSuppressedUntil
+  )
+    return { type: 'free-repair' };
+
   if (
     pressure &&
     hideAndSeek &&
@@ -209,8 +235,11 @@ export function decideBotIntent(
     };
   }
   if (
-    pressure &&
     overload &&
+    (finishingGhost || (
+      pressuredGhost &&
+      pressuredGhost.hp / Math.max(1, pressuredGhost.maxHp) <= 0.48
+    )) &&
     snapshot.elapsed >= (overload.overloadReadyAt ?? Number.POSITIVE_INFINITY)
   ) {
     return {
@@ -275,6 +304,24 @@ export function decideBotIntent(
   // establish firepower first, then repair and reinforce before greedier bed
   // or generator upgrades.
   if (pressure) {
+    if (
+      doorRatio < (difficulty === 'hard' ? 0.94 : 0.82) &&
+      room.doorLevel < doorGoal &&
+      canUpgradeRoomTarget('reinforced-door', room.doorLevel)
+    )
+      return { type: 'upgrade', targetId: `door:${room.id}` };
+    if (
+      doorRatio < (difficulty === 'hard' ? 0.88 : 0.68) &&
+      !repair &&
+      canBuild(bot, 'repair-drone')
+    ) {
+      const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+      if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
+    }
+    if (!finisherNet && guardianTurrets.length >= 1 && canBuild(bot, 'ghost-net')) {
+      const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+      if (tile) return { type: 'build', roomId: room.id, tile, kind: 'ghost-net' };
+    }
     const pressureTurretGoal = difficulty === 'hard'
       ? Math.max(2, turretCountGoal)
       : Math.max(1, turretCountGoal);
@@ -298,11 +345,11 @@ export function decideBotIntent(
     }
     const emergencySupport: BuildingKind[] =
       strategy === 'controller'
-        ? ['frost-turret', 'ghost-net', 'electric-coil']
+        ? ['ghost-net', 'frost-turret', 'electric-coil']
         : strategy === 'guardian'
           ? ['shield-device', 'reflect-mirror']
           : ['turret-enhancer', 'electric-coil'];
-    for (const kind of emergencySupport) {
+    for (const kind of finisherNet ? emergencySupport : []) {
       if (owned.some((building) => building.kind === kind)) continue;
       if (!canBuild(bot, kind)) continue;
       const tile = kind === 'turret-enhancer' && turret
@@ -342,28 +389,55 @@ export function decideBotIntent(
     const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
     if (tile) return { type: 'build', roomId: room.id, tile, kind: 'basic-turret' };
   }
+  if (
+    snapshot.stageIndex >= 11 &&
+    !repair &&
+    canBuild(bot, 'repair-drone')
+  ) {
+    const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+    if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
+  }
   if (bedLevel < bedGoal && canUpgradeRoomTarget('bed', bedLevel))
     return { type: 'upgrade', targetId: `bed:${room.id}:${bot.bedIndex ?? 0}` };
-  if (guardianTurrets.length < turretCountGoal && canBuild(bot, 'basic-turret')) {
-    const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
-    if (tile) return { type: 'build', roomId: room.id, tile, kind: 'basic-turret' };
-  }
   if (!generator && canBuild(bot, 'generator')) {
     const tile = freeTileFarthest(snapshot, mapRoom.buildTiles, mapRoom.door);
     if (tile) return { type: 'build', roomId: room.id, tile, kind: 'generator' };
+  }
+  if (guardianTurrets.length < turretCountGoal && canBuild(bot, 'basic-turret')) {
+    const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+    if (tile) return { type: 'build', roomId: room.id, tile, kind: 'basic-turret' };
   }
   if (
     room.doorLevel < doorGoal &&
     canUpgradeRoomTarget('reinforced-door', room.doorLevel)
   )
     return { type: 'upgrade', targetId: `door:${room.id}` };
+  const generatorGoal = Math.min(
+    maxBuildingLevel('generator'),
+    difficulty === 'easy' ? 2 : difficulty === 'normal' ? 3 : 4,
+  );
+  if (
+    generator &&
+    generator.level < generatorGoal &&
+    canUpgradeBuilding(generator)
+  )
+    return { type: 'upgrade', targetId: generator.id };
   if (turret && turret.level < turretGoal && canUpgradeBuilding(turret))
     return { type: 'upgrade', targetId: turret.id };
 
+  // A room that cannot hold the retreat line can only make the ghost stronger
+  // on every heal cycle. Every bot therefore saves power for one net before
+  // buying its role luxuries; this is the shared finisher that turns sustained
+  // turret damage into an actual clear instead of an endless stalemate.
+  if (!finisherNet && canBuild(bot, 'ghost-net')) {
+    const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+    if (tile) return { type: 'build', roomId: room.id, tile, kind: 'ghost-net' };
+  }
+
   const strategicPriority: Record<BotStrategy, BuildingKind[]> = {
     guardian: ['repair-drone', 'shield-device', 'reflect-mirror', 'door-anchor', 'power-panel', 'gem-core'],
-    gunner: ['turret-enhancer', 'electric-coil', 'overload-capacitor', 'power-panel', 'gem-core'],
-    controller: ['frost-turret', 'ghost-net', 'electric-coil', 'hide-and-seek-doll', 'power-panel', 'gem-core'],
+    gunner: ['electric-coil', 'overload-capacitor', 'turret-enhancer', 'power-panel', 'gem-core'],
+    controller: ['ghost-net', 'frost-turret', 'electric-coil', 'hide-and-seek-doll', 'power-panel', 'gem-core'],
   };
   const utilityPriority: BuildingKind[] =
     difficulty === 'easy'
@@ -373,7 +447,7 @@ export function decideBotIntent(
           ? ['turret-enhancer', 'gem-core']
           : ['frost-turret', 'gem-core']
       : strategicPriority[strategy];
-  for (const kind of utilityPriority) {
+  for (const kind of finisherNet ? utilityPriority : []) {
     if (owned.some((building) => building.kind === kind)) continue;
     if (!canBuild(bot, kind)) continue;
     const tile = kind === 'turret-enhancer' && turret

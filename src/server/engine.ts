@@ -42,6 +42,7 @@ import {
   higherRank,
   isEliteRank,
   rankBenefits,
+  rankIndex,
   rankLabel,
   recommendedRankForStage,
   TIME_ATTACK_EXPIRED_MESSAGE,
@@ -1002,7 +1003,10 @@ export class GameEngine {
       this.state.tutorial.reservedRoomId = reserved?.id ?? this.map.rooms[0]?.id ?? null;
       this.spawnTutorialLoot(this.state.tutorial.reservedRoomId);
     }
-    if (isEliteRank(player.displayRank)) {
+    // The first real player is the room creator. Showing an "entered" banner
+    // to that same player is redundant; elite arrival effects begin with the
+    // first later participant.
+    if (humans.length > 0 && isEliteRank(player.displayRank)) {
       this.pendingEvents.push({
         kind: "elite-join",
         playerId: player.id,
@@ -1058,8 +1062,8 @@ export class GameEngine {
       return { ok: false, error: "대기실에서만 봇을 추가할 수 있습니다." };
     if (this.state.players.length >= BALANCE.maxPlayersWithBots)
       return { ok: false, error: "생존자는 최대 4명입니다." };
-    const id = `bot-${crypto.randomUUID()}`;
     const botIndex = this.state.players.filter((player) => player.isBot).length;
+    const id = `bot-${botIndex + 1}-${crypto.randomUUID()}`;
     const recommendedRank = recommendedRankForStage(this.stage);
     const nickname = this.state.ranked
       ? rankedBotNickname(
@@ -3152,6 +3156,9 @@ export class GameEngine {
       if (runtime.reaction > 0) continue;
       runtime.reaction =
         BOT_REACTION_SECONDS[difficulty] *
+        Math.max(0.48, 1 - rankIndex(
+          this.playMode === 'solo' ? bot.soloRank : bot.multiplayerRank,
+        ) * 0.065) *
         (0.8 + this.rng.next() * 0.45);
       const intent = decideBotIntent(
         bot,
@@ -3277,6 +3284,7 @@ export class GameEngine {
       if (bot) bot.velocity = { x: 0, y: 0 };
       if (runtime) runtime.lastMove = null;
       if (intent.type === "interact") result = this.interact(botId);
+      else if (intent.type === 'free-repair') result = this.startFreeRepair(botId);
       else if (intent.type === "build")
         result = this.build(botId, intent.roomId, intent.tile, intent.kind);
       else if (intent.type === "move-building")

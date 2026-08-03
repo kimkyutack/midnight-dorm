@@ -31,6 +31,7 @@ import {
   CYBERPUNK_NEON_TILE_SKIN_ID,
   DEFAULT_TILE_SKIN_ID,
   LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+  SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
   defaultSkinForCharacter,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
@@ -57,6 +58,11 @@ import {
   isUpdateAvailable,
   type AppUpdate,
 } from "../shared/appUpdates";
+import type {
+  EventMissionOverview,
+  EventMissionPeriod,
+  EventMissionProgress,
+} from "../shared/eventMissions";
 import { buildForceRefreshUrl } from "./pwaRefresh";
 import type {
   AccountProfile,
@@ -91,6 +97,8 @@ import {
   dismissPromotion,
   equipCosmetic,
   getAccount,
+  getEventMissions,
+  claimEventMissions,
   claimMatchReward,
   loginAccount,
   logoutAccount,
@@ -187,6 +195,7 @@ interface MailboxMessage {
 }
 let mailboxUnreadCount = 0;
 let socialUnreadCount = 0;
+let eventMissionOverviewCache: EventMissionOverview | null = null;
 let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
 interface SocialRealtimeEvent {
@@ -523,6 +532,7 @@ function backgroundTrackForView(view: string): BackgroundTrack | null {
     view === "room-menu" ||
     view === "lobby" ||
     view === "ranked-queue" ||
+    view === "events" ||
     view === "result"
   ) {
     return "main";
@@ -899,9 +909,11 @@ function homeScreen(): void {
       ? `${currentAccount.ranked.seasonId} 시즌 계약`
       : stage.label;
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
+  const eventClaimable = (eventMissionOverviewCache?.claimableCount ?? 0) > 0;
+  const eventNeedsStart = eventMissionOverviewCache !== null && !eventMissionOverviewCache.hasProgress;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-event-missions" data-event-missions aria-label="이벤트와 미션"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt=""/><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><span class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</span></button><button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/></button>${guideButtonMarkup("battle", "home-guide")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
@@ -951,6 +963,10 @@ function homeScreen(): void {
     audio.play("button");
     showRankingPreview();
   });
+  app.querySelector("[data-event-missions]")?.addEventListener("click", () => {
+    audio.play("button");
+    void eventMissionScreen();
+  });
   app.querySelector("[data-mailbox]")?.addEventListener("click", () => {
     audio.play("button");
     void showMailbox();
@@ -972,8 +988,150 @@ function homeScreen(): void {
   });
   void refreshMailboxUnreadCount();
   void refreshSocialUnreadCount();
+  void refreshHomeEventMissionStatus();
   startSocialRealtime();
   showSkinLaunchPromoCarousel();
+}
+
+async function refreshHomeEventMissionStatus(): Promise<void> {
+  try {
+    eventMissionOverviewCache = await getEventMissions();
+    if (account) account.customPoints = eventMissionOverviewCache.customPoints;
+    if (currentView !== "home") return;
+    app
+      .querySelector("[data-event-alert]")
+      ?.classList.toggle("visible", eventMissionOverviewCache.claimableCount > 0);
+    app
+      .querySelector("[data-event-nudge]")
+      ?.classList.toggle(
+        "visible",
+        eventMissionOverviewCache.claimableCount === 0 &&
+          !eventMissionOverviewCache.hasProgress,
+      );
+  } catch {
+    if (currentView !== "home") return;
+    app.querySelector("[data-event-alert]")?.classList.remove("visible");
+    app.querySelector("[data-event-nudge]")?.classList.remove("visible");
+  }
+}
+
+function eventMissionResetLabel(period: EventMissionPeriod, resetsAt: number): string {
+  if (period === "daily") {
+    return "매일 00:00 초기화";
+  }
+  const reset = new Date(resetsAt);
+  return `매주 월요일 초기화 · ${new Intl.DateTimeFormat("ko-KR", {
+    month: "long",
+    day: "numeric",
+    timeZone: "Asia/Seoul",
+  }).format(reset)}까지`;
+}
+
+function eventMissionCardMarkup(mission: EventMissionProgress): string {
+  const progress = Math.min(mission.progress, mission.target);
+  const progressPercent = Math.round((progress / mission.target) * 100);
+  const status = mission.claimed
+    ? `<span class="event-mission-claimed">수령 완료</span>`
+    : mission.claimable
+      ? `<button data-claim-mission="${mission.id}">받기</button>`
+      : `<span class="event-mission-count">${progress}/${mission.target}</span>`;
+  return `<article class="event-mission-card ${mission.claimable ? "claimable" : ""} ${mission.claimed ? "claimed" : ""}">
+    <div class="event-mission-copy"><small>${mission.period === "daily" ? "DAILY" : "WEEKLY"}</small><strong>${escapeHtml(mission.title)}</strong><p>${escapeHtml(mission.description)}</p><div class="event-mission-progress" aria-label="${progress}/${mission.target} 진행"><i style="width:${progressPercent}%"></i></div></div>
+    <div class="event-mission-reward"><b>✦ ${mission.rewardPoints} P</b>${status}</div>
+  </article>`;
+}
+
+function renderEventMissionScreen(
+  overview: EventMissionOverview,
+  activePeriod: EventMissionPeriod,
+): void {
+  const period = overview.periods[activePeriod];
+  setContent(
+    "events",
+    `<main class="event-screen">
+      <div class="event-screen-backdrop"></div>
+      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>EVENT CENTER</span><h1>이벤트</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
+      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="미션 이벤트"/><div><small>MIDNIGHT ORDERS</small><h2>새벽 생존 임무</h2><p>매일과 매주 갱신되는 임무를 달성하고 포인트를 받으세요.</p></div></section>
+      <nav class="event-tabs" aria-label="이벤트 종류"><button class="${activePeriod === "daily" ? "active" : ""}" data-event-period="daily">일일 미션</button><button class="${activePeriod === "weekly" ? "active" : ""}" data-event-period="weekly">주간 미션</button></nav>
+      <section class="event-mission-section"><header><div><small>${activePeriod === "daily" ? "TODAY" : "THIS WEEK"}</small><strong>${activePeriod === "daily" ? "오늘의 생존 지령" : "주간 생존 작전"}</strong></div><span>${eventMissionResetLabel(activePeriod, period.resetsAt)}</span></header><div class="event-mission-list">${period.missions.map(eventMissionCardMarkup).join("")}</div></section>
+      <footer class="event-claim-footer"><span>${overview.claimableCount > 0 ? `수령 가능한 보상 ${overview.claimableCount}개` : "수령 가능한 보상이 없습니다"}</span><button data-claim-all ${overview.claimableCount > 0 ? "" : "disabled"}>보상 일괄수령</button></footer>
+    </main>`,
+  );
+  app.querySelector("[data-event-back]")?.addEventListener("click", () => {
+    audio.play("button");
+    homeScreen();
+  });
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-event-period]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        audio.play("button");
+        renderEventMissionScreen(
+          overview,
+          button.dataset.eventPeriod === "weekly" ? "weekly" : "daily",
+        );
+      }),
+    );
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-claim-mission]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        const missionId = button.dataset.claimMission;
+        if (!missionId) return;
+        void claimMissionRewards([missionId], activePeriod);
+      }),
+    );
+  app.querySelector<HTMLButtonElement>("[data-claim-all]")?.addEventListener("click", () => {
+    void claimMissionRewards([], activePeriod);
+  });
+}
+
+async function claimMissionRewards(
+  missionIds: readonly string[],
+  activePeriod: EventMissionPeriod,
+): Promise<void> {
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-claim-mission], [data-claim-all]")
+    .forEach((button) => {
+      button.disabled = true;
+    });
+  try {
+    const result = await claimEventMissions(missionIds);
+    eventMissionOverviewCache = result.overview;
+    if (account) account.customPoints = result.overview.customPoints;
+    renderEventMissionScreen(result.overview, activePeriod);
+    if (result.awardedPoints > 0) {
+      audio.play("item-pickup");
+      toast(`미션 보상 ${result.awardedPoints.toLocaleString()}P를 받았습니다.`);
+    } else {
+      toast("새로 수령할 수 있는 보상이 없습니다.");
+    }
+  } catch (error) {
+    if (eventMissionOverviewCache) {
+      renderEventMissionScreen(eventMissionOverviewCache, activePeriod);
+    }
+    toast(error instanceof Error ? error.message : "미션 보상을 수령하지 못했습니다.");
+  }
+}
+
+async function eventMissionScreen(): Promise<void> {
+  setContent(
+    "events",
+    loadingMarkup("이벤트를 불러오는 중", "오늘의 생존 지령을 확인하고 있습니다."),
+  );
+  try {
+    eventMissionOverviewCache = await getEventMissions();
+    if (account) account.customPoints = eventMissionOverviewCache.customPoints;
+    if (currentView !== "events") return;
+    renderEventMissionScreen(eventMissionOverviewCache, "daily");
+  } catch (error) {
+    if (currentView !== "events") return;
+    setContent(
+      "events",
+      `<main class="screen"><section class="panel compact"><span class="eyebrow">EVENT CENTER</span><h2>이벤트를 열지 못했습니다</h2><p class="subtitle">${escapeHtml(error instanceof Error ? error.message : "잠시 후 다시 시도해주세요.")}</p><button class="btn primary" data-event-back>홈으로</button></section></main>`,
+    );
+    app.querySelector("[data-event-back]")?.addEventListener("click", homeScreen);
+  }
 }
 
 function adFreeStatusText(profile: AccountProfile): string {
@@ -1068,7 +1226,7 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
     eyebrow: "SPECIAL OPS PREMIUM",
     title: "극비 작전<br/>개시!",
     body: "현장을 장악하는 강력계 크로크와<br/>그림자처럼 움직이는 몽키를 만나보세요.",
-    footnote: "프리미엄 2종 · 각 5,000 P",
+    footnote: "프리미엄 2종 · 각 8,000 P",
   },
   {
     id: "summer",
@@ -1081,7 +1239,7 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
     eyebrow: "SUMMER SPECIAL SKINS",
     title: "썸머 특별 스킨<br/>동시 출시!",
     body: "파도를 타는 서퍼 몽과<br/>해변을 지키는 구조대 라온을 만나보세요.",
-    footnote: "여름 한정 2종 · 각 5,000 P",
+    footnote: "여름 한정 2종 · 각 8,000 P",
   },
   {
     id: "cyberpunk",
@@ -1094,12 +1252,34 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
     eyebrow: "CYBERPUNK PREMIUM",
     title: "네온 시티를<br/>질주하라!",
     body: "네온 라이더 루루와<br/>사이버 드라이버 콩이 도착했습니다.",
-    footnote: "프리미엄 2종 · 각 5,000 P",
+    footnote: "프리미엄 2종 · 각 8,000 P",
   },
 ] as const;
 
 function skinLaunchPromoDismissed(campaign: SkinLaunchCampaign): boolean {
   return account?.dismissedPromotionIds.includes(campaign.id) ?? false;
+}
+
+function storefrontThemeVisible(itemId: string, profile: AccountProfile): boolean {
+  const theme = (profile.storefrontThemes ?? []).find((candidate) =>
+    candidate.cosmeticIds.includes(itemId),
+  );
+  return theme?.isStoreVisible ?? true;
+}
+
+function storefrontCampaignOrder(campaign: SkinLaunchCampaign, profile: AccountProfile): number {
+  return (profile.promotionCampaigns ?? []).find((setting) => setting.id === campaign.id)?.sortOrder
+    ?? SKIN_LAUNCH_CAMPAIGNS.indexOf(campaign);
+}
+
+function storefrontCampaignVisible(campaign: SkinLaunchCampaign, profile: AccountProfile): boolean {
+  const campaignSetting = (profile.promotionCampaigns ?? []).find(
+    (setting) => setting.id === campaign.id,
+  );
+  const themeSetting = (profile.storefrontThemes ?? []).find(
+    (setting) => setting.id === campaign.id,
+  );
+  return (campaignSetting?.isVisible ?? true) && (themeSetting?.isStoreVisible ?? true);
 }
 
 function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
@@ -1131,10 +1311,13 @@ function showSkinLaunchPromoCarousel(): void {
   const currentAccount = account;
   const campaigns = SKIN_LAUNCH_CAMPAIGNS.filter(
     (campaign) =>
-      !skinLaunchPromoDismissed(campaign)
+      storefrontCampaignVisible(campaign, currentAccount)
+      && !skinLaunchPromoDismissed(campaign)
       && !campaign.ownedSkinIds.every((skinId) =>
         currentAccount.ownedCosmetics.includes(skinId),
       ),
+  ).sort((left, right) =>
+    storefrontCampaignOrder(left, currentAccount) - storefrontCampaignOrder(right, currentAccount),
   );
   if (!campaigns.length) return;
   skinLaunchPromoShownForAccountId = currentAccount.id;
@@ -1888,15 +2071,19 @@ function cosmeticCollectionScreen(
   const catalog = cosmeticsForSlot(selectedSlot).filter(
     (item) =>
       (shopping || cosmeticEntitled(item, currentAccount)) &&
+      (!shopping || storefrontThemeVisible(item.id, currentAccount)) &&
       (selectedSlot !== "tile" || item.id !== DEFAULT_TILE_SKIN_ID) &&
       (selectedSlot !== "turret" ||
         item.id === CYBERPUNK_LASER_TURRET_SKIN_ID ||
+        item.id === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID ||
         item.id === SURFER_WATER_TURRET_SKIN_ID ||
         item.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID),
   );
   const displayCatalog =
     selectedSlot === "turret"
       ? [...catalog].sort((left, right) => {
+          if (left.id === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) return -1;
+          if (right.id === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) return 1;
           if (left.id === CYBERPUNK_LASER_TURRET_SKIN_ID) return -1;
           if (right.id === CYBERPUNK_LASER_TURRET_SKIN_ID) return 1;
           if (left.id === SURFER_WATER_TURRET_SKIN_ID) return -1;
@@ -1923,6 +2110,19 @@ function cosmeticCollectionScreen(
             return leftOrder - rightOrder;
           })
         : catalog;
+  const preferredPreviewId =
+    selectedSlot === "skin"
+      ? POLICE_ENFORCER_CROCO_SKIN_ID
+      : selectedSlot === "tile"
+        ? CYBERPUNK_NEON_TILE_SKIN_ID
+        : selectedSlot === "turret"
+          ? CYBERPUNK_LASER_TURRET_SKIN_ID
+          : undefined;
+  const initialCatalogPreviewId = shopping
+    ? displayCatalog.find((item) => item.id === previewItemId)?.id
+      ?? displayCatalog.find((item) => item.id === preferredPreviewId)?.id
+      ?? displayCatalog[0]?.id
+    : previewItemId;
   const cards = displayCatalog
     .map((item) => {
       const selected =
@@ -1946,14 +2146,6 @@ function cosmeticCollectionScreen(
         || premiumCyberKong
         || premiumPoliceCroco
         || premiumSecretMonkey;
-      const initialCatalogPreviewId =
-        selectedSlot === "skin"
-          ? (previewItemId ?? POLICE_ENFORCER_CROCO_SKIN_ID)
-          : selectedSlot === "tile"
-            ? (previewItemId ?? CYBERPUNK_NEON_TILE_SKIN_ID)
-            : selectedSlot === "turret"
-              ? (previewItemId ?? CYBERPUNK_LASER_TURRET_SKIN_ID)
-              : previewItemId;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
@@ -2052,12 +2244,12 @@ function cosmeticCollectionScreen(
   const character = cosmeticById(appearance.character);
   const activeSkin = cosmeticById(appearance.skin);
   const initialTilePreviewId = shopping
-    ? (previewItemId ?? CYBERPUNK_NEON_TILE_SKIN_ID)
+    ? initialCatalogPreviewId
     : (previewItemId ??
       displayCatalog.find((item) => item.id === appearance.tileSkin)?.id ??
       displayCatalog[0]?.id);
   const initialTurretPreviewId = shopping
-    ? (previewItemId ?? CYBERPUNK_LASER_TURRET_SKIN_ID)
+    ? initialCatalogPreviewId
     : (displayCatalog.find((item) => item.id === previewItemId)?.id ??
       displayCatalog.find(
         (item) =>
@@ -2068,7 +2260,9 @@ function cosmeticCollectionScreen(
   const initialPreviewItem =
     selectedSlot === "skin"
       ? shopping
-        ? cosmeticById(previewItemId ?? POLICE_ENFORCER_CROCO_SKIN_ID)
+        ? initialCatalogPreviewId
+          ? cosmeticById(initialCatalogPreviewId)
+          : undefined
         : undefined
       : selectedSlot === "tile"
         ? initialTilePreviewId

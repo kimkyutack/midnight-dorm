@@ -1,8 +1,9 @@
 import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
-import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedTier, TurretKind, TurretSkinLoadout } from '../shared/types';
+import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, PromotionCampaignSetting, RankedTier, StorefrontThemeId, StorefrontThemeSetting, TurretKind, TurretSkinLoadout } from '../shared/types';
 import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributionSummary } from './rankedScoring';
+import { claimEventMissionRewards, ensureEventMissionSchema, eventMissionOverview, recordLoginMissionProgress, recordRankedCompletionMissionProgress, recordStageClearMissionProgress } from './eventMissions';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const SESSION_COOKIE = 'midnight_session';
@@ -19,6 +20,30 @@ const RANKED_CONTRACTS_PER_SEASON = 14;
 const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
 const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 const PROMOTION_IDS = new Set(['summer', 'cyberpunk', 'special-ops']);
+const STOREFRONT_THEMES = [
+  {
+    id: 'summer', label: '여름 테마', sortOrder: 20,
+    cosmeticIds: [
+      'skin-look-puppy-surfer', 'skin-look-tiger-lifeguard',
+      'tile-wave-surfer', 'tile-beach-lifeguard',
+      'turret-basic-surfer-water', 'turret-basic-lifeguard-parasol',
+    ],
+  },
+  {
+    id: 'cyberpunk', label: '사이버펑크 테마', sortOrder: 30,
+    cosmeticIds: [
+      'skin-look-cat-neon-rider', 'skin-look-hamster-cyber-driver',
+      'tile-cyberpunk-neon', 'turret-basic-cyberpunk-laser',
+    ],
+  },
+  {
+    id: 'special-ops', label: '특수수사본부 테마', sortOrder: 10,
+    cosmeticIds: [
+      'skin-look-crocodile-police-enforcer', 'skin-look-monkey-secret-agent',
+      'tile-special-ops-headquarters', 'turret-basic-special-ops-tracker',
+    ],
+  },
+] as const;
 const AD_FREE_ENTITLEMENT_ID = 'ad-removal';
 const AD_FREE_MONTH_MS = 30 * 24 * 60 * 60 * 1_000;
 
@@ -77,6 +102,20 @@ interface ConsumableRow {
 interface AdFreeEntitlementRow {
   plan: string;
   expires_at: number | null;
+}
+
+interface PromotionCampaignRow {
+  id: StorefrontThemeId;
+  is_visible: number;
+  sort_order: number;
+}
+
+interface StorefrontThemeRow {
+  id: StorefrontThemeId;
+  is_store_visible: number;
+  sort_order: number;
+  cosmetic_id: string | null;
+  item_order: number | null;
 }
 
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
@@ -192,6 +231,27 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
       PRIMARY KEY (account_id, promotion_id)
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_promotion_dismissals_account ON account_promotion_dismissals(account_id, dismissed_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS promotion_campaigns (
+      id TEXT PRIMARY KEY,
+      is_visible INTEGER NOT NULL DEFAULT 1 CHECK (is_visible IN (0, 1)),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_promotion_campaigns_listing ON promotion_campaigns(is_visible, sort_order, id)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS cosmetic_theme_settings (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      is_store_visible INTEGER NOT NULL DEFAULT 1 CHECK (is_store_visible IN (0, 1)),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS cosmetic_theme_items (
+      theme_id TEXT NOT NULL REFERENCES cosmetic_theme_settings(id) ON DELETE CASCADE,
+      cosmetic_id TEXT NOT NULL,
+      item_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (theme_id, cosmetic_id)
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_cosmetic_theme_items_cosmetic ON cosmetic_theme_items(cosmetic_id, theme_id)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_entitlements (
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       entitlement_id TEXT NOT NULL,
@@ -212,6 +272,20 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   await ensureLegacyAuthColumns(db);
   await ensureRankedResultColumns(db);
   await ensureMatchRewardColumns(db);
+  await ensureEventMissionSchema(db);
+  const configNow = Date.now();
+  await db.batch([
+    ...STOREFRONT_THEMES.map((theme) => db.prepare(`INSERT OR IGNORE INTO promotion_campaigns
+      (id, is_visible, sort_order, updated_at) VALUES (?, 1, ?, ?)`)
+      .bind(theme.id, theme.sortOrder, configNow)),
+    ...STOREFRONT_THEMES.map((theme) => db.prepare(`INSERT OR IGNORE INTO cosmetic_theme_settings
+      (id, label, is_store_visible, sort_order, updated_at) VALUES (?, ?, 1, ?, ?)`)
+      .bind(theme.id, theme.label, theme.sortOrder, configNow)),
+    ...STOREFRONT_THEMES.flatMap((theme) => theme.cosmeticIds.map((cosmeticId, itemOrder) =>
+      db.prepare(`INSERT OR IGNORE INTO cosmetic_theme_items
+        (theme_id, cosmetic_id, item_order) VALUES (?, ?, ?)`)
+        .bind(theme.id, cosmeticId, itemOrder))),
+  ]);
   await db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_match_reward_claim
     AFTER UPDATE OF reward_claimed_at ON match_results
     WHEN OLD.reward_claimed_at = 0
@@ -279,6 +353,8 @@ function profileFromRow(
   dismissedPromotionIds: string[],
   generalMatchCount: number,
   adFreeEntitlement: AdFreeEntitlementRow | null,
+  promotionCampaigns: PromotionCampaignSetting[],
+  storefrontThemes: StorefrontThemeSetting[],
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
@@ -371,6 +447,8 @@ function profileFromRow(
     turretSkins: parseTurretSkins(turretLoadout?.skins),
     consumables: normalizedConsumables,
     dismissedPromotionIds: [...new Set(dismissedPromotionIds.filter((promotionId) => PROMOTION_IDS.has(promotionId)))],
+    promotionCampaigns,
+    storefrontThemes,
     tutorialCompleted: Boolean(row.tutorial_completed),
     createdAt: row.created_at,
   };
@@ -409,7 +487,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       ranked_contracts_played: 0,
     };
   }
-  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches, adFreeEntitlement] = await Promise.all([
+  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches, adFreeEntitlement, promotionCampaignRows, storefrontThemeRows] = await Promise.all([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id).first<CustomizationRow>(),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
@@ -441,6 +519,14 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     db.prepare(`SELECT plan, expires_at FROM account_entitlements
       WHERE account_id = ? AND entitlement_id = ?`)
       .bind(row.id, AD_FREE_ENTITLEMENT_ID).first<AdFreeEntitlementRow>(),
+    db.prepare(`SELECT id, is_visible, sort_order FROM promotion_campaigns
+      ORDER BY sort_order ASC, id ASC`).all<PromotionCampaignRow>(),
+    db.prepare(`SELECT s.id, s.is_store_visible, s.sort_order,
+        i.cosmetic_id, i.item_order
+      FROM cosmetic_theme_settings s
+      LEFT JOIN cosmetic_theme_items i ON i.theme_id = s.id
+      ORDER BY s.sort_order ASC, s.id ASC, i.item_order ASC, i.cosmetic_id ASC`)
+      .all<StorefrontThemeRow>(),
   ]);
   const generalMatchCount = Math.max(0, generalMatches?.count ?? 0);
   if (
@@ -472,6 +558,25 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     (dismissedPromotions.results ?? []).map((item) => item.promotion_id),
     generalMatchCount,
     adFreeEntitlement,
+    (promotionCampaignRows.results ?? [])
+      .filter((campaign) => PROMOTION_IDS.has(campaign.id))
+      .map((campaign) => ({
+        id: campaign.id,
+        isVisible: campaign.is_visible === 1,
+        sortOrder: campaign.sort_order,
+      })),
+    [...(storefrontThemeRows.results ?? []).reduce((themes, row) => {
+      if (!PROMOTION_IDS.has(row.id)) return themes;
+      const existing = themes.get(row.id) ?? {
+        id: row.id,
+        isStoreVisible: row.is_store_visible === 1,
+        sortOrder: row.sort_order,
+        cosmeticIds: [],
+      };
+      if (row.cosmetic_id) existing.cosmeticIds.push(row.cosmetic_id);
+      themes.set(row.id, existing);
+      return themes;
+    }, new Map<StorefrontThemeId, StorefrontThemeSetting>()).values()],
   );
   profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);
   return profile;
@@ -620,6 +725,7 @@ async function register(
         .bind(session.tokenHash, id, session.expiresAt, session.createdAt),
     ]);
     const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
+    await recordLoginMissionProgress(db, id, now);
     return nativeSessionResponse(request, await profileForRow(db, row as AccountRow), session.token);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -660,6 +766,7 @@ async function login(request: Request, db: D1Database): Promise<Response> {
     return genericError();
   }
   await db.prepare('UPDATE accounts SET login_failures = 0, locked_until = 0, last_login_at = ?, updated_at = ? WHERE id = ?').bind(now, now, row.id).run();
+  await recordLoginMissionProgress(db, row.id, now);
   const token = await createSession(db, row.id);
   return nativeSessionResponse(request, await profileForRow(db, row), token);
 }
@@ -734,6 +841,7 @@ async function googleLogin(
   const now = Date.now();
   await db.prepare('UPDATE accounts SET last_login_at = ?, updated_at = ? WHERE id = ?')
     .bind(now, now, identity.id).run();
+  await recordLoginMissionProgress(db, identity.id, now);
   const token = await createSession(db, identity.id);
   return nativeSessionResponse(request, await profileForRow(db, identity), token);
 }
@@ -795,6 +903,7 @@ async function completeGoogleSignup(request: Request, db: D1Database): Promise<R
     return Response.json({ error: 'Google 계정을 게임 계정에 연결하지 못했습니다.' }, { status: 503 });
   }
   const row = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(accountId).first<AccountRow>();
+  await recordLoginMissionProgress(db, accountId, now);
   return nativeSessionResponse(request, await profileForRow(db, row as AccountRow), session.token);
 }
 
@@ -961,6 +1070,10 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
 
   if (action === 'purchase') {
     if (item.unlock.kind !== 'points') return Response.json({ error: '이 아이템은 구매 대상이 아닙니다.' }, { status: 400 });
+    const hiddenTheme = profile.storefrontThemes.find(
+      (theme) => !theme.isStoreVisible && theme.cosmeticIds.includes(item.id),
+    );
+    if (hiddenTheme) return Response.json({ error: '현재 상점에서 판매하지 않는 테마 아이템입니다.' }, { status: 404 });
     if (item.slot === 'skin' && (!item.characterId || !characterAvailable(item.characterId, profile.displayRank, profile.ownedCosmetics))) {
       return Response.json({ error: '먼저 이 스킨의 캐릭터를 보유해야 합니다.' }, { status: 403 });
     }
@@ -1216,6 +1329,7 @@ export async function routeAuth(
     && !url.pathname.startsWith('/api/shop/')
     && !url.pathname.startsWith('/api/rewards/')
     && !url.pathname.startsWith('/api/entitlements/')
+    && !url.pathname.startsWith('/api/events/')
   ) return null;
   try {
     if (url.pathname === '/api/auth/google/config' && request.method === 'GET') {
@@ -1259,9 +1373,34 @@ export async function routeAuth(
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);
     if (url.pathname === '/api/rewards/match/claim' && request.method === 'POST') return claimMatchReward(request, db);
+    if (url.pathname === '/api/events/missions' && request.method === 'GET') {
+      const profile = await authenticatedProfileFromReadySchema(request, db);
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      await recordLoginMissionProgress(db, profile.id, Date.now(), bootstrapSchema);
+      return Response.json(
+        { overview: await eventMissionOverview(db, profile.id, Date.now(), bootstrapSchema) },
+        { headers: { 'cache-control': 'no-store' } },
+      );
+    }
+    if (url.pathname === '/api/events/missions/claim' && request.method === 'POST') {
+      if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+      const profile = await authenticatedProfileFromReadySchema(request, db);
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      let body: { missionIds?: unknown };
+      try { body = await request.json(); } catch { body = {}; }
+      const missionIds = Array.isArray(body.missionIds)
+        ? body.missionIds.filter((id): id is string => typeof id === 'string').slice(0, 20)
+        : [];
+      return Response.json(
+        await claimEventMissionRewards(db, profile.id, missionIds, Date.now(), bootstrapSchema),
+        { headers: { 'cache-control': 'no-store' } },
+      );
+    }
     if (url.pathname === '/api/entitlements/ad-free/purchase' && request.method === 'POST') return purchaseMockAdFree(request, db);
     if (url.pathname === '/api/auth/me' && request.method === 'GET') {
-      const profile = await authenticatedProfileFromReadySchema(request, db);
+      const row = await authenticatedRowFromReadySchema(request, db);
+      if (row) await recordLoginMissionProgress(db, row.id, Date.now(), bootstrapSchema);
+      const profile = row ? await profileForRow(db, row) : null;
       return profile ? Response.json({ profile, stages: STAGES }) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
     return Response.json({ error: '지원하지 않는 인증 요청입니다.' }, { status: 404 });
@@ -1324,6 +1463,9 @@ export async function recordMatchResult(
     db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
       .bind(tutorialMatch ? points : 0, now, input.accountId),
   ]);
+  if (input.victory && !tutorialMatch) {
+    await recordStageClearMissionProgress(db, input.accountId, now, bootstrapSchema);
+  }
 }
 
 export async function recordRankedMatchResult(
@@ -1426,6 +1568,9 @@ export async function recordRankedMatchResult(
       now,
       input.accountId,
     ).run();
+  if (!input.contribution.abandoned) {
+    await recordRankedCompletionMissionProgress(db, input.accountId, now, bootstrapSchema);
+  }
 }
 
 export interface RankedLeaderboardEntry {

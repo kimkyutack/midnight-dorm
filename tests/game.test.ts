@@ -10,6 +10,7 @@ import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, isGoldProducingBuilding, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
 import { SHOP_CONSUMABLES } from '../src/shared/shopConsumables';
+import { EVENT_MISSIONS, eventMissionPeriodWindow } from '../src/shared/eventMissions';
 import { stageThemeFor } from '../src/shared/stageThemes';
 import { tutorialGuidedBuildTile } from '../src/shared/tutorial';
 import { DOOR_VISUALS, doorVisualForLevel } from '../src/shared/doorVisuals';
@@ -156,7 +157,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.03.4')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.2')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -994,7 +995,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(WAVE_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '파도 타일',
-      unlock: { kind: 'points', price: 1_000 },
+      unlock: { kind: 'points', price: 1_800 },
     });
     expect(tileSkinTextureUrl(WAVE_TILE_SKIN_ID)).toBe('/assets/tiles/skin-wave/wave-tile.webp');
     expect(tileSkinTextureUrl(DEFAULT_TILE_SKIN_ID)).toBeUndefined();
@@ -1004,7 +1005,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(BEACH_SAND_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '모래사장 타일',
-      unlock: { kind: 'points', price: 1_000 },
+      unlock: { kind: 'points', price: 1_800 },
     });
     expect(tileSkinTextureUrl(BEACH_SAND_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-beach-sand/sand-tile.webp',
@@ -1015,7 +1016,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(CYBERPUNK_NEON_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '네온 회로 타일',
-      unlock: { kind: 'points', price: 1_000 },
+      unlock: { kind: 'points', price: 1_800 },
     });
     expect(tileSkinTextureUrl(CYBERPUNK_NEON_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-cyberpunk-neon/neon-circuit-tile.webp',
@@ -1026,19 +1027,19 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '특수수사본부 타일',
-      unlock: { kind: 'points', price: 1_000 },
+      unlock: { kind: 'points', price: 1_800 },
     });
     expect(tileSkinTextureUrl(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-special-ops-headquarters/investigation-floor.webp',
     );
   });
 
-  it('sells the surfer water turret as a neutral 1,500 point cosmetic', () => {
+  it('sells the surfer water turret as a neutral 2,500 point cosmetic', () => {
     expect(cosmeticById(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
       slot: 'turret',
       turretKind: 'basic-turret',
       label: '서퍼 물총포',
-      unlock: { kind: 'points', price: 1_500 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(turretSkinTrait(SURFER_WATER_TURRET_SKIN_ID)).toMatchObject({
       turretKind: 'basic-turret',
@@ -1048,12 +1049,12 @@ describe('survivor customization rules', () => {
     });
   });
 
-  it('sells the lifeguard parasol turret as a neutral 1,500 point cosmetic', () => {
+  it('sells the lifeguard parasol turret as a neutral 2,500 point cosmetic', () => {
     expect(cosmeticById(LIFEGUARD_PARASOL_TURRET_SKIN_ID)).toMatchObject({
       slot: 'turret',
       turretKind: 'basic-turret',
       label: '파라솔 포탑',
-      unlock: { kind: 'points', price: 1_500 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(turretSkinTrait(LIFEGUARD_PARASOL_TURRET_SKIN_ID)).toMatchObject({
       turretKind: 'basic-turret',
@@ -1068,7 +1069,7 @@ describe('survivor customization rules', () => {
       slot: 'turret',
       turretKind: 'basic-turret',
       label: '네온 레이저포',
-      unlock: { kind: 'points', price: 1_500 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(turretSkinTrait(CYBERPUNK_LASER_TURRET_SKIN_ID)).toMatchObject({
       turretKind: 'basic-turret',
@@ -1089,7 +1090,7 @@ describe('survivor customization rules', () => {
       slot: 'turret',
       turretKind: 'basic-turret',
       label: '기밀 추적포',
-      unlock: { kind: 'points', price: 1_500 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(turretSkinTrait(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID)).toMatchObject({
       turretKind: 'basic-turret',
@@ -1166,19 +1167,19 @@ describe('survivor customization rules', () => {
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(false);
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat', 'skin-look-cat-ward'])).toBe(true);
     const explorerSkin = cosmeticById('skin-look-bunny-ward');
-    expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 100 });
+    expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 800 });
     const surferSkin = cosmeticById('skin-look-puppy-surfer');
-    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
-    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     const neonLuluSkin = cosmeticById('skin-look-cat-neon-rider');
-    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     const cyberKongSkin = cosmeticById('skin-look-hamster-cyber-driver');
-    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     const policeCrocoSkin = cosmeticById('skin-look-crocodile-police-enforcer');
-    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     const secretAgentSkin = cosmeticById('skin-look-monkey-secret-agent');
-    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
@@ -1188,9 +1189,42 @@ describe('survivor customization rules', () => {
         || item.id === 'skin-look-hamster-cyber-driver'
         || item.id === 'skin-look-crocodile-police-enforcer'
         || item.id === 'skin-look-monkey-secret-agent'
-        || item.unlock.price === 2_500
+        || item.unlock.price === 4_000
       ),
     )).toBe(true);
+  });
+
+  it('uses restrained point rewards and Korean reset windows for event missions', () => {
+    expect(EVENT_MISSIONS.map((mission) => mission.rewardPoints)).toEqual([
+      20, 50, 75, 100, 75, 50, 100, 150, 200, 150,
+    ]);
+    expect(EVENT_MISSIONS.filter((mission) => mission.period === 'daily').map((mission) => [mission.metric, mission.target]))
+      .toEqual([
+        ['login-days', 1],
+        ['stage-clears', 1],
+        ['stage-clears', 2],
+        ['stage-clears', 3],
+        ['ranked-completions', 1],
+      ]);
+    expect(EVENT_MISSIONS.filter((mission) => mission.period === 'weekly').map((mission) => [mission.metric, mission.target]))
+      .toEqual([
+        ['login-days', 5],
+        ['stage-clears', 5],
+        ['stage-clears', 10],
+        ['stage-clears', 20],
+        ['ranked-completions', 5],
+      ]);
+    const lateMonday = Date.parse('2026-08-03T14:59:59Z');
+    expect(eventMissionPeriodWindow('daily', lateMonday)).toEqual({
+      key: '2026-08-03',
+      startsAt: Date.parse('2026-08-02T15:00:00Z'),
+      resetsAt: Date.parse('2026-08-03T15:00:00Z'),
+    });
+    expect(eventMissionPeriodWindow('weekly', lateMonday)).toEqual({
+      key: '2026-08-03',
+      startsAt: Date.parse('2026-08-02T15:00:00Z'),
+      resetsAt: Date.parse('2026-08-09T15:00:00Z'),
+    });
   });
 
   it('normalizes old equipment saves to their character base skin and scales clear rewards', () => {
@@ -3721,6 +3755,9 @@ describe('requested progression and event rules', () => {
     expect(botStrategyFor({ id: 'bot-a', nickname: '새벽봇 1' })).toBe('guardian');
     expect(botStrategyFor({ id: 'bot-b', nickname: '새벽봇 2' })).toBe('gunner');
     expect(botStrategyFor({ id: 'bot-c', nickname: '새벽봇 3' })).toBe('controller');
+    expect(botStrategyFor({ id: 'bot-1-ranked-id', nickname: '노을불빛' })).toBe('guardian');
+    expect(botStrategyFor({ id: 'bot-2-ranked-id', nickname: '파란잔상' })).toBe('gunner');
+    expect(botStrategyFor({ id: 'bot-3-ranked-id', nickname: '고요한밤' })).toBe('controller');
 
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
@@ -3756,6 +3793,53 @@ describe('requested progression and event rules', () => {
       buildingId: 'controller-panel',
       action: 'production',
     });
+  });
+
+  it('uses the free door repair when a hard bot is under lethal pressure', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    const ghost = snapshot.ghosts[0];
+    if (!bot || !room || !ghost) throw new Error('missing bot repair fixture');
+    bot.isBot = true;
+    room.doorHp = room.doorMaxHp * 0.7;
+    room.freeRepairReadyAt = 0;
+    ghost.targetRoomId = room.id;
+    ghost.retreating = false;
+    ghost.healing = false;
+    expect(decideBotIntent(bot, snapshot, engine.map, 'hard')).toEqual({
+      type: 'free-repair',
+    });
+  });
+
+  it('lets a coordinated hard-bot squad clear a deterministic easy match', () => {
+    const engine = new GameEngine(
+      'BOT-CLEAR-REGRESSION',
+      generateMap(51_002),
+      false,
+      { stageId: 'easy-1', playMode: 'solo' },
+    );
+    const host = engine.join({
+      nickname: '봇 생존 회귀',
+      deviceId: 'device-bot-clear-regression',
+    });
+    expect(engine.addBot(host.player.id, 'hard').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'hard').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'hard').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    for (
+      let index = 0;
+      index < 6_500 && !['VICTORY', 'DEFEAT'].includes(engine.snapshot().status);
+      index += 1
+    ) engine.tick(0.1);
+    const state = engine.snapshot();
+    expect(state.status).toBe('VICTORY');
+    expect(state.players.filter((player) => player.isBot && player.alive).length)
+      .toBeGreaterThanOrEqual(1);
+    expect(engine.botMatchDiagnostics().map((entry) => entry.strategy).sort())
+      .toEqual(['controller', 'guardian', 'gunner']);
   });
 
   it('moves a distant starter turret toward the door before buying another building', () => {
@@ -5884,7 +5968,7 @@ describe('persistent account progression', () => {
     expect(upgradeCost('arc-turret', 1, 'legend').gold).toBe(250);
   });
 
-  it('keeps elite join effects while legacy turret construction stays disabled for every rank', () => {
+  it('suppresses the room creator entrance and keeps elite join effects for later players', () => {
     const map = generateMap(81_281);
     const beginnerEngine = new GameEngine('BEGINNER', map, true);
     const beginner = beginnerEngine.join({ nickname: '초보생존자', deviceId: 'device-beginner', soloRank: 'beginner', multiplayerRank: 'beginner' });
@@ -5894,8 +5978,11 @@ describe('persistent account progression', () => {
 
     const veteranEngine = new GameEngine('VETERAN', generateMap(81_282), true);
     const veteran = veteranEngine.join({ nickname: '고참생존자', deviceId: 'device-veteran', soloRank: 'veteran', multiplayerRank: 'master' });
+    expect(veteranEngine.drainEvents().some((event) => event.kind === 'elite-join')).toBe(false);
+    const veteranGuest = veteranEngine.join({ nickname: '후발생존자', deviceId: 'device-veteran-guest', soloRank: 'veteran', multiplayerRank: 'master' });
     const eliteEvent = veteranEngine.drainEvents().find((event) => event.kind === 'elite-join');
-    expect(eliteEvent?.label).toBe('베테랑 고참생존자님이 입장했습니다!');
+    expect(eliteEvent?.label).toBe('베테랑 후발생존자님이 입장했습니다!');
+    veteranEngine.handle(veteranGuest.player.id, envelope({ type: 'ready', ready: true }, 2));
     begin(veteranEngine, veteran.player.id);
     const veteranRoom = assigned(veteranEngine, veteran.player.id);
     const persisted = veteranEngine.serialize();

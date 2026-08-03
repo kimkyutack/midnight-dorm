@@ -437,6 +437,21 @@ export interface AvatarAppearance {
   tileSkin?: string;
 }
 
+export type StorefrontThemeId = 'summer' | 'cyberpunk' | 'special-ops';
+
+export interface PromotionCampaignSetting {
+  id: StorefrontThemeId;
+  isVisible: boolean;
+  sortOrder: number;
+}
+
+export interface StorefrontThemeSetting {
+  id: StorefrontThemeId;
+  isStoreVisible: boolean;
+  sortOrder: number;
+  cosmeticIds: string[];
+}
+
 export interface AccountProfile {
   id: string;
   username: string;
@@ -468,6 +483,10 @@ export interface AccountProfile {
   consumables: OwnedConsumable[];
   /** Launch campaigns the current account chose not to see again. */
   dismissedPromotionIds: string[];
+  /** Server-managed launch popup visibility and display order. */
+  promotionCampaigns: PromotionCampaignSetting[];
+  /** Server-managed theme availability. This only filters the point shop. */
+  storefrontThemes: StorefrontThemeSetting[];
   /** The first-match survival training remains active until its first victory. */
   tutorialCompleted: boolean;
   createdAt: number;

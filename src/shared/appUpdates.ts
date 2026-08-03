@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.02.3";
+export const APP_RELEASE_VERSION = "2026.08.03.3";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "골드 봉인 표시 대상 정정",
+  title: "이벤트 로컬 호환성과 생존 봇 개편",
   summary:
-    "• 골드 획득 봉인 자물쇠가 방 안의 모든 설비에 표시되던 문제를 수정했습니다.\n• 이제 실제 골드 생산이 멈춘 점유 침대·월광 보석·잠든 무덤·골드 생산 랜덤 보상에만 자물쇠가 표시됩니다. 전력 생산·포탑·수리·강화 설비에는 표시되지 않습니다.",
-  publishedAt: 1785679800000,
+    "• 이전 로컬 D1 이벤트 스키마를 자동 변환해 이벤트 화면 인증 오류를 수정했습니다.\n• 봇이 무료 문 수리와 봉쇄 그물을 활용하고, 수호·화력·제어 역할을 항상 고르게 구성합니다.\n• 봇 등급이 높을수록 판단 주기가 빨라지며, 실제 3봇 승리 자동 시뮬레이션을 추가했습니다.",
+  publishedAt: 1785730500000,
 };
 
 /**

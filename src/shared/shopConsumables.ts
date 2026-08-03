@@ -16,20 +16,20 @@ export interface ShopConsumableDefinition {
  * 계정 재고가 차감된다.
  */
 export const SHOP_CONSUMABLES = [
-  { id: 'scout-flare', label: '섬광 충격탄', description: '선택 지점 주변 귀신에게 큰 피해를 주고 1.5초간 멈춥니다.', price: 220, target: 'tile', icon: '✹', category: 'assault' },
-  { id: 'path-chalk', label: '취약 표식탄', description: '선택 지점 주변 귀신이 8초간 35% 더 큰 피해를 받습니다.', price: 180, target: 'tile', icon: '⌖', category: 'assault' },
-  { id: 'adrenal-shot', label: '포탑 과충전제', description: '10초간 내 방의 모든 포탑 공격속도가 50% 빨라집니다.', price: 260, target: 'room', icon: 'ϟ', category: 'assault' },
-  { id: 'room-beacon', label: '집중 사격 비콘', description: '10초간 내 방의 모든 포탑 공격력이 35% 증가합니다.', price: 280, target: 'room', icon: '◎', category: 'assault' },
+  { id: 'scout-flare', label: '섬광 충격탄', description: '선택 지점 주변 귀신에게 큰 피해를 주고 1.5초간 멈춥니다.', price: 350, target: 'tile', icon: '✹', category: 'assault' },
+  { id: 'path-chalk', label: '취약 표식탄', description: '선택 지점 주변 귀신이 8초간 35% 더 큰 피해를 받습니다.', price: 300, target: 'tile', icon: '⌖', category: 'assault' },
+  { id: 'adrenal-shot', label: '포탑 과충전제', description: '10초간 내 방의 모든 포탑 공격속도가 50% 빨라집니다.', price: 420, target: 'room', icon: 'ϟ', category: 'assault' },
+  { id: 'room-beacon', label: '집중 사격 비콘', description: '10초간 내 방의 모든 포탑 공격력이 35% 증가합니다.', price: 450, target: 'room', icon: '◎', category: 'assault' },
 
-  { id: 'quick-mortar', label: '긴급 문 수리 키트', description: '파괴되지 않은 문 HP를 즉시 160 회복합니다.', price: 180, target: 'door', icon: '✚', category: 'defense' },
-  { id: 'hinge-brace', label: '합금 경첩 지지대', description: '15초간 문이 받는 피해를 35% 줄입니다.', price: 230, target: 'door', icon: '▣', category: 'defense' },
-  { id: 'ward-seal', label: '절대 방호 봉인서', description: '4초간 문이 귀신의 피해를 받지 않습니다.', price: 320, target: 'door', icon: '✧', category: 'defense' },
-  { id: 'last-latch', label: '최후의 걸쇠', description: '문이 파괴될 순간 4초간 HP가 1 아래로 내려가지 않습니다.', price: 260, target: 'door', icon: '⚿', category: 'defense' },
+  { id: 'quick-mortar', label: '긴급 문 수리 키트', description: '파괴되지 않은 문 HP를 즉시 160 회복합니다.', price: 300, target: 'door', icon: '✚', category: 'defense' },
+  { id: 'hinge-brace', label: '합금 경첩 지지대', description: '15초간 문이 받는 피해를 35% 줄입니다.', price: 380, target: 'door', icon: '▣', category: 'defense' },
+  { id: 'ward-seal', label: '절대 방호 봉인서', description: '4초간 문이 귀신의 피해를 받지 않습니다.', price: 520, target: 'door', icon: '✧', category: 'defense' },
+  { id: 'last-latch', label: '최후의 걸쇠', description: '문이 파괴될 순간 4초간 HP가 1 아래로 내려가지 않습니다.', price: 420, target: 'door', icon: '⚿', category: 'defense' },
 
-  { id: 'toolbelt-voucher', label: '집속 탄두 모듈', description: '선택 포탑의 다음 공격 피해가 3배가 됩니다.', price: 210, target: 'building', icon: '◈', category: 'engineering' },
-  { id: 'turret-grease', label: '고속 윤활 카트리지', description: '선택 포탑의 공격속도가 12초간 45% 빨라집니다.', price: 190, target: 'building', icon: '◐', category: 'engineering' },
-  { id: 'lens-kit', label: '장거리 조준 렌즈', description: '선택 포탑의 사거리가 12초간 2칸 증가합니다.', price: 200, target: 'building', icon: '◉', category: 'engineering' },
-  { id: 'field-crane', label: '전술 강화 신호기', description: '12초간 내 방 모든 포탑이 1레벨 강해집니다.', price: 340, target: 'room', icon: '⌗', category: 'engineering' },
+  { id: 'toolbelt-voucher', label: '집속 탄두 모듈', description: '선택 포탑의 다음 공격 피해가 3배가 됩니다.', price: 340, target: 'building', icon: '◈', category: 'engineering' },
+  { id: 'turret-grease', label: '고속 윤활 카트리지', description: '선택 포탑의 공격속도가 12초간 45% 빨라집니다.', price: 320, target: 'building', icon: '◐', category: 'engineering' },
+  { id: 'lens-kit', label: '장거리 조준 렌즈', description: '선택 포탑의 사거리가 12초간 2칸 증가합니다.', price: 330, target: 'building', icon: '◉', category: 'engineering' },
+  { id: 'field-crane', label: '전술 강화 신호기', description: '12초간 내 방 모든 포탑이 1레벨 강해집니다.', price: 550, target: 'room', icon: '⌗', category: 'engineering' },
 ] as const satisfies readonly ShopConsumableDefinition[];
 
 /** Existing inventories are collapsed into the closest new combat role. */

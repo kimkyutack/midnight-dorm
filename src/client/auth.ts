@@ -1,4 +1,5 @@
 import type { AccountProfile } from '../shared/types';
+import type { EventMissionOverview } from '../shared/eventMissions';
 import { setNativeSessionToken } from './native/runtime';
 
 async function authRequest(path: string, options?: RequestInit): Promise<AccountProfile> {
@@ -85,6 +86,39 @@ export async function claimMatchReward(
   const data = await response.json() as MatchRewardClaim & { error?: string };
   if (!response.ok || !data.profile) throw new Error(data.error ?? '전리품을 지급하지 못했습니다.');
   return data;
+}
+
+export async function getEventMissions(): Promise<EventMissionOverview> {
+  const response = await fetch('/api/events/missions', { cache: 'no-store' });
+  const data = await response.json() as { overview?: EventMissionOverview; error?: string };
+  if (!response.ok || !data.overview) {
+    throw new Error(data.error ?? '이벤트 미션을 불러오지 못했습니다.');
+  }
+  return data.overview;
+}
+
+export async function claimEventMissions(
+  missionIds: readonly string[] = [],
+): Promise<{ overview: EventMissionOverview; awardedPoints: number; claimedCount: number }> {
+  const response = await fetch('/api/events/missions/claim', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ missionIds }),
+  });
+  const data = await response.json() as {
+    overview?: EventMissionOverview;
+    awardedPoints?: number;
+    claimedCount?: number;
+    error?: string;
+  };
+  if (!response.ok || !data.overview) {
+    throw new Error(data.error ?? '미션 보상을 수령하지 못했습니다.');
+  }
+  return {
+    overview: data.overview,
+    awardedPoints: data.awardedPoints ?? 0,
+    claimedCount: data.claimedCount ?? 0,
+  };
 }
 
 export const purchaseAdFree = (plan: 'monthly' | 'permanent'): Promise<AccountProfile> =>
