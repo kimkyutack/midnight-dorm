@@ -147,10 +147,11 @@ export async function recordLoginMissionProgress(
   if (bootstrapSchema) await ensureEventMissionSchema(db);
   const daily = eventMissionPeriodWindow('daily', now);
   const weekly = eventMissionPeriodWindow('weekly', now);
-  const inserted = await db.prepare(`INSERT OR IGNORE INTO event_mission_login_days
+  await db.prepare(`INSERT OR IGNORE INTO event_mission_login_days
     (account_id, day_key, week_key, recorded_at) VALUES (?, ?, ?, ?)`)
     .bind(accountId, daily.key, weekly.key, now).run();
-  if ((inserted.meta.changes ?? 0) === 0) return;
+  // Login days and progress are written separately. Always reconcile progress
+  // so an interrupted/legacy write cannot leave a player permanently at 0/1.
   const weeklyLoginDays = await db.prepare(`SELECT COUNT(*) AS count
     FROM event_mission_login_days WHERE account_id = ? AND week_key = ?`)
     .bind(accountId, weekly.key).first<{ count: number }>();
