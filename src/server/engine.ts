@@ -1070,7 +1070,7 @@ export class GameEngine {
           this.rng,
           this.state.players.map((player) => player.nickname),
         )
-      : `새벽봇 ${botIndex + 1}`;
+      : `병동봇 ${botIndex + 1}`;
     const bot = this.makePlayer(
       id,
       nickname,
@@ -3186,7 +3186,7 @@ export class GameEngine {
   private makeBotDiagnostic(player?: PlayerState): BotMatchDiagnostic {
     const identity = player ?? {
       id: 'unknown-bot',
-      nickname: '새벽봇',
+      nickname: '병동봇',
     };
     return {
       botId: identity.id,

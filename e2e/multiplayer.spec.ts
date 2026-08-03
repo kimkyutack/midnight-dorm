@@ -197,7 +197,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(passwordInput).toHaveAttribute("spellcheck", "false");
     await expect(passwordInput).toHaveAttribute("inputmode", "email");
     const username = `intro${Date.now().toString(36)}`.slice(0, 20);
-    const nickname = `새벽${Date.now().toString(36).slice(-7)}`;
+    const nickname = `병동${Date.now().toString(36).slice(-7)}`;
     const password = "midnight-test-2026";
     await page.getByLabel("아이디").fill(username);
     await page.getByLabel("게임 닉네임").fill(nickname);

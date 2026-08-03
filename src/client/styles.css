@@ -1148,7 +1148,6 @@
   max-width: 330px;
   height: 74px;
   min-height: 70px;
-  padding: 6px 12px;
   border-radius: 16px;
 }
 .home-topbar .home-account > div:last-child {
@@ -4638,7 +4637,7 @@ button {
   align-items: center;
   gap: 13px;
   min-width: 270px;
-  padding: 11px 14px;
+  padding: 11px 10px;
   border: 1px solid rgba(203, 225, 235, 0.22);
   border-radius: 18px;
   background: rgba(4, 10, 18, 0.62);

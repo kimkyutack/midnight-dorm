@@ -3737,7 +3737,7 @@ describe('requested progression and event rules', () => {
     const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
     if (!bot || !room) throw new Error('missing easy bot fixture');
     bot.isBot = true;
-    bot.nickname = '새벽봇 1';
+    bot.nickname = '병동봇 1';
     bot.gold = 1_000;
     bot.power = 1_000;
     snapshot.buildings = snapshot.buildings.filter(
@@ -3752,9 +3752,9 @@ describe('requested progression and event rules', () => {
   });
 
   it('gives the three stable bot roles distinct power-panel strategies', () => {
-    expect(botStrategyFor({ id: 'bot-a', nickname: '새벽봇 1' })).toBe('guardian');
-    expect(botStrategyFor({ id: 'bot-b', nickname: '새벽봇 2' })).toBe('gunner');
-    expect(botStrategyFor({ id: 'bot-c', nickname: '새벽봇 3' })).toBe('controller');
+    expect(botStrategyFor({ id: 'bot-a', nickname: '병동봇 1' })).toBe('guardian');
+    expect(botStrategyFor({ id: 'bot-b', nickname: '병동봇 2' })).toBe('gunner');
+    expect(botStrategyFor({ id: 'bot-c', nickname: '병동봇 3' })).toBe('controller');
     expect(botStrategyFor({ id: 'bot-1-ranked-id', nickname: '노을불빛' })).toBe('guardian');
     expect(botStrategyFor({ id: 'bot-2-ranked-id', nickname: '파란잔상' })).toBe('gunner');
     expect(botStrategyFor({ id: 'bot-3-ranked-id', nickname: '고요한밤' })).toBe('controller');
@@ -3767,7 +3767,7 @@ describe('requested progression and event rules', () => {
     const mapRoom = engine.map.rooms.find((candidate) => candidate.id === room?.id);
     if (!bot || !room || !mapRoom) throw new Error('missing role strategy fixture');
     bot.isBot = true;
-    bot.nickname = '새벽봇 3';
+    bot.nickname = '병동봇 3';
     bot.gold = 1_000;
     bot.power = 1_000;
     const tile = mapRoom.buildTiles[0];
