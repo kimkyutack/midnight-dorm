@@ -27,6 +27,7 @@ const BASE_PORTRAIT_VIEW_WIDTH = 8.4;
 const BASE_LANDSCAPE_VIEW_HEIGHT = 8.4;
 const MIN_CAMERA_DISTANCE_SCALE = 2 / 3;
 const MAX_CAMERA_DISTANCE_SCALE = 1.6;
+const DEFAULT_CAMERA_DISTANCE_SCALE = 1 / Math.SQRT2;
 const FLOOR_Y = 0;
 const PLAYER_HEIGHT = 1.27;
 const FRAME_DT_MAX = 1 / 15;
@@ -153,6 +154,28 @@ export function cameraZoomLockedForSnapshot(
 ): boolean {
   const local = snapshot?.players.find((player) => player.id === playerId);
   return Boolean(snapshot?.tutorial?.active || (local?.alive && !local.roomId));
+}
+
+export function doorHudMetricsForCameraScale(
+  cameraDistanceScale: number,
+  shielded: boolean,
+): { width: number; height: number; compact: boolean } {
+  const safeDistance = Number.isFinite(cameraDistanceScale)
+    ? Math.max(MIN_CAMERA_DISTANCE_SCALE, cameraDistanceScale)
+    : DEFAULT_CAMERA_DISTANCE_SCALE;
+  const relativeScale = Math.max(
+    0.64,
+    Math.min(1, DEFAULT_CAMERA_DISTANCE_SCALE / safeDistance),
+  );
+  const width = Math.round(92 * relativeScale);
+  const compact = width < 74;
+  return {
+    width,
+    height: shielded
+      ? Math.max(compact ? 24 : 28, Math.round(34 * relativeScale))
+      : Math.max(compact ? 18 : 22, Math.round(26 * relativeScale)),
+    compact,
+  };
 }
 
 export function goldSealIndicatorVisibleForBuilding(
@@ -353,6 +376,7 @@ interface DoorHudCard {
   y: number;
   width: number;
   height: number;
+  compact: boolean;
 }
 
 interface BedView {
@@ -2063,6 +2087,8 @@ export class ThreeGameView {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly hudCanvas: HTMLCanvasElement;
   private readonly hudContext: CanvasRenderingContext2D;
+  private readonly doorHudCanvas: HTMLCanvasElement;
+  private readonly doorHudContext: CanvasRenderingContext2D;
   private readonly sleepButton: HTMLButtonElement;
   private readonly onSleep: () => void;
   private readonly onPickupLoot: (lootId: string) => void;
@@ -2151,7 +2177,7 @@ export class ThreeGameView {
   private focusedRoomId: string | null = null;
   // One zoom step closer than the historical default. The opening hunt starts
   // focused on the survivor and unlocks manual zoom only after claim/death.
-  private cameraDistanceScale = 1 / Math.SQRT2;
+  private cameraDistanceScale = DEFAULT_CAMERA_DISTANCE_SCALE;
   private portraitLayout = false;
   private lastFrame = performance.now();
   private lastSelectionAt = 0;
@@ -2229,6 +2255,21 @@ export class ThreeGameView {
     if (!hudContext) throw new Error('Canvas 2D context is unavailable');
     this.hudContext = hudContext;
     this.host.appendChild(this.hudCanvas);
+    this.doorHudCanvas = document.createElement('canvas');
+    this.doorHudCanvas.className = 'game-door-hud';
+    this.doorHudCanvas.setAttribute('aria-hidden', 'true');
+    this.doorHudCanvas.style.position = 'absolute';
+    this.doorHudCanvas.style.inset = '0';
+    this.doorHudCanvas.style.width = '100%';
+    this.doorHudCanvas.style.height = '100%';
+    this.doorHudCanvas.style.pointerEvents = 'none';
+    // Door information must stay above buildings while following the camera
+    // every frame. Keeping it separate avoids repainting the heavier HUD layer.
+    this.doorHudCanvas.style.zIndex = '7';
+    const doorHudContext = this.doorHudCanvas.getContext('2d');
+    if (!doorHudContext) throw new Error('Canvas 2D context is unavailable');
+    this.doorHudContext = doorHudContext;
+    this.host.appendChild(this.doorHudCanvas);
     const blackoutId = `game-blackout-${crypto.randomUUID().replaceAll('-', '')}`;
     this.blackoutLayer = document.createElement('div');
     this.blackoutLayer.className = 'game-blackout';
@@ -2747,6 +2788,7 @@ export class ThreeGameView {
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.hudCanvas.remove();
+    this.doorHudCanvas.remove();
     this.blackoutLayer.remove();
     this.sleepButton.remove();
   }
@@ -2772,6 +2814,7 @@ export class ThreeGameView {
     this.updateSleepPrompt();
     this.renderer.render(this.scene, this.camera);
     this.renderHudMessages(time);
+    this.renderDoorOverlay();
     this.updateAdaptiveRendering(time, rawFrameMs);
   };
 
@@ -5254,7 +5297,14 @@ export class ThreeGameView {
       context.fillText(message.text, x, y, boxWidth - 12);
       context.restore();
     }
-    this.renderDoorHud(context, doorCards);
+  }
+
+  private renderDoorOverlay(): void {
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+    const context = this.doorHudContext;
+    context.clearRect(0, 0, width, height);
+    this.renderDoorHud(context, this.visibleDoorHudCards(width, height));
   }
 
   private visibleDoorHudCards(width: number, height: number): DoorHudCard[] {
@@ -5271,13 +5321,15 @@ export class ThreeGameView {
         projected.x < -1.12 || projected.x > 1.12 ||
         projected.y < -1.12 || projected.y > 1.12
       ) continue;
-      const cardHeight = state.doorShieldMaxHp > 0 ? 40 : 32;
+      const metrics = doorHudMetricsForCameraScale(
+        this.cameraDistanceScale,
+        state.doorShieldMaxHp > 0,
+      );
       cards.push({
         state,
-        x: (projected.x * 0.5 + 0.5) * width,
-        y: (-projected.y * 0.5 + 0.5) * height,
-        width: 108,
-        height: cardHeight,
+        x: Math.round((projected.x * 0.5 + 0.5) * width),
+        y: Math.round((-projected.y * 0.5 + 0.5) * height),
+        ...metrics,
       });
     }
     return cards;
@@ -5291,6 +5343,10 @@ export class ThreeGameView {
       const { state } = card;
       const left = card.x - card.width / 2;
       const top = card.y - card.height / 2;
+      const padding = card.compact ? 4 : 5;
+      const titleY = top + (card.compact ? 5.5 : 7);
+      const barTop = top + (card.compact ? 10 : 13);
+      const barHeight = card.compact ? 3 : 4;
       const intact = state.doorHp > 0;
       const hpRatio = clamp(state.doorHp / Math.max(1, state.doorMaxHp), 0, 1);
       const hpColor = !intact
@@ -5301,36 +5357,41 @@ export class ThreeGameView {
       context.strokeStyle = intact ? 'rgba(133,221,236,.7)' : 'rgba(255,85,120,.72)';
       context.lineWidth = 1;
       context.beginPath();
-      context.roundRect(left, top, card.width, card.height, 6);
+      context.roundRect(left, top, card.width, card.height, card.compact ? 4 : 5);
       context.fill();
       context.stroke();
 
       context.textBaseline = 'middle';
-      context.font = '800 7.5px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      context.font = `800 ${card.compact ? 5.5 : 6.7}px system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
       context.textAlign = 'left';
       context.fillStyle = '#d8f8ff';
       context.fillText(
-        `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`,
-        left + 6,
-        top + 8,
-        card.width - 44,
+        card.compact
+          ? `문 Lv.${state.doorLevel}`
+          : `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`,
+        left + padding,
+        titleY,
+        card.width - (card.compact ? 25 : 37),
       );
       context.textAlign = 'right';
       context.fillStyle = intact ? '#f5fbff' : '#ff7892';
       context.fillText(
-        intact ? `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}` : '파괴됨',
-        left + card.width - 6,
-        top + 8,
-        40,
+        intact
+          ? card.compact
+            ? `${Math.ceil(state.doorHp)}`
+            : `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}`
+          : '파괴됨',
+        left + card.width - padding,
+        titleY,
+        card.compact ? 21 : 34,
       );
 
-      const barLeft = left + 6;
-      const barWidth = card.width - 12;
-      const hpTop = top + 15;
+      const barLeft = left + padding;
+      const barWidth = card.width - padding * 2;
       context.fillStyle = 'rgba(255,255,255,.12)';
-      context.fillRect(barLeft, hpTop, barWidth, 5);
+      context.fillRect(barLeft, barTop, barWidth, barHeight);
       context.fillStyle = hpColor;
-      context.fillRect(barLeft, hpTop, barWidth * hpRatio, 5);
+      context.fillRect(barLeft, barTop, barWidth * hpRatio, barHeight);
 
       if (state.doorShieldMaxHp > 0) {
         const shieldRatio = clamp(
@@ -5338,14 +5399,23 @@ export class ThreeGameView {
           0,
           1,
         );
-        context.textAlign = 'left';
-        context.font = '750 7px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
-        context.fillStyle = '#b7eeff';
-        context.fillText('방어막', barLeft, top + 30);
+        const shieldTop = card.compact ? top + 17 : top + 22;
+        const shieldLabelWidth = card.compact ? 0 : 23;
+        if (!card.compact) {
+          context.textAlign = 'left';
+          context.font = '750 5.8px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+          context.fillStyle = '#b7eeff';
+          context.fillText('방어막', barLeft, shieldTop + 1.5);
+        }
         context.fillStyle = 'rgba(255,255,255,.12)';
-        context.fillRect(barLeft + 28, top + 27, barWidth - 28, 5);
+        context.fillRect(barLeft + shieldLabelWidth, shieldTop, barWidth - shieldLabelWidth, barHeight);
         context.fillStyle = shieldRatio > 0 ? '#72dfff' : '#566173';
-        context.fillRect(barLeft + 28, top + 27, (barWidth - 28) * shieldRatio, 5);
+        context.fillRect(
+          barLeft + shieldLabelWidth,
+          shieldTop,
+          (barWidth - shieldLabelWidth) * shieldRatio,
+          barHeight,
+        );
       }
       context.restore();
     }
@@ -5920,7 +5990,20 @@ export class ThreeGameView {
     // Preserve the existing door label/HP coordinates exactly; reveal a small
     // window behind them rather than relocating either label.
     const door = this.doorViews.get(roomId);
-    if (door) addWindow(door.root.position.x, 0.9, door.root.position.z, 132, 48);
+    const doorState = this.roomStateById.get(roomId);
+    if (door && doorState) {
+      const metrics = doorHudMetricsForCameraScale(
+        this.cameraDistanceScale,
+        doorState.doorShieldMaxHp > 0,
+      );
+      addWindow(
+        door.root.position.x,
+        0.9,
+        door.root.position.z,
+        metrics.width + 12,
+        metrics.height + 10,
+      );
+    }
     const localView = this.playerViews.get(local.id);
     if (localView)
       addWindow(
@@ -6081,6 +6164,9 @@ export class ThreeGameView {
     this.hudCanvas.width = Math.max(1, Math.round(width * hudRatio));
     this.hudCanvas.height = Math.max(1, Math.round(height * hudRatio));
     this.hudContext.setTransform(hudRatio, 0, 0, hudRatio, 0, 0);
+    this.doorHudCanvas.width = Math.max(1, Math.round(width * hudRatio));
+    this.doorHudCanvas.height = Math.max(1, Math.round(height * hudRatio));
+    this.doorHudContext.setTransform(hudRatio, 0, 0, hudRatio, 0, 0);
     this.updateBlackoutMask();
   }
 

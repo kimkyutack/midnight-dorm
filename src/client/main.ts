@@ -118,6 +118,7 @@ import {
 } from "./game/ThreeGameView";
 import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { AvatarPreview2D } from "./game/AvatarPreview2D";
+import { homePoseAsset, homePoseKey } from "./game/HomePoseAssets";
 import {
   hydrateCatalogArt,
   preloadBuildingCatalogArt,
@@ -138,6 +139,7 @@ import {
 } from "./native/admob";
 import { nativeApiResourceUrl, nativeWebSocketUrlSync } from "./native/runtime";
 import "./styles.css";
+import "./arcade-polish.css";
 
 initializeNativeRuntime();
 setupMobileViewportCompatibility();
@@ -510,7 +512,7 @@ const profileBadgeHtml = (
   badgeClass = "",
 ): string =>
   `<span class="rank-identity ${display.className}"><img class="rank-badge ${badgeClass}" src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}" /><b>${escapeHtml(display.rankText)}</b></span>`;
-const DEFAULT_PROFILE_AVATAR = "/assets/ui/default-profile.svg";
+const DEFAULT_PROFILE_AVATAR = `/assets/ui/default-profile-v2.webp?v=${APP_RELEASE_VERSION}`;
 const profileAvatarSource = (
   avatarUrl: string | null | undefined,
 ): string => nativeApiResourceUrl(avatarUrl || DEFAULT_PROFILE_AVATAR);
@@ -914,15 +916,38 @@ function homeScreen(): void {
   const eventNeedsStart = eventMissionOverviewCache !== null && !eventMissionOverviewCache.hasProgress;
   setContent(
     "home",
-    `<main class="game-home"><div class="home-atmosphere"></div><header class="home-topbar"><div class="home-profile-stack"><button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정"><div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div><div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div></button><div class="home-profile-quick-actions" aria-label="홈 빠른 메뉴"><button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역"><img src="/assets/ui/update-megaphone.png?v=${APP_RELEASE_VERSION}" alt=""/><span class="home-quick-label">공지</span></button><button class="home-event-missions" data-event-missions aria-label="이벤트와 미션"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt=""/><span class="home-quick-label">이벤트</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><span class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</span></button><button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거"><img src="/assets/ui/ad-free-badge.png?v=${APP_RELEASE_VERSION}" alt=""/><span class="home-quick-label">광고 제거</span></button><button class="home-ranking-shortcut" data-ranking aria-label="랭킹"><img src="/assets/ui/ranking-podium.png?v=${APP_RELEASE_VERSION}" alt=""/><span class="home-quick-label">랭킹</span></button>${guideButtonMarkup("battle", "home-guide", "가이드")}</div></div><div class="home-utility"><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong><button class="home-social" data-social aria-label="친구와 채팅">${homeUtilityIcon("social")}<b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div></header><section class="home-avatar-showcase" aria-label="병원 복도를 천천히 걷는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section><button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "시즌 계약" : "현재 스테이지"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button><footer class="home-actions"><div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span><small>${stageLabel}</small>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div><nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}</button><button class="active" data-stage-menu aria-label="스테이지">${homeFooterIcon("stage")}</button><button data-customize aria-label="커스텀">${homeFooterIcon("custom")}</button></nav></footer></main>`,
+    `<main class="game-home">
+      <div class="home-atmosphere"></div>
+      <header class="home-topbar">
+        <button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
+          <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div>
+          <div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div>
+        </button>
+        <div class="home-utility"><strong>${gameMenuIcon("points")}<span>${currentAccount.customPoints.toLocaleString()} P</span></strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div>
+      </header>
+      <section class="home-stage-hub" aria-label="현재 스테이지">
+        <button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "SEASON CONTRACT" : "NIGHT CHAPTER"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button>
+        <div class="home-stage-route" aria-hidden="true"><i class="cleared"></i><i class="cleared"></i><i class="active"></i><i></i><i></i></div>
+      </section>
+      <nav class="home-side-menu home-side-menu-left" aria-label="홈 왼쪽 메뉴">
+        <button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역">${gameMenuIcon("announcement")}<span>공지</span></button>
+        <button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거">${gameMenuIcon("adfree")}<span>광고 제거</span></button>
+      </nav>
+      <nav class="home-side-menu home-side-menu-right" aria-label="홈 오른쪽 메뉴">
+        <button class="home-ranking-shortcut" data-ranking aria-label="랭킹">${gameMenuIcon("ranking")}<span>랭킹</span></button>
+        <button class="home-guide" data-page-guide data-guide-topic="battle" aria-label="생존 가이드 도움말">${gameMenuIcon("guide")}<span>가이드</span></button>
+      </nav>
+      <section class="home-avatar-showcase" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section>
+      <footer class="home-actions">
+        <div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
+        <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-event-tab" data-event-missions aria-label="미션">${homeFooterIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
+      </footer>
+    </main>`,
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
-    customAvatarPreview = new AvatarPreview2D(
-      avatarHost,
-      currentAccount.appearance,
-      selectedNormalRank,
-    );
+    const pose = homePoseAsset(currentAccount.appearance);
+    avatarHost.innerHTML = `<span class="home-pose-avatar" role="img" aria-label="앉아서 쉬다가 하품하는 내 캐릭터" data-home-pose-skin="${homePoseKey(currentAccount.appearance)}" style="--home-pose-atlas:url('${pose.atlasUrl}');--home-pose-row:${pose.row};--home-pose-aspect:${pose.cellAspectRatio}"></span>`;
   }
   app.querySelector("[data-stage-start]")?.addEventListener("click", () => {
     audio.play("button");
@@ -1390,14 +1415,26 @@ function showSkinLaunchPromoCarousel(): void {
   });
 }
 
+type GameMenuIconKind =
+  | "announcement"
+  | "event"
+  | "adfree"
+  | "ranking"
+  | "guide"
+  | "shop"
+  | "home"
+  | "locker"
+  | "social"
+  | "mail"
+  | "settings"
+  | "points";
+
+function gameMenuIcon(kind: GameMenuIconKind): string {
+  return `<span class="game-menu-icon game-menu-icon-${kind}" aria-hidden="true"></span>`;
+}
+
 function homeUtilityIcon(kind: "mail" | "social" | "settings"): string {
-  if (kind === "mail") {
-    return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="12" width="34" height="25" rx="5"/><path d="m9 16 15 12L39 16M9 34l10-10m20 10-10-10"/><path d="M15 8h18"/></svg>';
-  }
-  if (kind === "social") {
-    return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><circle cx="18" cy="18" r="7"/><path d="M5 39c1-8 6-12 13-12s12 4 13 12"/><circle cx="34" cy="20" r="5"/><path d="M30 30c7 0 11 3 13 9"/></svg>';
-  }
-  return '<svg class="home-utility-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 9v4M24 35v4M39 24h-4M13 24H9M34.6 13.4l-2.8 2.8M16.2 31.8l-2.8 2.8M34.6 34.6l-2.8-2.8M16.2 16.2l-2.8-2.8"/><circle cx="24" cy="24" r="8"/><path d="M24 5.5c2.3 0 4.2 1.9 4.2 4.2l2.5 1c1.7-1.5 4.3-1.3 5.8.4 1.5 1.7 1.3 4.3-.4 5.8l1 2.5c2.3 0 4.2 1.9 4.2 4.2s-1.9 4.2-4.2 4.2l-1 2.5c1.5 1.7 1.3 4.3-.4 5.8-1.7 1.5-4.3 1.3-5.8-.4l-2.5 1c0 2.3-1.9 4.2-4.2 4.2s-4.2-1.9-4.2-4.2l-2.5-1c-1.7 1.5-4.3 1.3-5.8-.4-1.5-1.7-1.3-4.3.4-5.8l-1-2.5c-2.3 0-4.2-1.9-4.2-4.2s1.9-4.2 4.2-4.2l1-2.5c-1.5-1.7-1.3-4.3.4-5.8 1.7-1.5 4.3-1.3 5.8.4l2.5-1c0-2.3 1.9-4.2 4.2-4.2Z"/></svg>';
+  return gameMenuIcon(kind);
 }
 
 function gameActionIcon(kind: "bed" | "repair"): string {
@@ -1407,14 +1444,12 @@ function gameActionIcon(kind: "bed" | "repair"): string {
   return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M9 43h46v10H9zM13 26h38c3 0 5 2 5 5v12H8V31c0-3 2-5 5-5z"/><path d="M13 26v-8h15c4 0 7 3 7 7v1M14 53v4m36-4v4"/><circle cx="19" cy="22" r="4"/></svg>';
 }
 
-function homeFooterIcon(kind: "shop" | "stage" | "custom"): string {
-  if (kind === "shop") {
-    return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M12 27h40v26H12z"/><path d="M9 26l5-15h36l5 15M16 27v26m32-26v26M8 53h48M24 53V37h16v16"/><path class="icon-accent" d="M11 26c0 5 8 5 8 0 0 5 8 5 8 0 0 5 10 5 10 0 0 5 8 5 8 0 0 5 8 5 8 0"/></svg>';
-  }
-  if (kind === "stage") {
-    return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M32 7 51 18v19c0 11-8 17-19 21-11-4-19-10-19-21V18z"/><path d="m20 43 24-24m-20-2 23 23M18 47l8-2-6-6zm28 0-8-2 6-6z"/><circle class="icon-accent" cx="32" cy="31" r="5"/></svg>';
-  }
-  return '<svg class="home-nav-icon" viewBox="0 0 64 64" aria-hidden="true"><path class="icon-fill" d="M13 31c0-12 8-21 19-21s19 9 19 21v18c-5 5-12 8-19 8s-14-3-19-8z"/><path d="M18 17 12 8l12 5m22 4 6-9-12 5M13 31c0-12 8-21 19-21s19 9 19 21v18c-5 5-12 8-19 8s-14-3-19-8z"/><circle cx="24" cy="31" r="3"/><circle cx="40" cy="31" r="3"/><path class="icon-accent" d="M28 41c2 2 6 2 8 0m-8-4 4 3 4-3"/></svg>';
+function homeFooterIcon(kind: "shop" | "event" | "stage" | "social" | "custom"): string {
+  if (kind === "shop") return gameMenuIcon("shop");
+  if (kind === "event") return gameMenuIcon("event");
+  if (kind === "stage") return gameMenuIcon("home");
+  if (kind === "social") return gameMenuIcon("social");
+  return gameMenuIcon("locker");
 }
 
 function selectedHomeStage(

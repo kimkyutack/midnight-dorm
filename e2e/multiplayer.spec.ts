@@ -155,6 +155,19 @@ test("friends can exchange a request and a direct message", async ({
     expect(friendCode).toMatch(/^FD-[A-F0-9]{8}$/);
     await first.getByRole("button", { name: "친구와 채팅" }).click();
     const firstSocial = first.getByRole("dialog", { name: "친구와 채팅" });
+    expect(
+      await firstSocial.locator(".social-tabs").evaluate((tabs) => ({
+        radius: getComputedStyle(tabs).borderRadius,
+        shadow: getComputedStyle(tabs).boxShadow,
+      })),
+    ).toMatchObject({
+      radius: "13px",
+      shadow: expect.not.stringContaining("inset"),
+    });
+    await expect(firstSocial.locator(".social-tabs button").first()).toHaveCSS(
+      "border-radius",
+      "9px",
+    );
     await firstSocial.locator(".social-add-form input").fill(friendCode ?? "");
     await firstSocial.getByRole("button", { name: "친구 추가" }).click();
     await expect(firstSocial).toContainText("수락 대기 중");
@@ -208,6 +221,19 @@ test("portrait home separates shop, owned customization and stage start", async 
     await dismissVisibleLaunchPromos(page);
     await expect(page.locator(".home-account")).toContainText(nickname);
     await expect(page.locator(".home-account .rank-badge")).toBeVisible();
+    await expect(page.locator(".home-profile-photo img")).toHaveAttribute(
+      "src",
+      /\/assets\/ui\/default-profile-v2\.webp\?v=/,
+    );
+    const profilePhotoBounds = await page
+      .locator(".home-profile-photo")
+      .boundingBox();
+    expect(profilePhotoBounds).toBeTruthy();
+    expect(
+      Math.abs(
+        (profilePhotoBounds?.width ?? 0) - (profilePhotoBounds?.height ?? 0),
+      ),
+    ).toBeLessThan(0.5);
     const mailboxButton = page.getByRole("button", { name: "우편함" });
     await expect(page.locator(".home-mail-unread")).toHaveClass(/visible/);
     await mailboxButton.click();
@@ -225,8 +251,8 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await updateDialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.locator(".game-home h1")).toHaveCount(0);
-    await expect(page.locator(".home-footer-nav .home-nav-icon")).toHaveCount(
-      3,
+    await expect(page.locator(".home-footer-nav .game-menu-icon")).toHaveCount(
+      5,
     );
     await expect(page.locator("[data-home-logout]")).toHaveCount(0);
     const avatarBounds = await page
@@ -234,15 +260,52 @@ test("portrait home separates shop, owned customization and stage start", async 
       .boundingBox();
     expect(avatarBounds).toBeTruthy();
     expect(avatarBounds?.width ?? 999).toBeLessThanOrEqual(330);
-    const homeAvatar = page.locator(
-      ".home-avatar-model .avatar-sprite-preview",
-    );
+    const homeAvatar = page.locator(".home-avatar-model .home-pose-avatar");
     await expect(homeAvatar).toHaveAttribute(
-      "data-character",
-      "character-bunny",
+      "data-home-pose-skin",
+      "skin-basic-bunny",
     );
-    await expect(homeAvatar).toHaveAttribute("data-skin", "skin-basic-bunny");
-    await expect(page.locator(".home-avatar-model canvas")).toBeVisible();
+    await expect(homeAvatar).toBeVisible();
+    expect((await homeAvatar.boundingBox())?.height ?? 999).toBeLessThanOrEqual(217);
+    await expect(page.locator(".home-avatar-model canvas")).toHaveCount(0);
+    expect(
+      await homeAvatar.evaluate((element) => ({
+        animationName: getComputedStyle(element).animationName,
+        animationDuration: getComputedStyle(element).animationDuration,
+        backgroundImage: getComputedStyle(element).backgroundImage,
+      })),
+    ).toMatchObject({
+      animationName: "home-character-yawn",
+      animationDuration: "5s",
+      backgroundImage: expect.stringContaining("home-pose-atlas-1.webp"),
+    });
+    await expect(page.getByTestId("home-stage-start")).not.toContainText(
+      /쉬움|어려움|불지옥|악몽/,
+    );
+    await expect(page.locator(".home-footer-nav")).toContainText("미션");
+    const startBackground = await page
+      .getByTestId("home-stage-start")
+      .evaluate((button) => getComputedStyle(button).backgroundImage);
+    expect(startBackground).toContain("255, 232, 106");
+    const stageAlignment = await page
+      .locator(".home-stage-summary")
+      .evaluate((summary) => {
+        const title = summary.querySelector("strong")?.getBoundingClientRect();
+        const arrow = summary.querySelector("i");
+        const section = summary.getBoundingClientRect();
+        return {
+          titleCenter: title ? title.left + title.width / 2 : 0,
+          sectionCenter: section.left + section.width / 2,
+          arrowPosition: arrow ? getComputedStyle(arrow).position : "",
+        };
+      });
+    expect(Math.abs(stageAlignment.titleCenter - stageAlignment.sectionCenter)).toBeLessThan(1);
+    expect(stageAlignment.arrowPosition).toBe("absolute");
+    const footerFontSizes = await page
+      .locator(".home-footer-nav button > span:last-of-type")
+      .evaluateAll((labels) => labels.map((label) => getComputedStyle(label).fontSize));
+    expect(new Set(footerFontSizes)).toEqual(new Set(["10px"]));
+    await expect(page.locator(".home-actions")).toHaveCSS("row-gap", "10px");
     await expect(page.locator(".home-chase-ghost")).toHaveCount(0);
     expect(
       await page
@@ -257,7 +320,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       }));
     expect(summaryLayout.overflow).toBe("visible");
     expect(summaryLayout.whitespace).toBe("normal");
-    await expect(page.locator("[data-ranking] img")).toBeVisible();
+    await expect(page.locator("[data-ranking] .game-menu-icon")).toBeVisible();
     await page.getByRole("button", { name: "스테이지 난이도 선택" }).click();
     await expect(
       page.getByRole("dialog", { name: "도전할 스테이지" }),
@@ -370,6 +433,13 @@ test("portrait home separates shop, owned customization and stage start", async 
     await expect(
       page.getByRole("heading", { name: "외형 상점" }),
     ).toBeVisible();
+    const shopTabs = page.locator(".custom-catalog nav");
+    expect(
+      await shopTabs.evaluate((tabs) => ({
+        radius: getComputedStyle(tabs).borderRadius,
+        shadow: getComputedStyle(tabs).boxShadow,
+      })),
+    ).toMatchObject({ radius: "13px", shadow: expect.not.stringContaining("inset") });
     await expect(
       page.getByRole("button", { name: "앞", exact: true }),
     ).toHaveClass(/active/);
@@ -405,7 +475,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       /\/assets\/sprites\/survivors\/character-bunny\/concept\.png$/,
     );
     await expect(
-      bunnySkinCard.getByRole("button", { name: "100 P" }),
+      bunnySkinCard.getByRole("button", { name: "800 P" }),
     ).toBeEnabled();
     const lockedCatSkin = page.locator(".cosmetic-card", {
       hasText: "새벽 탐정 루루",
@@ -435,7 +505,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await expect(waveTileCard.locator("img")).toBeVisible();
     await expect(
-      waveTileCard.getByRole("button", { name: "1,000 P" }),
+      waveTileCard.getByRole("button", { name: "1,800 P" }),
     ).toBeEnabled();
     await waveTileCard.click();
     await expect(page.locator("[data-custom-preview-title]")).toHaveText(
@@ -453,7 +523,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       /\/assets\/tiles\/skin-beach-sand\/sand-tile\.webp\?v=/,
     );
     await expect(
-      sandTileCard.getByRole("button", { name: "1,000 P" }),
+      sandTileCard.getByRole("button", { name: "1,800 P" }),
     ).toBeEnabled();
     const neonTileCard = page.locator(".cosmetic-card", {
       hasText: "네온 회로 타일",
@@ -464,7 +534,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     );
     await expect(neonTileCard.locator("img")).toBeVisible();
     await expect(
-      neonTileCard.getByRole("button", { name: "1,000 P" }),
+      neonTileCard.getByRole("button", { name: "1,800 P" }),
     ).toBeEnabled();
     await page.getByRole("button", { name: "포탑", exact: true }).click();
     const cyberTurretCard = page.locator(
@@ -476,7 +546,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       /\/assets\/turret-skins\/skin-cyberpunk-laser\/level-01\.png\?v=/,
     );
     await expect(
-      cyberTurretCard.getByRole("button", { name: "1,500 P" }),
+      cyberTurretCard.getByRole("button", { name: "2,500 P" }),
     ).toBeEnabled();
     await cyberTurretCard.click();
     await expect(page.locator("[data-custom-preview-title]")).toHaveText(
@@ -495,7 +565,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       /\/assets\/turret-skins\/skin-surfer-water-blaster\/level-01\.png\?v=/,
     );
     await expect(
-      surferTurretCard.getByRole("button", { name: "1,500 P" }),
+      surferTurretCard.getByRole("button", { name: "2,500 P" }),
     ).toBeEnabled();
     await surferTurretCard.click();
     await expect(page.locator("[data-custom-preview-title]")).toHaveText(
@@ -514,7 +584,7 @@ test("portrait home separates shop, owned customization and stage start", async 
       /\/assets\/turret-skins\/skin-lifeguard-parasol\/level-01\.png\?v=/,
     );
     await expect(
-      parasolTurretCard.getByRole("button", { name: "1,500 P" }),
+      parasolTurretCard.getByRole("button", { name: "2,500 P" }),
     ).toBeEnabled();
     await page.getByRole("button", { name: "이전 화면" }).click();
     await page.getByRole("button", { name: /커스텀/ }).click();
@@ -607,6 +677,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     expect(lobbyLayout.legacyDots).toBe(0);
     await page.getByTestId("start-game").click();
     await expect(page.locator("#game-shell")).toBeVisible();
+    await expect(page.locator("#game-root canvas.game-door-hud")).toBeVisible();
     await expect(page.locator(".stage-chip")).toContainText("생존 훈련");
     await expect(page.locator("[data-ghost-intro]")).toHaveCount(1);
     await expect

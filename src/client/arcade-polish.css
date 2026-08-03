@@ -1,0 +1,181 @@
+/* Loaded after the main theme so the final home geometry cannot be undone by
+   older responsive theme layers kept for non-home screens. */
+.game-home .home-profile-photo {
+  box-sizing: border-box;
+  flex: 0 0 39px;
+  width: 39px;
+  min-width: 39px;
+  max-width: 39px;
+  height: 39px;
+  min-height: 39px;
+  max-height: 39px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.game-home .home-profile-photo img {
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  object-position: center;
+}
+
+.game-home .home-launch .game-start {
+  border-color: #fff0a2 !important;
+  color: #ffffff !important;
+  background: linear-gradient(180deg, #ffe86a 0%, #ffc52a 58%, #e99a08 100%) !important;
+  box-shadow:
+    0 7px 0 #a85c08,
+    0 10px 17px rgba(1, 5, 26, 0.42),
+    inset 0 3px rgba(255, 255, 255, 0.42) !important;
+}
+
+.game-home .home-launch .game-start i,
+.game-home .home-launch .game-start span,
+.game-home .home-launch .game-start small {
+  color: #ffffff !important;
+  text-shadow:
+    0 2px 0 #9d5708,
+    1px 0 #9d5708,
+    -1px 0 #9d5708 !important;
+}
+
+.game-home .home-avatar-model {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.game-home .home-pose-avatar {
+  display: block;
+  height: min(82.8%, 216px);
+  width: auto;
+  aspect-ratio: var(--home-pose-aspect, 1);
+  background-image: var(--home-pose-atlas);
+  background-repeat: no-repeat;
+  background-size: 200% 500%;
+  background-position: 0 calc(var(--home-pose-row, 0) * 25%);
+  filter: drop-shadow(0 8px 8px rgba(0, 3, 20, 0.42));
+  animation: home-character-yawn 5s steps(1, end) infinite;
+  will-change: background-position;
+}
+
+.game-home .home-stage-hub .home-stage-summary {
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  place-content: center !important;
+  justify-items: center !important;
+  padding-right: 36px !important;
+  padding-left: 36px !important;
+  text-align: center !important;
+}
+
+.game-home .home-stage-hub .home-stage-summary > span,
+.game-home .home-stage-hub .home-stage-summary > strong {
+  width: 100% !important;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+  text-align: center !important;
+}
+
+.game-home .home-stage-hub .home-stage-summary > i {
+  position: absolute !important;
+  top: 50% !important;
+  right: 13px !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  transform: translateY(-50%) !important;
+}
+
+.game-home .home-actions {
+  row-gap: 10px !important;
+}
+
+.game-home .home-footer-nav button > span:last-of-type,
+.game-home .home-footer-nav button.active > span:last-of-type {
+  overflow: hidden;
+  color: #dce6ff;
+  font-family: ui-rounded, "Arial Rounded MT Bold", Pretendard, sans-serif;
+  font-size: 10px !important;
+  font-weight: 900;
+  line-height: 12px !important;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 #070b24;
+  white-space: nowrap;
+}
+
+@keyframes home-character-yawn {
+  0%, 79% {
+    background-position: 0 calc(var(--home-pose-row, 0) * 25%);
+    transform: translateY(0) scale(1);
+  }
+  80%, 93% {
+    background-position: 100% calc(var(--home-pose-row, 0) * 25%);
+    transform: translateY(2px) scale(0.985, 1.015);
+  }
+  94%, 100% {
+    background-position: 0 calc(var(--home-pose-row, 0) * 25%);
+    transform: translateY(0) scale(1);
+  }
+}
+
+.social-tabs,
+.supply-shop-tabs,
+.custom-catalog nav {
+  display: grid !important;
+  gap: 5px !important;
+  padding: 5px !important;
+  border: 1px solid rgba(116, 139, 211, 0.46) !important;
+  border-radius: 13px !important;
+  background: rgba(8, 15, 42, 0.9) !important;
+  box-shadow: 0 3px 0 rgba(3, 7, 26, 0.78) !important;
+}
+
+.social-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.supply-shop-tabs,
+.custom-catalog nav {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.social-tabs button,
+.supply-shop-tabs .custom-tab,
+.custom-catalog nav .custom-tab {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 4px !important;
+  border: 1px solid rgba(92, 116, 185, 0.72) !important;
+  border-radius: 9px !important;
+  color: #b8c5e9 !important;
+  background: linear-gradient(180deg, #26345f, #182448) !important;
+  box-shadow: 0 2px 0 #0a1232 !important;
+  font-family: ui-rounded, "Arial Rounded MT Bold", Pretendard, sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.social-tabs button.active,
+.supply-shop-tabs .custom-tab.active,
+.custom-catalog nav .custom-tab.active {
+  border-color: #fff0a0 !important;
+  color: #513108 !important;
+  background: linear-gradient(180deg, #ffe86a, #ffc42c) !important;
+  box-shadow:
+    0 3px 0 #aa630b,
+    inset 0 1px rgba(255, 255, 255, 0.58) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-home .home-pose-avatar {
+    animation: none;
+  }
+}

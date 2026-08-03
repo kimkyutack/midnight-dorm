@@ -20,7 +20,7 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, crocoStompPlacementForFacing, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { cameraZoomLockedForSnapshot, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
+import { cameraZoomLockedForSnapshot, doorHudMetricsForCameraScale, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { nativeApiResourceUrl } from '../src/client/native/runtime';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
@@ -157,7 +157,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.03.4')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.03.5')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.02.2')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -893,6 +893,18 @@ describe('survivor customization rules', () => {
     opening.players[0]!.roomId = null;
     opening.players[0]!.alive = false;
     expect(cameraZoomLockedForSnapshot(opening, 'local')).toBe(false);
+  });
+
+  it('keeps door labels compact and shrinks them as the camera zooms out', () => {
+    const defaultCard = doorHudMetricsForCameraScale(1 / Math.SQRT2, false);
+    const zoomedOutCard = doorHudMetricsForCameraScale(1.6, false);
+    const shieldedCard = doorHudMetricsForCameraScale(1 / Math.SQRT2, true);
+
+    expect(defaultCard).toEqual({ width: 92, height: 26, compact: false });
+    expect(zoomedOutCard.width).toBeLessThanOrEqual(60);
+    expect(zoomedOutCard.height).toBeLessThan(defaultCard.height);
+    expect(zoomedOutCard.compact).toBe(true);
+    expect(shieldedCard.height).toBeGreaterThan(defaultCard.height);
   });
 
   it('keeps independently authored ghost movement and attack side rows facing their targets', () => {

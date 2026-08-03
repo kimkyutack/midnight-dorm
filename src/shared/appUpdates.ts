@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.03.3";
+export const APP_RELEASE_VERSION = "2026.08.03.4";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "이벤트 로컬 호환성과 생존 봇 개편",
+  title: "홈 휴식 모션과 모바일 탭 개편",
   summary:
-    "• 이전 로컬 D1 이벤트 스키마를 자동 변환해 이벤트 화면 인증 오류를 수정했습니다.\n• 봇이 무료 문 수리와 봉쇄 그물을 활용하고, 수호·화력·제어 역할을 항상 고르게 구성합니다.\n• 봇 등급이 높을수록 판단 주기가 빨라지며, 실제 3봇 승리 자동 시뮬레이션을 추가했습니다.",
-  publishedAt: 1785730500000,
+    "• 홈 캐릭터와 모든 스킨에 앉기·하품 전용 모션을 추가하고 화면 비율을 다듬었습니다.\n• 스테이지 시작 버튼을 노란색으로 통일하고 난이도 제목·푸터 글자를 중앙 정렬했습니다.\n• 친구, 상점, 보관함 탭을 버튼형으로 개편하고 다크 아케이드 기본 프로필을 새로 적용했습니다.",
+  publishedAt: 1785749700000,
 };
 
 /**
