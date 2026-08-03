@@ -151,6 +151,22 @@ async function frameMetrics(input) {
   };
 }
 
+async function assertTransparentSleep(input, label) {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let visiblePixels = 0;
+  for (let offset = info.channels - 1; offset < data.length; offset += info.channels) {
+    if (data[offset] > 3) visiblePixels += 1;
+  }
+  const coverage = visiblePixels / (info.width * info.height);
+  if (coverage > 0.5) {
+    throw new Error(`${label} opaque coverage ${(coverage * 100).toFixed(1)}% looks like a baked background`);
+  }
+  return input;
+}
+
 async function alignFrame(input, scale) {
   const { bounds, bodyCenterX } = await frameMetrics(input);
   const width = Math.max(1, Math.round(bounds.width * scale));
@@ -277,7 +293,10 @@ async function importCleanGeneratedSprites(directory, sheetPath, sleepPath) {
     .resize(CELL_SIZE, CELL_SIZE, { fit: 'contain' })
     .png()
     .toBuffer();
-  await fs.writeFile(path.join(root, 'sleep.png'), sleep);
+  await fs.writeFile(
+    path.join(root, 'sleep.png'),
+    await assertTransparentSleep(sleep, `${directory}/sleep.png`),
+  );
 }
 
 async function repairSpriteSet({ directory, sources }) {
@@ -318,11 +337,12 @@ async function repairSpriteSet({ directory, sources }) {
 
   await fs.writeFile(path.join(root, 'concept.png'), repairedFrames.get('front:idle'));
   const sleepTarget = path.join(root, 'sleep.png');
+  const repairedSleep = await removeOuterAlphaRing(
+    await keepPrimaryAlphaComponent(await fs.readFile(sleepTarget)),
+  );
   await fs.writeFile(
     sleepTarget,
-    await removeOuterAlphaRing(
-      await keepPrimaryAlphaComponent(await fs.readFile(sleepTarget)),
-    ),
+    await assertTransparentSleep(repairedSleep, `${directory}/sleep.png`),
   );
 
   const composites = [];

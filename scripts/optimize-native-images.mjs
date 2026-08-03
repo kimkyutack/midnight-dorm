@@ -33,13 +33,24 @@ async function runPool(items, task) {
   );
 }
 
+const pngFallbackDirectories = [resolve(assetRoot, "ranks")];
+
+function preservesPngFallback(source) {
+  return pngFallbackDirectories.some(
+    (directory) => source === directory || source.startsWith(`${directory}/`),
+  );
+}
+
 async function convertToWebp(source) {
   const target = `${source.slice(0, -4)}.webp`;
   const temporary = `${target}.tmp`;
   await rm(temporary, { force: true });
   await run("cwebp", ["-quiet", "-q", "96", "-alpha_q", "100", "-m", "2", "-mt", source, "-o", temporary]);
   await rename(temporary, target);
-  await rm(source, { force: true });
+  // Rank URLs are assembled dynamically at runtime, so the blanket text
+  // rewrite below cannot see every ".png" request. Keep the tiny PNG set as
+  // a native fallback while direct/literal references still use WebP.
+  if (!preservesPngFallback(source)) await rm(source, { force: true });
 }
 
 const assetFiles = await walk(assetRoot);
@@ -58,5 +69,5 @@ for (const file of clientFiles) {
 }
 
 console.log(
-  `Native image optimization complete: ${pngFiles.length} PNG assets converted to high-quality WebP; ${rewrittenFiles} client files updated.`,
+  `Native image optimization complete: ${pngFiles.length} PNG assets converted to high-quality WebP; ${pngFiles.filter(preservesPngFallback).length} dynamic rank PNG fallbacks preserved; ${rewrittenFiles} client files updated.`,
 );

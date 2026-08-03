@@ -109,17 +109,23 @@ const weightedPick = (
 export function randomItemForRoll(
   rollUnit: number,
   highRarityChanceBonus = 0,
+  excludedItemIds: readonly string[] = [],
 ): RandomItemDefinition | undefined {
   const roll = Math.min(0.999999999, Math.max(0, rollUnit));
   const bonus = Math.min(0.95, Math.max(0, highRarityChanceBonus));
-  if (bonus <= 0) return weightedPick(RANDOM_ITEMS, roll);
+  const excluded = new Set(excludedItemIds);
+  const availableItems = RANDOM_ITEMS.filter((item) => !excluded.has(item.id));
+  if (availableItems.length === 0) return undefined;
+  if (bonus <= 0) return weightedPick(availableItems, roll);
 
-  const highRarity = RANDOM_ITEMS.filter(
+  const highRarity = availableItems.filter(
     (item) => item.rarity === 'legendary' || item.rarity === 'mythic',
   );
-  const standardRarity = RANDOM_ITEMS.filter(
+  const standardRarity = availableItems.filter(
     (item) => item.rarity !== 'legendary' && item.rarity !== 'mythic',
   );
+  if (highRarity.length === 0) return weightedPick(standardRarity, roll);
+  if (standardRarity.length === 0) return weightedPick(highRarity, roll);
   const highWeight = highRarity.reduce((sum, item) => sum + item.weight, 0);
   const standardWeight = standardRarity.reduce((sum, item) => sum + item.weight, 0);
   const baseHighChance = highWeight / Math.max(1, highWeight + standardWeight);

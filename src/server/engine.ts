@@ -216,6 +216,8 @@ export interface PersistedEngine {
   buildCounter?: number;
   /** Optional for compatibility with rooms saved before counters were persisted. */
   lootCounter?: number;
+  /** Match-wide random rewards already revealed by chests or corridor drops. */
+  revealedRandomItemIds?: string[];
 }
 
 export interface JoinResult {
@@ -266,6 +268,7 @@ export class GameEngine {
   private serverSeq = 0;
   private buildCounter = 0;
   private lootCounter = 0;
+  private readonly revealedRandomItemIds = new Set<string>();
   /** Rolled once at the beginning of every match; released with the countdown. */
   private countdownLootPending = false;
   private turretSuppressedUntil = 0;
@@ -614,6 +617,20 @@ export class GameEngine {
       Math.max(0, finite(this.state.repairSuppressedUntil, 0)),
     );
     this.state.lootDrops ??= [];
+    const validRandomItemIds = new Set(RANDOM_ITEMS.map((item) => item.id));
+    const restoredRandomItemIds = data.revealedRandomItemIds ?? [
+      ...this.state.lootDrops.map((drop) => drop.itemId),
+      ...this.state.buildings.flatMap((building) =>
+        building.itemId ? [building.itemId] : [],
+      ),
+      ...this.state.players.flatMap((player) =>
+        player.items.map((item) => item.itemId),
+      ),
+    ];
+    this.revealedRandomItemIds.clear();
+    for (const itemId of restoredRandomItemIds) {
+      if (validRandomItemIds.has(itemId)) this.revealedRandomItemIds.add(itemId);
+    }
     this.state.contractUsed ??= false;
     if (this.state.tutorial?.active) {
       this.state.tutorial.netTriggered ??= false;
@@ -869,6 +886,7 @@ export class GameEngine {
       testMode: this.testMode,
       buildCounter: this.buildCounter,
       lootCounter: this.lootCounter,
+      revealedRandomItemIds: [...this.revealedRandomItemIds],
     };
   }
 
@@ -2451,18 +2469,20 @@ export class GameEngine {
         ok: false,
         error: `뽑기 비용이 부족합니다. 골드 ${cost.gold}, 전력 ${cost.power}`,
       };
-    player.gold -= cost.gold;
-    player.power -= cost.power;
-    player.drawCount += 1;
     const item = randomItemForRoll(
       this.rng.next(),
       characterTraitForMatch(
         player.appearance,
         Boolean(this.state.ranked),
       ).highRarityChanceBonus,
+      [...this.revealedRandomItemIds],
     );
     if (!item)
-      return { ok: false, error: "아이템 목록을 불러오지 못했습니다." };
+      return { ok: false, error: "이번 판의 랜덤 아이템을 모두 확인했습니다." };
+    player.gold -= cost.gold;
+    player.power -= cost.power;
+    player.drawCount += 1;
+    this.revealedRandomItemIds.add(item.id);
     // A draw is no longer an invisible bag bonus.  The machine itself turns
     // into a removable reward object, so every buff has an obvious physical
     // source in the claimed room.
@@ -2544,16 +2564,21 @@ export class GameEngine {
       // Countdown loot is deliberately an early economic catch-up.  Gold and
       // power producers account for most drops, while combat utility remains
       // possible but uncommon.
-      const countdownPool = RANDOM_ITEMS.filter((item) =>
+      const availableItems = RANDOM_ITEMS.filter(
+        (item) => !this.revealedRandomItemIds.has(item.id),
+      );
+      if (availableItems.length === 0) break;
+      const countdownPool = availableItems.filter((item) =>
         item.effect.goldPerSecond || item.effect.powerPerSecond || item.effect.moonGem
           ? true
           : this.rng.next() < 0.18,
       );
-      const pool = countdownPool.length > 0 ? countdownPool : RANDOM_ITEMS;
+      const pool = countdownPool.length > 0 ? countdownPool : availableItems;
       const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
       let roll = this.rng.next() * totalWeight;
       const item = pool.find((candidate) => (roll -= candidate.weight) <= 0) ?? pool[pool.length - 1];
       if (!item) continue;
+      this.revealedRandomItemIds.add(item.id);
       const now = this.matchClock();
       let lootId: string;
       do {
@@ -5703,6 +5728,7 @@ export class GameEngine {
       return { ...next, connected: player.connected, ready: player.isBot };
     });
     this.state = this.createInitialState();
+    this.revealedRandomItemIds.clear();
     this.state.players = players;
     this.state.hostId = hostId;
     this.rematchVotes.clear();

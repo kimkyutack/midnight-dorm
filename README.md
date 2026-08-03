@@ -79,7 +79,7 @@ npm run deploy      # Cloudflare Workers 실제 배포
 
 ## PWA와 저장
 
-Service Worker는 앱 셸만 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. 탭 파비콘과 192/512 PNG 홈 화면 아이콘은 `public/icons/icon-scene-source.png`에서 만든 검증된 래스터 자산을 사용하며, `scripts/generate-icons.mjs`는 빌드 전에 해당 자산이 존재하는지만 확인합니다. 배포 내역은 D1의 `app_updates`에 저장하고, 앱은 캐시하지 않는 `/api/app-updates/latest` 응답과 번들 버전을 비교합니다. 새 버전이 있으면 확인 후 Service Worker와 Cache Storage를 비우고 매번 다른 일회용 URL로 최신 앱 셸을 미리 받은 뒤 재진입합니다. Service Worker 스크립트는 버전 쿼리와 `updateViaCache: none`으로 등록해 iOS 홈 화면 PWA의 오래된 HTTP 캐시도 우회합니다. 홈 프로필 아래의 `↻` 강력 새로고침도 같은 절차를 수행하며, 최근 공지는 확성기 `업데이트 내역` 버튼에서 확인합니다.
+Service Worker는 앱 셸과 정적 이미지·스프라이트를 버전별로 캐시하며 실시간 게임은 네트워크 연결이 필요합니다. 정적 자산은 cache-first로 읽어 캐시 적중 때 같은 파일을 다시 요청하지 않습니다. 탭 파비콘과 192/512 PNG 홈 화면 아이콘은 `public/icons/icon-scene-source.png`에서 만든 검증된 래스터 자산을 사용하며, `scripts/generate-icons.mjs`는 빌드 전에 해당 자산이 존재하는지만 확인합니다. 배포 내역은 D1의 `app_updates`에 저장하고, 앱은 캐시하지 않는 `/api/app-updates/latest` 응답과 번들 버전을 비교합니다. 새 버전이 있으면 확인 후 Service Worker와 Cache Storage를 비우고 매번 다른 일회용 URL로 최신 앱 셸을 미리 받은 뒤 재진입합니다. Service Worker 스크립트는 버전 쿼리와 `updateViaCache: none`으로 등록해 iOS 홈 화면 PWA의 오래된 HTTP 캐시도 우회합니다. 홈 프로필 아래의 `↻` 강력 새로고침도 같은 절차를 수행하며, 최근 공지는 확성기 `업데이트 내역` 버튼에서 확인합니다.
 
 localStorage에는 임의 UUID, 음량·진동, 로컬 기록, 최근 코드, 재접속 토큰만 저장합니다. 계정, 비밀번호 해시, 세션, 등급, XP, 스테이지와 매치 결과는 D1에 저장합니다. 실제 기기 식별자는 수집하지 않습니다.
 

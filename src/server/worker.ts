@@ -34,6 +34,27 @@ const noStoreHeaders = {
   pragma: 'no-cache',
 };
 
+async function staticAssetResponse(request: Request, env: Env): Promise<Response> {
+  const response = await env.ASSETS.fetch(request);
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || !response.ok) return response;
+  const pathname = new URL(request.url).pathname;
+  const isVersionedBundle = /^\/assets\/(?:index|web|network\.worker)-[A-Za-z0-9_-]+\.(?:js|css)$/.test(pathname);
+  const isPublicAsset = pathname.startsWith('/assets/') || pathname.startsWith('/icons/');
+  if (!isVersionedBundle && !isPublicAsset) return response;
+  const headers = new Headers(response.headers);
+  headers.set(
+    'cache-control',
+    isVersionedBundle
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=86400, stale-while-revalidate=604800',
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function appUpdateFromRow(row: AppUpdateRow): AppUpdate {
   return {
     version: row.version,
@@ -229,7 +250,7 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
     }
     const match = url.pathname.match(/^\/api\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);
     if (match) return routeRoom(request, env, match[1] as string, match[2] as 'ws' | 'status');
-    return env.ASSETS.fetch(request);
+    return staticAssetResponse(request, env);
 }
 
 const DEFAULT_NATIVE_ORIGINS = ['capacitor://localhost', 'https://localhost', 'http://localhost'];

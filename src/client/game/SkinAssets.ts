@@ -4,8 +4,8 @@ import type { AvatarAppearance } from '../../shared/types';
 export const SKIN_CELL_SIZE = 362;
 
 const SKIN_ASSET_VERSIONS = new Map<string, string>([
-  ['skin-look-crocodile-police-enforcer', 'special-ops-v4'],
-  ['skin-look-monkey-secret-agent', 'special-ops-v4'],
+  ['skin-look-crocodile-police-enforcer', 'special-ops-v7'],
+  ['skin-look-monkey-secret-agent', 'special-ops-v5'],
 ]);
 
 const SURVIVOR_IDS = new Set([

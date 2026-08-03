@@ -171,6 +171,25 @@ async function verifyCharacter(group, character) {
       if (bottom !== BASELINE) throw new Error(`${group.label}/${character}/${direction}-${frame} baseline ${bottom}, expected ${BASELINE}`);
     }
   }
+  if (group.label === 'skin-variant') {
+    const sleepPath = path.join(group.directory, character, 'sleep.png');
+    const sleep = await sharp(sleepPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (sleep.info.width !== CELL || sleep.info.height !== CELL) {
+      throw new Error(`${sleepPath} must be a transparent ${CELL}px square`);
+    }
+    let visiblePixels = 0;
+    const sleepAlphaIndex = sleep.info.channels - 1;
+    for (let offset = sleepAlphaIndex; offset < sleep.data.length; offset += sleep.info.channels) {
+      if (sleep.data[offset] > 3) visiblePixels += 1;
+    }
+    const alphaCoverage = visiblePixels / (sleep.info.width * sleep.info.height);
+    // A generated matte fills most of the square and becomes a thick black
+    // band when the sleeper is placed on the bed. Real character art leaves
+    // ample transparent space around the horizontal pose.
+    if (alphaCoverage > 0.5) {
+      throw new Error(`${sleepPath} opaque coverage ${(alphaCoverage * 100).toFixed(1)}% looks like a baked background`);
+    }
+  }
 }
 
 async function run(verifyOnly) {

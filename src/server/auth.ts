@@ -442,6 +442,27 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       WHERE account_id = ? AND entitlement_id = ?`)
       .bind(row.id, AD_FREE_ENTITLEMENT_ID).first<AdFreeEntitlementRow>(),
   ]);
+  const generalMatchCount = Math.max(0, generalMatches?.count ?? 0);
+  if (
+    !row.tutorial_completed &&
+    (
+      row.solo_xp > 0 ||
+      row.multiplayer_xp > 0 ||
+      row.solo_stage_index > 0 ||
+      row.multiplayer_stage_index > 0 ||
+      row.victories > 0 ||
+      generalMatchCount > 0
+    )
+  ) {
+    // Some long-lived production accounts missed the historical backfill.
+    // Repair them while loading the authoritative profile so an experienced
+    // account can never be routed back into the first-match tutorial.
+    await db.prepare(`UPDATE accounts
+      SET tutorial_completed = 1, updated_at = ?
+      WHERE id = ? AND tutorial_completed = 0`)
+      .bind(Date.now(), row.id).run();
+    row = { ...row, tutorial_completed: 1 };
+  }
   const profile = profileFromRow(
     row,
     customization,
@@ -449,7 +470,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     turretLoadout,
     (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
     (dismissedPromotions.results ?? []).map((item) => item.promotion_id),
-    Math.max(0, generalMatches?.count ?? 0),
+    generalMatchCount,
     adFreeEntitlement,
   );
   profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);

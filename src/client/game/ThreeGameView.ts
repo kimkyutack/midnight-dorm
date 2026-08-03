@@ -416,7 +416,6 @@ interface PortraitMovementDrag {
   startY: number;
   outputX: number;
   outputY: number;
-  lastUpdateAt: number;
   active: boolean;
 }
 
@@ -2078,6 +2077,7 @@ export class ThreeGameView {
   private readonly bedViews = new Map<string, BedView>();
   private readonly effects: TimedEffect[] = [];
   private readonly hudMessages: HudMessage[] = [];
+  private lastHudRenderAt = Number.NEGATIVE_INFINITY;
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraTarget = new THREE.Vector3();
   private tutorialCameraFocus: Vec2 | null = null;
@@ -5187,6 +5187,11 @@ export class ThreeGameView {
   }
 
   private renderHudMessages(time: number): void {
+    // Text canvases are comparatively expensive on high-DPR phones. Door and
+    // building state does not need to be repainted at the WebGL frame rate.
+    const interval = this.portraitLayout ? 50 : 1000 / 30;
+    if (time - this.lastHudRenderAt < interval) return;
+    this.lastHudRenderAt = time;
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
     const context = this.hudContext;
@@ -5266,12 +5271,12 @@ export class ThreeGameView {
         projected.x < -1.12 || projected.x > 1.12 ||
         projected.y < -1.12 || projected.y > 1.12
       ) continue;
-      const cardHeight = state.doorShieldMaxHp > 0 ? 52 : 44;
+      const cardHeight = state.doorShieldMaxHp > 0 ? 40 : 32;
       cards.push({
         state,
         x: (projected.x * 0.5 + 0.5) * width,
         y: (-projected.y * 0.5 + 0.5) * height,
-        width: 150,
+        width: 108,
         height: cardHeight,
       });
     }
@@ -5296,36 +5301,36 @@ export class ThreeGameView {
       context.strokeStyle = intact ? 'rgba(133,221,236,.7)' : 'rgba(255,85,120,.72)';
       context.lineWidth = 1;
       context.beginPath();
-      context.roundRect(left, top, card.width, card.height, 8);
+      context.roundRect(left, top, card.width, card.height, 6);
       context.fill();
       context.stroke();
 
       context.textBaseline = 'middle';
-      context.font = '800 9px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      context.font = '800 7.5px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
       context.textAlign = 'left';
       context.fillStyle = '#d8f8ff';
       context.fillText(
         `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`,
-        left + 8,
-        top + 11,
-        card.width - 58,
+        left + 6,
+        top + 8,
+        card.width - 44,
       );
       context.textAlign = 'right';
       context.fillStyle = intact ? '#f5fbff' : '#ff7892';
       context.fillText(
         intact ? `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}` : '파괴됨',
-        left + card.width - 8,
-        top + 11,
-        52,
+        left + card.width - 6,
+        top + 8,
+        40,
       );
 
-      const barLeft = left + 8;
-      const barWidth = card.width - 16;
-      const hpTop = top + 21;
+      const barLeft = left + 6;
+      const barWidth = card.width - 12;
+      const hpTop = top + 15;
       context.fillStyle = 'rgba(255,255,255,.12)';
-      context.fillRect(barLeft, hpTop, barWidth, 7);
+      context.fillRect(barLeft, hpTop, barWidth, 5);
       context.fillStyle = hpColor;
-      context.fillRect(barLeft, hpTop, barWidth * hpRatio, 7);
+      context.fillRect(barLeft, hpTop, barWidth * hpRatio, 5);
 
       if (state.doorShieldMaxHp > 0) {
         const shieldRatio = clamp(
@@ -5334,13 +5339,13 @@ export class ThreeGameView {
           1,
         );
         context.textAlign = 'left';
-        context.font = '750 8px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+        context.font = '750 7px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
         context.fillStyle = '#b7eeff';
-        context.fillText('방어막', barLeft, top + 39);
+        context.fillText('방어막', barLeft, top + 30);
         context.fillStyle = 'rgba(255,255,255,.12)';
-        context.fillRect(barLeft + 34, top + 36, barWidth - 34, 6);
+        context.fillRect(barLeft + 28, top + 27, barWidth - 28, 5);
         context.fillStyle = shieldRatio > 0 ? '#72dfff' : '#566173';
-        context.fillRect(barLeft + 34, top + 36, (barWidth - 34) * shieldRatio, 6);
+        context.fillRect(barLeft + 28, top + 27, (barWidth - 28) * shieldRatio, 5);
       }
       context.restore();
     }
@@ -6072,7 +6077,7 @@ export class ThreeGameView {
     this.portraitLayout = height > width;
     this.updateCameraProjection(width, height);
     this.renderer.setSize(width, height, false);
-    const hudRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const hudRatio = Math.min(window.devicePixelRatio || 1, 1.5);
     this.hudCanvas.width = Math.max(1, Math.round(width * hudRatio));
     this.hudCanvas.height = Math.max(1, Math.round(height * hudRatio));
     this.hudContext.setTransform(hudRatio, 0, 0, hudRatio, 0, 0);
@@ -6104,8 +6109,11 @@ export class ThreeGameView {
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointercancel', this.onPointerUp);
+    canvas.addEventListener('lostpointercapture', this.onLostPointerCapture);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', this.onContextMenu);
+    window.addEventListener('blur', this.onInputInterrupted);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private unbindInput(): void {
@@ -6114,8 +6122,11 @@ export class ThreeGameView {
     canvas.removeEventListener('pointermove', this.onPointerMove);
     canvas.removeEventListener('pointerup', this.onPointerUp);
     canvas.removeEventListener('pointercancel', this.onPointerUp);
+    canvas.removeEventListener('lostpointercapture', this.onLostPointerCapture);
     canvas.removeEventListener('wheel', this.onWheel);
     canvas.removeEventListener('contextmenu', this.onContextMenu);
+    window.removeEventListener('blur', this.onInputInterrupted);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private cancelPortraitMovement(dispatchStop: boolean): void {
@@ -6138,6 +6149,7 @@ export class ThreeGameView {
       local?.alive &&
       !local.roomId
     ) {
+      if (!event.isPrimary || this.portraitMovementDrag) return;
       event.preventDefault();
       this.renderer.domElement.setPointerCapture(event.pointerId);
       this.portraitMovementDrag = {
@@ -6146,7 +6158,6 @@ export class ThreeGameView {
         startY: event.clientY,
         outputX: 0,
         outputY: 0,
-        lastUpdateAt: event.timeStamp,
         active: false,
       };
       this.dispatchPortraitMovement(0, 0);
@@ -6190,10 +6201,12 @@ export class ThreeGameView {
   private readonly onPointerMove = (event: PointerEvent): void => {
     if (this.portraitMovementDrag?.id === event.pointerId) {
       event.preventDefault();
+      const coalesced = event.getCoalescedEvents?.() ?? [];
+      const pointer = coalesced[coalesced.length - 1] ?? event;
       const rect = this.renderer.domElement.getBoundingClientRect();
       const radius = clamp(Math.min(rect.width, rect.height) * 0.22, 54, 92);
-      let dx = event.clientX - this.portraitMovementDrag.startX;
-      let dy = event.clientY - this.portraitMovementDrag.startY;
+      let dx = pointer.clientX - this.portraitMovementDrag.startX;
+      let dy = pointer.clientY - this.portraitMovementDrag.startY;
       const magnitude = Math.hypot(dx, dy);
       if (magnitude > radius) {
         dx = (dx / magnitude) * radius;
@@ -6205,22 +6218,16 @@ export class ThreeGameView {
         drag.active = false;
         drag.outputX = 0;
         drag.outputY = 0;
-        drag.lastUpdateAt = event.timeStamp;
         this.dispatchPortraitMovement(0, 0);
       } else {
         const desiredX = dx / radius;
         const desiredY = dy / radius;
-        const elapsed = clamp(event.timeStamp - drag.lastUpdateAt, 4, 48);
-        const reversing =
-          drag.outputX * desiredX + drag.outputY * desiredY < -0.02;
-        const alpha = !drag.active
-          ? 1
-          : reversing
-            ? 0.82
-            : 1 - Math.exp(-elapsed / 24);
-        drag.outputX += (desiredX - drag.outputX) * alpha;
-        drag.outputY += (desiredY - drag.outputY) * alpha;
-        drag.lastUpdateAt = event.timeStamp;
+        // Sparse iOS pointer events made the smoothing retain the previous
+        // direction after a quick reversal. The avatar then briefly moved
+        // opposite to the finger. Use the freshest coalesced sample directly;
+        // local/server reconciliation already smooths the rendered motion.
+        drag.outputX = desiredX;
+        drag.outputY = desiredY;
         drag.active = true;
         this.dispatchPortraitMovement(drag.outputX, drag.outputY);
       }
@@ -6292,6 +6299,20 @@ export class ThreeGameView {
       return;
     }
     if (!moved && !wasGesture && event.button !== 2) this.selectAt(event.clientX, event.clientY);
+  };
+
+  private readonly onLostPointerCapture = (event: PointerEvent): void => {
+    if (this.portraitMovementDrag?.id === event.pointerId) {
+      this.cancelPortraitMovement(true);
+    }
+  };
+
+  private readonly onInputInterrupted = (): void => {
+    this.cancelPortraitMovement(true);
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState !== 'visible') this.cancelPortraitMovement(true);
   };
 
   private readonly onWheel = (event: WheelEvent): void => {
@@ -6466,7 +6487,12 @@ export class ThreeGameView {
       return;
     }
     const room = this.mapData.rooms.find((candidate) => candidate.buildTiles.some((buildTile) => buildTile.x === tile.x && buildTile.y === tile.y));
-    if (!room) return;
+    if (!room) {
+      if (this.mapData.corridorTiles.some((candidate) => candidate.x === tile.x && candidate.y === tile.y)) {
+        window.dispatchEvent(new CustomEvent<Tile>('dorm:ground-tile-selected', { detail: { ...tile } }));
+      }
+      return;
+    }
     const selectedTile: Tile = { ...tile, roomId: room.id };
     if (this.snapshotData.tutorial?.active) {
       const local = this.snapshotData.players.find(

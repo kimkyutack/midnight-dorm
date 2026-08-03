@@ -1,5 +1,5 @@
-const CACHE = "midnight-dorm-shell-v13";
-const ASSET_CACHE = "midnight-dorm-assets-v13";
+const CACHE = "midnight-dorm-shell-v14";
+const ASSET_CACHE = "midnight-dorm-assets-v14";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -67,15 +67,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       caches.open(ASSET_CACHE).then(async (cache) => {
         const cached = await cache.match(request);
-        const refresh = fetch(request).then((response) => {
-          if (response.ok) void cache.put(request, response.clone());
-          return response;
-        });
-        if (cached) {
-          event.waitUntil(refresh.catch(() => undefined));
-          return cached;
-        }
-        return refresh;
+        if (cached) return cached;
+        const response = await fetch(request);
+        if (response.ok) await cache.put(request, response.clone());
+        return response;
       }),
     );
     return;

@@ -10565,7 +10565,7 @@ body.game-chat-active {
   animation: surfer-card-frames 0.82s steps(1, end) infinite;
 }
 .police-enforcer-croco-card-sprite {
-  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v4");
+  background-image: url("/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v7");
   animation:
     surfer-card-frames 0.88s steps(1, end) infinite,
     police-card-stomp 0.88s ease-in-out infinite;
@@ -10835,7 +10835,7 @@ body.game-chat-active {
   pointer-events: none;
 }
 .police-enforcer-croco-sprite-preview .special-ops-skin-motion-effect.croco-stomp-effect {
-  bottom: 10%;
+  bottom: 2%;
   left: var(--croco-impact-left, 16%);
   width: 38%;
   height: 17%;

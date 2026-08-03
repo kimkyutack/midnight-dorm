@@ -18,7 +18,7 @@ import { GameEngine, type MatchConfig } from '../src/server/engine';
 import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
-import { attackFrameAt, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
+import { attackFrameAt, crocoStompPlacementForFacing, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
 import { cameraZoomLockedForSnapshot, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
@@ -820,14 +820,14 @@ describe('survivor customization rules', () => {
       .toBe('/assets/sprites/skins/skin-cyber-driver-kong/sleep.png');
     const policeCrocoAppearance = { character: 'character-crocodile', skin: 'skin-look-crocodile-police-enforcer' };
     expect(skinMovementSheetUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v4');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/movement-sheet.png?v=special-ops-v7');
     expect(skinSleepUrl(policeCrocoAppearance))
-      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png?v=special-ops-v4');
+      .toBe('/assets/sprites/skins/skin-police-enforcer-croco/sleep.png?v=special-ops-v7');
     const secretAgentAppearance = { character: 'character-monkey', skin: 'skin-look-monkey-secret-agent' };
     expect(skinMovementSheetUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v4');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/movement-sheet.png?v=special-ops-v5');
     expect(skinSleepUrl(secretAgentAppearance))
-      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png?v=special-ops-v4');
+      .toBe('/assets/sprites/skins/skin-secret-agent-monkey/sleep.png?v=special-ops-v5');
   });
 
   it('selects the correct 2D atlas row and mirrored side for movement', () => {
@@ -860,6 +860,14 @@ describe('survivor customization rules', () => {
       footOffsetX: -0.15,
     });
     expect(crocoStompStateAt(780).visible).toBe(false);
+    expect(crocoStompPlacementForFacing(
+      { direction: 'front', mirrored: false },
+      0.15,
+    )).toEqual({ x: 0.15, z: 0.5 });
+    expect(crocoStompPlacementForFacing(
+      { direction: 'side', mirrored: true },
+      0.15,
+    )).toEqual({ x: -0.15, z: 0.5 });
   });
 
   it('locks camera zoom for every living survivor until a bed is claimed', () => {
@@ -1093,8 +1101,8 @@ describe('survivor customization rules', () => {
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
     expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
-    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v4');
-    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v4');
+    expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v7');
+    expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v5');
     expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
@@ -3206,11 +3214,11 @@ describe('requested progression and event rules', () => {
     const infernoFour = getStage('inferno-4');
     const infernoFive = getStage('inferno-5');
     expect(stagePressureScale(30)).toBe(1);
-    expect(stagePressureScale(31)).toBeCloseTo(0.98, 8);
-    expect(stagePressureScale(35)).toBeCloseTo(0.9, 8);
-    expect(stagePressureScale(344)).toBeCloseTo(0.9, 8);
-    expect(infernoFive.hpMultiplier / infernoFour.hpMultiplier).toBeLessThan(1.01);
-    expect(infernoFive.damageMultiplier / infernoFour.damageMultiplier).toBeLessThan(1.01);
+    expect(stagePressureScale(31)).toBeCloseTo(0.99, 8);
+    expect(stagePressureScale(35)).toBeCloseTo(0.95, 8);
+    expect(stagePressureScale(344)).toBeCloseTo(0.95, 8);
+    expect(infernoFive.hpMultiplier / infernoFour.hpMultiplier).toBeLessThan(1.012);
+    expect(infernoFive.damageMultiplier / infernoFour.damageMultiplier).toBeLessThan(1.012);
     expect(difficultyRuleForStage(infernoFive).barrierLayers).toBe(1);
     expect(difficultyRuleForStage(infernoFive).directionalShield).toBe(true);
     expect(difficultyRuleForStage(getStage('epic-1')).barrierLayers).toBe(2);
@@ -4933,6 +4941,18 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.some((item) => item.id === 'runner-shoes' || item.id === 'escape-scarf')).toBe(false);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
     expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 0 }, { gold: 120, power: 0 }, { gold: 200, power: 0 }, { gold: 300, power: 0 }, { gold: 420, power: 0 }]);
+    const firstWeightedReward = randomItemForRoll(0.42);
+    expect(firstWeightedReward).toBeDefined();
+    expect(
+      randomItemForRoll(
+        0.42,
+        0,
+        firstWeightedReward ? [firstWeightedReward.id] : [],
+      )?.id,
+    ).not.toBe(firstWeightedReward?.id);
+    expect(
+      randomItemForRoll(0.42, 0.05, RANDOM_ITEMS.map((item) => item.id)),
+    ).toBeUndefined();
 
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -5033,6 +5053,11 @@ describe('requested progression and event rules', () => {
       advanceFrozenIntros(engine);
       const firstDrop = engine.snapshot().lootDrops[0];
       expect(firstDrop).toBeDefined();
+      const openingItemIds = engine.snapshot().lootDrops.map((drop) => drop.itemId);
+      expect(new Set(openingItemIds).size).toBe(openingItemIds.length);
+      expect(engine.serialize().revealedRandomItemIds).toEqual(
+        expect.arrayContaining(openingItemIds),
+      );
       expect(engine.map.corridorTiles).toContainEqual(expect.objectContaining(firstDrop?.tile ?? {}));
 
       const carriedState = engine.serialize();
@@ -5142,10 +5167,21 @@ describe('requested progression and event rules', () => {
       if (!machine) throw new Error('missing lucky machine');
       return machine.id;
     };
+    const matchDrawnItemIds: string[] = [];
     for (let index = 0; index < 5; index += 1) {
       const machineId = index === 0 ? machine.id : openMachine();
       expect(engine.drawItem(playerId, machineId).ok).toBe(true);
+      const itemId = engine.snapshot().buildings.find(
+        (building) => building.id === machineId,
+      )?.itemId;
+      if (!itemId) throw new Error('missing drawn item id');
+      expect(matchDrawnItemIds).not.toContain(itemId);
+      matchDrawnItemIds.push(itemId);
     }
+    expect(new Set(matchDrawnItemIds).size).toBe(5);
+    expect(engine.serialize().revealedRandomItemIds).toEqual(
+      expect.arrayContaining(matchDrawnItemIds),
+    );
     expect(engine.snapshot().players.find((candidate) => candidate.id === playerId)?.drawCount).toBe(5);
   });
 

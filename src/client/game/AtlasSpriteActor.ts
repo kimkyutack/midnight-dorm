@@ -56,6 +56,7 @@ interface AtlasLayer {
   mapUniform: THREE.IUniform<THREE.Texture>;
   scaleUniform: THREE.IUniform<THREE.Vector2>;
   offsetUniform: THREE.IUniform<THREE.Vector2>;
+  insetUniform: THREE.IUniform<THREE.Vector2>;
   opacityUniform: THREE.IUniform<number>;
   tintUniform: THREE.IUniform<THREE.Color>;
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
@@ -80,7 +81,7 @@ function specialOpsEffectTexture(kind: SpecialOpsMotionKind): THREE.Texture {
   const cached = specialOpsEffectTextures.get(kind);
   if (cached) return cached;
   if (kind === 'croco-stomp') {
-    const texture = textureLoader.load('/assets/effects/croco-ground-impact.png?v=special-ops-v4');
+    const texture = textureLoader.load('/assets/effects/croco-ground-impact.png?v=special-ops-v5');
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
@@ -231,11 +232,15 @@ function acquireTexture(url: string): THREE.Texture {
     },
   );
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  // Survivor atlases contain transparent padding between independently
+  // authored cells. Mipmaps blend those cells with the black RGB stored under
+  // transparent pixels, which can turn small eyes muddy and create horizontal
+  // black bands around a sleeping/claimed survivor on mobile GPUs.
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.generateMipmaps = true;
+  texture.generateMipmaps = false;
   textureCache.set(url, { texture, references: 1 });
   return texture;
 }
@@ -274,6 +279,28 @@ export interface CrocoStompState {
   opacity: number;
   expansion: number;
   footOffsetX: number;
+}
+
+export interface CrocoStompPlacement {
+  x: number;
+  z: number;
+}
+
+/** Anchors the impact to the alternating planted foot for every facing. */
+export function crocoStompPlacementForFacing(
+  facing: SpriteFacing,
+  footOffsetX: number,
+): CrocoStompPlacement {
+  return {
+    x:
+      facing.direction === 'side' && facing.mirrored
+        ? -footOffsetX
+        : footOffsetX,
+    // Every repaired frame shares the same 340/362px foot baseline. Push the
+    // decal just beyond that baseline so its center sits under the planted
+    // sole instead of reading as a trail behind the character.
+    z: 0.5,
+  };
 }
 
 /** Keeps each ground impact on the footfall between the two lifted-leg frames. */
@@ -482,7 +509,7 @@ export class AtlasSpriteActor {
     });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), material);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(0, -0.012, kind === 'croco-stomp' ? 0.23 : 0.2);
+    mesh.position.set(0, -0.012, kind === 'croco-stomp' ? 0.5 : 0.2);
     mesh.renderOrder = renderOrder;
     mesh.visible = false;
     mesh.name = `${name}-${kind}-effect`;
@@ -502,10 +529,12 @@ export class AtlasSpriteActor {
       effect.material.opacity = stomp.opacity;
       const scale = 0.78 + stomp.expansion * 0.34;
       effect.mesh.scale.set(scale, scale, scale);
-      effect.mesh.position.x = this.facing.direction === 'side'
-        ? this.facing.mirrored ? -0.21 : 0.21
-        : stomp.footOffsetX * (this.facing.direction === 'back' ? -1 : 1);
-      effect.mesh.position.z = this.facing.direction === 'back' ? 0.19 : 0.23;
+      const placement = crocoStompPlacementForFacing(
+        this.facing,
+        stomp.footOffsetX,
+      );
+      effect.mesh.position.x = placement.x;
+      effect.mesh.position.z = placement.z;
       effect.mesh.rotation.y = 0;
       return;
     }
@@ -530,6 +559,7 @@ export class AtlasSpriteActor {
     const mapUniform = new THREE.Uniform(movementTexture);
     const scaleUniform = new THREE.Uniform(new THREE.Vector2(0.25, 1 / 3));
     const offsetUniform = new THREE.Uniform(new THREE.Vector2(0, 2 / 3));
+    const insetUniform = new THREE.Uniform(new THREE.Vector2(0, 0));
     const opacityUniform = new THREE.Uniform(1);
     const tintUniform = new THREE.Uniform(new THREE.Color(definition.tint ?? 0xffffff));
     const material = new THREE.ShaderMaterial({
@@ -537,6 +567,7 @@ export class AtlasSpriteActor {
         atlasMap: mapUniform,
         atlasScale: scaleUniform,
         atlasOffset: offsetUniform,
+        atlasInset: insetUniform,
         actorTint: tintUniform,
         actorOpacity: opacityUniform,
       },
@@ -551,11 +582,19 @@ export class AtlasSpriteActor {
         uniform sampler2D atlasMap;
         uniform vec2 atlasScale;
         uniform vec2 atlasOffset;
+        uniform vec2 atlasInset;
         uniform vec3 actorTint;
         uniform float actorOpacity;
         varying vec2 actorUv;
         void main() {
-          vec4 texel = texture2D(atlasMap, actorUv * atlasScale + atlasOffset);
+          vec2 cellEnd = atlasOffset + atlasScale;
+          vec2 sampleUv = actorUv * atlasScale + atlasOffset;
+          sampleUv = clamp(
+            sampleUv,
+            min(atlasOffset, cellEnd) + atlasInset,
+            max(atlasOffset, cellEnd) - atlasInset
+          );
+          vec4 texel = texture2D(atlasMap, sampleUv);
           float alpha = texel.a * actorOpacity;
           if (alpha < 0.025) discard;
           gl_FragColor = vec4(texel.rgb * actorTint, alpha);
@@ -590,6 +629,7 @@ export class AtlasSpriteActor {
       mapUniform,
       scaleUniform,
       offsetUniform,
+      insetUniform,
       opacityUniform,
       tintUniform,
       mesh: plane,
@@ -641,6 +681,16 @@ export class AtlasSpriteActor {
       layer.offsetUniform.value.set(
         mirrored ? (activeFrame + 1) / activeColumns : activeFrame / activeColumns,
         useSleep ? 0 : (2 - row) / 3,
+      );
+      const activeTexture = layer.mapUniform.value;
+      const image = activeTexture.image as
+        | { width?: number; height?: number }
+        | undefined;
+      const fallbackCellSize = 362;
+      layer.insetUniform.value.set(
+        0.5 / Math.max(1, image?.width ?? activeColumns * fallbackCellSize),
+        0.5 /
+          Math.max(1, image?.height ?? (useSleep ? 1 : 3) * fallbackCellSize),
       );
       layer.mesh.userData.direction = this.facing.direction;
       layer.mesh.userData.mirrored = mirrored;

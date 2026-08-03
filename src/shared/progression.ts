@@ -218,10 +218,10 @@ export const rankedBadgeArtworkLayout = (
   tier: RankedTier,
 ): BadgeArtworkLayout => RANKED_BADGE_ARTWORK[tier];
 
-/** Inferno 1~5 eases into the combined shield rules, then stays 10% softer. */
+/** Inferno 1~5 eases into the combined shield rules, then stays 5% softer. */
 export function stagePressureScale(index: number): number {
   if (index < 31) return 1;
-  return Math.max(0.9, 1 - (index - 30) * 0.02);
+  return Math.max(0.95, 1 - (index - 30) * 0.01);
 }
 
 export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
