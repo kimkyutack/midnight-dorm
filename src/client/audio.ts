@@ -3,6 +3,14 @@ import type { GameEventKind } from '../shared/types';
 type SoundName = GameEventKind | 'button';
 export type BackgroundTrack = 'main' | 'ingame';
 
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+export const ghostFootstepGain = (level: number, masterVolume: number): number =>
+  clamp01(masterVolume) * (.018 + clamp01(level) * .11);
+
+export const ghostFootstepIntervalMs = (level: number): number =>
+  Math.round(690 - clamp01(level) * 280);
+
 export class SynthAudio {
   private context: AudioContext | null = null;
   private muted = false;
@@ -11,6 +19,8 @@ export class SynthAudio {
   private backgroundUnlockArmed = false;
   private musicMuted = false;
   private pageVisible = typeof document === 'undefined' || !document.hidden;
+  private ghostFootstepLevel = 0;
+  private ghostFootstepTimer = 0;
   volume = 0.65;
   musicVolume = 0.42;
 
@@ -28,14 +38,25 @@ export class SynthAudio {
   unlock(): void {
     this.context ??= new AudioContext();
     if (this.context.state === 'suspended') void this.context.resume();
+    this.scheduleGhostFootstep();
   }
 
   setVolume(value: number): void {
     this.volume = Math.max(0, Math.min(1, value));
+    if (this.volume <= 0) this.stopGhostFootsteps();
+    else this.scheduleGhostFootstep();
   }
 
   setMuted(value: boolean): void {
     this.muted = value;
+    if (value) this.stopGhostFootsteps();
+    else this.scheduleGhostFootstep();
+  }
+
+  setGhostFootstepLevel(value: number): void {
+    this.ghostFootstepLevel = clamp01(value);
+    if (this.ghostFootstepLevel <= 0) this.stopGhostFootsteps();
+    else this.scheduleGhostFootstep();
   }
 
   setMusicVolume(value: number): void {
@@ -59,9 +80,11 @@ export class SynthAudio {
     this.pageVisible = visible;
     if (!visible) {
       Object.values(this.background).forEach((track) => track?.pause());
+      this.stopGhostFootsteps();
       return;
     }
     if (this.activeBackground && !this.musicMuted) void this.playBackground(this.activeBackground);
+    this.scheduleGhostFootstep();
   }
 
   setBackgroundTrack(track: BackgroundTrack | null): void {
@@ -120,6 +143,46 @@ export class SynthAudio {
     track.preload = 'auto';
     track.volume = this.musicVolume;
     return track;
+  }
+
+  private stopGhostFootsteps(): void {
+    if (this.ghostFootstepTimer && typeof window !== 'undefined') window.clearTimeout(this.ghostFootstepTimer);
+    this.ghostFootstepTimer = 0;
+  }
+
+  private scheduleGhostFootstep(): void {
+    if (this.ghostFootstepTimer || typeof window === 'undefined') return;
+    if (this.muted || !this.pageVisible || this.volume <= 0 || this.ghostFootstepLevel <= 0) return;
+    this.ghostFootstepTimer = window.setTimeout(() => {
+      this.ghostFootstepTimer = 0;
+      this.emitGhostFootstep();
+      this.scheduleGhostFootstep();
+    }, ghostFootstepIntervalMs(this.ghostFootstepLevel));
+  }
+
+  private emitGhostFootstep(): void {
+    const context = this.context;
+    if (!context || context.state !== 'running' || this.muted || !this.pageVisible) return;
+    const level = this.ghostFootstepLevel;
+    const volume = ghostFootstepGain(level, this.volume);
+    for (const offset of [0, .13]) {
+      const start = context.currentTime + offset;
+      const duration = .16;
+      const oscillator = context.createOscillator();
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(94 + level * 10, start);
+      oscillator.frequency.exponentialRampToValueAtTime(43, start + duration);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(190 + level * 90, start);
+      gain.gain.setValueAtTime(.0001, start);
+      gain.gain.exponentialRampToValueAtTime(Math.max(.0001, volume), start + .018);
+      gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+      oscillator.connect(filter).connect(gain).connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + duration);
+    }
   }
 
   private async playBackground(trackName: BackgroundTrack): Promise<void> {

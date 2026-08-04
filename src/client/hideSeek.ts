@@ -26,6 +26,7 @@ export interface HideSeekExperienceOptions {
   playSound?: () => void;
   openSettings: () => void;
   setBackgroundTrack: (track: 'main' | 'ingame') => void;
+  setGhostFootstepLevel?: (level: number) => void;
   adFreeActive: boolean;
   prepareDoubleReward?: (matchId: string) => Promise<void>;
   claimReward: (matchId: string, multiplier: 1 | 2) => Promise<number>;
@@ -153,6 +154,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     window.removeEventListener('keyup', this.keyUp);
     this.socket?.close(1000, 'client view closed');
     this.socket = null;
+    this.options.setGhostFootstepLevel?.(0);
   }
 
   wakeAfterSuspension(): void {
@@ -301,6 +303,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     const snapshot = this.snapshot;
     if (!snapshot) return;
     if (snapshot.phase === 'LOBBY') {
+      this.options.setGhostFootstepLevel?.(0);
       this.useBackgroundTrack('main');
       if (force || !this.options.app.querySelector('.hide-seek-lobby')) this.renderLobby();
       else this.updateLobby();
@@ -318,11 +321,13 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   }
 
   private renderConnecting(label: string): void {
+    this.options.setGhostFootstepLevel?.(0);
     this.options.app.dataset.view = 'hide-seek';
     this.options.app.innerHTML = `<main class="hide-seek-connecting"><div class="hide-seek-moon">☾</div><span>NIGHT CHASE</span><h1>${html(label)}</h1><p>어두운 복도에서 발소리를 낮추세요.</p><i></i></main>`;
   }
 
   private showFatal(message: string): void {
+    this.options.setGhostFootstepLevel?.(0);
     this.options.app.innerHTML = `<main class="hide-seek-connecting error"><div class="hide-seek-moon">!</div><span>CONNECTION LOST</span><h1>입장할 수 없습니다</h1><p>${html(message)}</p><button data-hide-seek-fatal-exit>홈으로</button></main>`;
     this.options.app.querySelector('[data-hide-seek-fatal-exit]')?.addEventListener('click', () => {
       this.destroy();
@@ -571,7 +576,20 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       ? `생존자 ${snapshot.players.filter((player) => player.role === 'survivor' && player.alive).length}명 추적 중`
       : `자물쇠 ${unlockedLockCount(snapshot)}/${HIDE_SEEK_RULES.requiredKeys}${carryingKey ? ' · 열쇠 보유' : ''}`;
     if (clock) clock.textContent = formatClock(snapshot.phaseRemaining);
-    this.options.app.querySelector('[data-hide-seek-alert]')?.classList.toggle('visible', me.alive && me.detected);
+    const dangerAlert = this.options.app.querySelector<HTMLElement>('[data-hide-seek-alert]');
+    const detected = me.alive && me.detected;
+    const nearby = me.alive && !detected && me.proximityAlert;
+    dangerAlert?.classList.toggle('visible', detected || nearby);
+    dangerAlert?.classList.toggle('detected', detected);
+    dangerAlert?.classList.toggle('nearby', nearby);
+    const dangerLabel = dangerAlert?.querySelector<HTMLElement>('span');
+    if (dangerLabel) dangerLabel.textContent = detected ? '발견됨' : '가까이에 기척!';
+    const footstepLevel = (snapshot.phase === 'HUNT' || snapshot.phase === 'LAST_ESCAPE')
+      && me.role === 'survivor'
+      && me.alive
+      ? me.ghostFootstepLevel
+      : 0;
+    this.options.setGhostFootstepLevel?.(footstepLevel);
     const minimapLabel = this.options.app.querySelector<HTMLElement>('[data-hide-seek-minimap-label]');
     if (minimapLabel) minimapLabel.textContent = me.role === 'ghost' ? '귀신 탐색 지도' : '생존자 공유 지도';
     this.options.app.querySelector('[data-hide-seek-chat]')?.classList.toggle('hidden', me.role === 'ghost');
@@ -1033,12 +1051,13 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     );
     if (me.role === 'ghost') this.drawPlayer(context, me, toScreen(target), tileSize, time, true);
     for (const player of snapshot.players) {
-      if (!player.detected || player.position.x < 0 || player.escaped) continue;
+      if ((!player.detected && !player.proximityAlert) || player.position.x < 0 || player.escaped) continue;
       const position = toScreen(renderedPositions.get(player.id) ?? { ...player.position, initialized: true });
+      const isDetected = player.detected;
       context.save();
-      context.shadowColor = '#ff304f';
+      context.shadowColor = isDetected ? '#ff304f' : '#ffc928';
       context.shadowBlur = 16;
-      context.fillStyle = '#ff405d';
+      context.fillStyle = isDetected ? '#ff405d' : '#ffd45c';
       context.font = `1000 ${tileSize * .72}px system-ui`;
       context.textAlign = 'center';
       context.fillText('!', position.x, position.y - tileSize * 1.05);

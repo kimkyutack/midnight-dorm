@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.04.5";
+export const APP_RELEASE_VERSION = "2026.08.04.6";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "이동 안정화와 술래잡기 탈출 개선",
+  title: "술래잡기 근접 경고와 발소리",
   summary:
-    "• 일반 게임에서 방에 들어갈 때 이동이 되감기고 잠자기 버튼이 나타나지 않던 문제를 수정했습니다.\n• 생존자 한 명이 열쇠 하나를 운반하고 탈출구의 자물쇠를 하나씩 해제하도록 변경했습니다.\n• 열쇠 운반자가 사망하면 현 위치에 열쇠를 떨어뜨리고 생존자 미니맵에 사망 위치를 표시합니다.\n• 봇이 출구에서 잠금 해제를 끝내지 못하고 멈추던 문제를 수정했습니다.",
-  publishedAt: 1785848330000,
+    "• 술래와 생존자가 6칸 안으로 가까워지면 양쪽에 노란 느낌표로 위험을 알립니다.\n• 생존자는 술래가 가까워질수록 더 크고 빠르게 들리는 거리 기반 발소리를 들을 수 있습니다.\n• 은신 중에도 발소리는 들리지만 술래에게 은신처 점유 여부가 노출되지 않도록 처리했습니다.",
+  publishedAt: 1785849968000,
 };
 
 /**

@@ -143,6 +143,8 @@ export class HideSeekEngine {
         player.position = hiddenPosition;
         player.previousPosition = hiddenPosition;
         player.hiddenIn = null;
+        player.proximityAlert = false;
+        player.ghostFootstepLevel = 0;
       }
       return snapshot;
     }
@@ -228,6 +230,8 @@ export class HideSeekEngine {
       player.lightUntil ??= 0;
       player.lightReadyAt ??= 0;
       player.abandoned ??= false;
+      player.proximityAlert ??= false;
+      player.ghostFootstepLevel ??= 0;
       if (player.interactionTarget?.startsWith('exit:')) {
         if (!player.alive || player.escaped || exitInteractionClaimed) {
           player.interactionTarget = null;
@@ -294,6 +298,8 @@ export class HideSeekEngine {
       escaped: false,
       hiddenIn: null,
       detected: false,
+      proximityAlert: false,
+      ghostFootstepLevel: 0,
       detectionReleaseAt: 0,
       sprintUntil: 0,
       sprintReadyAt: 0,
@@ -366,6 +372,8 @@ export class HideSeekEngine {
       escaped: false,
       hiddenIn: null,
       detected: false,
+      proximityAlert: false,
+      ghostFootstepLevel: 0,
       detectionReleaseAt: 0,
       sprintUntil: 0,
       sprintReadyAt: 0,
@@ -572,11 +580,15 @@ export class HideSeekEngine {
     this.updateBots();
     for (const player of this.state.players) this.movePlayer(player, dt);
     this.revealExploration();
-    if (this.state.phase !== 'HUNT' && this.state.phase !== 'LAST_ESCAPE') return;
+    if (this.state.phase !== 'HUNT' && this.state.phase !== 'LAST_ESCAPE') {
+      this.clearProximityAlerts();
+      return;
+    }
     this.spawnDueKeys();
     this.updateInteractions(dt);
     this.updateDetection();
     this.resolveGhostContacts();
+    this.updateProximityAlerts();
     this.resolveOutcome();
   }
 
@@ -677,6 +689,27 @@ export class HideSeekEngine {
         || segmentDistance(survivor.position, ghost.previousPosition, ghost.position) <= HIDE_SEEK_RULES.collisionRadius * 2;
       if (!crossed) continue;
       this.eliminateSurvivor(survivor);
+    }
+  }
+
+  private clearProximityAlerts(): void {
+    for (const player of this.state.players) {
+      player.proximityAlert = false;
+      player.ghostFootstepLevel = 0;
+    }
+  }
+
+  private updateProximityAlerts(): void {
+    this.clearProximityAlerts();
+    const ghost = this.state.players.find((player) => player.role === 'ghost' && player.alive && !player.escaped);
+    if (!ghost) return;
+    for (const survivor of this.state.players.filter((player) => player.role === 'survivor' && player.alive && !player.escaped)) {
+      const distance = pointDistance(ghost.position, survivor.position);
+      if (distance > HIDE_SEEK_RULES.proximityAlertRange) continue;
+      survivor.proximityAlert = true;
+      survivor.ghostFootstepLevel = Math.max(.12, Math.min(1, 1 - distance / HIDE_SEEK_RULES.proximityAlertRange));
+      // A hidden survivor still hears the ghost, but the ghost must not get a proximity oracle for occupied hideouts.
+      if (!survivor.hiddenIn) ghost.proximityAlert = true;
     }
   }
 
@@ -782,6 +815,8 @@ export class HideSeekEngine {
     player.alive = false;
     player.hiddenIn = null;
     player.detected = false;
+    player.proximityAlert = false;
+    player.ghostFootstepLevel = 0;
     player.movement = { x: 0, y: 0 };
     player.interactionTarget = null;
     player.interactionProgress = 0;
@@ -793,6 +828,8 @@ export class HideSeekEngine {
     player.alive = false;
     player.hiddenIn = null;
     player.detected = false;
+    player.proximityAlert = false;
+    player.ghostFootstepLevel = 0;
     player.movement = { x: 0, y: 0 };
     player.interactionTarget = null;
     player.interactionProgress = 0;

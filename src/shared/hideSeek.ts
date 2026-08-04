@@ -17,6 +17,7 @@ export const HIDE_SEEK_RULES = {
   ghostLightSeconds: 4,
   ghostLightCooldownSeconds: 100,
   detectionHoldRange: 4,
+  proximityAlertRange: 6,
   detectionReleaseSeconds: 0.4,
   survivorSprintMultiplier: 1.2,
   survivorSprintSeconds: 4,
@@ -115,6 +116,10 @@ export interface HideSeekPlayer {
   escaped: boolean;
   hiddenIn: string | null;
   detected: boolean;
+  /** Yellow warning shown when the opposing role is within six tiles. */
+  proximityAlert: boolean;
+  /** Survivor-only 0..1 ghost footstep loudness derived from proximity. */
+  ghostFootstepLevel: number;
   detectionReleaseAt: number;
   sprintUntil: number;
   sprintReadyAt: number;

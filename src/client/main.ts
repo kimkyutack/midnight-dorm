@@ -1758,6 +1758,7 @@ async function connectToHideSeekRoom(code: string, initialNotice?: string): Prom
     playSound: () => audio.play("button"),
     openSettings: showSettings,
     setBackgroundTrack: (track) => audio.setBackgroundTrack(track),
+    setGhostFootstepLevel: (level) => audio.setGhostFootstepLevel(level),
     adFreeActive: Boolean(account?.adFree.active),
     prepareDoubleReward: async (matchId) => {
       if (account && isNativeApp && !account.adFree.active) {

@@ -36,6 +36,7 @@ import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
 import { rankedSeasonRules } from '../src/shared/rankedRules';
 import { rankedRatingDelta } from '../src/server/rankedScoring';
 import { routeAuth } from '../src/server/auth';
+import { ghostFootstepGain, ghostFootstepIntervalMs } from '../src/client/audio';
 
 const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   seasonId: 'S-test',
@@ -157,7 +158,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.6')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.7')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.3')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -172,6 +173,14 @@ describe('app update versioning', () => {
     expect(refreshed.searchParams.get('app-update')).toBe(APP_RELEASE_VERSION);
     expect(refreshed.searchParams.get('force-refresh')).toBe('nonce-123');
     expect(refreshed.hash).toBe('#home');
+  });
+});
+
+describe('hide-and-seek proximity audio', () => {
+  it('gets louder and quicker as the ghost approaches without exceeding the master volume', () => {
+    expect(ghostFootstepGain(.15, .65)).toBeLessThan(ghostFootstepGain(.8, .65));
+    expect(ghostFootstepGain(1, .65)).toBeLessThan(.65);
+    expect(ghostFootstepIntervalMs(.15)).toBeGreaterThan(ghostFootstepIntervalMs(.8));
   });
 });
 

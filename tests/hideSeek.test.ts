@@ -165,6 +165,61 @@ describe('hide-and-seek authoritative rules', () => {
     expect(engine.snapshot().players.find((player) => player.id === survivor.id)?.alive).toBe(false);
   });
 
+  it('warns both roles within six tiles and increases survivor footstep volume with proximity', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const arrange = (distance: number, hidden = false): { ghostId: string; survivorId: string } => {
+      const persisted = engine.serialize();
+      const ghost = persisted.snapshot.players.find((player) => player.role === 'ghost');
+      const survivors = persisted.snapshot.players.filter((player) => player.role === 'survivor');
+      const survivor = survivors[0];
+      if (!ghost || !survivor) throw new Error('missing proximity roles');
+      ghost.position = { x: 10, y: 10 };
+      ghost.previousPosition = { ...ghost.position };
+      ghost.movement = { x: 0, y: 0 };
+      survivor.position = { x: 10 + distance, y: 10 };
+      survivor.previousPosition = { ...survivor.position };
+      survivor.movement = { x: 0, y: 0 };
+      survivor.hiddenIn = hidden ? 'hideout-test' : null;
+      for (const other of survivors.slice(1)) {
+        other.position = { x: 70, y: 50 };
+        other.previousPosition = { ...other.position };
+      }
+      engine.restore(persisted);
+      engine.tick(.01);
+      return { ghostId: ghost.id, survivorId: survivor.id };
+    };
+
+    const far = arrange(5.9);
+    const farSnapshot = engine.snapshot();
+    const farLevel = farSnapshot.players.find((player) => player.id === far.survivorId)?.ghostFootstepLevel ?? 0;
+    expect(farSnapshot.players.find((player) => player.id === far.survivorId)?.proximityAlert).toBe(true);
+    expect(farSnapshot.players.find((player) => player.id === far.ghostId)?.proximityAlert).toBe(true);
+    expect(farLevel).toBeGreaterThan(0);
+
+    const close = arrange(2.5);
+    const closeLevel = engine.snapshot().players.find((player) => player.id === close.survivorId)?.ghostFootstepLevel ?? 0;
+    expect(closeLevel).toBeGreaterThan(farLevel);
+
+    const hidden = arrange(5, true);
+    const hiddenSnapshot = engine.snapshot();
+    expect(hiddenSnapshot.players.find((player) => player.id === hidden.survivorId)?.proximityAlert).toBe(true);
+    expect(hiddenSnapshot.players.find((player) => player.id === hidden.ghostId)?.proximityAlert).toBe(false);
+    const ghostView = engine.snapshotFor(hidden.ghostId);
+    expect(ghostView.players.find((player) => player.id === hidden.survivorId)).toMatchObject({
+      position: { x: -999, y: -999 },
+      proximityAlert: false,
+      ghostFootstepLevel: 0,
+    });
+
+    const distant = arrange(6.1);
+    const distantSnapshot = engine.snapshot();
+    expect(distantSnapshot.players.find((player) => player.id === distant.survivorId)).toMatchObject({
+      proximityAlert: false,
+      ghostFootstepLevel: 0,
+    });
+  });
+
   it('keeps survivor team exploration private while giving the ghost its own explored map', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
