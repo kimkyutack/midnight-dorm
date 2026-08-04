@@ -1,6 +1,7 @@
 import {
   HIDE_SEEK_RULES,
   hideSeekRegionAt,
+  resolveHideSeekMovement,
   type HideSeekClientMessage,
   type HideSeekMap,
   type HideSeekPlayer,
@@ -46,6 +47,8 @@ const OBJECTIVE_ATLAS = '/assets/hide-seek/map/objectives-v1.webp';
 const LANTERN_GHOST = '/assets/hide-seek/lantern-ghost-v2.webp';
 const LANTERN_GHOST_MOVEMENT = '/assets/hide-seek/lantern-ghost-movement-v1.webp';
 const GHOST_SPRITE_CELL_SIZE = 512;
+const MAX_RECONNECT_ATTEMPTS = 30;
+const RECONNECT_HANDSHAKE_TIMEOUT_MS = 6_000;
 const pointDistance = (a: Tile, b: Tile): number => Math.hypot(a.x - b.x, a.y - b.y);
 const tileKey = (tile: Tile): string => `${Math.round(tile.x)},${Math.round(tile.y)}`;
 const html = (value: string): string => value.replace(/[&<>'"]/g, (character) => ({
@@ -76,6 +79,8 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   private exitCompleted = false;
   private reconnectAttempts = 0;
   private reconnectTimer = 0;
+  private reconnectHandshakeTimer = 0;
+  private reconnectToken = '';
   private backgroundTrack: 'main' | 'ingame' | null = null;
   private frame = 0;
   private canvas: HTMLCanvasElement | null = null;
@@ -88,6 +93,8 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   private snapshotReceivedAt = performance.now();
   private lastRenderAt = performance.now();
   private walkableTiles = new Set<string>();
+  private ghostRoomRestrictedTiles = new Set<string>();
+  private ghostRoomInteriorTiles = new Set<string>();
   private initialNoticeShown = false;
   private spectatorTargetId: string | null = null;
   private preparedRewardMatchId: string | null = null;
@@ -113,6 +120,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   };
 
   constructor(private readonly options: HideSeekExperienceOptions) {
+    this.reconnectToken = options.reconnectToken ?? '';
     [FLOOR_TEXTURE, WALL_TEXTURE, HIDEOUT_ATLAS, CLINICAL_HIDEOUT_ATLAS, LANDMARK_ATLAS, OBJECTIVE_ATLAS, LANTERN_GHOST, LANTERN_GHOST_MOVEMENT]
       .forEach((url) => this.loadImage(url));
     this.renderConnecting('술래잡기 병동을 여는 중');
@@ -128,6 +136,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     this.destroyed = true;
     this.intentionalClose = true;
     window.clearTimeout(this.reconnectTimer);
+    window.clearTimeout(this.reconnectHandshakeTimer);
     window.clearTimeout(this.noticeTimer);
     cancelAnimationFrame(this.frame);
     this.resizeObserver?.disconnect();
@@ -150,9 +159,11 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   }
 
   private connect(): void {
+    if (this.socket?.readyState === WebSocket.CONNECTING || this.socket?.readyState === WebSocket.OPEN) return;
+    window.clearTimeout(this.reconnectTimer);
+    window.clearTimeout(this.reconnectHandshakeTimer);
     const params = new URLSearchParams({ deviceId: this.options.deviceId });
-    const token = this.options.reconnectToken;
-    if (token) params.set('reconnectToken', token);
+    if (this.reconnectToken) params.set('reconnectToken', this.reconnectToken);
     let socket: WebSocket;
     try {
       socket = new WebSocket(nativeWebSocketUrlSync(`/api/hide-seek/rooms/${this.options.code}/ws`, params));
@@ -163,12 +174,19 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     this.socket = socket;
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
-      this.reconnectAttempts = 0;
-      this.options.app.querySelector('[data-hide-seek-reconnecting]')?.remove();
+      this.reconnectHandshakeTimer = window.setTimeout(() => {
+        if (this.socket !== socket) return;
+        this.socket = null;
+        socket.close(4003, 'welcome snapshot timeout');
+        this.scheduleReconnect();
+      }, RECONNECT_HANDSHAKE_TIMEOUT_MS);
     });
-    socket.addEventListener('message', (event) => this.handleMessage(event.data));
+    socket.addEventListener('message', (event) => {
+      if (this.socket === socket) this.handleMessage(event.data);
+    });
     socket.addEventListener('close', (event) => {
       if (this.destroyed || this.intentionalClose || this.socket !== socket) return;
+      window.clearTimeout(this.reconnectHandshakeTimer);
       this.socket = null;
       if (event.code === 1000) return;
       this.scheduleReconnect();
@@ -180,7 +198,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
 
   private scheduleReconnect(): void {
     this.reconnectAttempts += 1;
-    if (this.reconnectAttempts > 8) {
+    if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
       this.showFatal('실시간 연결을 복구하지 못했습니다. 홈에서 다시 입장해주세요.');
       return;
     }
@@ -197,10 +215,16 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       return;
     }
     if (message.type === 'welcome') {
+      window.clearTimeout(this.reconnectHandshakeTimer);
+      this.reconnectAttempts = 0;
+      this.reconnectToken = message.reconnectToken;
+      this.options.app.querySelector('[data-hide-seek-reconnecting]')?.remove();
       this.playerId = message.playerId;
       this.spectatorTargetId = null;
       this.map = message.map;
       this.walkableTiles = new Set(message.map.walkable.map(tileKey));
+      this.ghostRoomInteriorTiles = new Set(message.map.ghostRoom.interior.map(tileKey));
+      this.ghostRoomRestrictedTiles = new Set([...message.map.ghostRoom.interior, message.map.ghostRoom.door].map(tileKey));
       this.snapshot = this.withExploration(message.snapshot, message.exploredBits);
       this.snapshotReceivedAt = performance.now();
       this.options.onReconnectToken(message.reconnectToken);
@@ -963,17 +987,20 @@ class HideSeekExperience implements HideSeekExperienceHandle {
         ? player.role === 'ghost' ? HIDE_SEEK_RULES.ghostSprintMultiplier : HIDE_SEEK_RULES.survivorSprintMultiplier
         : 1;
       const distance = HIDE_SEEK_RULES.baseSpeed * sprintMultiplier * magnitude * sinceSnapshot;
-      const candidate = {
-        x: player.position.x + (input.x / magnitude) * distance,
-        y: player.position.y + (input.y / magnitude) * distance,
-      };
-      const candidateKey = tileKey(candidate);
-      const ghostRoomKeys = new Set([...(this.map?.ghostRoom.interior ?? []), ...(this.map ? [this.map.ghostRoom.door] : [])].map(tileKey));
-      const insideClosedGhostRoom = player.role === 'ghost' && snapshot?.phase === 'HIDE'
-        ? this.map?.ghostRoom.interior.some((tile) => tileKey(tile) === candidateKey)
-        : true;
-      const survivorOutsideGhostRoom = player.role !== 'survivor' || !ghostRoomKeys.has(candidateKey);
-      if (this.walkableTiles.has(candidateKey) && insideClosedGhostRoom && survivorOutsideGhostRoom) predicted = candidate;
+      predicted = resolveHideSeekMovement(
+        player.position,
+        {
+          x: (input.x / magnitude) * distance,
+          y: (input.y / magnitude) * distance,
+        },
+        (candidate) => {
+          const candidateKey = tileKey(candidate);
+          if (!this.walkableTiles.has(candidateKey)) return false;
+          if (player.role === 'survivor' && this.ghostRoomRestrictedTiles.has(candidateKey)) return false;
+          if (player.role === 'ghost' && snapshot?.phase === 'HIDE' && !this.ghostRoomInteriorTiles.has(candidateKey)) return false;
+          return true;
+        },
+      );
     }
     let render = this.renderPositions.get(player.id);
     if (!render || player.position.x < 0 || pointDistance(render, predicted) > 5) {

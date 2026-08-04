@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.04.1";
+export const APP_RELEASE_VERSION = "2026.08.04.2";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "심야 술래잡기 정식 출시",
+  title: "술래잡기 연결 및 이동 안정화",
   summary:
-    "• 귀신 전용 격리 대기실을 추가해 숨기 시간에도 방 안에서 이동할 수 있고, 추격 시작과 함께 잠긴 문이 열립니다.\n• 은신·수색 버튼을 구조물 위에 표시하고, 은신 중에는 구조물 앞 한 칸만 볼 수 있도록 긴장감을 높였습니다.\n• 사망 관전, 역할별 승리 포인트, 출시 이벤트 팝업과 술래잡기 진입 안내를 추가했습니다.",
-  publishedAt: 1785833725000,
+    "• 앱을 백그라운드로 보낸 뒤 돌아와도 기존 참가자로 술래잡기 방에 다시 연결됩니다.\n• 벽을 따라 대각선으로 이동할 때 서버와 화면 예측이 같은 축 이동을 사용해 끊김을 줄였습니다.",
+  publishedAt: 1785835217000,
 };
 
 /**

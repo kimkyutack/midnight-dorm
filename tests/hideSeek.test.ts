@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HIDE_SEEK_RULES, generateHideSeekMap, hideSeekGhostLightSees, hideSeekLanternSees, hideSeekVictoryPoints, parseHideSeekClientMessage } from '../src/shared/hideSeek';
+import { HIDE_SEEK_RULES, generateHideSeekMap, hideSeekGhostLightSees, hideSeekLanternSees, hideSeekVictoryPoints, parseHideSeekClientMessage, resolveHideSeekMovement } from '../src/shared/hideSeek';
 import { HideSeekEngine } from '../src/server/hideSeekEngine';
 
 function joinedEngine(players = 3): { engine: HideSeekEngine; ids: string[] } {
@@ -24,6 +24,16 @@ function advanceToHunt(engine: HideSeekEngine, hostId: string): void {
 }
 
 describe('hide-and-seek map', () => {
+  it('slides along a wall instead of freezing diagonal movement', () => {
+    const blocked = new Set(['2,1']);
+    const canOccupy = (tile: { x: number; y: number }): boolean => !blocked.has(`${Math.round(tile.x)},${Math.round(tile.y)}`);
+    expect(resolveHideSeekMovement(
+      { x: 1, y: 1 },
+      { x: 0.6, y: 0.4 },
+      canOccupy,
+    )).toEqual({ x: 1, y: 1.4 });
+  });
+
   it('is deterministic, connected, large, and supplies enough hiding choices', () => {
     const map = generateHideSeekMap(91_337);
     expect(generateHideSeekMap(91_337)).toEqual(map);
@@ -291,6 +301,24 @@ describe('hide-and-seek authoritative rules', () => {
     expect(replacement?.connected).toBe(false);
     expect(replacement?.botControlled).toBe(true);
     expect(replacement?.abandoned).toBe(true);
+  });
+
+  it('restores the same in-progress player with the latest reconnect token', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const before = engine.snapshot().players.find((player) => player.id === ids[1]);
+    if (!before) throw new Error('missing reconnect player');
+    engine.disconnect(before.id);
+    expect(engine.snapshot().players.find((player) => player.id === before.id)?.botControlled).toBe(true);
+    const restored = engine.join({
+      nickname: 'RunnerRestored',
+      deviceId: before.deviceId,
+      reconnectToken: before.reconnectToken,
+    });
+    expect(restored.reconnected).toBe(true);
+    expect(restored.player.id).toBe(before.id);
+    expect(restored.player.connected).toBe(true);
+    expect(restored.player.botControlled).toBe(false);
   });
 
   it('uses the selected living survivor as a dead player spectator perspective', () => {

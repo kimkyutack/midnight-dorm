@@ -187,6 +187,21 @@ export function hideSeekVictoryPoints(role: HideSeekRole | null, winner: HideSee
   return role === 'ghost' ? HIDE_SEEK_RULES.ghostVictoryPoints : HIDE_SEEK_RULES.survivorVictoryPoints;
 }
 
+/** Keep the server and client on the same smooth wall-sliding rule. */
+export function resolveHideSeekMovement(
+  position: Tile,
+  delta: Tile,
+  canOccupy: (candidate: Tile) => boolean,
+): Tile {
+  const next = { x: position.x + delta.x, y: position.y + delta.y };
+  if (canOccupy(next)) return next;
+  const xOnly = { x: position.x + delta.x, y: position.y };
+  if (canOccupy(xOnly)) return xOnly;
+  const yOnly = { x: position.x, y: position.y + delta.y };
+  if (canOccupy(yOnly)) return yOnly;
+  return { ...position };
+}
+
 const tileKey = (tile: Tile): string => `${tile.x},${tile.y}`;
 const wallKeyCache = new WeakMap<HideSeekMap, Set<string>>();
 

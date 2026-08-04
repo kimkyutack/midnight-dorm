@@ -6,6 +6,7 @@ import {
   hideSeekHasLineOfSight,
   hideSeekLanternSees,
   hideSeekRegionAt,
+  resolveHideSeekMovement,
   type HideSeekMap,
   type HideSeekPlayer,
   type HideSeekRolePreference,
@@ -521,15 +522,13 @@ export class HideSeekEngine {
     player.previousPosition = { ...player.position };
     const dx = (player.movement.x / magnitude) * distance;
     const dy = (player.movement.y / magnitude) * distance;
-    const next = { x: player.position.x + dx, y: player.position.y + dy };
-    if (this.canOccupy(player, next)) player.position = next;
-    else {
-      const xOnly = { x: player.position.x + dx, y: player.position.y };
-      const yOnly = { x: player.position.x, y: player.position.y + dy };
-      if (this.canOccupy(player, xOnly)) player.position = xOnly;
-      else if (this.canOccupy(player, yOnly)) player.position = yOnly;
-      else if (player.isBot) this.botTargets.delete(player.id);
-    }
+    const moved = resolveHideSeekMovement(
+      player.position,
+      { x: dx, y: dy },
+      (candidate) => this.canOccupy(player, candidate),
+    );
+    if (moved.x === player.position.x && moved.y === player.position.y && player.isBot) this.botTargets.delete(player.id);
+    player.position = moved;
     if (pointDistance(player.position, this.state.activeExit) <= 2 && player.role === 'survivor') this.state.exitDiscovered = true;
   }
 
