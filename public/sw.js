@@ -1,5 +1,5 @@
-const CACHE = "midnight-dorm-shell-v18";
-const ASSET_CACHE = "midnight-dorm-assets-v18";
+const CACHE = "midnight-dorm-shell-v19";
+const ASSET_CACHE = "midnight-dorm-assets-v19";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -11,6 +11,7 @@ const SHELL = [
   "/assets/cinematic/opening-chase.webp",
   "/assets/cinematic/dorm-home.webp",
   "/assets/cinematic/ghost-roster.webp",
+  "/assets/cinematic/arcade-stage-loading-v1.webp",
 ];
 
 self.addEventListener("install", (event) => {

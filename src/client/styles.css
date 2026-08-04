@@ -446,7 +446,6 @@
 }
 .custom-preview,
 .custom-catalog {
-  gap: 15px;
   min-height: 0;
   border: 1px solid rgba(224, 235, 238, 0.15);
   border-radius: 19px;

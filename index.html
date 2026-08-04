@@ -19,6 +19,15 @@
       content="병동의 귀신으로부터 병동을 지키는 실시간 협동 디펜스 게임"
     />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- The boot scene is visible before the JavaScript bundle finishes
+         mounting. Request and decode it from the document head so the first
+         loading frame never waits on a CSS background-image fetch. -->
+    <link
+      rel="preload"
+      as="image"
+      href="/assets/cinematic/arcade-stage-loading-v1.webp"
+      fetchpriority="high"
+    />
     <link rel="icon" href="/icons/favicon.png?v=5" type="image/png" sizes="192x192" />
     <link rel="alternate icon" href="/icons/favicon.ico?v=5" sizes="any" />
     <link rel="apple-touch-icon" href="/icons/android-icon-192x192.png?v=5" />

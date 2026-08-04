@@ -1108,7 +1108,7 @@
 
 .custom-catalog {
   grid-template-rows: 46px minmax(0, 1fr) !important;
-  gap: 9px !important;
+  gap: 3px !important;
 }
 
 .custom-catalog.has-ranked-notice {
