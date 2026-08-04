@@ -69,6 +69,21 @@ interface BuildingTextureCacheEntry {
 }
 const buildingTextureCache = new Map<string, BuildingTextureCacheEntry>();
 
+export function snapCameraCoordinate(
+  value: number,
+  worldUnitsPerPhysicalPixel: number,
+): number {
+  if (!Number.isFinite(worldUnitsPerPhysicalPixel) || worldUnitsPerPhysicalPixel <= 0)
+    return value;
+  return Math.round(value / worldUnitsPerPhysicalPixel) * worldUnitsPerPhysicalPixel;
+}
+
+export function snapHudCoordinate(value: number, physicalPixelRatio: number): number {
+  if (!Number.isFinite(physicalPixelRatio) || physicalPixelRatio <= 0)
+    return value;
+  return Math.round(value * physicalPixelRatio) / physicalPixelRatio;
+}
+
 export function limitLocalPredictionLead(
   current: Vec2,
   predicted: Vec2,
@@ -2103,7 +2118,6 @@ export class ThreeGameView {
   private readonly bedViews = new Map<string, BedView>();
   private readonly effects: TimedEffect[] = [];
   private readonly hudMessages: HudMessage[] = [];
-  private lastHudRenderAt = Number.NEGATIVE_INFINITY;
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraTarget = new THREE.Vector3();
   private tutorialCameraFocus: Vec2 | null = null;
@@ -5230,11 +5244,10 @@ export class ThreeGameView {
   }
 
   private renderHudMessages(time: number): void {
-    // Text canvases are comparatively expensive on high-DPR phones. Door and
-    // building state does not need to be repainted at the WebGL frame rate.
-    const interval = this.portraitLayout ? 50 : 1000 / 30;
-    if (time - this.lastHudRenderAt < interval) return;
-    this.lastHudRenderAt = time;
+    // This canvas follows the same moving camera as WebGL. Throttling it to
+    // 20~30fps leaves labels at the previous camera position for several
+    // frames, so levels and resource gains visibly shake over their buildings.
+    // Redraw the lightweight semantic HUD on every rendered camera frame.
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
     const context = this.hudContext;
@@ -5266,11 +5279,16 @@ export class ThreeGameView {
         projected.y > 1.2
       )
         continue;
-      const x = (projected.x * 0.5 + 0.5) * width;
-      const y =
+      const x = snapHudCoordinate(
+        (projected.x * 0.5 + 0.5) * width,
+        this.renderPixelRatio,
+      );
+      const y = snapHudCoordinate(
         (-projected.y * 0.5 + 0.5) * height -
         18 -
-        message.rise * Math.min(1, progress) * 48;
+        message.rise * Math.min(1, progress) * 48,
+        this.renderPixelRatio,
+      );
       const opacity = progress < 0.72 ? 1 : 1 - (progress - 0.72) / 0.28;
       const textWidth = context.measureText(message.text).width;
       const boxWidth = Math.min(width * 0.78, textWidth + 20);
@@ -5327,8 +5345,14 @@ export class ThreeGameView {
       );
       cards.push({
         state,
-        x: Math.round((projected.x * 0.5 + 0.5) * width),
-        y: Math.round((-projected.y * 0.5 + 0.5) * height),
+        x: snapHudCoordinate(
+          (projected.x * 0.5 + 0.5) * width,
+          this.renderPixelRatio,
+        ),
+        y: snapHudCoordinate(
+          (-projected.y * 0.5 + 0.5) * height,
+          this.renderPixelRatio,
+        ),
         ...metrics,
       });
     }
@@ -5441,8 +5465,14 @@ export class ThreeGameView {
       )
         return null;
       return [
-        (projected.x * 0.5 + 0.5) * width,
-        (-projected.y * 0.5 + 0.5) * height,
+        snapHudCoordinate(
+          (projected.x * 0.5 + 0.5) * width,
+          this.renderPixelRatio,
+        ),
+        snapHudCoordinate(
+          (-projected.y * 0.5 + 0.5) * height,
+          this.renderPixelRatio,
+        ),
       ];
     };
 
@@ -5842,13 +5872,28 @@ export class ThreeGameView {
     this.desiredCameraTarget.x = clamp(this.desiredCameraTarget.x, 2.5, this.mapData.width - 3.5);
     this.desiredCameraTarget.z = clamp(this.desiredCameraTarget.z, 2.5, this.mapData.height - 3.5);
     this.cameraTarget.lerp(this.desiredCameraTarget, 1 - Math.exp(-10 * dt));
-    this.camera.position.set(
+    // The WebGL world, door HUD and blackout canvas are separate raster
+    // layers. Sub-pixel camera positions make each layer choose a different
+    // physical pixel on every frame, which looks like the whole scene shakes.
+    // Keep the smooth logical target, but render every layer from the same
+    // physical-pixel-aligned camera position.
+    const renderWidth = Math.max(1, this.host.clientWidth * this.renderPixelRatio);
+    const renderHeight = Math.max(1, this.host.clientHeight * this.renderPixelRatio);
+    const snappedX = snapCameraCoordinate(
       this.cameraTarget.x,
-      CAMERA_HEIGHT,
+      Math.abs(this.camera.right - this.camera.left) / renderWidth,
+    );
+    const snappedZ = snapCameraCoordinate(
       this.cameraTarget.z,
+      Math.abs(this.camera.top - this.camera.bottom) / renderHeight,
+    );
+    this.camera.position.set(
+      snappedX,
+      CAMERA_HEIGHT,
+      snappedZ,
     );
     this.camera.up.set(0, 0, -1);
-    this.camera.lookAt(this.cameraTarget.x, FLOOR_Y, this.cameraTarget.z);
+    this.camera.lookAt(snappedX, FLOOR_Y, snappedZ);
 
     // 카메라만 멀어지고 안개 거리는 고정이면 축소할수록 타일이 안개색에
     // 잠겨 급격히 어두워진다. 조명을 증폭하지 않고 가시거리만 비례해
@@ -6160,7 +6205,9 @@ export class ThreeGameView {
     this.portraitLayout = height > width;
     this.updateCameraProjection(width, height);
     this.renderer.setSize(width, height, false);
-    const hudRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    // All raster layers must share one physical-pixel grid. The old 1.5 DPR
+    // HUD over a 2 DPR WebGL scene could never land on the same camera pixels.
+    const hudRatio = this.renderPixelRatio;
     this.hudCanvas.width = Math.max(1, Math.round(width * hudRatio));
     this.hudCanvas.height = Math.max(1, Math.round(height * hudRatio));
     this.hudContext.setTransform(hudRatio, 0, 0, hudRatio, 0, 0);

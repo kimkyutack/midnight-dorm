@@ -159,6 +159,30 @@ export class GameNetwork {
     });
   }
 
+  /**
+   * Mobile WebKit/Chromium can keep a suspended socket in OPEN state even
+   * though the underlying connection can no longer deliver frames. A normal
+   * connect() would then return early forever, so replace that stale socket
+   * after the page has spent meaningful time in the background.
+   */
+  wakeAfterSuspension(): void {
+    if (this.stopped) return;
+    const staleSocket = this.socket;
+    if (staleSocket) {
+      this.socket = null;
+      this.socketGeneration += 1;
+      this.stopHeartbeat();
+      try {
+        staleSocket.close(4002, 'page resumed');
+      } catch {
+        // The fresh socket below is authoritative even if the platform has
+        // already detached the old native socket.
+      }
+    }
+    this.reconnectAttempts = Math.max(1, this.reconnectAttempts);
+    this.connect();
+  }
+
   close(): void {
     this.stopped = true;
     this.clearPendingLeave();

@@ -269,6 +269,9 @@ const e2eMode = new URLSearchParams(location.search).get("e2e") === "1";
 const automationMode =
   new URLSearchParams(location.search).get("automation") === "1";
 const testShellMode = e2eMode || automationMode;
+const uiPreviewMode = testShellMode
+  ? new URLSearchParams(location.search).get("ui-preview")
+  : null;
 const devMode = new URLSearchParams(location.search).get("dev") === "1";
 const freshMode = new URLSearchParams(location.search).get("fresh") === "1";
 let updatePromptOpen = false;
@@ -824,7 +827,7 @@ function loading(): void {
 }
 
 function loadingMarkup(title: string, detail: string): string {
-  return `<main class="boot-screen"><div class="boot-backdrop" aria-hidden="true"></div><header class="boot-brand"><i aria-hidden="true">☾</i><span>심야 병동</span></header><section class="boot-status" role="status"><small>LOADING</small><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p><div class="boot-progress" aria-hidden="true"><i></i></div></section></main>`;
+  return `<main class="boot-screen"><div class="boot-backdrop" aria-hidden="true"></div><header class="boot-brand"><i aria-hidden="true">☾</i><span><small>MIDNIGHT WARD</small><b>심야 병동</b></span></header><section class="boot-status" role="status"><div class="boot-ward-signal" aria-hidden="true"><i></i><i></i><i></i><b>7</b></div><div class="boot-status-copy"><small>WARD CONNECTION</small><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p></div><div class="boot-progress" aria-hidden="true"><i></i></div><div class="boot-progress-dots" aria-hidden="true"><i></i><i></i><i></i></div></section></main>`;
 }
 
 function desktopNotice(): void {
@@ -832,6 +835,10 @@ function desktopNotice(): void {
     "desktop",
     `<main class="screen"><section class="panel compact desktop-card"><div class="desktop-icon">📱</div><span class="eyebrow">MOBILE ONLY</span><h2>모바일 전용 게임입니다</h2><p class="subtitle">휴대폰 브라우저에서 세로 또는 가로 모드로 플레이하세요. 개발 환경에서는 주소 끝에 <strong>?dev=1</strong>을 붙일 수 있습니다.</p></section></main>`,
   );
+}
+
+function openingMarkup(): string {
+  return `<main class="opening-teaser"><div class="teaser-film"></div><header class="teaser-brand"><i aria-hidden="true">☾</i><span>MIDNIGHT WARD</span></header><section class="teaser-title"><span class="eyebrow">A CUTE HORROR ARCADE</span><h1>불이 꺼지면<br/>생존이 시작된다</h1><p data-teaser-copy>문이 닫히기 전에, 살아남을 방을 찾아라.</p></section><button class="teaser-skip" data-teaser-skip><span>건너뛰기</span><i aria-hidden="true">›</i></button><div class="teaser-progress"><i></i></div></main>`;
 }
 
 function openingTeaser(complete: () => void): void {
@@ -842,7 +849,7 @@ function openingTeaser(complete: () => void): void {
   currentView = "opening";
   audio.setBackgroundTrack(null);
   app.dataset.view = "opening";
-  app.innerHTML = `<main class="opening-teaser"><div class="teaser-film"></div><section class="teaser-title"><span class="eyebrow">A MIDNIGHT SURVIVAL</span><h1>심야 병동</h1><p data-teaser-copy>문이 닫히기 전에, 살아남을 방을 찾아라.</p></section><button class="teaser-skip" data-teaser-skip>건너뛰기</button><div class="teaser-progress"><i></i></div></main>`;
+  app.innerHTML = openingMarkup();
   const copy = app.querySelector<HTMLElement>("[data-teaser-copy]");
   const lines = [
     "문이 닫히기 전에, 살아남을 방을 찾아라.",
@@ -947,7 +954,7 @@ function homeScreen(): void {
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
     const pose = homePoseAsset(currentAccount.appearance);
-    avatarHost.innerHTML = `<span class="home-pose-avatar" role="img" aria-label="앉아서 쉬다가 하품하는 내 캐릭터" data-home-pose-skin="${homePoseKey(currentAccount.appearance)}" style="--home-pose-atlas:url('${pose.atlasUrl}');--home-pose-row:${pose.row};--home-pose-aspect:${pose.cellAspectRatio}"></span>`;
+    avatarHost.innerHTML = `<span class="home-pose-avatar" role="img" aria-label="앉아서 쉬다가 하품하는 내 캐릭터" data-home-pose-skin="${homePoseKey(currentAccount.appearance)}" style="--home-pose-atlas:url('${pose.atlasUrl}');--home-pose-row:${pose.row};--home-pose-aspect:${pose.cellAspectRatio};--home-pose-columns:${pose.frameColumns}"></span>`;
   }
   app.querySelector("[data-stage-start]")?.addEventListener("click", () => {
     audio.play("button");
@@ -2585,12 +2592,12 @@ function googleNicknameScreen(
 
 function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
-  const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span style="display: none;">Sign in with Google</span></div>';
+  const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span>Google로 계속하기</span></div>';
   const googleControl = `<button class="auth-google gsi-material-button" type="button" data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인">${googleIconMarkup}</button>`;
   const googleButton = `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap">${googleControl}</div>`;
   setContent(
     "auth",
-    `<main class="auth-screen"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><span>HORROR CO-OP DEFENSE</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br>병동에서 살아남으세요.</p></header><section class="auth-sheet"><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : ""}</small><h2>${registering ? "계정생성" : ""}</h2></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit">${registering ? "계정 만들고 시작" : "로그인하고 시작"}</button></form>${googleButton}<button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 계정이 있나요?" : "처음 오셨나요?"}</span><strong>${registering ? "로그인" : "새 계정"}</strong></button></section><footer class="auth-footnote">계정에는 게임 진행도와 등급만 저장됩니다.</footer></main>`,
+    `<main class="auth-screen ${registering ? "registering" : "logging-in"}"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><i aria-hidden="true">☾</i><span>MIDNIGHT WARD</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br/>오늘 밤을 함께 버텨보세요.</p></header><section class="auth-sheet"><i class="auth-sheet-handle" aria-hidden="true"></i><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : "SURVIVOR CHECK-IN"}</small><h2>${registering ? "새 생존자 등록" : "병동 체크인"}</h2><p>${registering ? "새 계정을 만들고 첫 생존 훈련을 시작하세요." : "저장된 계정으로 오늘의 생존 임무를 이어가세요."}</p></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit"><span>${registering ? "생존자 등록" : "병동 입장"}</span><i aria-hidden="true">›</i></button></form>${googleButton}<button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 등록한 생존자인가요?" : "처음 병동에 왔나요?"}</span><strong>${registering ? "로그인" : "새 계정 만들기"}</strong></button></section><footer class="auth-footnote">진행도와 등급은 계정에 안전하게 저장됩니다.</footer></main>`,
   );
   const handleGoogleResult = (result: Awaited<ReturnType<typeof signInWithGoogle>>): void => {
     if (result.status === "nickname-required") {
@@ -3957,6 +3964,21 @@ function updateOpeningMinimap(): void {
   }
 }
 
+interface ResultScreenPresentation {
+  victory: boolean;
+  stageLabel: string;
+  title: string;
+  description: string;
+  elapsedLabel: string;
+  ghostLevel: number;
+  rewardMarkup: string;
+  actionsMarkup: string;
+}
+
+function resultScreenMarkup(result: ResultScreenPresentation): string {
+  return `<main class="result-screen ${result.victory ? "victory" : "defeat"}"><div class="result-backdrop" aria-hidden="true"></div><section class="result-card"><header class="result-card-head"><span class="result-kicker">${escapeHtml(result.stageLabel)} · ${result.victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem" aria-hidden="true">${result.victory ? "✦" : "☾"}</div><h1>${escapeHtml(result.title)}</h1><p>${escapeHtml(result.description)}</p></header><div class="result-stats"><article><small>생존 시간</small><strong>${escapeHtml(result.elapsedLabel)}</strong></article><article><small>최종 귀신</small><strong>Lv.${result.ghostLevel}</strong></article><article><small>스테이지</small><strong>${escapeHtml(result.stageLabel)}</strong></article></div>${result.rewardMarkup}${result.actionsMarkup}</section></main>`;
+}
+
 function resultScreen(state: GameSnapshot): void {
   destroyGame();
   const victory = state.status === "VICTORY";
@@ -3993,7 +4015,26 @@ function resultScreen(state: GameSnapshot): void {
         : '<div class="result-actions"><button class="btn primary" data-rematch data-testid="rematch">다시 도전</button><button class="btn ghost" data-leave>게임 메뉴</button></div>';
   setContent(
     "result",
-    `<main class="result-screen ${victory ? "victory" : "defeat"}"><div class="result-backdrop"></div><section class="result-card"><span class="result-kicker">${state.stageLabel} · ${victory ? "DAWN REPORT" : "NIGHT REPORT"}</span><div class="result-emblem">${victory ? "✦" : "☾"}</div><h1>${tutorialVictory ? "듀토리얼을 완료했습니다" : victory ? "생존" : "작전 실패"}</h1><p>${tutorialVictory ? "기본 훈련을 모두 마쳤습니다." : victory ? "마지막 귀신까지 몰아냈습니다." : "방어선을 정비하고 다시 도전하세요."}</p><div class="result-stats"><article><small>생존 시간</small><strong>${formatTime(state.elapsed)}</strong></article><article><small>최종 귀신</small><strong>Lv.${state.ghost.level}</strong></article><article><small>스테이지</small><strong>${state.stageLabel}</strong></article></div>${victory ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "이제 홈에서 이벤트와 모든 게임 기능을 이용할 수 있습니다." : adFreeActive ? "광고 제거 혜택으로 2배 전리품을 바로 받을 수 있습니다." : "전리품 수령을 완료하면 포인트가 계정에 지급됩니다."}</small></div>` : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 XP 저장</strong><small>획득한 진행 기록은 유지됩니다.</small></div>'}${resultActions}</section></main>`,
+    resultScreenMarkup({
+      victory,
+      stageLabel: state.stageLabel,
+      title: tutorialVictory
+        ? "듀토리얼 완료"
+        : victory
+          ? "새벽까지 생존!"
+          : "스테이지 종료",
+      description: tutorialVictory
+        ? "기본 훈련을 모두 마쳤습니다."
+        : victory
+          ? "마지막 귀신을 몰아내고 병동의 아침을 지켜냈습니다."
+          : "괜찮아요. 방어선을 정비하고 다시 도전해보세요.",
+      elapsedLabel: formatTime(state.elapsed),
+      ghostLevel: state.ghost.level,
+      rewardMarkup: victory
+        ? `<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +${tutorialVictory ? 100 : reward} P</strong><small>${tutorialVictory ? "이제 홈에서 이벤트와 모든 게임 기능을 이용할 수 있습니다." : adFreeActive ? "광고 제거 혜택으로 2배 전리품을 바로 받을 수 있습니다." : "전리품을 수령하면 포인트가 계정에 지급됩니다."}</small></div>`
+        : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 기록 저장</strong><small>이번 판에서 달성한 진행 기록은 그대로 유지됩니다.</small></div>',
+      actionsMarkup: resultActions,
+    }),
   );
   app.querySelector("[data-rematch]")?.addEventListener("click", () => {
     resultRecorded = false;
@@ -6573,19 +6614,72 @@ function updateTestApi(): void {
 }
 
 document.addEventListener("pointerdown", () => audio.unlock(), { once: true });
+let pageHiddenAt = 0;
 document.addEventListener("visibilitychange", () => {
   audio.setPageVisible(!document.hidden);
   if (document.hidden) {
+    pageHiddenAt = performance.now();
     game?.pause();
     return;
   }
   // Mobile browsers can suspend a lobby WebSocket without dispatching a
-  // close event. Wake the connection before a resumed user tries to leave.
-  network?.connect();
-  network?.resync();
+  // close event. Replace a deceptively OPEN socket after a real suspension.
+  const suspendedFor = pageHiddenAt > 0 ? performance.now() - pageHiddenAt : 0;
+  pageHiddenAt = 0;
+  if (suspendedFor >= 1_500) network?.wakeAfterSuspension();
+  else {
+    network?.connect();
+    network?.resync();
+  }
   if (!game) return;
   game.resume();
 });
+
+function renderUiPreview(mode: string): void {
+  if (mode === "opening") {
+    currentView = "opening";
+    audio.setBackgroundTrack(null);
+    app.dataset.view = "opening";
+    app.innerHTML = openingMarkup();
+    return;
+  }
+  if (mode === "loading") {
+    setContent(
+      "loading",
+      loadingMarkup("7병동으로 이동 중", "잠시 후 생존 임무가 시작됩니다."),
+    );
+    return;
+  }
+  if (mode === "auth-register") {
+    authScreen("register");
+    return;
+  }
+  if (mode === "result-victory" || mode === "result-defeat") {
+    const victory = mode === "result-victory";
+    setContent(
+      "result",
+      resultScreenMarkup({
+        victory,
+        stageLabel: "어려움 5",
+        title: victory ? "새벽까지 생존!" : "스테이지 종료",
+        description: victory
+          ? "마지막 귀신을 몰아내고 병동의 아침을 지켜냈습니다."
+          : "괜찮아요. 방어선을 정비하고 다시 도전해보세요.",
+        elapsedLabel: victory ? "08:42" : "04:18",
+        ghostLevel: victory ? 15 : 9,
+        rewardMarkup: victory
+          ? '<div class="result-reward"><span>CLEAR REWARD</span><strong>✦ +120 P</strong><small>전리품을 수령하면 포인트가 계정에 지급됩니다.</small></div>'
+          : '<div class="result-reward muted"><span>CHALLENGE RECORD</span><strong>도전 기록 저장</strong><small>이번 판에서 달성한 진행 기록은 그대로 유지됩니다.</small></div>',
+        actionsMarkup: victory
+          ? '<div class="result-actions victory-claim-actions"><button class="btn ghost">전리품 수령</button><button class="btn primary">2배 수령</button></div>'
+          : '<div class="result-actions"><button class="btn primary">다시 도전</button><button class="btn ghost">게임 메뉴</button></div>',
+      }),
+    );
+    return;
+  }
+  authScreen("login");
+}
+
 if ("serviceWorker" in navigator && !devMode && !isNativeApp)
   window.addEventListener(
     "load",
@@ -6599,13 +6693,17 @@ if ("serviceWorker" in navigator && !devMode && !isNativeApp)
   );
 
 loading();
-if (!isNativeApp) void checkForAppUpdate();
-window.setTimeout(() => {
-  const mobile =
-    matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-  if (!devMode && !mobile) desktopNotice();
-  else openingTeaser(() => void resumeOrEnter());
-}, 350);
+if (uiPreviewMode) {
+  window.setTimeout(() => renderUiPreview(uiPreviewMode), 0);
+} else {
+  if (!isNativeApp) void checkForAppUpdate();
+  window.setTimeout(() => {
+    const mobile =
+      matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+    if (!devMode && !mobile) desktopNotice();
+    else openingTeaser(() => void resumeOrEnter());
+  }, 350);
+}
 
 async function resumeOrEnter(): Promise<void> {
   if (profile.mustReauthenticate) {

@@ -96,7 +96,7 @@ async function enter(
   await page
     .getByRole("textbox", { name: "비밀번호" })
     .fill("midnight-test-2026");
-  await page.getByRole("button", { name: "계정 만들고 시작" }).click();
+  await page.getByRole("button", { name: "생존자 등록" }).click();
   await expect(page.locator(".game-home")).toBeVisible();
   if (dismissLaunchPromo) {
     await dismissVisibleLaunchPromos(page);
@@ -123,6 +123,24 @@ test("home guide opens anonymized field-guide tabs", async ({ browser }) => {
     await enter(page, "가이드검증", "guide");
     await page.getByRole("button", { name: /도움말/ }).click();
     const guide = page.getByRole("dialog", { name: "생존 가이드" });
+    expect(
+      await guide.locator(".tutorial-tabs").evaluate((tabs) => ({
+        display: getComputedStyle(tabs).display,
+        radius: getComputedStyle(tabs).borderRadius,
+        overflow: getComputedStyle(tabs).overflow,
+      })),
+    ).toMatchObject({ display: "grid", radius: "13px", overflow: "hidden" });
+    expect(
+      await guide
+        .locator(".tutorial-tabs button.active")
+        .evaluate((button) => ({
+          radius: getComputedStyle(button).borderRadius,
+          background: getComputedStyle(button).backgroundImage,
+        })),
+    ).toMatchObject({
+      radius: "9px",
+      background: expect.stringContaining("255, 232, 106"),
+    });
     await expect(guide).toContainText("내 방을 끝까지 지키세요");
     await expect(guide.locator(".tutorial-scene img")).toHaveAttribute(
       "src",
@@ -216,7 +234,7 @@ test("portrait home separates shop, owned customization and stage start", async 
     await page.getByLabel("게임 닉네임").fill(nickname);
     await passwordInput.fill(password);
     await expect(passwordInput).toHaveValue(password);
-    await page.getByRole("button", { name: "계정 만들고 시작" }).click();
+    await page.getByRole("button", { name: "생존자 등록" }).click();
     await expect(page.locator(".game-home")).toBeVisible();
     await dismissVisibleLaunchPromos(page);
     await expect(page.locator(".home-account")).toContainText(nickname);
@@ -283,6 +301,32 @@ test("portrait home separates shop, owned customization and stage start", async 
       /쉬움|어려움|불지옥|악몽/,
     );
     await expect(page.locator(".home-footer-nav")).toContainText("미션");
+    await page.getByRole("button", { name: "미션", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "미션" })).toBeVisible();
+    const eventTabs = page.locator(".event-tabs");
+    expect(
+      await eventTabs.evaluate((tabs) => ({
+        display: getComputedStyle(tabs).display,
+        radius: getComputedStyle(tabs).borderRadius,
+      })),
+    ).toMatchObject({ display: "grid", radius: "13px" });
+    const eventBackBounds = await page.locator("[data-event-back]").boundingBox();
+    expect(eventBackBounds).toBeTruthy();
+    expect(
+      Math.abs((eventBackBounds?.width ?? 0) - (eventBackBounds?.height ?? 0)),
+    ).toBeLessThan(0.5);
+    expect(
+      await page
+        .locator("[data-claim-mission]:not(:disabled)")
+        .evaluate((button) => getComputedStyle(button).backgroundImage),
+    ).toContain("255, 232, 106");
+    expect(
+      await page
+        .locator("[data-claim-all]:not(:disabled)")
+        .evaluate((button) => getComputedStyle(button).backgroundImage),
+    ).toContain("255, 232, 106");
+    await page.locator("[data-event-back]").click();
+    await expect(page.locator(".game-home")).toBeVisible();
     const startBackground = await page
       .getByTestId("home-stage-start")
       .evaluate((button) => getComputedStyle(button).backgroundImage);
@@ -440,6 +484,14 @@ test("portrait home separates shop, owned customization and stage start", async 
         shadow: getComputedStyle(tabs).boxShadow,
       })),
     ).toMatchObject({ radius: "13px", shadow: expect.not.stringContaining("inset") });
+    const shopCatalogGap = await page
+      .locator(".custom-catalog")
+      .evaluate((catalog) => {
+        const nav = catalog.querySelector("nav")?.getBoundingClientRect();
+        const grid = catalog.querySelector(".cosmetic-grid")?.getBoundingClientRect();
+        return nav && grid ? grid.top - nav.bottom : -1;
+      });
+    expect(shopCatalogGap).toBeGreaterThanOrEqual(8);
     await expect(
       page.getByRole("button", { name: "앞", exact: true }),
     ).toHaveClass(/active/);
@@ -1826,7 +1878,7 @@ test("two real browser contexts share a room, building, combat and reconnection"
     await first
       .getByRole("textbox", { name: "비밀번호" })
       .fill("midnight-test-2026");
-    await first.getByRole("button", { name: "로그인하고 시작" }).click();
+    await first.getByRole("button", { name: "병동 입장" }).click();
     await expect(first.locator(".game-home")).toBeVisible();
   } finally {
     await firstContext.close().catch(() => undefined);

@@ -3154,11 +3154,19 @@ export class GameEngine {
       }
       runtime.reaction -= dt;
       if (runtime.reaction > 0) continue;
+      const roomUnderPressure = this.state.ghosts.some(
+        (ghost) =>
+          ghost.hp > 0 &&
+          !ghost.retreating &&
+          !ghost.healing &&
+          ghost.targetRoomId === bot.roomId,
+      );
       runtime.reaction =
         BOT_REACTION_SECONDS[difficulty] *
         Math.max(0.48, 1 - rankIndex(
           this.playMode === 'solo' ? bot.soloRank : bot.multiplayerRank,
         ) * 0.065) *
+        (roomUnderPressure ? 0.55 : 1) *
         (0.8 + this.rng.next() * 0.45);
       const intent = decideBotIntent(
         bot,
@@ -4175,8 +4183,11 @@ export class GameEngine {
       ghost.slowUntil = this.state.elapsed;
       ghost.slowMultiplier = 1;
       ghost.controlImmuneUntil = this.state.elapsed + 0.8;
-      ghost.mistUntil = this.state.elapsed + 0.8;
-      this.retreatGuardUntil.set(ghost.id, this.state.elapsed + 0.8);
+      // The final barrier still converts one lethal hit into 1 HP, but it
+      // must not add a hidden invulnerability window. Sustained turret fire
+      // can finish the ghost immediately after the visible barrier break.
+      ghost.mistUntil = this.state.elapsed;
+      this.retreatGuardUntil.delete(ghost.id);
       this.pendingEvents.push({
         kind: 'ghost-skill',
         position: { ...ghost.position },
@@ -4249,12 +4260,16 @@ export class GameEngine {
    * sprites alive for several seconds. A survivor standing on a room floor is
    * excluded because entering the room is the opening hunt's safe boundary.
    */
-  private eliminateContactingOutsidePlayer(ghost: GhostState): boolean {
+  private eliminateContactingOutsidePlayer(
+    ghost: GhostState,
+    includeBots = true,
+  ): boolean {
     const contactRadius = this.ghostPlayerContactRadius(ghost);
     const target = this.state.players
       .filter(
         (player) =>
           player.alive &&
+          (includeBots || !player.isBot) &&
           (player.connected || player.isBot) &&
           !player.roomId &&
           !this.isPlayerHiddenInRoom(player) &&
@@ -4361,13 +4376,17 @@ export class GameEngine {
       if (ghost.hp <= 0) continue;
       ghost.targetRoomId = null;
       ghost.attackCooldown = Math.max(ghost.attackCooldown, 0.25);
-      if (this.eliminateContactingOutsidePlayer(ghost)) continue;
+      // Fill bots cannot see the blackout cone and previously ran straight
+      // into the opening hunter before their room-planning AI could act.
+      // Human survivors still retain the intended lethal hide phase.
+      if (this.eliminateContactingOutsidePlayer(ghost, false)) continue;
 
       const currentTarget = ghost.targetPlayerId
         ? this.state.players.find(
             (player) =>
               player.id === ghost.targetPlayerId &&
               player.alive &&
+              !player.isBot &&
               (player.connected || player.isBot) &&
               !player.roomId &&
               !this.isPlayerHiddenInRoom(player),
@@ -4389,6 +4408,7 @@ export class GameEngine {
           .filter(
             (player) =>
               player.alive &&
+              !player.isBot &&
               (player.connected || player.isBot) &&
               !player.roomId &&
               !this.isPlayerHiddenInRoom(player) &&
@@ -4440,7 +4460,7 @@ export class GameEngine {
           dt,
           speed,
         );
-        this.eliminateContactingOutsidePlayer(ghost);
+        this.eliminateContactingOutsidePlayer(ghost, false);
         continue;
       }
 
@@ -4458,7 +4478,7 @@ export class GameEngine {
           dt,
           speed,
         );
-        this.eliminateContactingOutsidePlayer(ghost);
+        this.eliminateContactingOutsidePlayer(ghost, false);
       }
     }
     this.syncPrimaryGhost();

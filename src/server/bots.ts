@@ -198,6 +198,8 @@ export function decideBotIntent(
       (strategy === 'gunner' ? 1 : 0),
   );
   const repair = owned.find((building) => building.kind === 'repair-drone');
+  const shieldDevice = owned.find((building) => building.kind === 'shield-device');
+  const emergencyCoil = owned.find((building) => building.kind === 'electric-coil');
   const finisherNet = owned.find((building) => building.kind === 'ghost-net');
   const generator = owned.find(
     (building) => building.kind === 'generator' && building.ownerId === bot.id,
@@ -211,9 +213,25 @@ export function decideBotIntent(
   const powerPanel = owned.find(
     (building) => building.kind === 'power-panel' && building.ownerId === bot.id,
   );
+  const nearbyDefensiveTile = freeTileNearest(
+    snapshot,
+    mapRoom.buildTiles,
+    mapRoom.door,
+  );
+  const needsHighStageOpeningRepair =
+    difficulty === 'hard' &&
+    snapshot.stageIndex >= 21 &&
+    !repair &&
+    Boolean(nearbyDefensiveTile);
+  const needsHighStageOpeningShield =
+    difficulty === 'hard' &&
+    snapshot.stageIndex >= 21 &&
+    Boolean(repair) &&
+    !shieldDevice &&
+    Boolean(nearbyDefensiveTile);
 
   const freeRepairThreshold =
-    difficulty === 'easy' ? 0.45 : difficulty === 'normal' ? 0.62 : 0.78;
+    difficulty === 'easy' ? 0.55 : difficulty === 'normal' ? 0.72 : 0.88;
   if (
     pressure &&
     doorRatio <= freeRepairThreshold &&
@@ -222,6 +240,39 @@ export function decideBotIntent(
     snapshot.elapsed >= snapshot.repairSuppressedUntil
   )
     return { type: 'free-repair' };
+
+  // At Hell and above, the first attacked room cannot wait for a second
+  // turret cycle before establishing sustain. Preserve gold for a repair
+  // drone as soon as the basic door is reinforced; once affordable it is
+  // installed immediately, even if the door is still near full health.
+  if (pressure && needsHighStageOpeningRepair && room.doorLevel >= 2) {
+    if (canBuild(bot, 'repair-drone') && nearbyDefensiveTile)
+      return {
+        type: 'build',
+        roomId: room.id,
+        tile: nearbyDefensiveTile,
+        kind: 'repair-drone',
+      };
+    return { type: 'idle' };
+  }
+
+  // Repair alone cannot offset the first Hell/Inferno focus target. A shield
+  // spends the otherwise-idle power reserve and cuts the incoming burst while
+  // gold keeps accumulating for the next door level. This closes the narrow
+  // window where a bot previously reached the upgrade cost only after its door
+  // had already fallen.
+  if (
+    pressure &&
+    needsHighStageOpeningShield &&
+    canBuild(bot, 'shield-device') &&
+    nearbyDefensiveTile
+  )
+    return {
+      type: 'build',
+      roomId: room.id,
+      tile: nearbyDefensiveTile,
+      kind: 'shield-device',
+    };
 
   if (
     pressure &&
@@ -310,6 +361,43 @@ export function decideBotIntent(
       canUpgradeRoomTarget('reinforced-door', room.doorLevel)
     )
       return { type: 'upgrade', targetId: `door:${room.id}` };
+    const needsShieldUpgrade =
+      difficulty === 'hard' &&
+      snapshot.stageIndex >= 21 &&
+      shieldDevice &&
+      shieldDevice.level < 2 &&
+      doorRatio < 0.92;
+    if (needsShieldUpgrade) {
+      if (canUpgradeBuilding(shieldDevice))
+        return { type: 'upgrade', targetId: shieldDevice.id };
+      // Do not repeatedly spend the same power reserve on cheaper gadgets.
+      // The shield upgrade has the highest immediate survival value and is
+      // allowed to finish charging before the emergency coil is considered.
+      return { type: 'idle' };
+    }
+    if (
+      difficulty === 'hard' &&
+      snapshot.stageIndex >= 21 &&
+      repair &&
+      shieldDevice &&
+      !emergencyCoil &&
+      canBuild(bot, 'electric-coil')
+    ) {
+      const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
+      if (tile)
+        return { type: 'build', roomId: room.id, tile, kind: 'electric-coil' };
+    }
+    if (
+      difficulty === 'hard' &&
+      snapshot.stageIndex >= 21 &&
+      repair &&
+      shieldDevice &&
+      bedLevel < 3 &&
+      room.doorLevel >= 3 &&
+      doorRatio > 0.38 &&
+      canUpgradeRoomTarget('bed', bedLevel)
+    )
+      return { type: 'upgrade', targetId: `bed:${room.id}:${bot.bedIndex ?? 0}` };
     if (
       doorRatio < (difficulty === 'hard' ? 0.88 : 0.68) &&
       !repair &&
@@ -343,6 +431,24 @@ export function decideBotIntent(
       const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
       if (tile) return { type: 'build', roomId: room.id, tile, kind: 'repair-drone' };
     }
+    // Do not spend the last emergency gold on bed, generator or incremental
+    // turret upgrades while the door is actively being hit. If one of the
+    // opening survival goals is still missing, hold resources until the next
+    // door upgrade, repair drone or required firing lane becomes affordable.
+    // The previous fall-through kept buying cheap upgrades and repeatedly
+    // reset the saving progress for the defence that would actually prevent
+    // the room from collapsing.
+    const defensiveTile = freeTileNearest(
+      snapshot,
+      mapRoom.buildTiles,
+      mapRoom.door,
+    );
+    const needsDoorReserve = room.doorLevel < doorGoal;
+    const needsRepairReserve = !repair && Boolean(defensiveTile);
+    const needsTurretReserve =
+      guardianTurrets.length < pressureTurretGoal && Boolean(defensiveTile);
+    if (needsDoorReserve || needsRepairReserve || needsTurretReserve)
+      return { type: 'idle' };
     const emergencySupport: BuildingKind[] =
       strategy === 'controller'
         ? ['ghost-net', 'frost-turret', 'electric-coil']
@@ -371,6 +477,39 @@ export function decideBotIntent(
     const tile = freeTileNearest(snapshot, mapRoom.buildTiles, mapRoom.door);
     if (tile) return { type: 'build', roomId: room.id, tile, kind: 'basic-turret' };
   }
+  // High-stage fill bots use a deterministic survival opening. One firing
+  // lane and a Lv.2 door are enough to reach a Lv.2 bed, then the improved
+  // income is reserved for the repair drone before buying a second turret.
+  // This keeps the first randomly targeted bot alive instead of allowing the
+  // two untouched bots to become strong while one room collapses immediately.
+  if (needsHighStageOpeningRepair) {
+    if (
+      room.doorLevel < 2 &&
+      canUpgradeRoomTarget('reinforced-door', room.doorLevel)
+    )
+      return { type: 'upgrade', targetId: `door:${room.id}` };
+    if (bedLevel < 2 && canUpgradeRoomTarget('bed', bedLevel))
+      return { type: 'upgrade', targetId: `bed:${room.id}:${bot.bedIndex ?? 0}` };
+    if (bedLevel >= 2 && canBuild(bot, 'repair-drone') && nearbyDefensiveTile)
+      return {
+        type: 'build',
+        roomId: room.id,
+        tile: nearbyDefensiveTile,
+        kind: 'repair-drone',
+      };
+    return { type: 'idle' };
+  }
+  if (
+    needsHighStageOpeningShield &&
+    canBuild(bot, 'shield-device') &&
+    nearbyDefensiveTile
+  )
+    return {
+      type: 'build',
+      roomId: room.id,
+      tile: nearbyDefensiveTile,
+      kind: 'shield-device',
+    };
   const openingDoorGoal = Math.min(
     doorGoal,
     (difficulty === 'easy' ? 2 : difficulty === 'normal' ? 3 : 4) +

@@ -5,12 +5,17 @@ export interface HomePoseAsset {
   atlasUrl: string;
   row: number;
   cellAspectRatio: number;
+  frameColumns: number;
 }
 
-const atlas = (index: number, row: number, cellAspectRatio = 1): HomePoseAsset => ({
-  atlasUrl: `/assets/home-poses/home-pose-atlas-${index}.webp?v=2026.08.03.4`,
+// Every sheet is repacked into exact 384px square cells. All six frames share
+// one optical centre and baseline, so a yawn never shifts the character or
+// samples a neighbouring row on fractional mobile pixels.
+const atlas = (index: number, row: number): HomePoseAsset => ({
+  atlasUrl: `/assets/home-poses/home-pose-atlas-${index}.webp?v=2026.08.04.2`,
   row,
-  cellAspectRatio,
+  cellAspectRatio: 1,
+  frameColumns: 6,
 });
 
 const HOME_POSE_ASSETS: Readonly<Record<string, HomePoseAsset>> = {
@@ -19,11 +24,11 @@ const HOME_POSE_ASSETS: Readonly<Record<string, HomePoseAsset>> = {
   'character-puppy': atlas(1, 2),
   'character-bear': atlas(1, 3),
   'character-fox': atlas(1, 4),
-  'character-hamster': atlas(2, 0, 1.25),
-  'character-crocodile': atlas(2, 1, 1.25),
-  'character-duck': atlas(2, 2, 1.25),
-  'character-tiger': atlas(2, 3, 1.25),
-  'character-dinosaur': atlas(2, 4, 1.25),
+  'character-hamster': atlas(2, 0),
+  'character-crocodile': atlas(2, 1),
+  'character-duck': atlas(2, 2),
+  'character-tiger': atlas(2, 3),
+  'character-dinosaur': atlas(2, 4),
   'character-monkey': atlas(3, 0),
   'character-gorilla': atlas(3, 1),
   'skin-look-bunny-ward': atlas(3, 2),

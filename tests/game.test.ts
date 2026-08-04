@@ -5,7 +5,7 @@ import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TR
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
-import { BADGE_TARGET_VISUAL_FILL, badgeArtworkViewport, difficultyRuleForStage, getStage, higherRank, rankBadgeArtworkLayout, rankBadgeSymbol, rankBenefits, rankedBadgeArtworkLayout, rankFromXp, recommendedRankForStage, RANK_VISUALS, stagePressureScale, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
+import { BADGE_TARGET_VISUAL_FILL, badgeArtworkViewport, difficultyRuleForStage, getStage, higherRank, rankBadgeArtworkLayout, rankBadgeSymbol, rankBenefits, rankedBadgeArtworkLayout, rankFromXp, recommendedRankForStage, RANK_VISUALS, stageHpPressureScale, stagePressureScale, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
 import { SeededRandom } from '../src/shared/rng';
 import { DRAW_COSTS, isGoldProducingBuilding, RANDOM_ITEMS, randomItemForRoll } from '../src/shared/randomItems';
@@ -20,7 +20,7 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, crocoStompPlacementForFacing, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { cameraZoomLockedForSnapshot, doorHudMetricsForCameraScale, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction } from '../src/client/game/ThreeGameView';
+import { cameraZoomLockedForSnapshot, doorHudMetricsForCameraScale, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction, snapCameraCoordinate, snapHudCoordinate } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { nativeApiResourceUrl } from '../src/client/native/runtime';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
@@ -242,6 +242,49 @@ describe('cold realtime connection failures', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('replaces a stale OPEN socket when a suspended page wakes', () => {
+    class SuspendedWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static instances: SuspendedWebSocket[] = [];
+      readonly listeners = new Map<string, Array<() => void>>();
+      readyState = SuspendedWebSocket.CONNECTING;
+      closeArgs: [number?, string?] | null = null;
+
+      constructor(readonly url: string) {
+        SuspendedWebSocket.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: () => void): void {
+        const registered = this.listeners.get(type) ?? [];
+        registered.push(listener);
+        this.listeners.set(type, registered);
+      }
+
+      send(): void {}
+      close(code?: number, reason?: string): void {
+        this.closeArgs = [code, reason];
+        this.readyState = 3;
+      }
+    }
+
+    vi.stubGlobal('location', { protocol: 'https:', host: 'midnight.test' });
+    vi.stubGlobal('WebSocket', SuspendedWebSocket as unknown as typeof WebSocket);
+    try {
+      const network = new GameNetwork('TESTROOM', 'Tester', 'device-test');
+      network.connect();
+      const stale = SuspendedWebSocket.instances[0];
+      if (!stale) throw new Error('socket was not created');
+      stale.readyState = SuspendedWebSocket.OPEN;
+      network.wakeAfterSuspension();
+      expect(stale.closeArgs).toEqual([4002, 'page resumed']);
+      expect(SuspendedWebSocket.instances).toHaveLength(2);
+      network.close();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('realtime snapshot frames', () => {
@@ -457,6 +500,20 @@ describe('deterministic shared world', () => {
     );
     expect(next.x).toBeGreaterThan(rendered.x);
     expect(next.x).toBeCloseTo(7.65);
+  });
+
+  it('snaps every visual layer to the same physical-pixel camera grid', () => {
+    const unitsPerPixel = 8.4 / (390 * 3);
+    const snapped = snapCameraCoordinate(12.34567, unitsPerPixel);
+    expect(snapped / unitsPerPixel).toBeCloseTo(
+      Math.round(12.34567 / unitsPerPixel),
+      8,
+    );
+    expect(Math.abs(snapped - 12.34567)).toBeLessThanOrEqual(
+      unitsPerPixel / 2,
+    );
+    expect(snapHudCoordinate(10.34, 2)).toBe(10.5);
+    expect(snapHudCoordinate(10.2, 1.5)).toBeCloseTo(10.0, 8);
   });
 
   it('holds a released drag until both its input and forward position are acknowledged', () => {
@@ -3267,14 +3324,21 @@ describe('requested progression and event rules', () => {
     expect(goldSealIndicatorVisibleForBed(snapshot, 'room-1', 1)).toBe(false);
   });
 
-  it('smooths inferno five pressure and removes the stacked extra barrier', () => {
+  it('lowers only ghost HP from hell onward while retaining the inferno pressure rules', () => {
     const infernoFour = getStage('inferno-4');
     const infernoFive = getStage('inferno-5');
+    expect(stageHpPressureScale(20)).toBe(1);
+    expect(stageHpPressureScale(21)).toBeCloseTo(0.995, 8);
+    expect(stageHpPressureScale(30)).toBeCloseTo(0.95, 8);
+    expect(stageHpPressureScale(31)).toBeCloseTo(0.945, 8);
+    expect(stageHpPressureScale(40)).toBeCloseTo(0.9, 8);
+    expect(stageHpPressureScale(344)).toBeCloseTo(0.9, 8);
     expect(stagePressureScale(30)).toBe(1);
     expect(stagePressureScale(31)).toBeCloseTo(0.99, 8);
     expect(stagePressureScale(35)).toBeCloseTo(0.95, 8);
-    expect(stagePressureScale(344)).toBeCloseTo(0.95, 8);
-    expect(infernoFive.hpMultiplier / infernoFour.hpMultiplier).toBeLessThan(1.012);
+    expect(stagePressureScale(36)).toBeCloseTo(0.94, 8);
+    expect(stagePressureScale(344)).toBeCloseTo(0.94, 8);
+    expect(infernoFive.hpMultiplier / infernoFour.hpMultiplier).toBeLessThan(1.015);
     expect(infernoFive.damageMultiplier / infernoFour.damageMultiplier).toBeLessThan(1.012);
     expect(difficultyRuleForStage(infernoFive).barrierLayers).toBe(1);
     expect(difficultyRuleForStage(infernoFive).directionalShield).toBe(true);
@@ -3282,6 +3346,24 @@ describe('requested progression and event rules', () => {
     expect(
       difficultyRuleForStage(getStage('apocalypse-99')).barrierLayers,
     ).toBe(8);
+  });
+
+  it('lets sustained fire finish a one-hp ghost immediately after its barrier breaks', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const ghost = engine.snapshot().ghosts[0];
+    if (!ghost) throw new Error('missing barrier ghost fixture');
+    ghost.maxHp = 100;
+    ghost.hp = 10;
+    ghost.barrierLayers = 1;
+    const damageGhost = (engine as unknown as {
+      applyGhostDamage: (target: GhostState, damage: number) => number;
+    }).applyGhostDamage.bind(engine);
+    damageGhost(ghost, 20);
+    expect(ghost.hp).toBe(1);
+    expect(ghost.barrierLayers).toBe(0);
+    damageGhost(ghost, 2);
+    expect(ghost.hp).toBe(0);
   });
 
   it('maps ranked brackets to increasingly difficult non-normal stages', () => {
@@ -3322,6 +3404,22 @@ describe('requested progression and event rules', () => {
       name as (typeof RANKED_BOT_NICKNAMES)[number],
     ))).toBe(true);
     expect(names.every((name) => !name.includes('봇'))).toBe(true);
+  });
+
+  it('does not wipe fill bots during the ranked blackout opening', () => {
+    const { engine, ids } = setup(1, false, {
+      playMode: 'multiplayer',
+      ranked: RANKED_OPENING,
+    });
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    expect(engine.addBot(ids[0] as string, 'normal').ok).toBe(true);
+    expect(engine.start(ids[0] as string).ok).toBe(true);
+    for (let index = 0; index < 100; index += 1) engine.tick(0.1);
+    const bots = engine.snapshot().players.filter((player) => player.isBot);
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
+    expect(bots.every((bot) => bot.alive)).toBe(true);
+    expect(bots.filter((bot) => bot.roomId !== null).length).toBeGreaterThanOrEqual(2);
   });
 
   it('routes three bots through doorways and claims distinct beds before countdown ends', () => {
@@ -3741,6 +3839,57 @@ describe('requested progression and event rules', () => {
     ).toBeCloseTo(nearestDistance);
   });
 
+  it('makes a pressured hard bot save for door and repair instead of spending emergency gold', () => {
+    const { engine, ids } = setup();
+    begin(engine, ids[0] as string);
+    const snapshot = engine.snapshot();
+    const bot = snapshot.players[0];
+    const room = snapshot.rooms.find((candidate) => candidate.id === bot?.roomId);
+    const mapRoom = engine.map.rooms.find((candidate) => candidate.id === room?.id);
+    const ghost = snapshot.ghosts[0];
+    if (!bot || !room || !mapRoom || !ghost)
+      throw new Error('missing bot emergency reserve fixture');
+    bot.isBot = true;
+    bot.gold = 30;
+    bot.power = 0;
+    room.doorLevel = 2;
+    room.doorMaxHp = buildingStats('reinforced-door', 2).value;
+    room.doorHp = room.doorMaxHp * 0.8;
+    room.freeRepairReadyAt = snapshot.elapsed + 999;
+    ghost.targetRoomId = room.id;
+    ghost.retreating = false;
+    ghost.healing = false;
+    const defensiveTiles = [...mapRoom.buildTiles]
+      .sort(
+        (left, right) =>
+          Math.hypot(left.x - mapRoom.door.x, left.y - mapRoom.door.y) -
+          Math.hypot(right.x - mapRoom.door.x, right.y - mapRoom.door.y),
+      )
+      .slice(0, 2);
+    snapshot.buildings = defensiveTiles.map((tile, index) => ({
+      id: `reserve-turret-${index}`,
+      kind: 'basic-turret' as const,
+      roomId: room.id,
+      ownerId: bot.id,
+      skinId: '',
+      tile: { ...tile, roomId: room.id },
+      level: 1,
+      cooldown: 0,
+      hp: 100,
+      investedGold: 10,
+      investedPower: 0,
+      investmentByPlayer: {},
+    }));
+    expect(decideBotIntent(bot, snapshot, engine.map, 'hard')).toEqual({
+      type: 'idle',
+    });
+    bot.gold = upgradeCost('reinforced-door', 3, bot.soloRank).gold;
+    expect(decideBotIntent(bot, snapshot, engine.map, 'hard')).toEqual({
+      type: 'upgrade',
+      targetId: `door:${room.id}`,
+    });
+  });
+
   it('makes even an easy bot establish firepower instead of deliberately idling', () => {
     const { engine, ids } = setup();
     begin(engine, ids[0] as string);
@@ -3852,6 +4001,78 @@ describe('requested progression and event rules', () => {
       .toBeGreaterThanOrEqual(1);
     expect(engine.botMatchDiagnostics().map((entry) => entry.strategy).sort())
       .toEqual(['controller', 'guardian', 'gunner']);
+  });
+
+  it('keeps the recommended-rank bot squad alive through an inferno opening', () => {
+    const engine = new GameEngine(
+      'BOT-INFERNO-SURVIVAL',
+      generateMap(91_422),
+      false,
+      { stageId: 'inferno-9', playMode: 'solo' },
+    );
+    const host = engine.join({
+      nickname: '불지옥 봇 회귀',
+      deviceId: 'device-bot-inferno-survival',
+    });
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.addBot(host.player.id, 'normal').ok).toBe(true);
+    expect(engine.start(host.player.id).ok).toBe(true);
+    for (
+      let index = 0;
+      index < 1_200 && !['VICTORY', 'DEFEAT'].includes(engine.snapshot().status);
+      index += 1
+    )
+      engine.tick(0.1);
+    const state = engine.snapshot();
+    const bots = state.players.filter((player) => player.isBot);
+    expect(bots.every((bot) => bot.roomId !== null)).toBe(true);
+    expect(
+      bots.filter((bot) => bot.alive).length,
+      JSON.stringify({
+        elapsed: state.elapsed,
+        status: state.status,
+        bots: bots.map((bot) => ({
+          id: bot.id,
+          alive: bot.alive,
+          roomId: bot.roomId,
+          gold: bot.gold,
+          power: bot.power,
+        })),
+        rooms: state.rooms
+          .filter((room) => bots.some((bot) => bot.roomId === room.id))
+          .map((room) => ({
+            id: room.id,
+            hp: room.doorHp,
+            maxHp: room.doorMaxHp,
+            level: room.doorLevel,
+          })),
+        buildings: state.buildings.map((building) => ({
+          ownerId: building.ownerId,
+          kind: building.kind,
+          level: building.level,
+        })),
+        diagnostics: engine.botMatchDiagnostics(),
+      }),
+    ).toBe(3);
+    expect(
+      bots.every((bot) =>
+        state.buildings.some(
+          (building) =>
+            building.ownerId === bot.id && building.kind === 'repair-drone',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      state.buildings.some(
+        (building) =>
+          bots.some((bot) => bot.id === building.ownerId) &&
+          (building.kind === 'shield-device' || building.kind === 'electric-coil'),
+      ),
+    ).toBe(true);
+    expect(
+      engine.botMatchDiagnostics().every((entry) => entry.firstTurretAt !== null),
+    ).toBe(true);
   });
 
   it('moves a distant starter turret toward the door before buying another building', () => {

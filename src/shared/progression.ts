@@ -218,10 +218,20 @@ export const rankedBadgeArtworkLayout = (
   tier: RankedTier,
 ): BadgeArtworkLayout => RANKED_BADGE_ARTWORK[tier];
 
-/** Inferno 1~5 eases into the combined shield rules, then stays 5% softer. */
+/** Inferno 1~6 eases into the combined shield rules, then stays 6% softer. */
 export function stagePressureScale(index: number): number {
   if (index < 31) return 1;
-  return Math.max(0.95, 1 - (index - 30) * 0.01);
+  return Math.max(0.94, 1 - (index - 30) * 0.01);
+}
+
+/**
+ * Ghost HP alone starts easing at Hell. Each stage removes 0.5% of the raw
+ * HP pressure until the curve reaches a 10% cap; damage, speed and skills keep
+ * their existing values so the encounter remains threatening but finishable.
+ */
+export function stageHpPressureScale(index: number): number {
+  if (index < 21) return 1;
+  return Math.max(0.9, 1 - (index - 20) * 0.005);
 }
 
 export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
@@ -233,6 +243,7 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
   const earlyIndex = Math.min(index, 120);
   const earlyPressure = earlyIndex / 120;
   const endgameIndex = Math.max(0, index - 120);
+  const hpPressureScale = stageHpPressureScale(index);
   const pressureScale = stagePressureScale(index);
   const rawHpPressure =
     earlyIndex * 0.037 +
@@ -251,7 +262,7 @@ export const STAGES: readonly StageDefinition[] = STAGE_TIERS.flatMap((tier) =>
     tier: tier.id,
     level,
     label: `${tier.label} ${level}`,
-    hpMultiplier: Number((1 + rawHpPressure * pressureScale).toFixed(3)),
+    hpMultiplier: Number((1 + rawHpPressure * hpPressureScale).toFixed(3)),
     damageMultiplier: Number((1 + rawDamagePressure * pressureScale).toFixed(3)),
     speedMultiplier: Number(Math.min(1.55, 1 + index * 0.0016).toFixed(3)),
     levelHpGrowth: Number(Math.min(0.38, 0.16 + index * 0.0007).toFixed(3)),
