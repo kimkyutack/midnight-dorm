@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.04.3";
+export const APP_RELEASE_VERSION = "2026.08.04.4";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "술래잡기 화면 안정화",
+  title: "술래잡기 터치 조작 개선",
   summary:
-    "• 플레이 방식 안내 화살표가 모바일 화면 안에서 술래잡기 항목을 정확히 가리킵니다.\n• 이동 중 카메라가 되감기듯 흔들리던 현상을 줄이고, 은신 중에는 은신처와 앞 한 칸을 함께 볼 수 있습니다.",
-  publishedAt: 1785836334000,
+    "• 열쇠 근처에서 줍기 버튼을 한 번 누르면 즉시 획득하도록 변경했습니다.\n• 캐릭터 이동을 드래그하는 중에도 다른 손가락으로 달리기와 불켜기를 사용할 수 있습니다.",
+  publishedAt: 1785840270000,
 };
 
 /**

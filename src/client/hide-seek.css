@@ -210,11 +210,11 @@
 
 .hide-seek-game .joystick { pointer-events: none; }
 .hide-seek-game .portrait-drag-hint { display: flex; }
-.hide-seek-game .action-stack { z-index: 7; }
-.hide-seek-game .round-btn { position: relative; display: grid; place-items: center; align-content: center; }
+.hide-seek-game .action-stack { z-index: 7; touch-action: none; }
+.hide-seek-game .round-btn { position: relative; display: grid; place-items: center; align-content: center; touch-action: none; }
 .hide-seek-game .round-btn i { font: normal 1000 24px/1 inherit; }
 .hide-seek-game .round-btn small { display: block; margin-top: 2px; font-size: 9px; font-weight: 1000; line-height: 1; }
-.hide-seek-game .hide-seek-world-interact { z-index: 13; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.hide-seek-game .hide-seek-world-interact { z-index: 13; min-width: 88px; min-height: 46px; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .hide-seek-game .hide-seek-world-interact > span { color: #ffe16a; font-size: 13px; }
 .hide-seek-game .hide-seek-world-interact > strong { font: 1000 11px/1 var(--game-arcade-font, inherit); }
 .hide-seek-game .hide-seek-world-interact[hidden] { display: none; }

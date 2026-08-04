@@ -186,7 +186,7 @@ describe('hide-and-seek authoritative rules', () => {
     expect(survivorView.players.find((player) => player.id === ghost.id)?.position).toEqual({ x: -999, y: -999 });
   });
 
-  it('requires a held key pickup and completes a one-tap two-second ghost hideout search', () => {
+  it('collects a nearby key on tap and completes a one-tap two-second ghost hideout search', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
     const keyState = engine.serialize();
@@ -195,13 +195,13 @@ describe('hide-and-seek authoritative rules', () => {
     const ghost = keyState.snapshot.players.find((player) => player.role === 'ghost');
     if (!key || !survivor || !ghost) throw new Error('missing interaction fixtures');
     survivor.position = { ...key.tile };
+    survivor.movement = { x: 1, y: 0 };
     ghost.position = { x: 60, y: 40 };
     engine.restore(keyState);
     expect(engine.interact(survivor.id).ok).toBe(true);
-    for (let index = 0; index < 5; index += 1) engine.tick(0.1);
-    expect(engine.snapshot().collectedKeys).toBe(0);
-    for (let index = 0; index < 2; index += 1) engine.tick(0.1);
     expect(engine.snapshot().collectedKeys).toBe(1);
+    expect(engine.snapshot().keys.find((candidate) => candidate.id === key.id)?.collectedBy).toBe(survivor.id);
+    expect(engine.snapshot().players.find((player) => player.id === survivor.id)?.movement).toEqual(survivor.movement);
 
     const searchState = engine.serialize();
     const searchGhost = searchState.snapshot.players.find((player) => player.id === ghost.id);

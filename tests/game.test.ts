@@ -157,8 +157,8 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.4')).toBe(true);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.2')).toBe(false);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.5')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.3')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
   });

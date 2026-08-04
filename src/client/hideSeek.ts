@@ -440,8 +440,8 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       canvas.addEventListener('pointercancel', release);
     }
     this.options.app.querySelector('[data-hide-seek-settings]')?.addEventListener('click', () => this.options.openSettings());
-    this.options.app.querySelector('[data-hide-seek-sprint]')?.addEventListener('click', () => this.send({ type: 'sprint' }));
-    this.options.app.querySelector('[data-hide-seek-light]')?.addEventListener('click', () => this.send({ type: 'ghost-light' }));
+    this.bindInstantAction('[data-hide-seek-sprint]', () => this.send({ type: 'sprint' }));
+    this.bindInstantAction('[data-hide-seek-light]', () => this.send({ type: 'ghost-light' }));
     const interact = this.options.app.querySelector<HTMLElement>('[data-hide-seek-interact]');
     const localRole = (): HideSeekPlayer['role'] => this.snapshot?.players.find((player) => player.id === this.playerId)?.role ?? null;
     interact?.addEventListener('pointerdown', (event) => {
@@ -475,6 +475,26 @@ class HideSeekExperience implements HideSeekExperienceHandle {
         const multiplier: 1 | 2 = button.dataset.hideSeekClaim === '2' ? 2 : 1;
         void this.claimVictoryReward(multiplier);
       });
+    });
+  }
+
+  private bindInstantAction(selector: string, action: () => void): void {
+    const button = this.options.app.querySelector<HTMLButtonElement>(selector);
+    if (!button) return;
+    // Mobile browsers do not consistently synthesize `click` for a secondary
+    // finger while the first pointer is captured by the movement canvas.
+    // Fire on pointerdown so sprint/light remain available during a drag.
+    button.addEventListener('pointerdown', (event) => {
+      if (button.disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      action();
+    });
+    // Keyboard activation produces a click with detail 0 and has no preceding
+    // pointerdown, so keep that accessibility path without double firing taps.
+    button.addEventListener('click', (event) => {
+      if (event.detail !== 0 || button.disabled) return;
+      action();
     });
   }
 

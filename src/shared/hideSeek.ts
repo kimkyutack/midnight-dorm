@@ -25,7 +25,7 @@ export const HIDE_SEEK_RULES = {
   ghostSprintSeconds: 5,
   ghostSprintCooldownSeconds: 60,
   ghostSprintOpeningLockSeconds: 10,
-  keyPickupSeconds: 0.6,
+  keyPickupSeconds: 0,
   hideoutSearchSeconds: 2,
   exitUnlockSeconds: 3,
   survivorVictoryPoints: 100,

@@ -407,10 +407,10 @@ export class HideSeekEngine {
     }
     const key = this.state.keys.find((candidate) => !candidate.collectedBy && pointDistance(candidate.tile, player.position) <= 0.85);
     if (key) {
-      const target = `key:${key.id}`;
-      if (player.interactionTarget !== target) player.interactionProgress = 0;
-      player.interactionTarget = target;
-      player.movement = { x: 0, y: 0 };
+      key.collectedBy = player.id;
+      this.state.collectedKeys += 1;
+      player.interactionTarget = null;
+      player.interactionProgress = 0;
       return { ok: true };
     }
     const hideout = this.map.hideouts.find((candidate) => pointDistance(candidate.tile, player.position) <= 0.8);
