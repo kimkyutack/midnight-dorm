@@ -76,6 +76,7 @@ import type {
   MapDefinition,
   PlayMode,
   PlayerState,
+  PromotionCampaignId,
   ProfileDisplayMode,
   RankedTier,
   RankId,
@@ -141,8 +142,10 @@ import {
   showStageClearReward,
 } from "./native/admob";
 import { nativeApiResourceUrl, nativeWebSocketUrlSync } from "./native/runtime";
+import type { HideSeekExperienceHandle } from "./hideSeek";
 import "./styles.css";
 import "./arcade-polish.css";
+import "./hide-seek-entry.css";
 
 initializeNativeRuntime();
 setupMobileViewportCompatibility();
@@ -178,6 +181,8 @@ audio.setMusicVolume(profile.musicVolume);
 audio.setMusicMuted(!profile.musicEnabled);
 let network: GameNetwork | null = null;
 let game: ThreeGameView | null = null;
+let hideSeekExperience: HideSeekExperienceHandle | null = null;
+let hideSeekPreviewStylesLoaded = false;
 let customAvatarPreview: AvatarPreview2D | AvatarPreview3D | null = null;
 let snapshot: GameSnapshot | null = null;
 let mapData: MapDefinition | null = null;
@@ -217,6 +222,7 @@ const CYBER_DRIVER_KONG_SKIN_ID = "skin-look-hamster-cyber-driver";
 const POLICE_ENFORCER_CROCO_SKIN_ID = "skin-look-crocodile-police-enforcer";
 const SECRET_AGENT_MONKEY_SKIN_ID = "skin-look-monkey-secret-agent";
 let skinLaunchPromoShownForAccountId: string | null = null;
+let hideSeekLaunchGuideStep: "home-mode" | "hide-seek-option" | null = null;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -806,6 +812,10 @@ function showTutorial(initialTopic: TutorialTopic = "battle"): void {
 }
 
 function setContent(view: string, html: string): void {
+  if (!view.startsWith("hide-seek") && hideSeekExperience) {
+    hideSeekExperience.destroy();
+    hideSeekExperience = null;
+  }
   if (view !== "ranked-queue") {
     stopRankedQueueTimers();
   }
@@ -949,7 +959,7 @@ function homeScreen(): void {
       </nav>
       <section class="home-avatar-showcase" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section>
       <footer class="home-actions">
-        <div class="home-launch"><button class="home-mode-select" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
+        <div class="home-launch"><button class="home-mode-select ${hideSeekLaunchGuideStep === "home-mode" ? "launch-guide-target" : ""}" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
         <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-event-tab" data-event-missions aria-label="미션">${homeFooterIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
       </footer>
     </main>`,
@@ -968,6 +978,10 @@ function homeScreen(): void {
     .querySelector("[data-home-mode-picker]")
     ?.addEventListener("click", () => {
       audio.play("button");
+      if (hideSeekLaunchGuideStep === "home-mode") {
+        hideSeekLaunchGuideStep = "hide-seek-option";
+        app.querySelector("[data-home-mode-picker]")?.classList.remove("launch-guide-target");
+      }
       showHomeModePicker();
     });
   app
@@ -1237,9 +1251,11 @@ function showAdFreePurchase(): void {
 }
 
 interface SkinLaunchCampaign {
-  id: "summer" | "cyberpunk" | "special-ops";
+  id: PromotionCampaignId;
   ownedSkinIds: readonly string[];
-  targetSkinId: string;
+  targetSkinId?: string;
+  action: "shop" | "hide-seek";
+  actionLabel: string;
   className: string;
   ariaLabel: string;
   imageUrl: string;
@@ -1252,9 +1268,25 @@ interface SkinLaunchCampaign {
 
 const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
   {
+    id: "hide-seek-release",
+    ownedSkinIds: [],
+    action: "hide-seek",
+    actionLabel: "게임플레이",
+    className: "hide-seek-release-promo",
+    ariaLabel: "심야 술래잡기 모드 출시",
+    imageUrl: "/assets/events/hide-seek-release-v1.webp",
+    imageAlt: "어두운 병동에서 랜턴 귀신을 피해 달리는 강아지와 토끼 생존자",
+    eyebrow: "NEW MODE · NIGHT CHASE",
+    title: "심야 술래잡기<br/>정식 출시!",
+    body: "친구와 함께 숨고, 열쇠를 모으고,<br/>랜턴을 든 술래에게서 탈출하세요.",
+    footnote: "귀신 1명 VS 생존자 최대 6명",
+  },
+  {
     id: "special-ops",
     ownedSkinIds: [POLICE_ENFORCER_CROCO_SKIN_ID, SECRET_AGENT_MONKEY_SKIN_ID],
     targetSkinId: POLICE_ENFORCER_CROCO_SKIN_ID,
+    action: "shop",
+    actionLabel: "스킨 보러 가기",
     className: "special-ops-premium-promo",
     ariaLabel: "경찰과 비밀요원 프리미엄 스킨 동시 출시",
     imageUrl: "/assets/cinematic/special-ops-premium-skins-event.webp",
@@ -1268,6 +1300,8 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
     id: "summer",
     ownedSkinIds: [SURFER_MONG_SKIN_ID, LIFEGUARD_RAON_SKIN_ID],
     targetSkinId: LIFEGUARD_RAON_SKIN_ID,
+    action: "shop",
+    actionLabel: "스킨 보러 가기",
     className: "summer-special-promo",
     ariaLabel: "썸머 특별 스킨 동시 출시",
     imageUrl: "/assets/cinematic/summer-special-skins-event.webp",
@@ -1281,6 +1315,8 @@ const SKIN_LAUNCH_CAMPAIGNS: readonly SkinLaunchCampaign[] = [
     id: "cyberpunk",
     ownedSkinIds: [NEON_RIDER_LULU_SKIN_ID, CYBER_DRIVER_KONG_SKIN_ID],
     targetSkinId: NEON_RIDER_LULU_SKIN_ID,
+    action: "shop",
+    actionLabel: "스킨 보러 가기",
     className: "cyberpunk-special-promo",
     ariaLabel: "사이버펑크 프리미엄 스킨 동시 출시",
     imageUrl: "/assets/cinematic/cyberpunk-premium-skins-event.webp",
@@ -1315,7 +1351,8 @@ function storefrontCampaignVisible(campaign: SkinLaunchCampaign, profile: Accoun
   const themeSetting = (profile.storefrontThemes ?? []).find(
     (setting) => setting.id === campaign.id,
   );
-  return (campaignSetting?.isVisible ?? true) && (themeSetting?.isStoreVisible ?? true);
+  return (campaignSetting?.isVisible ?? true)
+    && (campaign.action !== "shop" || (themeSetting?.isStoreVisible ?? true));
 }
 
 function permanentlyDismissSkinLaunchPromo(campaign: SkinLaunchCampaign): void {
@@ -1349,9 +1386,9 @@ function showSkinLaunchPromoCarousel(): void {
     (campaign) =>
       storefrontCampaignVisible(campaign, currentAccount)
       && !skinLaunchPromoDismissed(campaign)
-      && !campaign.ownedSkinIds.every((skinId) =>
+      && (campaign.ownedSkinIds.length === 0 || !campaign.ownedSkinIds.every((skinId) =>
         currentAccount.ownedCosmetics.includes(skinId),
-      ),
+      )),
   ).sort((left, right) =>
     storefrontCampaignOrder(left, currentAccount) - storefrontCampaignOrder(right, currentAccount),
   );
@@ -1375,7 +1412,7 @@ function showSkinLaunchPromoCarousel(): void {
             )
             .join("")}</div><button type="button" data-launch-promo-next aria-label="다음 이벤트">›</button></nav>`
         : "";
-    modal.innerHTML = `<section class="surfer-mong-promo ${campaign.className}" role="dialog" aria-modal="true" aria-label="${campaign.ariaLabel}" data-launch-promo="${campaign.id}"><div class="surfer-mong-promo-art"><img src="${campaign.imageUrl}?v=${APP_RELEASE_VERSION}" alt="${campaign.imageAlt}"/><div class="surfer-mong-promo-copy"><span>${campaign.eyebrow}</span><h2>${campaign.title}</h2><p>${campaign.body}</p><small>${campaign.footnote}</small></div>${carouselControls}</div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>스킨 보러 가기</button></footer></section>`;
+    modal.innerHTML = `<section class="surfer-mong-promo ${campaign.className}" role="dialog" aria-modal="true" aria-label="${campaign.ariaLabel}" data-launch-promo="${campaign.id}"><div class="surfer-mong-promo-art"><img src="${campaign.imageUrl}?v=${APP_RELEASE_VERSION}" alt="${campaign.imageAlt}"/><div class="surfer-mong-promo-copy"><span>${campaign.eyebrow}</span><h2>${campaign.title}</h2><p>${campaign.body}</p><small>${campaign.footnote}</small></div>${carouselControls}</div><footer><button type="button" class="surfer-promo-dismiss" data-launch-promo-dismiss>다시 보지 않기</button><button type="button" class="surfer-promo-shop" data-launch-promo-shop>${campaign.actionLabel}</button></footer></section>`;
   };
   renderCampaign();
   app.appendChild(modal);
@@ -1398,7 +1435,13 @@ function showSkinLaunchPromoCarousel(): void {
     if (target.closest("[data-launch-promo-shop]")) {
       audio.play("button");
       modal.remove();
-      shopScreen("skin", campaign.targetSkinId);
+      if (campaign.action === "hide-seek") {
+        hideSeekLaunchGuideStep = "home-mode";
+        app.querySelectorAll(".modal-backdrop").forEach((candidate) => candidate.remove());
+        homeScreen();
+      } else if (campaign.targetSkinId) {
+        shopScreen("skin", campaign.targetSkinId);
+      }
       return;
     }
     if (target.closest("[data-launch-promo-prev]")) {
@@ -1538,7 +1581,7 @@ function showHomeModePicker(): void {
   if (!account) return;
   const currentAccount = account;
   const modal = dismissibleModal(
-    `<section class="home-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mode-picker-title"><header><div><small>PLAY MODE</small><h2 id="mode-picker-title">플레이 방식 선택</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-mode-options"><button class="${homePlayMode === "solo" ? "selected" : ""}" data-home-mode="solo"><i>☾</i><span><strong>혼자하기</strong><small>생존 봇 3명과 함께 방어합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "multiplayer" ? "selected" : ""}" data-home-mode="multiplayer"><i>◎</i><span><strong>친구랑하기</strong><small>친구와 실시간으로 협동합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "ranked" ? "selected" : ""} ${currentAccount.ranked.eligible ? "" : "locked"}" data-home-mode="ranked" ${currentAccount.ranked.eligible ? "" : "disabled"}><i>♛</i><span><strong>랭크전</strong><small>${currentAccount.ranked.eligible ? `${currentAccount.ranked.seasonId} · 48시간 계약` : "혼자하기 노말 5 · 일반 10회 필요"}</small></span><b>${currentAccount.ranked.eligible ? "선택" : "잠김"}</b></button></div><div class="home-invite"><label for="invite-code">친구 방 초대 코드</label><div><input class="code-input" id="invite-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-home-join>참가</button></div></div></section>`,
+    `<section class="home-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mode-picker-title"><header><div><small>PLAY MODE</small><h2 id="mode-picker-title">플레이 방식 선택</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="home-mode-options"><button class="${homePlayMode === "solo" ? "selected" : ""}" data-home-mode="solo"><i>☾</i><span><strong>혼자하기</strong><small>생존 봇 3명과 함께 방어합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "multiplayer" ? "selected" : ""}" data-home-mode="multiplayer"><i>◎</i><span><strong>친구랑하기</strong><small>친구와 실시간으로 협동합니다.</small></span><b>선택</b></button><button class="${homePlayMode === "ranked" ? "selected" : ""} ${currentAccount.ranked.eligible ? "" : "locked"}" data-home-mode="ranked" ${currentAccount.ranked.eligible ? "" : "disabled"}><i>♛</i><span><strong>랭크전</strong><small>${currentAccount.ranked.eligible ? `${currentAccount.ranked.seasonId} · 48시간 계약` : "혼자하기 노말 5 · 일반 10회 필요"}</small></span><b>${currentAccount.ranked.eligible ? "선택" : "잠김"}</b></button><button class="hide-seek-mode-option ${hideSeekLaunchGuideStep === "hide-seek-option" ? "launch-guide-target" : ""}" data-home-hide-seek><i>♧</i><span><strong>심야 술래잡기</strong><small>술래를 피해 열쇠 5개를 모아 탈출하세요.</small></span><b>입장</b></button></div><div class="home-invite"><label for="invite-code">친구 방 초대 코드</label><div><input class="code-input" id="invite-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-home-join>참가</button></div></div></section>`,
     "home-picker-modal",
   );
   modal.querySelectorAll<HTMLElement>("[data-home-mode]").forEach((button) =>
@@ -1590,6 +1633,164 @@ function showHomeModePicker(): void {
   modal
     .querySelector("[data-home-join]")
     ?.addEventListener("click", () => void joinRoom());
+  modal
+    .querySelector("[data-home-hide-seek]")
+    ?.addEventListener("click", () => {
+      hideSeekLaunchGuideStep = null;
+      app.querySelector("[data-home-mode-picker]")?.classList.remove("launch-guide-target");
+      modal.remove();
+      showHideSeekEntry();
+    });
+}
+
+function showHideSeekEntry(): void {
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet hide-seek-entry-sheet" role="dialog" aria-modal="true" aria-labelledby="hide-seek-entry-title"><header><div><small>NIGHT CHASE</small><h2 id="hide-seek-entry-title">심야 술래잡기</h2></div><button data-modal-close aria-label="닫기"></button></header><div class="hide-seek-entry-hero"><img src="/assets/hide-seek/lantern-ghost-v2.webp" width="86" height="102" alt="랜턴을 든 술래잡기 귀신"/><div><strong>1명의 귀신, 최대 6명의 생존자</strong><p>20초 안에 숨고, 팀과 탐험 지도를 공유하며 열쇠 5개로 탈출로를 여세요.</p></div></div><button class="hide-seek-create" data-hide-seek-create>새 술래잡기 방 만들기</button><button class="hide-seek-quick-join" data-hide-seek-quick-join>빠른 참가</button><div class="home-invite hide-seek-invite"><label for="hide-seek-code">술래잡기 초대 코드</label><div><input class="code-input" id="hide-seek-code" type="text" maxlength="8" value="${escapeHtml(profile.recentRoomCode)}" placeholder="8자리 코드"/><button data-hide-seek-join>참가</button></div></div><ul class="hide-seek-entry-rules"><li>모든 이동속도 1배 · 카메라 확대/축소 없음</li><li>귀신 주변 360도 2칸 · 100초마다 불켜기</li><li>인원이 부족하면 방장이 봇으로 빈자리를 채울 수 있음</li></ul></section>`,
+    "hide-seek-entry-modal",
+  );
+  const codeInput = modal.querySelector<HTMLInputElement>("#hide-seek-code");
+  codeInput?.addEventListener("input", () => {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z2-9]/g, "");
+  });
+  modal.querySelector("[data-hide-seek-create]")?.addEventListener("click", () => {
+    modal.remove();
+    void createHideSeekRoom();
+  });
+  modal.querySelector("[data-hide-seek-quick-join]")?.addEventListener("click", () => {
+    modal.remove();
+    void quickJoinHideSeekRoom();
+  });
+  modal.querySelector("[data-hide-seek-join]")?.addEventListener("click", () => {
+    const code = codeInput?.value.trim().toUpperCase() ?? "";
+    if (!/^[A-Z2-9]{8}$/.test(code)) {
+      toast("술래잡기 초대 코드 8자리를 확인해주세요.");
+      return;
+    }
+    modal.remove();
+    void joinHideSeekRoom(code);
+  });
+}
+
+async function createHideSeekRoom(): Promise<void> {
+  audio.play("button");
+  connectionOverlay("술래잡기 방을 만드는 중…");
+  try {
+    const response = await fetch("/api/hide-seek/rooms", { method: "POST" });
+    const data = (await response.json().catch(() => null)) as { code?: string; error?: string } | null;
+    if (!response.ok || !data?.code) throw new Error(data?.error ?? "술래잡기 방을 만들지 못했습니다.");
+    profile.recentRoomCode = data.code;
+    saveProfile(profile);
+    await connectToHideSeekRoom(data.code);
+  } catch (error) {
+    homeScreen();
+    toast(error instanceof Error ? error.message : "술래잡기 서버에 연결할 수 없습니다.");
+  }
+}
+
+async function quickJoinHideSeekRoom(): Promise<void> {
+  audio.play("button");
+  connectionOverlay("참가할 술래잡기 방을 찾는 중…");
+  try {
+    const response = await fetch("/api/hide-seek/quick-join", { method: "POST" });
+    const data = (await response.json().catch(() => null)) as { code?: string; created?: boolean; error?: string } | null;
+    if (!response.ok || !data?.code) throw new Error(data?.error ?? "참가할 술래잡기 방을 찾지 못했습니다.");
+    profile.recentRoomCode = data.code;
+    saveProfile(profile);
+    await connectToHideSeekRoom(
+      data.code,
+      data.created ? "현재 입장 가능한 방이 없어 새로운 방을 생성합니다." : undefined,
+    );
+  } catch (error) {
+    homeScreen();
+    toast(error instanceof Error ? error.message : "빠른 참가를 완료하지 못했습니다.");
+  }
+}
+
+async function joinHideSeekRoom(code: string): Promise<void> {
+  audio.play("button");
+  connectionOverlay("술래잡기 방을 확인하는 중…");
+  try {
+    const response = await fetch(`/api/hide-seek/rooms/${code}/status`, { cache: "no-store" });
+    const data = (await response.json().catch(() => null)) as { exists?: boolean; phase?: string; joinable?: boolean; error?: string } | null;
+    if (!response.ok || !data?.exists) throw new Error(data?.error ?? "존재하지 않는 술래잡기 방입니다.");
+    if (data.phase !== "LOBBY") throw new Error("이미 추격이 시작된 술래잡기 방입니다.");
+    if (data.joinable === false) throw new Error("술래잡기 방이 가득 찼습니다.");
+    profile.recentRoomCode = code;
+    saveProfile(profile);
+    await connectToHideSeekRoom(code);
+  } catch (error) {
+    homeScreen();
+    toast(error instanceof Error ? error.message : "술래잡기 방에 참가할 수 없습니다.");
+  }
+}
+
+async function connectToHideSeekRoom(code: string, initialNotice?: string): Promise<void> {
+  network?.close();
+  network = null;
+  game?.destroy();
+  game = null;
+  stopSocialRealtime();
+  hideSeekExperience?.destroy();
+  currentView = "hide-seek";
+  audio.setBackgroundTrack("main");
+  const tokenKey = `hide-seek:${code}`;
+  profile.activeHideSeekRoomCode = code;
+  saveProfile(profile);
+  const { mountHideSeekExperience } = await import("./hideSeek");
+  hideSeekExperience = mountHideSeekExperience({
+    app,
+    code,
+    deviceId: profile.deviceId,
+    reconnectToken: profile.reconnectTokens[tokenKey],
+    onReconnectToken: (token) => {
+      profile.reconnectTokens[tokenKey] = token;
+      saveProfile(profile);
+    },
+    onExit: () => {
+      hideSeekExperience = null;
+      profile.activeHideSeekRoomCode = "";
+      delete profile.reconnectTokens[tokenKey];
+      saveProfile(profile);
+      homeScreen();
+    },
+    playSound: () => audio.play("button"),
+    openSettings: showSettings,
+    setBackgroundTrack: (track) => audio.setBackgroundTrack(track),
+    adFreeActive: Boolean(account?.adFree.active),
+    prepareDoubleReward: async (matchId) => {
+      if (account && isNativeApp && !account.adFree.active) {
+        await prepareStageClearReward(account.id, matchId);
+      }
+    },
+    claimReward: claimRecordedVictoryReward,
+    initialNotice,
+  });
+}
+
+async function claimRecordedVictoryReward(matchId: string, multiplier: 1 | 2): Promise<number> {
+  const adFreeActive = Boolean(account?.adFree.active);
+  let rewardedAdCompleted = false;
+  if (multiplier === 2 && !adFreeActive) {
+    if (!account) throw new Error("로그인이 필요합니다.");
+    if (!isNativeApp) {
+      throw new Error("Chrome·Safari·PWA에서는 AdMob 광고가 실행되지 않습니다. Google Play 또는 App Store에서 설치한 앱에서 이용해주세요.");
+    }
+    await showStageClearReward(account.id, matchId);
+    rewardedAdCompleted = true;
+  }
+  let claim: Awaited<ReturnType<typeof claimMatchReward>> | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      claim = await claimMatchReward(matchId, multiplier, rewardedAdCompleted);
+      break;
+    } catch (error) {
+      if (attempt >= 4 || !(error instanceof Error) || !error.message.includes("정산이 아직")) throw error;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
+    }
+  }
+  if (!claim) throw new Error("승리 포인트를 지급하지 못했습니다.");
+  account = claim.profile;
+  return claim.pointsAwarded;
 }
 
 async function compactProfileAvatar(file: File): Promise<string> {
@@ -4045,7 +4246,7 @@ function resultScreen(state: GameSnapshot): void {
       title: tutorialVictory
         ? "듀토리얼 완료"
         : victory
-          ? "새벽까지 생존!"
+          ? "생존"
           : "스테이지 종료",
       description: tutorialVictory
         ? "기본 훈련을 모두 마쳤습니다."
@@ -5579,9 +5780,9 @@ function showSettings(): void {
   modal.className = "modal-backdrop";
   // Game screens provide a dedicated leave-game action. Logging out from this
   // modal can orphan that session, so account actions stay on menu settings.
-  const isInGameSettings = currentView === "game";
+  const isInGameSettings = currentView === "game" || currentView.startsWith("hide-seek");
   const showHomeVersion = currentView === "home";
-  const leaveAction = network
+  const leaveAction = network || hideSeekExperience
     ? '<button class="btn danger settings-leave" data-leave-game data-testid="leave-game">게임 나가기</button>'
     : "";
   const logoutAction =
@@ -5683,6 +5884,10 @@ function showSettings(): void {
         return;
       }
       modal.remove();
+      if (hideSeekExperience) {
+        hideSeekExperience.requestLeave();
+        return;
+      }
       if (currentView === "lobby") network?.leaveRoom();
       else leaveCurrentGame();
     });
@@ -6659,11 +6864,36 @@ document.addEventListener("visibilitychange", () => {
     network?.connect();
     network?.resync();
   }
+  if (suspendedFor >= 1_500) hideSeekExperience?.wakeAfterSuspension();
   if (!game) return;
   game.resume();
 });
 
 function renderUiPreview(mode: string): void {
+  if (mode === "hide-seek-entry" || mode === "hide-seek-lobby") {
+    if (!hideSeekPreviewStylesLoaded) {
+      void import("./hideSeek").then(() => {
+        hideSeekPreviewStylesLoaded = true;
+        renderUiPreview(mode);
+      });
+      return;
+    }
+  }
+  if (mode === "hide-seek-entry") {
+    currentView = "home";
+    audio.setBackgroundTrack(null);
+    app.dataset.view = "home";
+    app.innerHTML = '<main class="game-home" aria-hidden="true"></main>';
+    showHideSeekEntry();
+    return;
+  }
+  if (mode === "hide-seek-lobby") {
+    currentView = "hide-seek-lobby";
+    audio.setBackgroundTrack(null);
+    app.dataset.view = "hide-seek-lobby";
+    app.innerHTML = `<main class="hide-seek-lobby"><div class="hide-seek-lobby-art" aria-hidden="true"><img src="/assets/hide-seek/lantern-ghost-v2.webp" alt=""/></div><header><span class="hide-seek-lobby-emblem" aria-hidden="true">☾</span><div><small>NIGHT CHASE</small><h1>심야 술래잡기</h1></div><button class="hide-seek-code"><small>초대 코드</small><strong>J3886B4M</strong></button></header><section class="hide-seek-rule-card"><span>최대 1 VS 6</span><h2>불이 꺼지면, 소리 없이 숨으세요</h2><p>20초 동안 숨고 열쇠 5개를 모아 탈출하세요. 랜턴에 잡히면 추격이 시작됩니다.</p></section><section class="hide-seek-role-picker"><small>희망 역할</small><div><button>생존자</button><button class="active">상관없음</button><button>술래</button></div></section><section class="hide-seek-roster"><header><strong>참가자 <b>7/7</b></strong><small>술래 1명 · 생존자 최대 6명</small></header><ol>${['루키바보', '야간봇 1', '야간봇 2', '야간봇 3', '야간봇 4', '야간봇 5', '야간봇 6'].map((name, index) => `<li class="${index === 0 ? 'host' : ''}"><span class="hide-seek-member-badge"><img src="${rankBadgeImage(index > 4 ? 'expert' : index > 2 ? 'intermediate' : 'beginner')}" alt=""/><em>${index === 0 ? '01' : 'BOT'}</em></span><div><strong>${name}${index === 0 ? ' ★' : ''}</strong><small>${index > 4 ? '고수' : index > 2 ? '중수' : '하수'} · 역할 무관</small></div><b class="ready">READY</b>${index > 0 ? '<button aria-label="봇 제거">봇 제거</button>' : ''}</li>`).join('')}</ol></section><footer><div class="hide-seek-lobby-tools"><button class="danger">방 나가기</button><button>＋ 봇 추가</button><button>빈자리 채우기</button></div><div class="hide-seek-lobby-actions"><button class="secondary">준비</button><button class="primary">추격 시작</button></div></footer></main>`;
+    return;
+  }
   if (mode === "opening") {
     currentView = "opening";
     audio.setBackgroundTrack(null);
@@ -6689,7 +6919,7 @@ function renderUiPreview(mode: string): void {
       resultScreenMarkup({
         victory,
         stageLabel: "어려움 5",
-        title: victory ? "새벽까지 생존!" : "스테이지 종료",
+        title: victory ? "생존" : "스테이지 종료",
         description: victory
           ? "마지막 귀신을 몰아내고 병동의 아침을 지켜냈습니다."
           : "괜찮아요. 방어선을 정비하고 다시 도전해보세요.",
@@ -6746,6 +6976,21 @@ async function resumeOrEnter(): Promise<void> {
   } catch {
     authScreen();
     return;
+  }
+  const hideSeekCode = profile.activeHideSeekRoomCode;
+  const hideSeekToken = profile.reconnectTokens[`hide-seek:${hideSeekCode}`];
+  if (!freshMode && /^[A-Z2-9]{8}$/.test(hideSeekCode) && hideSeekToken) {
+    try {
+      const response = await fetch(`/api/hide-seek/rooms/${hideSeekCode}/status`, { cache: "no-store" });
+      const room = (await response.json().catch(() => null)) as { exists?: boolean; phase?: string } | null;
+      if (!response.ok || !room?.exists || room.phase === "RESULT" || room.phase === "CLOSED") throw new Error("ended");
+      await connectToHideSeekRoom(hideSeekCode);
+      return;
+    } catch {
+      profile.activeHideSeekRoomCode = "";
+      delete profile.reconnectTokens[`hide-seek:${hideSeekCode}`];
+      saveProfile(profile);
+    }
   }
   const code = profile.recentRoomCode;
   const tutorialRequired = !account.tutorialCompleted;

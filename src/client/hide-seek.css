@@ -1,0 +1,284 @@
+:root {
+  --chase-navy: #070d1b;
+  --chase-panel: rgba(16, 27, 48, .94);
+  --chase-cyan: #74e7f4;
+  --chase-yellow: #ffd35d;
+  --chase-red: #ff4563;
+}
+
+[data-view^="hide-seek"] {
+  background: #020711;
+  overflow: hidden;
+}
+
+.hide-seek-connecting,
+.hide-seek-lobby,
+.hide-seek-game {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100svh;
+  color: #f7fbff;
+  font-family: inherit;
+}
+.delete-bot-button {
+  min-height: 24px;
+  font-size: 10px;
+  font-weight: 1000;
+  color: #d5e3f4;
+  background: #24324a;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 8px;
+}
+.hide-seek-connecting {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 28px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 34%, #203558 0, #080f20 36%, #02050c 75%);
+}
+
+.hide-seek-connecting::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  opacity: .13;
+  background: repeating-linear-gradient(90deg, transparent 0 46px, #9bdcf3 47px 48px), repeating-linear-gradient(0deg, transparent 0 46px, #9bdcf3 47px 48px);
+  mask-image: linear-gradient(transparent, #000 35%, #000);
+}
+
+.hide-seek-connecting > * { position: relative; }
+.hide-seek-connecting .hide-seek-moon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  aspect-ratio: 1;
+  margin-bottom: 18px;
+  border: 2px solid #73e5f2;
+  border-radius: 25px;
+  color: var(--chase-yellow);
+  font-size: 42px;
+  background: linear-gradient(145deg, #1a3159, #0b1732);
+  box-shadow: 0 14px 34px #0009, inset 0 0 22px #64e6ff22;
+}
+.hide-seek-connecting > span { color: var(--chase-cyan); font-size: 10px; font-weight: 1000; letter-spacing: .24em; }
+.hide-seek-connecting h1 { margin: 8px 0 6px; font-size: clamp(24px, 7vw, 34px); }
+.hide-seek-connecting p { max-width: 270px; margin: 0; color: #9bacbf; font-size: 13px; line-height: 1.55; }
+.hide-seek-connecting > i { width: 180px; height: 5px; margin-top: 28px; overflow: hidden; border-radius: 99px; background: #17233a; }
+.hide-seek-connecting > i::after { content: ""; display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--chase-cyan), #8f8aff, var(--chase-yellow)); animation: chase-loading 1.1s infinite ease-in-out alternate; }
+.hide-seek-connecting button { margin-top: 24px; padding: 12px 26px; border: 0; border-radius: 16px; color: #192031; font: 900 14px inherit; background: var(--chase-yellow); }
+@keyframes chase-loading { from { transform: translateX(-20%); } to { transform: translateX(160%); } }
+
+.hide-seek-lobby {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  height: 100svh;
+  min-height: 0;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(2, 7, 17, .25), #050b18 54%),
+    radial-gradient(circle at 75% 16%, #244269 0, #0b1730 29%, #050b17 70%);
+}
+
+.hide-seek-lobby-art { position: absolute; top: 70px; right: -68px; width: min(53vw, 250px); opacity: .28; filter: saturate(.7); pointer-events: none; }
+.hide-seek-lobby-art img { display: block; width: 100%; }
+.hide-seek-lobby > *:not(.hide-seek-lobby-art) { position: relative; z-index: 1; }
+.hide-seek-lobby > header { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.hide-seek-lobby-emblem,
+.hide-seek-hud > button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2px solid #66dce8;
+  border-radius: 17px;
+  color: #fff;
+  font: 1000 32px/1 inherit;
+  background: linear-gradient(145deg, #223963, #101c3c);
+  box-shadow: 0 6px 0 #050b1b99;
+}
+.hide-seek-lobby-emblem { color: var(--chase-yellow); font-size: 28px; }
+.hide-seek-lobby > header small,
+.hide-seek-rule-card > span,
+.hide-seek-role-picker > small { color: var(--chase-cyan); font-size: 9px; font-weight: 1000; letter-spacing: .18em; }
+.hide-seek-lobby > header h1 { margin: 2px 0 0; font: 1000 22px/1 var(--game-arcade-font, inherit); letter-spacing: -.05em; }
+.hide-seek-code { min-width: 98px; padding: 8px 10px; border: 1px solid #5a78ad; border-radius: 15px; color: #fff; background: linear-gradient(145deg, #203767, #101d40); box-shadow: 0 4px 0 #070e27, inset 0 1px #c4eaff24; }
+.hide-seek-code small { display: block; margin-bottom: 2px; color: #a8bcde !important; font: 900 8px/1 var(--game-arcade-font, inherit); letter-spacing: .04em !important; }
+.hide-seek-code strong { color: var(--chase-yellow); font: 1000 13px/1 var(--game-arcade-font, inherit); letter-spacing: .09em; }
+
+.hide-seek-rule-card,
+.hide-seek-role-picker,
+.hide-seek-roster {
+  border: 1px solid #34496a;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(24, 42, 70, .94), rgba(10, 19, 37, .96));
+  box-shadow: 0 12px 30px #0006, inset 0 1px #b8efff1a;
+}
+.hide-seek-rule-card { margin-top: 0; padding: 15px 17px; }
+.hide-seek-rule-card h2 { max-width: 290px; margin: 6px 0; font: 1000 18px/1.18 var(--game-arcade-font, inherit); letter-spacing: -.04em; }
+.hide-seek-rule-card p { max-width: 330px; margin: 0; color: #aebed1; font-size: 10px; line-height: 1.55; }
+.hide-seek-role-picker { padding: 11px; }
+.hide-seek-role-picker > small { display: block; margin: 0 4px 8px; }
+.hide-seek-role-picker > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.hide-seek-role-picker button { min-height: 42px; border: 1px solid #506596; border-radius: 14px; color: #dce8ff; font: 1000 12px/1 var(--game-arcade-font, inherit); background: linear-gradient(180deg, #273b6d, #18284e); box-shadow: 0 4px 0 #09122c, inset 0 1px #d6efff18; }
+.hide-seek-role-picker button.active { border-color: #f5e69b; color: #3a2a05; background: linear-gradient(180deg, #ffe97d, #ffc439); box-shadow: 0 4px 0 #956015, inset 0 2px #fff8c7; }
+
+.hide-seek-roster { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; padding: 12px; overflow: hidden; }
+.hide-seek-roster > header { display: flex; justify-content: space-between; align-items: baseline; margin: 2px 4px 10px; }
+.hide-seek-roster > header strong { font: 1000 14px/1 var(--game-arcade-font, inherit); }
+.hide-seek-roster > header b { color: var(--chase-yellow); }
+.hide-seek-roster > header small { color: #7f91a9; font-size: 9px; }
+.hide-seek-roster ol { display: grid; align-content: start; gap: 7px; min-height: 0; margin: 0 -3px 0 0; padding: 0 3px 2px 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; list-style: none; scrollbar-color: #5b78aa transparent; }
+.hide-seek-roster li { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-height: 54px; padding: 6px 8px; border: 1px solid #3f5380; border-radius: 14px; background: linear-gradient(145deg, #12264a, #0b1630); box-shadow: inset 0 1px #d4f5ff0b; }
+.hide-seek-roster li.host { border-color: #675171; }
+.hide-seek-member-badge { position: relative; display: grid; place-items: center; width: 38px; height: 38px; overflow: hidden; border: 1px solid #57b8d0; border-radius: 12px; background: #172d49; }
+.hide-seek-member-badge img { width: 31px; height: 31px; object-fit: contain; }
+.hide-seek-member-badge em { position: absolute; right: 1px; bottom: 1px; min-width: 15px; padding: 1px 2px; border-radius: 5px; color: #dffbff; font: normal 1000 7px/1 var(--game-arcade-font, inherit); text-align: center; background: #0a1729e8; }
+.hide-seek-roster li strong { display: block; overflow: hidden; font: 1000 12px/1.2 var(--game-arcade-font, inherit); text-overflow: ellipsis; white-space: nowrap; }
+.hide-seek-roster li > div { min-width: 0; }
+.hide-seek-roster li small { display: block; overflow: hidden; color: #8092a9; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.hide-seek-roster li > b { color: #6b788b; font-size: 9px; }
+.hide-seek-roster li > b.ready { color: #72f1b9; }
+.hide-seek-roster li > button { width: auto; min-width: 48px; height: 34px; padding: 0 8px; border: 0; border-radius: 10px; color: #d5e3f4; font: 900 9px/1 inherit; white-space: nowrap; background: #24324a; }
+.hide-seek-lobby > footer { display: grid; flex: none; gap: 8px; padding-top: 2px; }
+.hide-seek-lobby-tools { display: flex; gap: 7px; min-height: 36px; align-items: center; }
+.hide-seek-lobby-tools button { flex: 1; min-height: 36px; border: 1px solid #5872a4; border-radius: 13px; color: #dceaff; font: 1000 11px/1 var(--game-arcade-font, inherit); background: linear-gradient(180deg, #293d6c, #192a50); box-shadow: 0 3px 0 #09122c, inset 0 1px #c9e9ff18; }
+.hide-seek-lobby-tools button.danger { border-color: #79334c; color: #ffdce7; background: linear-gradient(180deg, #5d243b, #3c1729); }
+.hide-seek-lobby-tools span { width: 100%; color: #9eafd0; font-size: 10px; text-align: center; }
+.hide-seek-lobby-actions { display: grid; grid-template-columns: .75fr 1.25fr; gap: 9px; }
+.hide-seek-lobby-actions > button:only-child { grid-column: 1 / -1; }
+.hide-seek-lobby-actions button { min-height: 52px; border-radius: 17px; font: 1000 15px/1 var(--game-arcade-font, inherit); box-shadow: 0 5px 0 #020713aa; }
+.hide-seek-lobby-actions .secondary { border: 2px solid #6b8dca; color: #f5fbff; background: linear-gradient(180deg, #405cc0, #263b88); box-shadow: 0 5px 0 #101b55, inset 0 2px #b8e7ff42; }
+.hide-seek-lobby-actions .primary { border: 1px solid #fff0a1; color: #352704; background: linear-gradient(180deg, #ffe978, #ffc337); box-shadow: 0 5px 0 #9e6515, inset 0 2px #fff8bd; }
+
+@media (max-height: 680px) {
+  .hide-seek-lobby { gap: 8px; padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .hide-seek-lobby-art { top: 54px; }
+  .hide-seek-lobby > header h1 { font-size: 20px; }
+  .hide-seek-rule-card { padding: 11px 14px; }
+  .hide-seek-rule-card h2 { margin: 4px 0; font-size: 16px; }
+  .hide-seek-rule-card p { font-size: 9px; }
+  .hide-seek-role-picker { padding: 9px; }
+  .hide-seek-role-picker > small { margin-bottom: 6px; }
+  .hide-seek-role-picker button { min-height: 36px; font-size: 11px; }
+  .hide-seek-roster { padding: 9px; }
+  .hide-seek-roster li { min-height: 43px; padding-block: 5px; }
+  .hide-seek-lobby-actions button { min-height: 46px; }
+}
+
+.hide-seek-game { position: relative; height: 100svh; overflow: hidden; background: #030813; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.hide-seek-world { display: block; width: 100%; height: 100%; touch-action: none; }
+.hide-seek-hud { position: absolute; z-index: 10; top: max(10px, env(safe-area-inset-top)); left: 10px; right: 10px; display: grid; grid-template-columns: minmax(0, 1fr) 68px 44px; gap: 8px; align-items: center; }
+.hide-seek-hud > button { position: static; width: 42px; min-height: 42px; border-radius: 14px; font-size: 19px; line-height: 1; transform: none; }
+.hide-seek-objective,
+.hide-seek-hud > time { height: 44px; box-sizing: border-box; border: 1px solid #3b516f; border-radius: 14px; background: rgba(5, 13, 28, .9); box-shadow: 0 5px 18px #0008; backdrop-filter: blur(8px); }
+.hide-seek-objective { display: flex; flex-direction: column; justify-content: center; padding: 5px 11px; }
+.hide-seek-objective small { color: var(--chase-cyan); font-size: 8px; font-weight: 1000; letter-spacing: .08em; }
+.hide-seek-objective strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.hide-seek-hud > time { display: grid; place-items: center; color: var(--chase-yellow); font: 1000 17px inherit; }
+
+.hide-seek-number-card { position: absolute; z-index: 14; inset: 0; display: grid; place-content: center; justify-items: center; visibility: hidden; opacity: 0; color: #fff; text-align: center; background: #020713d9; backdrop-filter: blur(4px); transition: opacity .2s; }
+.hide-seek-number-card.visible { visibility: visible; opacity: 1; }
+.hide-seek-number-card small { color: var(--chase-cyan); font-size: 11px; font-weight: 1000; letter-spacing: .25em; }
+.hide-seek-number-card > strong { margin: 8px 0; color: #fff; font: 1000 min(34vw, 150px)/1 inherit; text-shadow: 0 8px 0 #192c4a, 0 0 34px #55e2f977; }
+.hide-seek-number-card.ghost > strong { color: var(--chase-red); text-shadow: 0 8px 0 #491222, 0 0 34px #ff456377; }
+.hide-seek-number-card p { margin: 0; font-size: 18px; font-weight: 900; }
+.hide-seek-number-card .ghost-role-copy {
+  padding: 22px 30px;
+  border: 2px solid #ff637b;
+  border-radius: 24px;
+  color: #ffdae1;
+  font: 1000 clamp(25px, 8vw, 38px)/1.2 var(--game-arcade-font, inherit);
+  background: linear-gradient(145deg, #491323e8, #170914f0);
+  box-shadow: 0 8px 0 #09030a, 0 0 46px #ff456344, inset 0 1px #ffd5dc32;
+}
+.hide-seek-number-card .ghost-role-copy b { color: #fff3a6; }
+
+.hide-seek-minimap-shell { position: absolute; z-index: 4; top: max(68px, calc(env(safe-area-inset-top) + 58px)); left: 10px; width: 128px; padding: 7px; border: 1px solid #38526f; border-radius: 15px; background: rgba(5, 13, 26, .9); box-shadow: 0 8px 20px #0008; }
+.hide-seek-minimap-shell.hidden { display: none; }
+.hide-seek-minimap-shell canvas { display: block; width: 100%; height: 82px; border-radius: 9px; }
+.hide-seek-minimap-shell span { display: block; padding-top: 4px; color: #88dce8; font-size: 8px; font-weight: 900; text-align: center; letter-spacing: .08em; }
+.hide-seek-alert { position: absolute; z-index: 6; top: 23%; left: 50%; display: flex; align-items: center; gap: 8px; visibility: hidden; padding: 7px 14px 7px 8px; border: 2px solid #ff6b7f; border-radius: 99px; opacity: 0; color: #fff; background: #5b1422e6; transform: translate(-50%, -12px); transition: .18s; }
+.hide-seek-alert.visible { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
+.hide-seek-alert b { display: grid; place-items: center; width: 28px; aspect-ratio: 1; border-radius: 50%; color: #7c1326; font-size: 20px; background: #ffcf5a; }
+.hide-seek-alert span { font-size: 12px; font-weight: 1000; }
+
+.hide-seek-game .joystick { pointer-events: none; }
+.hide-seek-game .portrait-drag-hint { display: flex; }
+.hide-seek-game .action-stack { z-index: 7; }
+.hide-seek-game .round-btn { position: relative; display: grid; place-items: center; align-content: center; }
+.hide-seek-game .round-btn i { font: normal 1000 24px/1 inherit; }
+.hide-seek-game .round-btn small { display: block; margin-top: 2px; font-size: 9px; font-weight: 1000; line-height: 1; }
+.hide-seek-game .hide-seek-world-interact { z-index: 13; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.hide-seek-game .hide-seek-world-interact > span { color: #ffe16a; font-size: 13px; }
+.hide-seek-game .hide-seek-world-interact > strong { font: 1000 11px/1 var(--game-arcade-font, inherit); }
+.hide-seek-game .hide-seek-world-interact[hidden] { display: none; }
+.hide-seek-game .hide-seek-interact::after { content: ""; position: absolute; inset: -6px; display: none; border-radius: 24px; background: conic-gradient(#fff3a5 var(--hold-progress, 0deg), transparent 0); mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0); pointer-events: none; }
+.hide-seek-game .hide-seek-interact.holding::after { display: block; }
+.hide-seek-game .hide-seek-interact:disabled { opacity: 1; filter: none; cursor: wait; }
+.hide-seek-game .hide-seek-sprint .game-action-icon { width: 31px; height: 31px; }
+.hide-seek-game .hide-seek-light .game-action-icon { width: 30px; height: 30px; }
+.hide-seek-game .hide-seek-light.active {
+  border-color: #fff0a0;
+  color: #362706;
+  background: linear-gradient(180deg, #fff09a, #ffc640);
+  box-shadow: 0 6px 0 #8f5911, 0 0 34px #ffe87399, inset 0 2px #fffbd2;
+}
+.hide-seek-game .hide-seek-light:disabled:not(.active) { opacity: .58; filter: saturate(.55); }
+
+.hide-seek-chat-sheet { position: absolute; z-index: 12; right: 12px; bottom: max(100px, calc(env(safe-area-inset-bottom) + 92px)); display: grid; visibility: hidden; width: min(230px, calc(100vw - 24px)); gap: 7px; padding: 12px; border: 1px solid #405a7b; border-radius: 19px; opacity: 0; background: #0b1529f2; box-shadow: 0 18px 44px #000b; transform: translateY(12px); transition: .18s; }
+.hide-seek-chat-sheet.visible { visibility: visible; opacity: 1; transform: translateY(0); }
+.hide-seek-chat-sheet header { display: flex; justify-content: space-between; align-items: center; }
+.hide-seek-chat-sheet header strong { font-size: 12px; }
+.hide-seek-chat-sheet header button { width: 28px; aspect-ratio: 1; border: 0; border-radius: 9px; color: #fff; background: #22314b; }
+.hide-seek-chat-sheet form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.hide-seek-chat-sheet input { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #344968; border-radius: 11px; color: #fff; background: #071024; }
+.hide-seek-chat-sheet form button { padding: 0 12px; border: 0; border-radius: 11px; color: #332603; font-weight: 1000; background: #ffd45b; }
+.hide-seek-chat-sheet > div { display: grid; gap: 6px; }
+.hide-seek-chat-sheet > div > button { min-height: 39px; border: 1px solid #344968; border-radius: 11px; color: #dcedff; font: 900 12px inherit; background: #14223a; }
+.hide-seek-chat-feed { position: absolute; z-index: 8; right: 12px; top: 125px; display: grid; gap: 5px; justify-items: end; }
+.hide-seek-chat-feed p { display: flex; gap: 7px; margin: 0; padding: 7px 10px; border: 1px solid #486182; border-radius: 11px; color: #d9ebff; font-size: 10px; background: #091226df; animation: chase-chat-in .2s both; }
+.hide-seek-chat-feed b { color: var(--chase-cyan); }
+@keyframes chase-chat-in { from { opacity: 0; transform: translateX(10px); } }
+
+.hide-seek-spectator { position: absolute; z-index: 11; right: 12px; bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px)); left: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 11px; border: 1px solid #46617f; border-radius: 18px; background: rgba(5, 13, 28, .94); box-shadow: 0 10px 30px #000a; backdrop-filter: blur(10px); }
+.hide-seek-spectator > span { color: #b9cada; font-size: 10px; font-weight: 1000; white-space: nowrap; }
+.hide-seek-spectator > div { display: flex; min-width: 0; gap: 7px; overflow-x: auto; scrollbar-width: none; }
+.hide-seek-spectator > div::-webkit-scrollbar { display: none; }
+.hide-seek-spectator button { flex: 0 0 auto; min-width: 52px; height: 42px; border: 1px solid #42617f; border-radius: 13px; color: #d7e9f8; font: 1000 12px var(--game-arcade-font, inherit); background: linear-gradient(180deg, #243b5f, #142440); box-shadow: 0 3px 0 #08101e; }
+.hide-seek-spectator button.active { border-color: #ffe271; color: #382906; background: linear-gradient(#ffe97a, #ffc43a); box-shadow: 0 3px 0 #8e5810; }
+.hide-seek-death-notice { position: absolute; z-index: 18; top: 43%; left: 50%; visibility: hidden; width: max-content; max-width: calc(100% - 36px); padding: 14px 20px; border: 2px solid #ff6179; border-radius: 17px; opacity: 0; color: #fff; font: 1000 clamp(17px, 5.5vw, 23px)/1.2 var(--game-arcade-font, inherit); text-align: center; background: linear-gradient(145deg, #6b1728ed, #210b16f2); box-shadow: 0 7px 0 #10040a, 0 0 38px #ff405766; transform: translate(-50%, -45%) scale(.92); transition: opacity .16s, transform .16s, visibility .16s; pointer-events: none; }
+.hide-seek-death-notice.visible { visibility: visible; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.hide-seek-result { position: absolute; z-index: 20; inset: 0; display: grid; place-items: center; visibility: hidden; padding: 24px; opacity: 0; background: #020711e8; backdrop-filter: blur(7px); transition: .25s; }
+.hide-seek-result.visible { visibility: visible; opacity: 1; }
+.hide-seek-result > div { width: min(340px, 100%); padding: 27px 22px; border: 2px solid #6ddce8; border-radius: 25px; text-align: center; background: linear-gradient(145deg, #1e3357, #0c172e); box-shadow: 0 22px 60px #000a; }
+.hide-seek-result small { color: var(--chase-cyan); font-weight: 1000; letter-spacing: .2em; }
+.hide-seek-result h2 { margin: 9px 0; font-size: 27px; }
+.hide-seek-result p { margin: 0 0 20px; color: #aabdce; font-size: 12px; line-height: 1.55; }
+.hide-seek-result button { width: 100%; min-height: 49px; border: 0; border-radius: 15px; color: #332603; font: 1000 15px inherit; background: linear-gradient(#ffe97a, #ffc43a); box-shadow: 0 5px 0 #945d12; }
+.hide-seek-result-reward { display: grid; justify-items: center; gap: 4px; margin: 0 0 18px; padding: 14px; border: 1px solid #54739a; border-radius: 16px; background: #071329b8; }
+.hide-seek-result-reward > span { color: #78e8f4; font-size: 8px; font-weight: 1000; letter-spacing: .18em; }
+.hide-seek-result-reward > strong { color: #ffe16e; font: 1000 25px/1.15 var(--game-arcade-font, inherit); text-shadow: 0 3px #7b4c0c; }
+.hide-seek-result-reward > small { color: #aebed0; font-size: 9px; font-weight: 800; letter-spacing: 0; }
+.hide-seek-result-actions { display: grid; gap: 10px; }
+.hide-seek-result-actions button.secondary { border: 1px solid #6386b7; color: #e4f1ff; background: linear-gradient(#294573, #1a2e54); box-shadow: 0 5px 0 #091329; }
+.hide-seek-result-actions button:disabled { opacity: .55; filter: saturate(.45); }
+
+.hide-seek-toast { position: fixed; z-index: 30; left: 50%; bottom: max(88px, calc(env(safe-area-inset-bottom) + 78px)); visibility: hidden; max-width: calc(100vw - 36px); padding: 10px 15px; border: 1px solid #6583a9; border-radius: 13px; opacity: 0; color: #fff; font-size: 11px; font-weight: 800; text-align: center; background: #0c172ceF; transform: translate(-50%, 8px); transition: .18s; }
+.hide-seek-toast.visible { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
+.hide-seek-reconnecting { position: fixed; z-index: 40; inset: 0; display: grid; place-content: center; justify-items: center; color: #fff; background: #020711e8; backdrop-filter: blur(5px); }
+.hide-seek-reconnecting i { width: 42px; aspect-ratio: 1; margin-bottom: 14px; border: 4px solid #29415f; border-top-color: var(--chase-cyan); border-radius: 50%; animation: chase-spin .8s linear infinite; }
+.hide-seek-reconnecting strong { font-size: 16px; }
+.hide-seek-reconnecting span { margin-top: 5px; color: #90a2b7; font-size: 10px; }
+@keyframes chase-spin { to { transform: rotate(360deg); } }
+
+@media (min-width: 560px) {
+  .hide-seek-lobby { width: min(520px, 100%); margin: 0 auto; border-inline: 1px solid #273b58; }
+  .hide-seek-game { width: min(560px, 100%); margin: 0 auto; box-shadow: 0 0 80px #000; }
+}

@@ -1,4 +1,5 @@
 import type { GameRoom } from './GameRoom';
+import type { HideSeekRoom } from './HideSeekRoom';
 import { getStage, unlockedStageIndex } from '../shared/progression';
 import { CURRENT_APP_UPDATE, isUpdateAvailable, type AppUpdate } from '../shared/appUpdates';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
@@ -12,6 +13,7 @@ import { routeNativeStore } from './nativeStore';
 
 export interface Env {
   GAME_ROOMS: DurableObjectNamespace<GameRoom>;
+  HIDE_SEEK_ROOMS: DurableObjectNamespace<HideSeekRoom>;
   RANKED_QUEUE: DurableObjectNamespace<RankedQueue>;
   SOCIAL_PRESENCE: DurableObjectNamespace<SocialPresence>;
   DB: D1Database;
@@ -144,6 +146,93 @@ async function createRoom(request: Request, env: Env, profile: AccountProfile): 
   return Response.json({ error: '초대 코드를 만들지 못했습니다.' }, { status: 503 });
 }
 
+async function ensureHideSeekRoomRegistry(db: D1Database): Promise<void> {
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS hide_seek_room_registry (
+      code TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hide_seek_room_registry_created ON hide_seek_room_registry(created_at DESC)'),
+  ]);
+}
+
+async function createHideSeekRoom(env: Env): Promise<Response> {
+  await ensureHideSeekRoomRegistry(env.DB);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = createRoomCode();
+    const seed = crypto.getRandomValues(new Uint32Array(1))[0] as number;
+    const stub = env.HIDE_SEEK_ROOMS.getByName(code);
+    const response = await stub.fetch('https://hide-seek-room.internal/init', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code, seed }),
+    });
+    if (response.ok) {
+      await env.DB.prepare('INSERT OR REPLACE INTO hide_seek_room_registry (code, created_at) VALUES (?, ?)')
+        .bind(code, Date.now())
+        .run();
+      return Response.json({ code, seed });
+    }
+    if (response.status !== 409) return response;
+  }
+  return Response.json({ error: '술래잡기 초대 코드를 만들지 못했습니다.' }, { status: 503 });
+}
+
+async function quickJoinHideSeekRoom(env: Env): Promise<Response> {
+  await ensureHideSeekRoomRegistry(env.DB);
+  const staleBefore = Date.now() - 6 * 60 * 60 * 1_000;
+  await env.DB.prepare('DELETE FROM hide_seek_room_registry WHERE created_at < ?').bind(staleBefore).run();
+  const rows = await env.DB.prepare('SELECT code FROM hide_seek_room_registry ORDER BY created_at DESC LIMIT 32')
+    .all<{ code: string }>();
+  const candidates = [...(rows.results ?? [])];
+  for (let index = candidates.length - 1; index > 0; index -= 1) {
+    const random = crypto.getRandomValues(new Uint32Array(1))[0] as number;
+    const swapIndex = random % (index + 1);
+    [candidates[index], candidates[swapIndex]] = [candidates[swapIndex] as { code: string }, candidates[index] as { code: string }];
+  }
+  const staleCodes: string[] = [];
+  for (const candidate of candidates) {
+    const stub = env.HIDE_SEEK_ROOMS.getByName(candidate.code);
+    const response = await stub.fetch('https://hide-seek-room.internal/status');
+    const status = await response.json<{ exists?: boolean; phase?: string; joinable?: boolean }>().catch(() => null);
+    if (!response.ok || !status?.exists || status.phase === 'RESULT' || status.phase === 'CLOSED') {
+      staleCodes.push(candidate.code);
+      continue;
+    }
+    if (status.joinable) {
+      if (staleCodes.length > 0) {
+        await env.DB.batch(staleCodes.map((code) => env.DB.prepare('DELETE FROM hide_seek_room_registry WHERE code = ?').bind(code)));
+      }
+      return Response.json({ code: candidate.code, created: false });
+    }
+  }
+  if (staleCodes.length > 0) {
+    await env.DB.batch(staleCodes.map((code) => env.DB.prepare('DELETE FROM hide_seek_room_registry WHERE code = ?').bind(code)));
+  }
+  const created = await createHideSeekRoom(env);
+  if (!created.ok) return created;
+  const data = await created.json<{ code?: string; error?: string }>();
+  return data.code
+    ? Response.json({ code: data.code, created: true })
+    : Response.json({ error: data.error ?? '새 술래잡기 방을 만들지 못했습니다.' }, { status: 503 });
+}
+
+async function routeHideSeekRoom(request: Request, env: Env, code: string, action: 'ws' | 'status'): Promise<Response> {
+  const stub = env.HIDE_SEEK_ROOMS.getByName(code);
+  const url = new URL(request.url);
+  const target = new URL(`https://hide-seek-room.internal/${action}`);
+  target.search = url.search;
+  if (action === 'status') return stub.fetch(new Request(target, request));
+  const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+  if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  const headers = new Headers(request.headers);
+  headers.set('x-account-id', profile.id);
+  headers.set('x-account-nickname', encodeURIComponent(profile.nickname));
+  headers.set('x-display-rank', profile.displayRank);
+  headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
+  return stub.fetch(new Request(target, { method: request.method, headers }));
+}
+
 async function routeRankedQueue(request: Request, env: Env): Promise<Response> {
   const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
   if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
@@ -248,6 +337,16 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
       const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
       return profile ? createRoom(request, env, profile) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
     }
+    if (url.pathname === '/api/hide-seek/rooms' && request.method === 'POST') {
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+      return profile ? createHideSeekRoom(env) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+    }
+    if (url.pathname === '/api/hide-seek/quick-join' && request.method === 'POST') {
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+      return profile ? quickJoinHideSeekRoom(env) : Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+    }
+    const hideSeekMatch = url.pathname.match(/^\/api\/hide-seek\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);
+    if (hideSeekMatch) return routeHideSeekRoom(request, env, hideSeekMatch[1] as string, hideSeekMatch[2] as 'ws' | 'status');
     const match = url.pathname.match(/^\/api\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);
     if (match) return routeRoom(request, env, match[1] as string, match[2] as 'ws' | 'status');
     return staticAssetResponse(request, env);
@@ -335,5 +434,6 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export { GameRoom } from './GameRoom';
+export { HideSeekRoom } from './HideSeekRoom';
 export { RankedQueue } from './RankedQueue';
 export { SocialPresence } from './SocialPresence';

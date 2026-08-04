@@ -1,9 +1,10 @@
 import { getStage, higherRank, rankedTierForRating, rankFromXp, rankLabel, STAGES } from '../shared/progression';
 import { appearanceAfterCosmeticEquip, characterAvailable, cosmeticAvailable, cosmeticById, customizationReward, DEFAULT_APPEARANCE, DEFAULT_TURRET_SKINS, defaultSkinForCharacter, isDefaultSkinForCharacter, normalizeAppearance, normalizeTurretSkins, STARTER_COSMETICS } from '../shared/customization';
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
-import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, PromotionCampaignSetting, RankedTier, StorefrontThemeId, StorefrontThemeSetting, TurretKind, TurretSkinLoadout } from '../shared/types';
+import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, PromotionCampaignId, PromotionCampaignSetting, RankedTier, StorefrontThemeId, StorefrontThemeSetting, TurretKind, TurretSkinLoadout } from '../shared/types';
 import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributionSummary } from './rankedScoring';
 import { claimEventMissionRewards, ensureEventMissionSchema, eventMissionOverview, recordLoginMissionProgress, recordRankedCompletionMissionProgress, recordStageClearMissionProgress } from './eventMissions';
+import { hideSeekVictoryPoints, type HideSeekResultReason, type HideSeekRole } from '../shared/hideSeek';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const SESSION_COOKIE = 'midnight_session';
@@ -19,7 +20,7 @@ const RANKED_CONTRACT_MS = 48 * 60 * 60 * 1_000;
 const RANKED_CONTRACTS_PER_SEASON = 14;
 const RANKED_SCORED_CONTRACTS_PER_SEASON = 8;
 const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
-const PROMOTION_IDS = new Set(['summer', 'cyberpunk', 'special-ops']);
+const PROMOTION_IDS = new Set(['hide-seek-release', 'summer', 'cyberpunk', 'special-ops']);
 const STOREFRONT_THEMES = [
   {
     id: 'summer', label: '여름 테마', sortOrder: 20,
@@ -105,7 +106,7 @@ interface AdFreeEntitlementRow {
 }
 
 interface PromotionCampaignRow {
-  id: StorefrontThemeId;
+  id: PromotionCampaignId;
   is_visible: number;
   sort_order: number;
 }
@@ -218,6 +219,21 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS match_results (match_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, play_mode TEXT NOT NULL CHECK (play_mode IN ('solo', 'multiplayer')), stage_index INTEGER NOT NULL, victory INTEGER NOT NULL CHECK (victory IN (0, 1)), xp_awarded INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, account_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_match_results_account ON match_results(account_id, created_at DESC)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hide_seek_results (
+      match_id TEXT NOT NULL,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('ghost', 'survivor')),
+      victory INTEGER NOT NULL CHECK (victory IN (0, 1)),
+      completed INTEGER NOT NULL CHECK (completed IN (0, 1)),
+      abandoned INTEGER NOT NULL DEFAULT 0 CHECK (abandoned IN (0, 1)),
+      elapsed_seconds INTEGER NOT NULL,
+      reward_points INTEGER NOT NULL DEFAULT 0 CHECK (reward_points >= 0),
+      reward_claimed_at INTEGER NOT NULL DEFAULT 0,
+      reward_multiplier INTEGER NOT NULL DEFAULT 0 CHECK (reward_multiplier IN (0, 1, 2)),
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (match_id, account_id)
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hide_seek_results_account ON hide_seek_results(account_id, created_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_customization (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, custom_points INTEGER NOT NULL DEFAULT 0 CHECK (custom_points >= 0), appearance TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_cosmetics (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, purchased_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_cosmetics_account ON account_cosmetics(account_id)'),
@@ -275,6 +291,9 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
   await ensureEventMissionSchema(db);
   const configNow = Date.now();
   await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO promotion_campaigns
+      (id, is_visible, sort_order, updated_at) VALUES ('hide-seek-release', 1, 0, ?)`)
+      .bind(configNow),
     ...STOREFRONT_THEMES.map((theme) => db.prepare(`INSERT OR IGNORE INTO promotion_campaigns
       (id, is_visible, sort_order, updated_at) VALUES (?, 1, ?, ?)`)
       .bind(theme.id, theme.sortOrder, configNow)),
@@ -290,6 +309,21 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     AFTER UPDATE OF reward_claimed_at ON match_results
     WHEN OLD.reward_claimed_at = 0
       AND NEW.reward_claimed_at > 0
+      AND NEW.victory = 1
+      AND NEW.reward_points > 0
+      AND NEW.reward_multiplier IN (1, 2)
+    BEGIN
+      UPDATE account_customization
+      SET custom_points = custom_points + (NEW.reward_points * NEW.reward_multiplier),
+          updated_at = NEW.reward_claimed_at
+      WHERE account_id = NEW.account_id;
+    END`).run();
+  await db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_hide_seek_reward_claim
+    AFTER UPDATE OF reward_claimed_at ON hide_seek_results
+    WHEN OLD.reward_claimed_at = 0
+      AND NEW.reward_claimed_at > 0
+      AND NEW.completed = 1
+      AND NEW.abandoned = 0
       AND NEW.victory = 1
       AND NEW.reward_points > 0
       AND NEW.reward_multiplier IN (1, 2)
@@ -1256,24 +1290,35 @@ async function claimMatchReward(request: Request, db: D1Database): Promise<Respo
     return Response.json({ error: '보상형 광고를 끝까지 시청해야 2배 전리품을 받을 수 있습니다.' }, { status: 409 });
   }
 
-  const match = await db.prepare(`SELECT victory, reward_points, reward_claimed_at,
-      reward_multiplier
-    FROM match_results
-    WHERE match_id = ? AND account_id = ?`)
+  type ClaimableRewardRow = {
+    victory: number;
+    completed: number;
+    abandoned: number;
+    reward_points: number;
+    reward_claimed_at: number;
+    reward_multiplier: number;
+  };
+  let rewardSource: 'stage' | 'hide-seek' = 'stage';
+  let match = await db.prepare(`SELECT victory, 1 AS completed, 0 AS abandoned,
+      reward_points, reward_claimed_at, reward_multiplier
+    FROM match_results WHERE match_id = ? AND account_id = ?`)
     .bind(matchId, row.id)
-    .first<{
-      victory: number;
-      reward_points: number;
-      reward_claimed_at: number;
-      reward_multiplier: number;
-    }>();
+    .first<ClaimableRewardRow>();
+  if (!match) {
+    rewardSource = 'hide-seek';
+    match = await db.prepare(`SELECT victory, completed, abandoned,
+        reward_points, reward_claimed_at, reward_multiplier
+      FROM hide_seek_results WHERE match_id = ? AND account_id = ?`)
+      .bind(matchId, row.id)
+      .first<ClaimableRewardRow>();
+  }
   if (!match) {
     return Response.json(
       { error: '전리품 정산이 아직 끝나지 않았습니다. 잠시 후 다시 시도해주세요.' },
       { status: 404 },
     );
   }
-  if (match.victory !== 1 || match.reward_points <= 0) {
+  if (match.completed !== 1 || match.abandoned === 1 || match.victory !== 1 || match.reward_points <= 0) {
     return Response.json({ error: '수령할 승리 전리품이 없습니다.' }, { status: 409 });
   }
 
@@ -1286,24 +1331,21 @@ async function claimMatchReward(request: Request, db: D1Database): Promise<Respo
     VALUES (?, 0, ?, ?)`)
     .bind(row.id, JSON.stringify(DEFAULT_APPEARANCE), now)
     .run();
-  const claimed = await db.prepare(`UPDATE match_results
+  const rewardTable = rewardSource === 'hide-seek' ? 'hide_seek_results' : 'match_results';
+  const completionGuard = rewardSource === 'hide-seek' ? ' AND completed = 1 AND abandoned = 0' : '';
+  const claimed = await db.prepare(`UPDATE ${rewardTable}
     SET reward_claimed_at = ?, reward_multiplier = ?
-    WHERE match_id = ? AND account_id = ? AND reward_claimed_at = 0`)
+    WHERE match_id = ? AND account_id = ? AND reward_claimed_at = 0${completionGuard}`)
     .bind(now, multiplier, matchId, row.id)
     .run();
   const finalMatch = (claimed.meta.changes ?? 0) === 1
     ? { ...match, reward_claimed_at: now, reward_multiplier: multiplier }
-    : await db.prepare(`SELECT victory, reward_points, reward_claimed_at,
-          reward_multiplier
-        FROM match_results
-        WHERE match_id = ? AND account_id = ?`)
+    : await db.prepare(`SELECT victory,
+          ${rewardSource === 'hide-seek' ? 'completed, abandoned,' : '1 AS completed, 0 AS abandoned,'}
+          reward_points, reward_claimed_at, reward_multiplier
+        FROM ${rewardTable} WHERE match_id = ? AND account_id = ?`)
       .bind(matchId, row.id)
-      .first<{
-        victory: number;
-        reward_points: number;
-        reward_claimed_at: number;
-        reward_multiplier: number;
-      }>();
+      .first<ClaimableRewardRow>();
   if (!finalMatch || finalMatch.reward_claimed_at <= 0) {
     return Response.json({ error: '전리품 지급 상태를 확인하지 못했습니다.' }, { status: 503 });
   }
@@ -1466,6 +1508,58 @@ export async function recordMatchResult(
   if (input.victory && !tutorialMatch) {
     await recordStageClearMissionProgress(db, input.accountId, now, bootstrapSchema);
   }
+}
+
+export async function recordHideSeekMatchResults(
+  db: D1Database,
+  input: {
+    matchId: string;
+    winner: HideSeekRole;
+    resultReason: HideSeekResultReason;
+    elapsed: number;
+    players: readonly {
+      accountId?: string;
+      role: HideSeekRole | null;
+      isBot: boolean;
+      abandoned: boolean;
+    }[];
+  },
+  bootstrapSchema = false,
+): Promise<void> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const participants = [...new Map(input.players
+    .filter((player) => !player.isBot && player.accountId && player.role)
+    .map((player) => [player.accountId as string, player])).values()];
+  if (participants.length === 0) return;
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  for (const player of participants) {
+    const accountId = player.accountId as string;
+    const role = player.role as HideSeekRole;
+    const rewardPoints = hideSeekVictoryPoints(role, input.winner, player.abandoned);
+    statements.push(
+      db.prepare(`INSERT OR IGNORE INTO account_customization
+        (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+        .bind(accountId, JSON.stringify(DEFAULT_APPEARANCE), now),
+      db.prepare(`INSERT OR IGNORE INTO hide_seek_results (
+          match_id, account_id, role, victory, completed, abandoned,
+          elapsed_seconds, reward_points, reward_claimed_at,
+          reward_multiplier, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`)
+        .bind(
+          input.matchId,
+          accountId,
+          role,
+          role === input.winner ? 1 : 0,
+          player.abandoned ? 0 : 1,
+          player.abandoned ? 1 : 0,
+          Math.max(0, Math.floor(input.elapsed)),
+          rewardPoints,
+          now,
+        ),
+    );
+  }
+  await db.batch(statements);
 }
 
 export async function recordRankedMatchResult(

@@ -15,6 +15,10 @@
         "class_name": "GameRoom",
       },
       {
+        "name": "HIDE_SEEK_ROOMS",
+        "class_name": "HideSeekRoom",
+      },
+      {
         "name": "RANKED_QUEUE",
         "class_name": "RankedQueue",
       },
@@ -46,6 +50,10 @@
           {
             "name": "GAME_ROOMS",
             "class_name": "GameRoom",
+          },
+          {
+            "name": "HIDE_SEEK_ROOMS",
+            "class_name": "HideSeekRoom",
           },
           {
             "name": "RANKED_QUEUE",
@@ -83,6 +91,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["SocialPresence"],
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["HideSeekRoom"],
     },
   ],
   "observability": {

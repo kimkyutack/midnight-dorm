@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.03.4";
+export const APP_RELEASE_VERSION = "2026.08.04.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "홈 휴식 모션과 모바일 탭 개편",
+  title: "심야 술래잡기 정식 출시",
   summary:
-    "• 홈 캐릭터와 모든 스킨에 앉기·하품 전용 모션을 추가하고 화면 비율을 다듬었습니다.\n• 스테이지 시작 버튼을 노란색으로 통일하고 난이도 제목·푸터 글자를 중앙 정렬했습니다.\n• 친구, 상점, 보관함 탭을 버튼형으로 개편하고 다크 아케이드 기본 프로필을 새로 적용했습니다.",
-  publishedAt: 1785749700000,
+    "• 귀신 전용 격리 대기실을 추가해 숨기 시간에도 방 안에서 이동할 수 있고, 추격 시작과 함께 잠긴 문이 열립니다.\n• 은신·수색 버튼을 구조물 위에 표시하고, 은신 중에는 구조물 앞 한 칸만 볼 수 있도록 긴장감을 높였습니다.\n• 사망 관전, 역할별 승리 포인트, 출시 이벤트 팝업과 술래잡기 진입 안내를 추가했습니다.",
+  publishedAt: 1785833725000,
 };
 
 /**

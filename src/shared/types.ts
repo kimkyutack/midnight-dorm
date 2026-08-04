@@ -438,9 +438,10 @@ export interface AvatarAppearance {
 }
 
 export type StorefrontThemeId = 'summer' | 'cyberpunk' | 'special-ops';
+export type PromotionCampaignId = StorefrontThemeId | 'hide-seek-release';
 
 export interface PromotionCampaignSetting {
-  id: StorefrontThemeId;
+  id: PromotionCampaignId;
   isVisible: boolean;
   sortOrder: number;
 }

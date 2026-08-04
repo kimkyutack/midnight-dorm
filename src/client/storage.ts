@@ -10,6 +10,7 @@ export interface LocalProfile {
   ghostKills: number;
   bestGhostLevel: number;
   recentRoomCode: string;
+  activeHideSeekRoomCode: string;
   installHintShown: boolean;
   openingSeen: boolean;
   /** A failed cold-start realtime handshake must not silently restore an
@@ -32,6 +33,7 @@ const defaults = (): LocalProfile => ({
   ghostKills: 0,
   bestGhostLevel: 0,
   recentRoomCode: '',
+  activeHideSeekRoomCode: '',
   installHintShown: false,
   openingSeen: false,
   mustReauthenticate: false,
