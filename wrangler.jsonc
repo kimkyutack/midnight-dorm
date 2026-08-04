@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "midnight-dorm",
   "main": "./src/server/worker.ts",
-  "compatibility_date": "2026-06-10",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS",
@@ -76,6 +76,8 @@
       ],
       "vars": {
         "DATA_ENV": "local-e2e",
+        "NATIVE_ALLOWED_ORIGINS": "capacitor://localhost,https://localhost,http://localhost",
+        "STORE_VERIFICATION_ENABLED": "false",
       },
     },
   },
@@ -99,5 +101,14 @@
   ],
   "observability": {
     "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
   },
 }

@@ -521,17 +521,20 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       ranked_contracts_played: 0,
     };
   }
-  const [customization, cosmetics, turretLoadout, consumables, dismissedPromotions, rankedScores, generalMatches, adFreeEntitlement, promotionCampaignRows, storefrontThemeRows] = await Promise.all([
+  // These reads form one coherent profile and are used together by login,
+  // room admission, the shop and the event screens. A D1 batch keeps the
+  // database work identical while collapsing ten binding round trips into one.
+  const profileResults = await db.batch([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
-      .bind(row.id).first<CustomizationRow>(),
+      .bind(row.id),
     db.prepare('SELECT item_id FROM account_cosmetics WHERE account_id = ? ORDER BY purchased_at ASC')
-      .bind(row.id).all<{ item_id: string }>(),
+      .bind(row.id),
     db.prepare('SELECT skins FROM account_turret_loadouts WHERE account_id = ?')
-      .bind(row.id).first<TurretLoadoutRow>(),
+      .bind(row.id),
     db.prepare('SELECT item_id, quantity FROM account_consumables WHERE account_id = ? AND quantity > 0 ORDER BY updated_at DESC')
-      .bind(row.id).all<ConsumableRow>(),
+      .bind(row.id),
     db.prepare('SELECT promotion_id FROM account_promotion_dismissals WHERE account_id = ? ORDER BY dismissed_at DESC')
-      .bind(row.id).all<{ promotion_id: string }>(),
+      .bind(row.id),
     db.prepare(`WITH contract_attempts AS (
         SELECT score, created_at,
           ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY score DESC, created_at ASC) AS contract_rank
@@ -542,26 +545,39 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       WHERE contract_rank = 1
       ORDER BY score DESC, created_at ASC
       LIMIT ${RANKED_SCORED_CONTRACTS_PER_SEASON}`)
-      .bind(row.id, rankedSeasonId()).all<{ score: number }>(),
+      .bind(row.id, rankedSeasonId()),
     db.prepare(`SELECT COUNT(*) AS count
       FROM match_results m
       WHERE m.account_id = ?
         AND NOT EXISTS (
           SELECT 1 FROM ranked_results r
           WHERE r.match_id = m.match_id AND r.account_id = m.account_id
-        )`).bind(row.id).first<{ count: number }>(),
+        )`).bind(row.id),
     db.prepare(`SELECT plan, expires_at FROM account_entitlements
       WHERE account_id = ? AND entitlement_id = ?`)
-      .bind(row.id, AD_FREE_ENTITLEMENT_ID).first<AdFreeEntitlementRow>(),
+      .bind(row.id, AD_FREE_ENTITLEMENT_ID),
     db.prepare(`SELECT id, is_visible, sort_order FROM promotion_campaigns
-      ORDER BY sort_order ASC, id ASC`).all<PromotionCampaignRow>(),
+      ORDER BY sort_order ASC, id ASC`),
     db.prepare(`SELECT s.id, s.is_store_visible, s.sort_order,
         i.cosmetic_id, i.item_order
       FROM cosmetic_theme_settings s
       LEFT JOIN cosmetic_theme_items i ON i.theme_id = s.id
-      ORDER BY s.sort_order ASC, s.id ASC, i.item_order ASC, i.cosmetic_id ASC`)
-      .all<StorefrontThemeRow>(),
+      ORDER BY s.sort_order ASC, s.id ASC, i.item_order ASC, i.cosmetic_id ASC`),
   ]);
+  const customizationResult = profileResults[0]!;
+  const cosmetics = profileResults[1]!;
+  const turretLoadoutResult = profileResults[2]!;
+  const consumables = profileResults[3]!;
+  const dismissedPromotions = profileResults[4]!;
+  const rankedScores = profileResults[5]!;
+  const generalMatchesResult = profileResults[6]!;
+  const adFreeEntitlementResult = profileResults[7]!;
+  const promotionCampaignRows = profileResults[8]!;
+  const storefrontThemeRows = profileResults[9]!;
+  const customization = (customizationResult.results?.[0] as CustomizationRow | undefined) ?? null;
+  const turretLoadout = (turretLoadoutResult.results?.[0] as TurretLoadoutRow | undefined) ?? null;
+  const generalMatches = generalMatchesResult.results?.[0] as { count: number } | undefined;
+  const adFreeEntitlement = (adFreeEntitlementResult.results?.[0] as AdFreeEntitlementRow | undefined) ?? null;
   const generalMatchCount = Math.max(0, generalMatches?.count ?? 0);
   if (
     !row.tutorial_completed &&
@@ -586,20 +602,23 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
   const profile = profileFromRow(
     row,
     customization,
-    cosmetics.results?.map((item) => item.item_id) ?? [],
+    (cosmetics.results ?? []).map((item) => (item as { item_id: string }).item_id),
     turretLoadout,
-    (consumables.results ?? []).map((item) => ({ itemId: item.item_id, quantity: item.quantity })),
-    (dismissedPromotions.results ?? []).map((item) => item.promotion_id),
+    (consumables.results ?? []).map((item) => ({
+      itemId: (item as ConsumableRow).item_id,
+      quantity: (item as ConsumableRow).quantity,
+    })),
+    (dismissedPromotions.results ?? []).map((item) => (item as { promotion_id: string }).promotion_id),
     generalMatchCount,
     adFreeEntitlement,
-    (promotionCampaignRows.results ?? [])
+    ((promotionCampaignRows.results ?? []) as PromotionCampaignRow[])
       .filter((campaign) => PROMOTION_IDS.has(campaign.id))
       .map((campaign) => ({
         id: campaign.id,
         isVisible: campaign.is_visible === 1,
         sortOrder: campaign.sort_order,
       })),
-    [...(storefrontThemeRows.results ?? []).reduce((themes, row) => {
+    [...((storefrontThemeRows.results ?? []) as StorefrontThemeRow[]).reduce((themes, row) => {
       if (!PROMOTION_IDS.has(row.id)) return themes;
       const existing = themes.get(row.id) ?? {
         id: row.id,
@@ -612,7 +631,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       return themes;
     }, new Map<StorefrontThemeId, StorefrontThemeSetting>()).values()],
   );
-  profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => result.score);
+  profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => (result as { score: number }).score);
   return profile;
 }
 

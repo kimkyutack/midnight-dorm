@@ -27,6 +27,9 @@ interface HideSeekInitPayload {
 const SNAPSHOT_RATE = 10;
 const TICK_RATE = 20;
 const MAX_BUFFER_BYTES = 96 * 1_024;
+const ACTIVE_STATE_PERSIST_INTERVAL_SECONDS = 3;
+const SLOW_PERSIST_THRESHOLD_MS = 250;
+const SLOW_SERIALIZE_THRESHOLD_MS = 50;
 
 function encodeExploration(mapWidth: number, mapHeight: number, keys: readonly string[]): string {
   const bytes = new Uint8Array(Math.ceil((mapWidth * mapHeight) / 8));
@@ -294,7 +297,7 @@ export class HideSeekRoom extends DurableObject<Env> {
         this.snapshotAccumulator -= 1 / SNAPSHOT_RATE;
         this.broadcastSnapshot();
       }
-      if (this.persistAccumulator >= 1) {
+      if (this.persistAccumulator >= ACTIVE_STATE_PERSIST_INTERVAL_SECONDS) {
         this.persistAccumulator = 0;
         void this.persist();
       }
@@ -347,7 +350,24 @@ export class HideSeekRoom extends DurableObject<Env> {
     this.persistInFlight = (async () => {
       while (this.persistQueued && this.engine) {
         this.persistQueued = false;
-        await this.ctx.storage.put('engine', this.engine.serialize());
+        const serializeStartedAt = performance.now();
+        const serialized = this.engine.serialize();
+        const serializeDurationMs = performance.now() - serializeStartedAt;
+        const persistStartedAt = performance.now();
+        await this.ctx.storage.put('engine', serialized);
+        const persistDurationMs = performance.now() - persistStartedAt;
+        if (
+          serializeDurationMs >= SLOW_SERIALIZE_THRESHOLD_MS ||
+          persistDurationMs >= SLOW_PERSIST_THRESHOLD_MS
+        ) {
+          console.warn(JSON.stringify({
+            event: 'slow_hide_seek_room_persist',
+            serializeDurationMs: Math.round(serializeDurationMs),
+            persistDurationMs: Math.round(persistDurationMs),
+            phase: serialized.snapshot.phase,
+            players: serialized.snapshot.players.length,
+          }));
+        }
       }
     })().finally(() => { this.persistInFlight = null; });
     return this.persistInFlight;

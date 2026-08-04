@@ -140,7 +140,10 @@ export class SynthAudio {
   private createBackground(source: string): HTMLAudioElement {
     const track = new Audio(source);
     track.loop = true;
-    track.preload = 'auto';
+    // Only the track for the current screen is played. Preloading both BGM
+    // files on every cold start competes with the home artwork and auth API on
+    // mobile connections; play() will fetch the selected track on demand.
+    track.preload = 'none';
     track.volume = this.musicVolume;
     return track;
   }

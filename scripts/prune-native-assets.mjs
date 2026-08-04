@@ -1,7 +1,8 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
-const nativeAssetsRoot = resolve("dist/client/assets");
+const clientAssetsRoot = resolve("dist/client/assets");
+const generatedSourcePattern = /(?:-master|-chroma)\.(?:png|webp)$/i;
 
 async function directorySize(path) {
   const entries = await readdir(path, { withFileTypes: true });
@@ -17,38 +18,45 @@ async function directorySize(path) {
   return total;
 }
 
-async function pruneSourceDirectories(path) {
+async function pruneGeneratedSources(path) {
   const entries = await readdir(path, { withFileTypes: true });
   let removedBytes = 0;
   let removedDirectories = 0;
+  let removedFiles = 0;
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
     const entryPath = resolve(path, entry.name);
-    if (entry.name === "source") {
+    if (entry.isDirectory() && entry.name === "source") {
       removedBytes += await directorySize(entryPath);
       await rm(entryPath, { recursive: true, force: true });
       removedDirectories += 1;
       continue;
     }
-
-    const nested = await pruneSourceDirectories(entryPath);
-    removedBytes += nested.removedBytes;
-    removedDirectories += nested.removedDirectories;
+    if (entry.isDirectory()) {
+      const nested = await pruneGeneratedSources(entryPath);
+      removedBytes += nested.removedBytes;
+      removedDirectories += nested.removedDirectories;
+      removedFiles += nested.removedFiles;
+      continue;
+    }
+    if (entry.isFile() && generatedSourcePattern.test(entry.name)) {
+      removedBytes += (await stat(entryPath)).size;
+      await rm(entryPath, { force: true });
+      removedFiles += 1;
+    }
   }
 
-  return { removedBytes, removedDirectories };
+  return { removedBytes, removedDirectories, removedFiles };
 }
 
-if (!nativeAssetsRoot.startsWith(`${resolve("dist/client")}${sep}`)) {
-  throw new Error("Refusing to prune outside the generated native client bundle.");
+if (!clientAssetsRoot.startsWith(`${resolve("dist/client")}${sep}`)) {
+  throw new Error("Refusing to prune outside the generated client bundle.");
 }
 
 try {
-  const { removedBytes, removedDirectories } = await pruneSourceDirectories(nativeAssetsRoot);
+  const { removedBytes, removedDirectories, removedFiles } = await pruneGeneratedSources(clientAssetsRoot);
   console.log(
-    `Native asset pruning complete: ${removedDirectories} source directories removed (${(
+    `Client asset pruning complete: ${removedDirectories} source directories and ${removedFiles} source images removed (${(
       removedBytes /
       1024 /
       1024
@@ -56,7 +64,7 @@ try {
   );
 } catch (error) {
   if (error?.code === "ENOENT") {
-    throw new Error("Native client bundle was not found. Run Vite build before pruning assets.");
+    throw new Error("Client bundle was not found. Run Vite build before pruning assets.");
   }
   throw error;
 }

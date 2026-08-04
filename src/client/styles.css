@@ -3811,7 +3811,7 @@
   inset: 0;
   background:
     linear-gradient(90deg, rgba(3, 8, 13, 0.95), rgba(5, 13, 19, 0.76)),
-    url("/dorm-home.webp") center / cover;
+    url("/assets/cinematic/dorm-home.webp") center / cover;
   filter: saturate(0.52) brightness(0.62);
   transform: scale(1.02);
 }

@@ -120,11 +120,7 @@ import {
 import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { AvatarPreview2D } from "./game/AvatarPreview2D";
 import { homePoseAsset, homePoseKey } from "./game/HomePoseAssets";
-import {
-  hydrateCatalogArt,
-  preloadBuildingCatalogArt,
-  preloadSupplyCatalogArt,
-} from "./game/CatalogThumbnail3D";
+import { hydrateCatalogArt } from "./game/CatalogThumbnail3D";
 import {
   GameNetwork,
   reconcileMovementInputSequence,
@@ -3497,13 +3493,6 @@ function updateLobby(state: GameSnapshot): void {
       }),
     );
   const me = state.players.find((player) => player.id === playerId);
-  if (me) {
-    preloadBuildingCatalogArt(
-      [...BUILD_KINDS, "golden-turret"],
-      me.turretSkins,
-    );
-    preloadSupplyCatalogArt(SHOP_CONSUMABLES.map((item) => item.id));
-  }
   const ready = app.querySelector<HTMLButtonElement>("[data-ready]");
   if (ready) ready.textContent = me?.ready ? "준비 취소" : "준비";
   const host = state.hostId === playerId;
@@ -3564,13 +3553,6 @@ function updateLobby(state: GameSnapshot): void {
 
 function gameScreen(state: GameSnapshot): void {
   const me = state.players.find((player) => player.id === playerId);
-  if (me) {
-    preloadBuildingCatalogArt(
-      [...BUILD_KINDS, "golden-turret"],
-      me.turretSkins,
-    );
-    preloadSupplyCatalogArt(SHOP_CONSUMABLES.map((item) => item.id));
-  }
   const profileDisplay = me ? playerProfileDisplayInfo(me) : null;
   const stageBadge = profileDisplay
     ? profileBadgeHtml(profileDisplay, "rank-badge-game")

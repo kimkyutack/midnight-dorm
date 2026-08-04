@@ -255,7 +255,6 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
   const profile = await getAuthenticatedProfile(request, db, bootstrap);
   if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
   try {
-    await ensureSocialSchema(db);
     if (url.pathname === '/api/social/ws') {
       if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket upgrade required', { status: 426 });
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 });

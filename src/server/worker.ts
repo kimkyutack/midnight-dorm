@@ -35,6 +35,24 @@ const noStoreHeaders = {
   'cache-control': 'no-store, max-age=0, must-revalidate',
   pragma: 'no-cache',
 };
+const SLOW_REQUEST_THRESHOLD_MS = 500;
+
+function diagnosticRoute(pathname: string): string {
+  return pathname
+    .replace(/\/profile-avatar\/[a-zA-Z0-9-]{8,80}$/, '/profile-avatar/:account')
+    .replace(/\/rooms\/[A-Z2-9]{8}(?=\/)/g, '/rooms/:room');
+}
+
+function withServerTiming(response: Response, durationMs: number): Response {
+  if (response.status === 101) return response;
+  const headers = new Headers(response.headers);
+  headers.append('server-timing', `worker;dur=${durationMs.toFixed(1)}`);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 async function staticAssetResponse(request: Request, env: Env): Promise<Response> {
   const response = await env.ASSETS.fetch(request);
@@ -157,7 +175,7 @@ async function ensureHideSeekRoomRegistry(db: D1Database): Promise<void> {
 }
 
 async function createHideSeekRoom(env: Env): Promise<Response> {
-  await ensureHideSeekRoomRegistry(env.DB);
+  if (env.DATA_ENV === 'local-e2e') await ensureHideSeekRoomRegistry(env.DB);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const code = createRoomCode();
     const seed = crypto.getRandomValues(new Uint32Array(1))[0] as number;
@@ -179,7 +197,7 @@ async function createHideSeekRoom(env: Env): Promise<Response> {
 }
 
 async function quickJoinHideSeekRoom(env: Env): Promise<Response> {
-  await ensureHideSeekRoomRegistry(env.DB);
+  if (env.DATA_ENV === 'local-e2e') await ensureHideSeekRoomRegistry(env.DB);
   const staleBefore = Date.now() - 6 * 60 * 60 * 1_000;
   await env.DB.prepare('DELETE FROM hide_seek_room_registry WHERE created_at < ?').bind(staleBefore).run();
   const rows = await env.DB.prepare('SELECT code FROM hide_seek_room_registry ORDER BY created_at DESC LIMIT 32')
@@ -422,7 +440,23 @@ export default {
       headers.set('x-native-origin-verified', '1');
       routedRequest = new Request(request, { headers });
     }
-    const response = await routeWorkerRequest(routedRequest, env);
+    const routeStartedAt = performance.now();
+    const routedResponse = await routeWorkerRequest(routedRequest, env);
+    const routeDurationMs = Math.max(0, performance.now() - routeStartedAt);
+    if (url.pathname.startsWith('/api/') && routeDurationMs >= SLOW_REQUEST_THRESHOLD_MS) {
+      console.warn(JSON.stringify({
+        event: 'slow_worker_request',
+        route: diagnosticRoute(url.pathname),
+        method: request.method,
+        status: routedResponse.status,
+        durationMs: Math.round(routeDurationMs),
+        colo: request.cf?.colo ?? 'unknown',
+        ray: request.headers.get('cf-ray') ?? '',
+      }));
+    }
+    const response = url.pathname.startsWith('/api/')
+      ? withServerTiming(routedResponse, routeDurationMs)
+      : routedResponse;
     // A WebSocket upgrade response carries a Cloudflare-specific `webSocket`
     // handle that cannot survive reconstructing the Response just to add CORS.
     // Browser WebSockets do not use CORS response headers, so return it intact.

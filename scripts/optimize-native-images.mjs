@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
 import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
-import { promisify } from "node:util";
 import { resolve } from "node:path";
+import sharp from "sharp";
 
-const run = promisify(execFile);
 const clientRoot = resolve("dist/client");
 const assetRoot = resolve(clientRoot, "assets");
 const textExtensions = new Set([".css", ".html", ".js", ".json", ".mjs"]);
@@ -45,7 +43,9 @@ async function convertToWebp(source) {
   const target = `${source.slice(0, -4)}.webp`;
   const temporary = `${target}.tmp`;
   await rm(temporary, { force: true });
-  await run("cwebp", ["-quiet", "-q", "96", "-alpha_q", "100", "-m", "2", "-mt", source, "-o", temporary]);
+  await sharp(source, { failOn: "warning" })
+    .webp({ quality: 94, alphaQuality: 100, effort: 4, smartSubsample: true })
+    .toFile(temporary);
   await rename(temporary, target);
   // Rank URLs are assembled dynamically at runtime, so the blanket text
   // rewrite below cannot see every ".png" request. Keep the tiny PNG set as
@@ -69,5 +69,5 @@ for (const file of clientFiles) {
 }
 
 console.log(
-  `Native image optimization complete: ${pngFiles.length} PNG assets converted to high-quality WebP; ${pngFiles.filter(preservesPngFallback).length} dynamic rank PNG fallbacks preserved; ${rewrittenFiles} client files updated.`,
+  `Client image optimization complete: ${pngFiles.length} PNG assets converted to high-quality WebP; ${pngFiles.filter(preservesPngFallback).length} dynamic rank PNG fallbacks preserved; ${rewrittenFiles} client files updated.`,
 );

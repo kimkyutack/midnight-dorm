@@ -42,6 +42,9 @@ const RANKED_LOANED_SUPPLIES: readonly ConsumableId[] = [
   'toolbelt-voucher',
 ];
 const MAX_SNAPSHOT_BUFFER_BYTES = 192 * 1_024;
+const ACTIVE_STATE_PERSIST_INTERVAL_SECONDS = 2;
+const SLOW_PERSIST_THRESHOLD_MS = 250;
+const SLOW_SERIALIZE_THRESHOLD_MS = 50;
 
 const RANKED_TIERS = new Set<RankedTier>(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master', 'challenger']);
 
@@ -457,7 +460,7 @@ export class GameRoom extends DurableObject<Env> {
         this.snapshotAccumulator -= 1 / BALANCE.snapshotRate;
         this.broadcastSnapshot();
       }
-      if (this.persistAccumulator >= 1) {
+      if (this.persistAccumulator >= ACTIVE_STATE_PERSIST_INTERVAL_SECONDS) {
         this.persistAccumulator = 0;
         void this.persist();
       }
@@ -627,8 +630,27 @@ export class GameRoom extends DurableObject<Env> {
     const flush = async (): Promise<void> => {
       while (this.persistQueued) {
         this.persistQueued = false;
+        const serializeStartedAt = performance.now();
         const serialized = this.engine?.serialize();
-        if (serialized) await this.ctx.storage.put('engine', serialized);
+        const serializeDurationMs = performance.now() - serializeStartedAt;
+        if (!serialized) continue;
+        const persistStartedAt = performance.now();
+        await this.ctx.storage.put('engine', serialized);
+        const persistDurationMs = performance.now() - persistStartedAt;
+        if (
+          serializeDurationMs >= SLOW_SERIALIZE_THRESHOLD_MS ||
+          persistDurationMs >= SLOW_PERSIST_THRESHOLD_MS
+        ) {
+          console.warn(JSON.stringify({
+            event: 'slow_game_room_persist',
+            serializeDurationMs: Math.round(serializeDurationMs),
+            persistDurationMs: Math.round(persistDurationMs),
+            status: serialized.snapshot.status,
+            players: serialized.snapshot.players.length,
+            buildings: serialized.snapshot.buildings.length,
+            ghosts: serialized.snapshot.ghosts.length,
+          }));
+        }
       }
     };
     this.persistInFlight = flush().finally(() => {
