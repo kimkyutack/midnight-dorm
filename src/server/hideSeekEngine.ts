@@ -7,6 +7,7 @@ import {
   hideSeekLanternSees,
   hideSeekRegionAt,
   resolveHideSeekMovement,
+  type HideSeekKeyState,
   type HideSeekMap,
   type HideSeekPlayer,
   type HideSeekRolePreference,
@@ -25,6 +26,7 @@ export interface HideSeekJoinIdentity {
 }
 
 export interface PersistedHideSeekEngine {
+  schemaVersion?: 1 | 2;
   snapshot: HideSeekSnapshot;
   seed: number;
   botCounter: number;
@@ -33,6 +35,16 @@ export interface PersistedHideSeekEngine {
   ghostExploredTileKeys?: string[];
   ghostExplorationRevision?: number;
 }
+
+interface LegacyHideSeekKeyState extends Omit<HideSeekKeyState, 'status' | 'carrierId'> {
+  collectedBy?: string | null;
+}
+
+type LegacyHideSeekSnapshot = Omit<HideSeekSnapshot, 'keys' | 'unlockedLocks'> & {
+  keys: LegacyHideSeekKeyState[];
+  collectedKeys?: number;
+  unlockedLocks?: number;
+};
 
 export interface HideSeekActionResult {
   ok: boolean;
@@ -85,7 +97,7 @@ export class HideSeekEngine {
       players: [],
       keys: [],
       keyHint: null,
-      collectedKeys: 0,
+      unlockedLocks: 0,
       activeExit: { ...activeExit },
       exitDiscovered: false,
       exitOpen: false,
@@ -98,7 +110,16 @@ export class HideSeekEngine {
   }
 
   snapshot(): HideSeekSnapshot {
-    return structuredClone(this.state);
+    const snapshot = structuredClone(this.state);
+    // Keep already-installed native clients functional during the rolling
+    // deployment. New clients use status/carrierId and unlockedLocks.
+    snapshot.collectedKeys = snapshot.unlockedLocks;
+    for (const key of snapshot.keys) {
+      key.collectedBy = key.status === 'ground'
+        ? null
+        : key.carrierId ?? '__used__';
+    }
+    return snapshot;
   }
 
   /**
@@ -126,7 +147,9 @@ export class HideSeekEngine {
       return snapshot;
     }
     const explored = new Set(snapshot.exploredTileKeys);
-    snapshot.keys = snapshot.keys.filter((key) => !key.collectedBy && explored.has(tileKey(key.tile)));
+    snapshot.keys = snapshot.keys.filter((key) =>
+      key.status === 'carried' || (key.status === 'ground' && explored.has(tileKey(key.tile))),
+    );
     const ghost = snapshot.players.find((player) => player.role === 'ghost');
     const requestedPerspective = perspectivePlayerId
       ? this.player(perspectivePlayerId)
@@ -152,6 +175,7 @@ export class HideSeekEngine {
 
   serialize(): PersistedHideSeekEngine {
     return {
+      schemaVersion: 2,
       snapshot: this.snapshot(),
       seed: this.seed,
       botCounter: this.botCounter,
@@ -163,19 +187,62 @@ export class HideSeekEngine {
   }
 
   restore(data: PersistedHideSeekEngine): void {
-    this.state = structuredClone(data.snapshot);
+    const rawSnapshot = structuredClone(data.snapshot) as HideSeekSnapshot | LegacyHideSeekSnapshot;
+    let restored: HideSeekSnapshot;
+    if (data.schemaVersion !== 2) {
+      const legacy = rawSnapshot as LegacyHideSeekSnapshot;
+      const livingCarrierIds = new Set(
+        legacy.players.filter((player) => player.alive && !player.escaped).map((player) => player.id),
+      );
+      const assignedCarrierIds = new Set<string>();
+      const keys = legacy.keys.map((key): HideSeekKeyState => {
+        const carrierId = key.collectedBy ?? null;
+        const legacyCarrier = carrierId
+          ? legacy.players.find((player) => player.id === carrierId)
+          : undefined;
+        const canCarry = carrierId !== null
+          && livingCarrierIds.has(carrierId)
+          && !assignedCarrierIds.has(carrierId);
+        if (canCarry) assignedCarrierIds.add(carrierId);
+        const { collectedBy: _collectedBy, ...base } = key;
+        const dropAtDeath = legacyCarrier && !legacyCarrier.alive && !legacyCarrier.escaped;
+        const keyTile = dropAtDeath ? { ...legacyCarrier.position } : { ...base.tile };
+        return {
+          ...base,
+          tile: keyTile,
+          regionId: dropAtDeath ? hideSeekRegionAt(this.map, keyTile).id : base.regionId,
+          status: canCarry ? 'carried' : 'ground',
+          carrierId: canCarry ? carrierId : null,
+        };
+      });
+      const { collectedKeys: _legacyCollectedKeys, keys: _legacyKeys, ...base } = legacy;
+      restored = { ...base, keys, unlockedLocks: 0 } as HideSeekSnapshot;
+    } else restored = rawSnapshot as HideSeekSnapshot;
+    this.state = restored;
+    this.state.unlockedLocks ??= 0;
+    this.state.exitOpen = this.state.unlockedLocks >= HIDE_SEEK_RULES.requiredKeys;
     this.state.resultReason ??= null;
+    let exitInteractionClaimed = false;
     for (const player of this.state.players) {
       player.displayRank ??= 'beginner';
       player.lightUntil ??= 0;
       player.lightReadyAt ??= 0;
       player.abandoned ??= false;
+      if (player.interactionTarget?.startsWith('exit:')) {
+        if (!player.alive || player.escaped || exitInteractionClaimed) {
+          player.interactionTarget = null;
+          player.interactionProgress = 0;
+        } else exitInteractionClaimed = true;
+      }
     }
     this.botCounter = data.botCounter;
     this.keySpawnIndex = data.keySpawnIndex;
     this.inactiveSince = data.inactiveSince;
     this.ghostExploredTileKeys = [...(data.ghostExploredTileKeys ?? [])];
     this.ghostExplorationRevision = data.ghostExplorationRevision ?? 0;
+    this.botTargets.clear();
+    this.botPaths.clear();
+    this.botPathTargets.clear();
   }
 
   join(identity: HideSeekJoinIdentity): { player: HideSeekPlayer; reconnectToken: string; reconnected: boolean } {
@@ -405,26 +472,41 @@ export class HideSeekEngine {
       player.hiddenIn = null;
       return { ok: true };
     }
-    const key = this.state.keys.find((candidate) => !candidate.collectedBy && pointDistance(candidate.tile, player.position) <= 0.85);
+    const carriedKey = this.carriedKey(player.id);
+    const nearExit = pointDistance(player.position, this.state.activeExit) <= 0.9;
+    const shouldUseExit = nearExit && (this.state.exitOpen || Boolean(carriedKey));
+    const nearbyGroundKey = this.state.keys.find((candidate) =>
+      candidate.status === 'ground' && pointDistance(candidate.tile, player.position) <= 0.85,
+    );
+    const key = shouldUseExit || carriedKey ? undefined : nearbyGroundKey;
     if (key) {
-      key.collectedBy = player.id;
-      this.state.collectedKeys += 1;
+      key.status = 'carried';
+      key.carrierId = player.id;
       player.interactionTarget = null;
       player.interactionProgress = 0;
       return { ok: true };
     }
-    const hideout = this.map.hideouts.find((candidate) => pointDistance(candidate.tile, player.position) <= 0.8);
+    const hideout = shouldUseExit
+      ? undefined
+      : this.map.hideouts.find((candidate) => pointDistance(candidate.tile, player.position) <= 0.8);
     if (hideout && !this.state.players.some((candidate) => candidate.hiddenIn === hideout.id)) {
       player.hiddenIn = hideout.id;
       player.position = { ...hideout.tile };
       player.movement = { x: 0, y: 0 };
       return { ok: true };
     }
-    if (pointDistance(player.position, this.state.activeExit) <= 0.9) {
+    if (!nearExit && carriedKey && nearbyGroundKey) return { ok: false, error: '열쇠는 한 개만 들 수 있습니다.' };
+    if (nearExit) {
       this.state.exitDiscovered = true;
-      if (this.state.collectedKeys < HIDE_SEEK_RULES.requiredKeys) return { ok: false, error: `열쇠가 ${HIDE_SEEK_RULES.requiredKeys - this.state.collectedKeys}개 더 필요합니다.` };
-      player.interactionTarget = 'exit';
-      player.interactionProgress = 0;
+      if (this.state.exitOpen) {
+        this.escapeSurvivor(player);
+        return { ok: true };
+      }
+      if (!carriedKey) return { ok: false, error: '탈출로의 자물쇠를 풀 열쇠를 들고 있지 않습니다.' };
+      if (this.activeExitUnlocker(player.id)) return { ok: false, error: '다른 생존자가 자물쇠를 해제 중입니다.' };
+      const target = `exit:${carriedKey.id}`;
+      if (player.interactionTarget !== target) player.interactionProgress = 0;
+      player.interactionTarget = target;
       player.movement = { x: 0, y: 0 };
       return { ok: true };
     }
@@ -560,7 +642,7 @@ export class HideSeekEngine {
       const tile = { ...(candidates.length ? rng.pick(candidates) : rng.pick(this.map.keySpawns)) };
       const region = hideSeekRegionAt(this.map, tile);
       const keyId = `key-${this.keySpawnIndex + 1}`;
-      this.state.keys.push({ id: keyId, tile, regionId: region.id, spawnedAt: this.state.elapsed, collectedBy: null });
+      this.state.keys.push({ id: keyId, tile, regionId: region.id, spawnedAt: this.state.elapsed, status: 'ground', carrierId: null });
       this.state.keyHint = { keyId, regionId: region.id };
       this.keySpawnIndex += 1;
     }
@@ -594,10 +676,7 @@ export class HideSeekEngine {
       const crossed = segmentDistance(ghost.position, survivor.previousPosition, survivor.position) <= HIDE_SEEK_RULES.collisionRadius * 2
         || segmentDistance(survivor.position, ghost.previousPosition, ghost.position) <= HIDE_SEEK_RULES.collisionRadius * 2;
       if (!crossed) continue;
-      survivor.alive = false;
-      survivor.detected = false;
-      survivor.movement = { x: 0, y: 0 };
-      survivor.interactionTarget = null;
+      this.eliminateSurvivor(survivor);
     }
   }
 
@@ -610,7 +689,7 @@ export class HideSeekEngine {
         continue;
       }
       if (target.startsWith('key:')) {
-        const key = this.state.keys.find((candidate) => candidate.id === target.slice(4) && !candidate.collectedBy);
+        const key = this.state.keys.find((candidate) => candidate.id === target.slice(4) && candidate.status === 'ground');
         if (!key || pointDistance(player.position, key.tile) > 0.9) {
           player.interactionTarget = null;
           player.interactionProgress = 0;
@@ -618,8 +697,13 @@ export class HideSeekEngine {
         }
         player.interactionProgress += dt;
         if (player.interactionProgress < HIDE_SEEK_RULES.keyPickupSeconds) continue;
-        key.collectedBy = player.id;
-        this.state.collectedKeys += 1;
+        if (this.carriedKey(player.id)) {
+          player.interactionTarget = null;
+          player.interactionProgress = 0;
+          continue;
+        }
+        key.status = 'carried';
+        key.carrierId = player.id;
         player.interactionTarget = null;
         player.interactionProgress = 0;
         continue;
@@ -635,32 +719,87 @@ export class HideSeekEngine {
         if (player.interactionProgress < HIDE_SEEK_RULES.hideoutSearchSeconds) continue;
         const survivor = this.state.players.find((candidate) => candidate.hiddenIn === hideout.id && candidate.alive);
         if (survivor) {
-          survivor.hiddenIn = null;
-          survivor.alive = false;
           survivor.position = { ...hideout.tile };
+          this.eliminateSurvivor(survivor);
         }
         player.interactionTarget = null;
         player.interactionProgress = 0;
         continue;
       }
-      if (target !== 'exit' || player.role !== 'survivor') continue;
+      if (!target.startsWith('exit:') || player.role !== 'survivor') continue;
       if (pointDistance(player.position, this.state.activeExit) > 0.95) {
         player.interactionTarget = null;
         player.interactionProgress = 0;
         continue;
       }
+      const key = this.state.keys.find((candidate) =>
+        candidate.id === target.slice(5)
+        && candidate.status === 'carried'
+        && candidate.carrierId === player.id,
+      );
+      if (!key || this.state.exitOpen) {
+        player.interactionTarget = null;
+        player.interactionProgress = 0;
+        if (this.state.exitOpen) this.escapeSurvivor(player);
+        continue;
+      }
       player.interactionProgress += dt;
       if (player.interactionProgress < HIDE_SEEK_RULES.exitUnlockSeconds) continue;
-      this.state.exitOpen = true;
-      player.escaped = true;
-      player.alive = false;
+      key.status = 'used';
+      key.carrierId = null;
+      this.state.unlockedLocks = Math.min(HIDE_SEEK_RULES.requiredKeys, this.state.unlockedLocks + 1);
       player.interactionTarget = null;
-      player.interactionProgress = HIDE_SEEK_RULES.exitUnlockSeconds;
-      this.state.firstEscapeAt ??= this.state.elapsed;
-      if (this.state.phase === 'HUNT') {
-        this.state.phase = 'LAST_ESCAPE';
-        this.state.phaseRemaining = HIDE_SEEK_RULES.lastEscapeSeconds;
+      player.interactionProgress = 0;
+      if (this.state.unlockedLocks >= HIDE_SEEK_RULES.requiredKeys) {
+        this.state.exitOpen = true;
+        this.escapeSurvivor(player);
       }
+    }
+  }
+
+  private carriedKey(playerId: string): HideSeekKeyState | undefined {
+    return this.state.keys.find((key) => key.status === 'carried' && key.carrierId === playerId);
+  }
+
+  private activeExitUnlocker(excludePlayerId?: string): HideSeekPlayer | undefined {
+    return this.state.players.find((player) =>
+      player.id !== excludePlayerId
+      && player.alive
+      && !player.escaped
+      && player.interactionTarget?.startsWith('exit:'),
+    );
+  }
+
+  private eliminateSurvivor(player: HideSeekPlayer): void {
+    if (!player.alive || player.role !== 'survivor') return;
+    const key = this.carriedKey(player.id);
+    if (key) {
+      key.status = 'ground';
+      key.carrierId = null;
+      key.tile = { ...player.position };
+      key.regionId = hideSeekRegionAt(this.map, key.tile).id;
+    }
+    player.alive = false;
+    player.hiddenIn = null;
+    player.detected = false;
+    player.movement = { x: 0, y: 0 };
+    player.interactionTarget = null;
+    player.interactionProgress = 0;
+  }
+
+  private escapeSurvivor(player: HideSeekPlayer): void {
+    if (!player.alive || player.escaped || player.role !== 'survivor') return;
+    player.escaped = true;
+    player.alive = false;
+    player.hiddenIn = null;
+    player.detected = false;
+    player.movement = { x: 0, y: 0 };
+    player.interactionTarget = null;
+    player.interactionProgress = 0;
+    this.state.firstEscapeAt ??= this.state.elapsed;
+    if (this.state.phase === 'HUNT') {
+      this.state.phase = 'LAST_ESCAPE';
+      this.state.phaseRemaining = HIDE_SEEK_RULES.lastEscapeSeconds;
     }
   }
 
@@ -726,8 +865,16 @@ export class HideSeekEngine {
           if (pointDistance(bot.position, detected.position) >= 2 && pointDistance(bot.position, detected.position) <= 4 && this.state.elapsed >= bot.sprintReadyAt) this.sprint(bot.id);
         }
       } else {
+        const carriedKey = this.carriedKey(bot.id);
+        if (bot.interactionTarget?.startsWith('exit:')) {
+          bot.movement = { x: 0, y: 0 };
+          continue;
+        }
         const threatened = ghost && (bot.detected || (pointDistance(bot.position, ghost.position) <= 2.8 && hideSeekHasLineOfSight(this.map, bot.position, ghost.position)));
-        if (threatened && ghost) {
+        if (this.state.exitOpen || (carriedKey && this.state.exitDiscovered)) {
+          target = { ...this.state.activeExit };
+          this.botTargets.set(bot.id, target);
+        } else if (threatened && ghost) {
           if (!target || pointDistance(bot.position, target) < 1 || pointDistance(target, ghost.position) < 6) {
             target = this.fleeTarget(bot.position, ghost.position);
             this.botTargets.set(bot.id, target);
@@ -739,14 +886,42 @@ export class HideSeekEngine {
             continue;
           }
         } else {
-          const visibleKey = this.state.keys.find((key) => !key.collectedBy && explored.has(tileKey(key.tile)));
-          if (visibleKey) target = visibleKey.tile;
-          else if (this.state.collectedKeys >= HIDE_SEEK_RULES.requiredKeys && this.state.exitDiscovered) target = this.state.activeExit;
-          else if (!target || pointDistance(bot.position, target) < 0.7) {
+          const visibleKey = carriedKey
+            ? undefined
+            : this.state.keys.find((key) => key.status === 'ground' && explored.has(tileKey(key.tile)));
+          if (visibleKey) {
+            target = { ...visibleKey.tile };
+            this.botTargets.set(bot.id, target);
+          } else if (!target || pointDistance(bot.position, target) < 0.7) {
             const unexplored = this.map.walkable.filter((tile) => !explored.has(tileKey(tile)));
             const rng = new SeededRandom(this.seed ^ this.state.serverSeq ^ bot.id.length * 3571);
             target = rng.pick(unexplored.length ? unexplored : this.map.walkable);
             this.botTargets.set(bot.id, { ...target });
+          }
+        }
+      }
+      if (bot.role === 'survivor') {
+        const carriedKey = this.carriedKey(bot.id);
+        const nearbyKey = carriedKey
+          ? undefined
+          : this.state.keys.find((candidate) => candidate.status === 'ground' && pointDistance(candidate.tile, bot.position) <= 0.8);
+        if (nearbyKey) {
+          this.interact(bot.id);
+          bot.movement = { x: 0, y: 0 };
+          this.botTargets.delete(bot.id);
+          this.botPaths.delete(bot.id);
+          this.botPathTargets.delete(bot.id);
+          continue;
+        }
+        if (pointDistance(bot.position, this.state.activeExit) <= 0.8 && (this.state.exitOpen || carriedKey)) {
+          if (!this.state.exitOpen && carriedKey && this.activeExitUnlocker(bot.id)) {
+            bot.movement = { x: 0, y: 0 };
+            continue;
+          }
+          const result = this.interact(bot.id);
+          if (result.ok) {
+            bot.movement = { x: 0, y: 0 };
+            continue;
           }
         }
       }
@@ -761,11 +936,6 @@ export class HideSeekEngine {
       const length = Math.max(0.001, Math.hypot(dx, dy));
       bot.movement = { x: dx / length, y: dy / length };
       bot.direction = { ...bot.movement };
-      if (bot.role === 'survivor') {
-        const key = this.state.keys.find((candidate) => !candidate.collectedBy && pointDistance(candidate.tile, bot.position) <= 0.8);
-        if (key) this.interact(bot.id);
-        if (pointDistance(bot.position, this.state.activeExit) <= 0.8 && this.state.collectedKeys >= HIDE_SEEK_RULES.requiredKeys) this.interact(bot.id);
-      }
     }
   }
 

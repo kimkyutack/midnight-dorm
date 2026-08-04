@@ -186,37 +186,329 @@ describe('hide-and-seek authoritative rules', () => {
     expect(survivorView.players.find((player) => player.id === ghost.id)?.position).toEqual({ x: -999, y: -999 });
   });
 
-  it('collects a nearby key on tap and completes a one-tap two-second ghost hideout search', () => {
+  it('carries a nearby key without unlocking a lock and rejects a second key for the same survivor', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
     const keyState = engine.serialize();
-    const key = keyState.snapshot.keys[0];
-    const survivor = keyState.snapshot.players.find((player) => player.role === 'survivor');
+    keyState.snapshot.phaseRemaining = HIDE_SEEK_RULES.huntSeconds - 201;
     const ghost = keyState.snapshot.players.find((player) => player.role === 'ghost');
-    if (!key || !survivor || !ghost) throw new Error('missing interaction fixtures');
-    survivor.position = { ...key.tile };
-    survivor.movement = { x: 1, y: 0 };
-    ghost.position = { x: 60, y: 40 };
+    const survivor = keyState.snapshot.players.find((player) => player.role === 'survivor');
+    const safeGhostTile = engine.map.walkable.find((tile) => Math.hypot(tile.x - keyState.snapshot.activeExit.x, tile.y - keyState.snapshot.activeExit.y) > 20);
+    if (!ghost || !survivor || !safeGhostTile) throw new Error('missing key carrying fixtures');
+    ghost.position = { ...safeGhostTile };
+    ghost.previousPosition = { ...safeGhostTile };
     engine.restore(keyState);
+    engine.tick(0.1);
+    const firstState = engine.serialize();
+    const [firstKey, secondKey] = firstState.snapshot.keys.filter((key) => key.status === 'ground');
+    const firstSurvivor = firstState.snapshot.players.find((player) => player.id === survivor.id);
+    if (!firstKey || !secondKey || !firstSurvivor) throw new Error('missing spawned key fixtures');
+    firstSurvivor.position = { ...firstKey.tile };
+    firstSurvivor.previousPosition = { ...firstKey.tile };
+    firstSurvivor.movement = { x: 0, y: 0 };
+    engine.restore(firstState);
     expect(engine.interact(survivor.id).ok).toBe(true);
-    expect(engine.snapshot().collectedKeys).toBe(1);
-    expect(engine.snapshot().keys.find((candidate) => candidate.id === key.id)?.collectedBy).toBe(survivor.id);
-    expect(engine.snapshot().players.find((player) => player.id === survivor.id)?.movement).toEqual(survivor.movement);
+    expect(engine.snapshot().unlockedLocks).toBe(0);
+    expect(engine.snapshot().keys.find((key) => key.id === firstKey.id)).toMatchObject({
+      status: 'carried',
+      carrierId: survivor.id,
+      collectedBy: survivor.id,
+    });
+    expect(engine.snapshot().collectedKeys).toBe(0);
 
-    const searchState = engine.serialize();
-    const searchGhost = searchState.snapshot.players.find((player) => player.id === ghost.id);
-    const hidden = searchState.snapshot.players.find((player) => player.id === survivor.id);
+    const secondState = engine.serialize();
+    const secondSurvivor = secondState.snapshot.players.find((player) => player.id === survivor.id);
+    if (!secondSurvivor) throw new Error('missing second pickup survivor');
+    secondSurvivor.position = { ...secondKey.tile };
+    secondSurvivor.previousPosition = { ...secondKey.tile };
+    secondSurvivor.movement = { x: 0, y: 0 };
+    engine.restore(secondState);
+    expect(engine.interact(survivor.id)).toEqual({ ok: false, error: '열쇠는 한 개만 들 수 있습니다.' });
+    expect(engine.snapshot().keys.find((key) => key.id === secondKey.id)).toMatchObject({
+      status: 'ground',
+      carrierId: null,
+    });
+    expect(engine.snapshot().keys.filter((key) => key.carrierId === survivor.id)).toHaveLength(1);
+    expect(engine.snapshot().unlockedLocks).toBe(0);
+  });
+
+  it('consumes one carried key per three-second delivery and opens the exit only on the fifth lock', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const seeded = engine.serialize();
+    seeded.snapshot.phaseRemaining = HIDE_SEEK_RULES.huntSeconds - 201;
+    const ghost = seeded.snapshot.players.find((player) => player.role === 'ghost');
+    const survivors = seeded.snapshot.players.filter((player) => player.role === 'survivor');
+    const carrier = survivors[0];
+    const inactiveSurvivor = survivors[1];
+    const safeGhostTile = engine.map.walkable.find((tile) => Math.hypot(tile.x - seeded.snapshot.activeExit.x, tile.y - seeded.snapshot.activeExit.y) > 20);
+    if (!ghost || !carrier || !inactiveSurvivor || !safeGhostTile) throw new Error('missing delivery fixtures');
+    ghost.position = { ...safeGhostTile };
+    ghost.previousPosition = { ...safeGhostTile };
+    ghost.movement = { x: 0, y: 0 };
+    inactiveSurvivor.alive = false;
+    inactiveSurvivor.movement = { x: 0, y: 0 };
+    engine.restore(seeded);
+    engine.tick(0.1);
+    expect(engine.snapshot().keys.filter((key) => key.status === 'ground')).toHaveLength(HIDE_SEEK_RULES.requiredKeys);
+
+    for (let delivery = 1; delivery <= HIDE_SEEK_RULES.requiredKeys; delivery += 1) {
+      const pickupState = engine.serialize();
+      const key = pickupState.snapshot.keys.find((candidate) => candidate.status === 'ground');
+      const pickupCarrier = pickupState.snapshot.players.find((player) => player.id === carrier.id);
+      if (!key || !pickupCarrier) throw new Error(`missing key for delivery ${delivery}`);
+      pickupCarrier.position = { ...key.tile };
+      pickupCarrier.previousPosition = { ...key.tile };
+      pickupCarrier.movement = { x: 0, y: 0 };
+      engine.restore(pickupState);
+      expect(engine.interact(carrier.id).ok).toBe(true);
+      expect(engine.snapshot().unlockedLocks).toBe(delivery - 1);
+
+      const exitState = engine.serialize();
+      const exitCarrier = exitState.snapshot.players.find((player) => player.id === carrier.id);
+      if (!exitCarrier) throw new Error('missing exit carrier');
+      exitCarrier.position = { ...exitState.snapshot.activeExit };
+      exitCarrier.previousPosition = { ...exitState.snapshot.activeExit };
+      exitCarrier.movement = { x: 0, y: 0 };
+      exitState.snapshot.exitDiscovered = true;
+      engine.restore(exitState);
+      expect(engine.interact(carrier.id).ok).toBe(true);
+      for (let tick = 0; tick < 10; tick += 1) engine.tick(0.1);
+      const progressBeforeRepeat = engine.snapshot().players.find((player) => player.id === carrier.id)?.interactionProgress ?? 0;
+      expect(progressBeforeRepeat).toBeGreaterThan(0.9);
+      expect(engine.interact(carrier.id).ok).toBe(true);
+      expect(engine.snapshot().players.find((player) => player.id === carrier.id)?.interactionProgress).toBeCloseTo(progressBeforeRepeat, 5);
+      for (let tick = 0; tick < 22; tick += 1) engine.tick(0.1);
+
+      const delivered = engine.snapshot();
+      expect(delivered.keys.find((candidate) => candidate.id === key.id)).toMatchObject({
+        status: 'used',
+        carrierId: null,
+      });
+      expect(delivered.unlockedLocks).toBe(delivery);
+      expect(delivered.exitOpen).toBe(delivery === HIDE_SEEK_RULES.requiredKeys);
+      const deliveredCarrier = delivered.players.find((player) => player.id === carrier.id);
+      if (delivery < HIDE_SEEK_RULES.requiredKeys) {
+        expect(deliveredCarrier).toMatchObject({ alive: true, escaped: false });
+        expect(delivered.phase).toBe('HUNT');
+      } else {
+        expect(deliveredCarrier).toMatchObject({ alive: false, escaped: true });
+        expect(delivered).toMatchObject({ phase: 'RESULT', winner: 'survivor' });
+      }
+    }
+  });
+
+  it('keeps a carrier bot still at the exit until the fifth lock is opened and the match ends', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    const ghost = persisted.snapshot.players.find((player) => player.role === 'ghost');
+    const survivors = persisted.snapshot.players.filter((player) => player.role === 'survivor');
+    const carrierBot = survivors[0];
+    const eliminated = survivors[1];
+    const key = persisted.snapshot.keys.find((candidate) => candidate.status === 'ground');
+    const safeGhostTile = engine.map.walkable.find((tile) =>
+      Math.hypot(tile.x - persisted.snapshot.activeExit.x, tile.y - persisted.snapshot.activeExit.y) > 20,
+    );
+    if (!ghost || !carrierBot || !eliminated || !key || !safeGhostTile) throw new Error('missing bot delivery fixtures');
+    ghost.position = { ...safeGhostTile };
+    ghost.previousPosition = { ...safeGhostTile };
+    ghost.movement = { x: 0, y: 0 };
+    carrierBot.botControlled = true;
+    carrierBot.position = { ...persisted.snapshot.activeExit };
+    carrierBot.previousPosition = { ...persisted.snapshot.activeExit };
+    carrierBot.movement = { x: 1, y: 0 };
+    eliminated.alive = false;
+    eliminated.movement = { x: 0, y: 0 };
+    key.status = 'carried';
+    key.carrierId = carrierBot.id;
+    persisted.snapshot.unlockedLocks = HIDE_SEEK_RULES.requiredKeys - 1;
+    persisted.snapshot.exitDiscovered = true;
+    engine.restore(persisted);
+
+    for (let tick = 0; tick < Math.ceil(HIDE_SEEK_RULES.exitUnlockSeconds * 10) + 2; tick += 1) engine.tick(0.1);
+
+    expect(engine.snapshot().keys.find((candidate) => candidate.id === key.id)).toMatchObject({
+      status: 'used',
+      carrierId: null,
+    });
+    expect(engine.snapshot()).toMatchObject({
+      unlockedLocks: HIDE_SEEK_RULES.requiredKeys,
+      exitOpen: true,
+      phase: 'RESULT',
+      winner: 'survivor',
+    });
+    expect(engine.snapshot().players.find((player) => player.id === carrierBot.id)).toMatchObject({
+      alive: false,
+      escaped: true,
+      movement: { x: 0, y: 0 },
+    });
+  });
+
+  it('serializes exit unlocking so two carriers cannot open locks at the same time', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    persisted.snapshot.phaseRemaining = HIDE_SEEK_RULES.huntSeconds - 201;
+    engine.restore(persisted);
+    engine.tick(0.1);
+    const deliveryState = engine.serialize();
+    const carriers = deliveryState.snapshot.players.filter((player) => player.role === 'survivor');
+    const keys = deliveryState.snapshot.keys.filter((key) => key.status === 'ground');
+    const firstCarrier = carriers[0];
+    const secondCarrier = carriers[1];
+    const firstKey = keys[0];
+    const secondKey = keys[1];
+    if (!firstCarrier || !secondCarrier || !firstKey || !secondKey) throw new Error('missing serialized unlock fixtures');
+    for (const carrier of [firstCarrier, secondCarrier]) {
+      carrier.position = { ...deliveryState.snapshot.activeExit };
+      carrier.previousPosition = { ...deliveryState.snapshot.activeExit };
+      carrier.movement = { x: 0, y: 0 };
+    }
+    firstKey.status = 'carried';
+    firstKey.carrierId = firstCarrier.id;
+    secondKey.status = 'carried';
+    secondKey.carrierId = secondCarrier.id;
+    deliveryState.snapshot.exitDiscovered = true;
+    engine.restore(deliveryState);
+
+    expect(engine.interact(firstCarrier.id).ok).toBe(true);
+    expect(engine.interact(secondCarrier.id)).toEqual({
+      ok: false,
+      error: '다른 생존자가 자물쇠를 해제 중입니다.',
+    });
+    expect(engine.snapshot().players.find((player) => player.id === secondCarrier.id)?.interactionTarget).toBeNull();
+    expect(engine.snapshot().unlockedLocks).toBe(0);
+  });
+
+  it('drops a carried key at the preserved death position after direct ghost contact', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const pickupState = engine.serialize();
+    const key = pickupState.snapshot.keys.find((candidate) => candidate.status === 'ground');
+    const ghost = pickupState.snapshot.players.find((player) => player.role === 'ghost');
+    const survivors = pickupState.snapshot.players.filter((player) => player.role === 'survivor');
+    const victim = survivors[0];
+    const witness = survivors[1];
+    if (!key || !ghost || !victim || !witness) throw new Error('missing contact death fixtures');
+    victim.position = { ...key.tile };
+    victim.previousPosition = { ...key.tile };
+    victim.movement = { x: 0, y: 0 };
+    engine.restore(pickupState);
+    expect(engine.interact(victim.id).ok).toBe(true);
+
+    const deathState = engine.serialize();
+    const deathGhost = deathState.snapshot.players.find((player) => player.id === ghost.id);
+    const deathVictim = deathState.snapshot.players.find((player) => player.id === victim.id);
+    const deathWitness = deathState.snapshot.players.find((player) => player.id === witness.id);
+    const deathTile = engine.map.walkable.find((tile) => Math.hypot(tile.x - witness.position.x, tile.y - witness.position.y) > 10);
+    if (!deathGhost || !deathVictim || !deathWitness || !deathTile) throw new Error('missing direct death positions');
+    deathGhost.position = { ...deathTile };
+    deathGhost.previousPosition = { ...deathTile };
+    deathGhost.movement = { x: 0, y: 0 };
+    deathVictim.position = { ...deathTile };
+    deathVictim.previousPosition = { ...deathTile };
+    deathVictim.movement = { x: 0, y: 0 };
+    deathWitness.movement = { x: 0, y: 0 };
+    engine.restore(deathState);
+    engine.tick(0.01);
+
+    const deadSnapshot = engine.snapshot();
+    expect(deadSnapshot.players.find((player) => player.id === victim.id)).toMatchObject({
+      alive: false,
+      position: deathTile,
+    });
+    expect(deadSnapshot.keys.find((candidate) => candidate.id === key.id)).toMatchObject({
+      status: 'ground',
+      carrierId: null,
+      tile: deathTile,
+    });
+    expect(engine.snapshotFor(witness.id).players.find((player) => player.id === victim.id)?.position).toEqual(deathTile);
+  });
+
+  it('drops a carried key at the hideout when the ghost search eliminates its carrier', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const pickupState = engine.serialize();
+    const key = pickupState.snapshot.keys.find((candidate) => candidate.status === 'ground');
+    const ghost = pickupState.snapshot.players.find((player) => player.role === 'ghost');
+    const survivors = pickupState.snapshot.players.filter((player) => player.role === 'survivor');
+    const victim = survivors[0];
+    const witness = survivors[1];
     const hideout = engine.map.hideouts[0];
-    if (!searchGhost || !hidden || !hideout) throw new Error('missing hideout fixtures');
+    if (!key || !ghost || !victim || !witness || !hideout) throw new Error('missing hideout death fixtures');
+    victim.position = { ...key.tile };
+    victim.previousPosition = { ...key.tile };
+    victim.movement = { x: 0, y: 0 };
+    engine.restore(pickupState);
+    expect(engine.interact(victim.id).ok).toBe(true);
+
+    const hiddenState = engine.serialize();
+    const searchGhost = hiddenState.snapshot.players.find((player) => player.id === ghost.id);
+    const hiddenVictim = hiddenState.snapshot.players.find((player) => player.id === victim.id);
+    const hiddenWitness = hiddenState.snapshot.players.find((player) => player.id === witness.id);
+    if (!searchGhost || !hiddenVictim || !hiddenWitness) throw new Error('missing hidden survivor state');
     searchGhost.position = { ...hideout.tile };
-    hidden.position = { ...hideout.tile };
-    hidden.hiddenIn = hideout.id;
-    engine.restore(searchState);
+    searchGhost.previousPosition = { ...hideout.tile };
+    searchGhost.movement = { x: 0, y: 0 };
+    hiddenVictim.position = { ...hideout.tile };
+    hiddenVictim.previousPosition = { ...hideout.tile };
+    hiddenVictim.movement = { x: 0, y: 0 };
+    hiddenVictim.hiddenIn = hideout.id;
+    hiddenWitness.movement = { x: 0, y: 0 };
+    engine.restore(hiddenState);
     expect(engine.interact(searchGhost.id).ok).toBe(true);
-    for (let index = 0; index < Math.ceil(HIDE_SEEK_RULES.hideoutSearchSeconds * 10) - 1; index += 1) engine.tick(0.1);
-    expect(engine.snapshot().players.find((player) => player.id === hidden.id)?.alive).toBe(true);
-    for (let index = 0; index < 2; index += 1) engine.tick(0.1);
-    expect(engine.snapshot().players.find((player) => player.id === hidden.id)?.alive).toBe(false);
+    for (let tick = 0; tick <= Math.ceil(HIDE_SEEK_RULES.hideoutSearchSeconds * 10); tick += 1) engine.tick(0.1);
+
+    const searched = engine.snapshot();
+    expect(searched.players.find((player) => player.id === victim.id)).toMatchObject({
+      alive: false,
+      hiddenIn: null,
+      position: hideout.tile,
+    });
+    expect(searched.keys.find((candidate) => candidate.id === key.id)).toMatchObject({
+      status: 'ground',
+      carrierId: null,
+      tile: hideout.tile,
+    });
+    expect(engine.snapshotFor(witness.id).players.find((player) => player.id === victim.id)?.position).toEqual(hideout.tile);
+  });
+
+  it('migrates legacy team-collected keys into at most one carried key per living survivor and zero unlocked locks', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const current = engine.serialize();
+    current.snapshot.phaseRemaining = HIDE_SEEK_RULES.huntSeconds - 201;
+    engine.restore(current);
+    engine.tick(0.1);
+    const allKeysState = engine.serialize();
+    const survivors = allKeysState.snapshot.players.filter((player) => player.role === 'survivor');
+    const livingCarrier = survivors[0];
+    const deadLegacyCarrier = survivors[1];
+    if (!livingCarrier || !deadLegacyCarrier || allKeysState.snapshot.keys.length !== HIDE_SEEK_RULES.requiredKeys) throw new Error('missing legacy fixtures');
+    deadLegacyCarrier.alive = false;
+    const { unlockedLocks: _unlockedLocks, keys: currentKeys, ...snapshotWithoutNewKeyState } = allKeysState.snapshot;
+    const legacyKeys = currentKeys.map(({ status: _status, carrierId: _carrierId, ...key }, index) => ({
+      ...key,
+      collectedBy: index < 2 ? livingCarrier.id : index === 2 ? deadLegacyCarrier.id : null,
+    }));
+    const legacy = {
+      ...allKeysState,
+      schemaVersion: 1 as const,
+      snapshot: {
+        ...snapshotWithoutNewKeyState,
+        keys: legacyKeys,
+        collectedKeys: HIDE_SEEK_RULES.requiredKeys,
+      },
+    } as unknown as Parameters<HideSeekEngine['restore']>[0];
+    engine.restore(legacy);
+
+    const migrated = engine.snapshot();
+    expect(migrated.unlockedLocks).toBe(0);
+    expect(migrated.exitOpen).toBe(false);
+    expect(migrated.keys.filter((key) => key.status === 'carried' && key.carrierId === livingCarrier.id)).toHaveLength(1);
+    expect(migrated.keys.filter((key) => key.status === 'carried' && key.carrierId === deadLegacyCarrier.id)).toHaveLength(0);
+    expect(migrated.keys.filter((key) => key.status === 'ground')).toHaveLength(HIDE_SEEK_RULES.requiredKeys - 1);
   });
 
   it('reveals the ghost to a survivor minimap only within two tiles and line of sight', () => {

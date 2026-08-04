@@ -11,6 +11,29 @@ export const isPositionOnRoomFloor = (
   return room.floorTiles.some((tile) => tileKey(tile.x, tile.y) === positionKey);
 };
 
+/** Uses the same centre/corner samples as actor collision. */
+export const isAreaOnRoomFloor = (
+  room: Pick<MapRoom, 'floorTiles'>,
+  position: Vec2,
+  radius: number,
+): boolean => {
+  if (![position.x, position.y, radius].every(Number.isFinite)) return false;
+  const safeRadius = Math.max(0, radius);
+  const floorKeys = new Set(
+    room.floorTiles.map((tile) => tileKey(tile.x, tile.y)),
+  );
+  const samples: readonly (readonly [number, number])[] = [
+    [position.x, position.y],
+    [position.x - safeRadius, position.y - safeRadius],
+    [position.x + safeRadius, position.y - safeRadius],
+    [position.x - safeRadius, position.y + safeRadius],
+    [position.x + safeRadius, position.y + safeRadius],
+  ];
+  return samples.every(([x, y]) =>
+    floorKeys.has(tileKey(Math.round(x), Math.round(y))),
+  );
+};
+
 // Keep eight distinct rooms, but avoid the long empty-looking hallways of
 // the 49×31 ward. Placement regions are arranged compactly while every room
 // still receives its own width, depth, and silhouette.

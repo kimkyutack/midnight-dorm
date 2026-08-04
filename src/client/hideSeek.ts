@@ -3,6 +3,7 @@ import {
   hideSeekRegionAt,
   resolveHideSeekMovement,
   type HideSeekClientMessage,
+  type HideSeekKeyState,
   type HideSeekMap,
   type HideSeekPlayer,
   type HideSeekQuickChat,
@@ -51,6 +52,12 @@ const MAX_RECONNECT_ATTEMPTS = 30;
 const RECONNECT_HANDSHAKE_TIMEOUT_MS = 6_000;
 const pointDistance = (a: Tile, b: Tile): number => Math.hypot(a.x - b.x, a.y - b.y);
 const tileKey = (tile: Tile): string => `${Math.round(tile.x)},${Math.round(tile.y)}`;
+const keyStatus = (key: HideSeekKeyState): HideSeekKeyState['status'] =>
+  key.status ?? (key.collectedBy ? 'used' : 'ground');
+const keyCarrierId = (key: HideSeekKeyState): string | null =>
+  keyStatus(key) === 'carried' ? key.carrierId ?? key.collectedBy ?? null : null;
+const unlockedLockCount = (snapshot: HideSeekSnapshot): number =>
+  snapshot.unlockedLocks ?? snapshot.collectedKeys ?? 0;
 const html = (value: string): string => value.replace(/[&<>'"]/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 })[character] as string);
@@ -385,7 +392,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     this.options.app.dataset.view = 'hide-seek-game';
     this.options.app.innerHTML = `<main class="hide-seek-game ${me?.role === 'ghost' ? 'is-ghost' : 'is-survivor'}">
       <canvas class="hide-seek-world" data-hide-seek-world></canvas>
-      <header class="hide-seek-hud"><div class="hide-seek-objective"><small data-hide-seek-phase>추격 준비</small><strong data-hide-seek-objective>열쇠 0/5</strong></div><time data-hide-seek-clock>${formatClock(snapshot.phaseRemaining)}</time><button class="btn icon-btn hide-seek-settings" data-hide-seek-settings aria-label="설정">⚙</button></header>
+      <header class="hide-seek-hud"><div class="hide-seek-objective"><small data-hide-seek-phase>추격 준비</small><strong data-hide-seek-objective>자물쇠 0/5</strong></div><time data-hide-seek-clock>${formatClock(snapshot.phaseRemaining)}</time><button class="btn icon-btn hide-seek-settings" data-hide-seek-settings aria-label="설정">⚙</button></header>
       <section class="hide-seek-number-card" data-hide-seek-role-card>${roleCardMarkup}</section>
       <aside class="hide-seek-minimap-shell"><canvas data-hide-seek-minimap></canvas><span data-hide-seek-minimap-label>공유 미니맵</span></aside>
       <div class="hide-seek-alert" data-hide-seek-alert><b>!</b><span>발견됨</span></div>
@@ -559,7 +566,10 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     const objective = this.options.app.querySelector<HTMLElement>('[data-hide-seek-objective]');
     const clock = this.options.app.querySelector<HTMLElement>('[data-hide-seek-clock]');
     if (phase) phase.textContent = phaseLabels[snapshot.phase];
-    if (objective) objective.textContent = me.role === 'ghost' ? `생존자 ${snapshot.players.filter((player) => player.role === 'survivor' && player.alive).length}명 추적 중` : `열쇠 ${snapshot.collectedKeys}/${HIDE_SEEK_RULES.requiredKeys}`;
+    const carryingKey = snapshot.keys.some((key) => keyStatus(key) === 'carried' && keyCarrierId(key) === me.id);
+    if (objective) objective.textContent = me.role === 'ghost'
+      ? `생존자 ${snapshot.players.filter((player) => player.role === 'survivor' && player.alive).length}명 추적 중`
+      : `자물쇠 ${unlockedLockCount(snapshot)}/${HIDE_SEEK_RULES.requiredKeys}${carryingKey ? ' · 열쇠 보유' : ''}`;
     if (clock) clock.textContent = formatClock(snapshot.phaseRemaining);
     this.options.app.querySelector('[data-hide-seek-alert]')?.classList.toggle('visible', me.alive && me.detected);
     const minimapLabel = this.options.app.querySelector<HTMLElement>('[data-hide-seek-minimap-label]');
@@ -575,7 +585,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       interact.hidden = action === '살펴보기';
       interact.disabled = Boolean(searchingHideout);
       interact.setAttribute('aria-busy', String(Boolean(searchingHideout)));
-      const duration = me.interactionTarget === 'exit'
+      const duration = me.interactionTarget?.startsWith('exit:')
         ? HIDE_SEEK_RULES.exitUnlockSeconds
         : me.interactionTarget?.startsWith('key:')
           ? HIDE_SEEK_RULES.keyPickupSeconds
@@ -767,9 +777,13 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   private interactionLabel(me: HideSeekPlayer, snapshot: HideSeekSnapshot): string {
     if (me.role === 'ghost') return this.map?.hideouts.some((hideout) => pointDistance(hideout.tile, me.position) <= 0.85) ? '은신처 수색' : '살펴보기';
     if (me.hiddenIn) return '은신처 나가기';
-    if (snapshot.keys.some((key) => !key.collectedBy && pointDistance(key.tile, me.position) <= 0.9)) return '열쇠 줍기';
+    const carryingKey = snapshot.keys.some((key) => keyStatus(key) === 'carried' && keyCarrierId(key) === me.id);
+    if (snapshot.activeExit.x >= 0 && pointDistance(snapshot.activeExit, me.position) <= 1) {
+      if (snapshot.exitOpen) return '탈출';
+      return carryingKey ? '자물쇠 해제' : '열쇠 필요';
+    }
+    if (!carryingKey && snapshot.keys.some((key) => keyStatus(key) === 'ground' && pointDistance(key.tile, me.position) <= 0.9)) return '열쇠 줍기';
     if (this.map?.hideouts.some((hideout) => pointDistance(hideout.tile, me.position) <= 0.85)) return '숨기';
-    if (snapshot.activeExit.x >= 0 && pointDistance(snapshot.activeExit, me.position) <= 1) return snapshot.collectedKeys >= HIDE_SEEK_RULES.requiredKeys ? '탈출로 해제' : '열쇠 부족';
     return '살펴보기';
   }
 
@@ -779,11 +793,14 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       return this.map.hideouts.find((hideout) => pointDistance(hideout.tile, me.position) <= 0.85)?.tile ?? null;
     }
     if (me.hiddenIn) return this.map.hideouts.find((hideout) => hideout.id === me.hiddenIn)?.tile ?? me.position;
-    const key = snapshot.keys.find((candidate) => !candidate.collectedBy && pointDistance(candidate.tile, me.position) <= 0.9);
+    const carryingKey = snapshot.keys.some((key) => keyStatus(key) === 'carried' && keyCarrierId(key) === me.id);
+    if (snapshot.activeExit.x >= 0 && pointDistance(snapshot.activeExit, me.position) <= 1) return snapshot.activeExit;
+    const key = carryingKey
+      ? null
+      : snapshot.keys.find((candidate) => keyStatus(candidate) === 'ground' && pointDistance(candidate.tile, me.position) <= 0.9);
     if (key) return key.tile;
     const hideout = this.map.hideouts.find((candidate) => pointDistance(candidate.tile, me.position) <= 0.85);
     if (hideout) return hideout.tile;
-    if (snapshot.activeExit.x >= 0 && pointDistance(snapshot.activeExit, me.position) <= 1) return snapshot.activeExit;
     return null;
   }
 
@@ -942,7 +959,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       }
       context.restore();
     }
-    for (const key of snapshot.keys.filter((candidate) => !candidate.collectedBy)) {
+    for (const key of snapshot.keys.filter((candidate) => keyStatus(candidate) === 'ground')) {
       const position = toScreen(key.tile);
       context.save();
       context.shadowColor = '#55e9ff';
@@ -966,12 +983,35 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       }
       context.restore();
     }
+    const keyCarriers = new Set(snapshot.keys
+      .map(keyCarrierId)
+      .filter((carrierId): carrierId is string => Boolean(carrierId)));
     for (const player of snapshot.players) {
       if (player.position.x < 0 || player.escaped) continue;
       if (me.role === 'ghost' && player.id === me.id) continue;
       const render = renderedPositions.get(player.id) ?? { ...player.position, initialized: true };
       const position = toScreen(render);
       this.drawPlayer(context, player, position, tileSize, time, player.id === me.id);
+      if (keyCarriers.has(player.id) && (!player.hiddenIn || player.id === me.id)) {
+        const keyX = position.x + tileSize * .35;
+        const keyY = position.y - tileSize * .72;
+        context.save();
+        context.shadowColor = '#55e9ff';
+        context.shadowBlur = Math.max(4, tileSize * .18);
+        if (objectiveAtlas.complete && objectiveAtlas.naturalWidth > 0) {
+          this.drawAtlasCell(context, objectiveAtlas, 0, 3, keyX, keyY, tileSize * .3, tileSize * .44);
+        } else {
+          context.strokeStyle = '#ffd75f';
+          context.lineWidth = Math.max(2, tileSize * .06);
+          context.beginPath();
+          context.arc(keyX, keyY - tileSize * .08, tileSize * .09, 0, Math.PI * 2);
+          context.moveTo(keyX, keyY);
+          context.lineTo(keyX, keyY + tileSize * .18);
+          context.lineTo(keyX + tileSize * .1, keyY + tileSize * .18);
+          context.stroke();
+        }
+        context.restore();
+      }
     }
     const activeGhost = snapshot.players.find((player) => player.role === 'ghost' && player.position.x >= 0 && snapshot.elapsed < player.lightUntil);
     const activeGhostScreen = activeGhost
@@ -1256,6 +1296,18 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       context.fillStyle = '#ffd25c';
       context.fillRect(offsetX + snapshot.activeExit.x * scale - 2, offsetY + snapshot.activeExit.y * scale - 2, 5, 5);
     }
+    if (me.role === 'survivor') {
+      context.fillStyle = '#68dce8';
+      for (const key of snapshot.keys.filter((candidate) => keyStatus(candidate) === 'ground')) {
+        const x = offsetX + key.tile.x * scale;
+        const y = offsetY + key.tile.y * scale;
+        context.save();
+        context.translate(x, y);
+        context.rotate(Math.PI / 4);
+        context.fillRect(-1.8, -1.8, 3.6, 3.6);
+        context.restore();
+      }
+    }
     const drawMarker = (player: HideSeekPlayer, color: string, radius: number): void => {
       context.beginPath();
       context.fillStyle = color;
@@ -1272,6 +1324,29 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       for (const player of snapshot.players.filter((candidate) => candidate.role === 'survivor' && candidate.alive && !candidate.escaped)) {
         const highlighted = player.id === me.id || (!me.alive && player.id === this.spectatorTargetId);
         drawMarker(player, highlighted ? '#ffd35d' : '#6fe8ff', highlighted ? 3.3 : 2.6);
+      }
+      for (const player of snapshot.players.filter((candidate) => candidate.role === 'survivor' && !candidate.alive && !candidate.escaped && candidate.position.x >= 0)) {
+        const x = offsetX + player.position.x * scale;
+        const y = offsetY + player.position.y * scale;
+        context.save();
+        context.fillStyle = '#46515e';
+        context.beginPath();
+        context.arc(x, y, 3.3, 0, Math.PI * 2);
+        context.fill();
+        context.strokeStyle = '#d0d5dc';
+        context.lineWidth = 1.2;
+        context.beginPath();
+        context.moveTo(x - 2, y - 2);
+        context.lineTo(x + 2, y + 2);
+        context.moveTo(x + 2, y - 2);
+        context.lineTo(x - 2, y + 2);
+        context.stroke();
+        context.fillStyle = '#d0d5dc';
+        context.font = '800 5px system-ui';
+        context.textAlign = 'left';
+        context.textBaseline = 'middle';
+        context.fillText(String(player.number ?? ''), x + 4.3, y);
+        context.restore();
       }
       const nearbyGhost = snapshot.players.find((candidate) => candidate.role === 'ghost' && candidate.position.x >= 0);
       if (nearbyGhost) drawMarker(nearbyGhost, '#ff405d', 3.4);

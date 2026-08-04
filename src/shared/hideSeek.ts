@@ -131,7 +131,10 @@ export interface HideSeekKeyState {
   tile: Tile;
   regionId: HideSeekRegionId;
   spawnedAt: number;
-  collectedBy: string | null;
+  status: 'ground' | 'carried' | 'used';
+  carrierId: string | null;
+  /** @deprecated Rolling-deploy compatibility for older web/native clients. */
+  collectedBy?: string | null;
 }
 
 export interface HideSeekSnapshot {
@@ -145,7 +148,10 @@ export interface HideSeekSnapshot {
   players: HideSeekPlayer[];
   keys: HideSeekKeyState[];
   keyHint: { keyId: string; regionId: HideSeekRegionId } | null;
-  collectedKeys: number;
+  /** Number of exit locks permanently opened by delivered keys. */
+  unlockedLocks: number;
+  /** @deprecated Alias for older clients; mirrors unlockedLocks. */
+  collectedKeys?: number;
   activeExit: Tile;
   exitDiscovered: boolean;
   exitOpen: boolean;

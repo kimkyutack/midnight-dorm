@@ -21,6 +21,7 @@ import {
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
+  isAreaOnRoomFloor,
   isBuildTile,
   isPositionOnRoomFloor,
   moveInWalkableArea,
@@ -2966,7 +2967,11 @@ export class GameEngine {
     for (const player of this.state.players) {
       if (!player.alive) continue;
       const enteredRoom = this.map.rooms.find((room) =>
-        isPositionOnRoomFloor(room, player.position),
+        isAreaOnRoomFloor(
+          room,
+          player.position,
+          BALANCE.player.collisionRadius,
+        ),
       );
       // The countdown ending closes the door only for survivors who already
       // reached a room. Survivors still in a corridor retain the existing
@@ -3027,7 +3032,11 @@ export class GameEngine {
     for (const player of this.state.players) {
       if (!player.alive || player.roomId) continue;
       const enteredMapRoom = this.map.rooms.find((room) =>
-        isPositionOnRoomFloor(room, player.position),
+        isAreaOnRoomFloor(
+          room,
+          player.position,
+          BALANCE.player.collisionRadius,
+        ),
       );
       if (!enteredMapRoom) continue;
       const enteredRoom = this.state.rooms.find(

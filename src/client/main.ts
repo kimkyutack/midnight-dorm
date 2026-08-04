@@ -128,6 +128,7 @@ import {
 import {
   GameNetwork,
   reconcileMovementInputSequence,
+  shouldFlushMovementStart,
 } from "./network";
 import { loadProfile, saveProfile } from "./storage";
 import { setupMobileViewportCompatibility } from "./viewport";
@@ -261,6 +262,7 @@ let inputVector: Vec2 = { x: 0, y: 0 };
 let lastMovementSentAt = 0;
 let pendingMovementTimer = 0;
 let movementKeepaliveTimer = 0;
+let lastSentMovementActive = false;
 let quickChatCleanup: (() => void) | null = null;
 let tileSelectionBlockedUntil = 0;
 let buildPanelInputBlockedUntil = 0;
@@ -3182,6 +3184,7 @@ async function joinRoom(): Promise<void> {
 
 function connectToRoom(code: string, addSoloBots: boolean): void {
   network?.close();
+  lastSentMovementActive = false;
   resultRecorded = false;
   const roomNetwork = new GameNetwork(
     code,
@@ -3231,6 +3234,27 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
       closeBuildPanel();
       game?.resetTransientInteraction();
       safelyProcessGameSnapshot(initial, [], false, null);
+    }
+    if (
+      (initial.status === "COUNTDOWN" ||
+        initial.status === "PLAYING" ||
+        initial.status === "OVERTIME") &&
+      !initial.players.find((player) => player.id === id)?.roomId
+    ) {
+      // A fresh socket owns a new transport sequence. Explicitly stop any
+      // velocity persisted by the previous socket before accepting new drag
+      // input, including a full-page resume whose welcome is the first one.
+      if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+      pendingMovementTimer = 0;
+      if (movementKeepaliveTimer)
+        window.clearInterval(movementKeepaliveTimer);
+      movementKeepaliveTimer = 0;
+      inputVector = { x: 0, y: 0 };
+      lastSentMovementActive = false;
+      game?.setLocalInput(inputVector);
+      // A reconnect must stop the restored server velocity, never reuse a
+      // rendered position captured from the stale pre-reconnect scene.
+      sendMovement(true, false);
     }
     updateTestApi();
   });
@@ -3653,7 +3677,11 @@ function gameScreen(state: GameSnapshot): void {
       // Stop first, then interact on the same WebSocket. This prevents an
       // older cached iOS movement intent from being replayed after the bed is
       // claimed and visually ejecting the player from the room.
-      sendMovement(true);
+      // The prompt was shown from an authoritative in-room position. Do not
+      // apply the ordinary finger-release prediction correction here: on a
+      // bed beside a doorway that correction can push the server actor back
+      // across the room boundary immediately before interact() is handled.
+      sendMovement(true, false);
       network?.interact();
       audio.play("button");
     },
@@ -5370,6 +5398,7 @@ function resetMovementForIntro(): void {
   if (movementKeepaliveTimer)
     window.clearInterval(movementKeepaliveTimer);
   movementKeepaliveTimer = 0;
+  lastSentMovementActive = false;
   const knob = app.querySelector<HTMLElement>(".joystick-knob");
   if (knob) knob.style.transform = "";
 }
@@ -5430,19 +5459,29 @@ function setupJoystick(): void {
   base.addEventListener("pointercancel", release);
 }
 
-function flushMovement(releasePosition?: Vec2): void {
+function flushMovement(releasePosition?: Vec2): boolean {
   pendingMovementTimer = 0;
-  lastMovementSentAt = performance.now();
-  const nextInputSequence = ++inputSequence;
-  // Keep prediction tied to the exact input sent to the authoritative worker,
-  // so a bot occupancy frame cannot be mistaken for a movement collision.
-  game?.setLocalInput(inputVector, nextInputSequence);
-  network?.move(
+  const nextInputSequence = inputSequence + 1;
+  const sent = network?.move(
     inputVector.x,
     inputVector.y,
     nextInputSequence,
     releasePosition,
-  );
+  ) ?? false;
+  if (!sent) {
+    // Do not acknowledge a sequence locally when no packet left the device.
+    // The unsequenced setLocalInput() call still provides immediate visuals,
+    // and the next pointer/keepalive edge will retry this same sequence.
+    lastSentMovementActive = false;
+    return false;
+  }
+  inputSequence = nextInputSequence;
+  lastMovementSentAt = performance.now();
+  // Keep prediction tied to the exact input accepted by the socket, so a bot
+  // occupancy frame cannot be mistaken for a movement collision.
+  game?.setLocalInput(inputVector, nextInputSequence);
+  lastSentMovementActive = Math.hypot(inputVector.x, inputVector.y) > 0.001;
+  return true;
 }
 
 function syncMovementKeepalive(): void {
@@ -5467,7 +5506,10 @@ function syncMovementKeepalive(): void {
   }, MOVEMENT_SEND_INTERVAL_MS);
 }
 
-function sendMovement(force = false): void {
+function sendMovement(
+  force = false,
+  includeReleasePosition = true,
+): void {
   if (movementLockedByIntro()) {
     resetMovementForIntro();
     return;
@@ -5477,10 +5519,28 @@ function sendMovement(force = false): void {
   if (force) {
     if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
     const releasePosition =
-      Math.hypot(inputVector.x, inputVector.y) <= 0.001
+      includeReleasePosition && Math.hypot(inputVector.x, inputVector.y) <= 0.001
         ? game?.getLocalRenderedPosition() ?? undefined
         : undefined;
-    flushMovement(releasePosition);
+    const sent = flushMovement(releasePosition);
+    if (!sent && network && currentView === "game") {
+      // A stop packet is just as important as a start packet. Recompute from
+      // the current input on retry so a resumed drag cannot be paired with a
+      // stale releasePosition (which the protocol correctly rejects).
+      pendingMovementTimer = window.setTimeout(
+        () => sendMovement(true, includeReleasePosition),
+        MOVEMENT_SEND_INTERVAL_MS,
+      );
+    }
+    return;
+  }
+  // pointer-down sends a zero vector first. Never throttle the first non-zero
+  // vector behind it: iOS may deliver that move immediately before pointer-up,
+  // whose forced zero would otherwise cancel the only real movement packet.
+  if (shouldFlushMovementStart(lastSentMovementActive, inputVector)) {
+    if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
+    pendingMovementTimer = 0;
+    flushMovement();
     return;
   }
   const elapsed = performance.now() - lastMovementSentAt;
@@ -6790,6 +6850,7 @@ function destroyGame(): void {
   openingMinimapMapKey = "";
   openingMinimapTrails.clear();
   inputVector = { x: 0, y: 0 };
+  lastSentMovementActive = false;
   consumableTurretTargetingId = null;
   consumableTileTargetingId = null;
   quickChatCleanup?.();
@@ -6809,7 +6870,7 @@ function updateTestApi(): void {
     },
     interact: () => {
       inputVector = { x: 0, y: 0 };
-      sendMovement(true);
+      sendMovement(true, false);
       network?.interact();
     },
     buildFirst: (kind) => {

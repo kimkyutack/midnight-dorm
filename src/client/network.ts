@@ -20,6 +20,7 @@ type ClientIntent = WithoutEnvelope<ClientMessage>;
 const MAX_RECONNECT_ATTEMPTS = 30;
 const RECONNECT_DELAY_CAP_MS = 5_000;
 const MAX_CLIENT_MOVE_BUFFER_BYTES = 64 * 1_024;
+const MOVE_BACKPRESSURE_RECOVERY_MS = 800;
 
 type ParserWorkerResponse =
   | { id: number; generation: number; ok: true; message: ServerMessage }
@@ -57,6 +58,23 @@ export function reconcileMovementInputSequence(
   );
 }
 
+/**
+ * A portrait drag starts with a zero vector on pointer-down. The first real
+ * pointer-move can arrive less than one send interval later (and on iOS it can
+ * be coalesced immediately before pointer-up). That transition must bypass the
+ * normal movement throttle or the queued non-zero vector can be cancelled by
+ * the release, leaving the server still while local prediction moves.
+ */
+export function shouldFlushMovementStart(
+  lastSentMovementActive: boolean,
+  input: Vec2,
+): boolean {
+  return (
+    !lastSentMovementActive &&
+    Math.hypot(input.x, input.y) > 0.001
+  );
+}
+
 export class GameNetwork {
   private socket: WebSocket | null = null;
   private sequence = 0;
@@ -67,6 +85,7 @@ export class GameNetwork {
   private pingTimer: number | null = null;
   private lastBuildSentAt = -Infinity;
   private lastSnapshot: GameSnapshot | null = null;
+  private moveBackpressureStartedAt: number | null = null;
   private parserWorker: Worker | null = null;
   private parserRequestId = 0;
   private readonly pendingParserRequests = new Map<
@@ -132,6 +151,7 @@ export class GameNetwork {
       if (this.socket !== socket) return;
       opened = true;
       this.reconnectAttempts = 0;
+      this.moveBackpressureStartedAt = null;
       this.emit('connection', { state: 'connected', attempt: 0 });
       this.startHeartbeat();
       if (this.leavePending) this.flushPendingLeave();
@@ -189,6 +209,7 @@ export class GameNetwork {
    */
   wakeAfterSuspension(): void {
     if (this.stopped) return;
+    this.moveBackpressureStartedAt = null;
     const staleSocket = this.socket;
     if (staleSocket) {
       this.socket = null;
@@ -207,6 +228,7 @@ export class GameNetwork {
 
   close(): void {
     this.stopped = true;
+    this.moveBackpressureStartedAt = null;
     this.clearPendingLeave();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -223,8 +245,21 @@ export class GameNetwork {
     if (
       message.type === 'move' &&
       this.socket.bufferedAmount > MAX_CLIENT_MOVE_BUFFER_BYTES
-    )
+    ) {
+      const now = performance.now();
+      this.moveBackpressureStartedAt ??= now;
+      if (
+        now - this.moveBackpressureStartedAt >=
+        MOVE_BACKPRESSURE_RECOVERY_MS
+      ) {
+        // An OPEN socket whose outbound queue no longer drains cannot recover
+        // through retries. Replace it and resume with the reconnect token.
+        this.moveBackpressureStartedAt = null;
+        this.wakeAfterSuspension();
+      }
       return false;
+    }
+    if (message.type === 'move') this.moveBackpressureStartedAt = null;
     this.socket.send(JSON.stringify({ ...message, sequence: ++this.sequence, timestamp: Date.now() }));
     return true;
   }
@@ -245,8 +280,8 @@ export class GameNetwork {
     dy: number,
     inputSequence: number,
     releasePosition?: Vec2,
-  ): void {
-    this.send({
+  ): boolean {
+    return this.send({
       type: 'move',
       dx,
       dy,

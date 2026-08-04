@@ -3,7 +3,7 @@ import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgr
 import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
-import { connectedWalkableCount, generateMap, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
+import { connectedWalkableCount, generateMap, isAreaOnRoomFloor, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
 import { BADGE_TARGET_VISUAL_FILL, badgeArtworkViewport, difficultyRuleForStage, getStage, higherRank, rankBadgeArtworkLayout, rankBadgeSymbol, rankBenefits, rankedBadgeArtworkLayout, rankFromXp, recommendedRankForStage, RANK_VISUALS, stageHpPressureScale, stagePressureScale, STAGES, TIME_ATTACK_EXPIRED_MESSAGE } from '../src/shared/progression';
 import { parseClientMessage } from '../src/shared/protocol';
@@ -27,7 +27,7 @@ import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
-import { GameNetwork, mergeSnapshotFrame, reconcileMovementInputSequence } from '../src/client/network';
+import { GameNetwork, mergeSnapshotFrame, reconcileMovementInputSequence, shouldFlushMovementStart } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
 import { buildForceRefreshUrl } from '../src/client/pwaRefresh';
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
@@ -157,7 +157,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.5')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.6')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.3')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -198,6 +198,74 @@ describe('Google web login runtime configuration', () => {
 });
 
 describe('cold realtime connection failures', () => {
+  it('reports whether a movement packet actually entered the websocket buffer', () => {
+    class BufferedWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static instances: BufferedWebSocket[] = [];
+      readonly listeners = new Map<string, Array<() => void>>();
+      readonly sent: string[] = [];
+      readyState = BufferedWebSocket.OPEN;
+      bufferedAmount = 0;
+
+      constructor(readonly url: string) {
+        BufferedWebSocket.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: () => void): void {
+        const registered = this.listeners.get(type) ?? [];
+        registered.push(listener);
+        this.listeners.set(type, registered);
+      }
+
+      send(payload: string): void { this.sent.push(payload); }
+      close(): void { this.readyState = 3; }
+    }
+
+    vi.stubGlobal('location', { protocol: 'https:', host: 'midnight.test' });
+    vi.stubGlobal('WebSocket', BufferedWebSocket as unknown as typeof WebSocket);
+    try {
+      const network = new GameNetwork('TESTROOM', 'Tester', 'device-test');
+      network.connect();
+      const socket = BufferedWebSocket.instances[0];
+      if (!socket) throw new Error('socket was not created');
+      socket.bufferedAmount = 65 * 1_024;
+      expect(network.move(1, 0, 1)).toBe(false);
+      expect(socket.sent).toHaveLength(0);
+      socket.bufferedAmount = 0;
+      expect(network.move(1, 0, 1)).toBe(true);
+      expect(socket.sent).toHaveLength(1);
+      expect(JSON.parse(socket.sent[0] as string)).toMatchObject({
+        type: 'move',
+        dx: 1,
+        dy: 0,
+        inputSequence: 1,
+      });
+      network.close();
+
+      const now = vi.spyOn(performance, 'now');
+      now.mockReturnValueOnce(100).mockReturnValueOnce(901);
+      const recoveryNetwork = new GameNetwork(
+        'RECOVERY',
+        'Tester',
+        'device-test',
+        'reconnect-token',
+      );
+      recoveryNetwork.connect();
+      const congested = BufferedWebSocket.instances[1];
+      if (!congested) throw new Error('congested socket was not created');
+      congested.bufferedAmount = 65 * 1_024;
+      expect(recoveryNetwork.move(1, 0, 1)).toBe(false);
+      expect(recoveryNetwork.move(1, 0, 1)).toBe(false);
+      expect(BufferedWebSocket.instances).toHaveLength(3);
+      expect(congested.readyState).toBe(3);
+      recoveryNetwork.close();
+      now.mockRestore();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('marks a first websocket handshake error as fatal instead of starting a retry loop', () => {
     class FailingWebSocket {
       static OPEN = 1;
@@ -476,7 +544,7 @@ describe('combat presentation', () => {
 });
 
 describe('deterministic shared world', () => {
-  it('keeps predicting a held drag while a bot claim frame has not acknowledged its latest input', () => {
+  it('caps a held drag while its latest input is awaiting acknowledgement', () => {
     const authoritative = { x: 5, y: 5 };
     const input = { x: 1, y: 0 };
     let rendered = { x: 7.55, y: 5 };
@@ -490,13 +558,13 @@ describe('deterministic shared world', () => {
         8,
         7,
       );
-      expect(next.x).toBeGreaterThan(rendered.x);
+      expect(next.x).toBeLessThanOrEqual(7.6 + 1e-6);
       rendered = next;
     }
-    expect(rendered.x).toBeCloseTo(8.75);
+    expect(rendered.x).toBeCloseTo(7.6);
   });
 
-  it('does not freeze a held drag when an acknowledged bot-claim frame still trails the player', () => {
+  it('keeps an acknowledged trailing frame inside the authority leash', () => {
     const authoritative = { x: 5, y: 5 };
     const input = { x: 1, y: 0 };
     const rendered = { x: 7.55, y: 5 };
@@ -509,8 +577,27 @@ describe('deterministic shared world', () => {
       8,
       8,
     );
-    expect(next.x).toBeGreaterThan(rendered.x);
-    expect(next.x).toBeCloseTo(7.65);
+    expect(next.x).toBeCloseTo(7.6);
+  });
+
+  it('keeps normal-game prediction inside the server release correction range', () => {
+    const authoritative = { x: 5, y: 5 };
+    const next = limitLocalPredictionLead(
+      { x: 6.3, y: 5 },
+      { x: 6.5, y: 5 },
+      authoritative,
+      { x: 1, y: 0 },
+    );
+    expect(Math.hypot(
+      next.x - authoritative.x,
+      next.y - authoritative.y,
+    )).toBeLessThanOrEqual(1.35 + 1e-6);
+  });
+
+  it('flushes the first non-zero drag immediately after a pointer-down stop', () => {
+    expect(shouldFlushMovementStart(false, { x: 0.2, y: 0 })).toBe(true);
+    expect(shouldFlushMovementStart(true, { x: 0.2, y: 0 })).toBe(false);
+    expect(shouldFlushMovementStart(false, { x: 0, y: 0 })).toBe(false);
   });
 
   it('snaps every visual layer to the same physical-pixel camera grid', () => {
@@ -544,6 +631,8 @@ describe('deterministic shared world', () => {
     };
     expect(isPositionOnRoomFloor(room, { x: 5.49, y: 5.49 })).toBe(true);
     expect(isPositionOnRoomFloor(room, { x: 5.51, y: 5.49 })).toBe(false);
+    expect(isAreaOnRoomFloor(room, { x: 5, y: 5 }, 0.36)).toBe(true);
+    expect(isAreaOnRoomFloor(room, { x: 5.42, y: 5 }, 0.36)).toBe(false);
   });
 
   it('replays a seeded random sequence exactly', () => {
@@ -1799,6 +1888,67 @@ describe('authoritative game rules', () => {
     const after = engine.snapshot().players.find((candidate) => candidate.id === playerId);
     expect(after).toBeTruthy();
     expect(isPositionOnRoomFloor(room, after?.position as Tile)).toBe(true);
+  });
+
+  it('does not seal a survivor whose collider still overlaps the doorway at lights-on', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const fixture = engine.map.rooms.flatMap((room) => {
+      const floorKeys = new Set(
+        room.floorTiles.map((tile) => `${tile.x},${tile.y}`),
+      );
+      return room.floorTiles.flatMap((tile) =>
+        [
+          { x: tile.x + 1, y: tile.y },
+          { x: tile.x - 1, y: tile.y },
+          { x: tile.x, y: tile.y + 1 },
+          { x: tile.x, y: tile.y - 1 },
+        ]
+          .filter((outside) =>
+            engine.map.walkable.some(
+              (walkable) =>
+                walkable.x === outside.x && walkable.y === outside.y,
+            ) && !floorKeys.has(`${outside.x},${outside.y}`),
+          )
+          .map((outside) => ({ room, tile, outside })),
+      );
+    })[0];
+    if (!fixture) throw new Error('missing partial room-entry fixture');
+    const towardOutside = {
+      x: fixture.outside.x - fixture.tile.x,
+      y: fixture.outside.y - fixture.tile.y,
+    };
+    const partialPosition = {
+      x: fixture.tile.x + towardOutside.x * 0.42,
+      y: fixture.tile.y + towardOutside.y * 0.42,
+    };
+    expect(isPositionOnRoomFloor(fixture.room, partialPosition)).toBe(true);
+    expect(
+      isAreaOnRoomFloor(
+        fixture.room,
+        partialPosition,
+        BALANCE.player.collisionRadius,
+      ),
+    ).toBe(false);
+
+    const persisted = engine.serialize();
+    const player = persisted.snapshot.players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    if (!player) throw new Error('missing partial room-entry player');
+    player.position = partialPosition;
+    player.velocity = { x: 0, y: 0 };
+    persisted.snapshot.countdown = 0.01;
+    engine.restore(persisted);
+    engine.tick(0.1);
+
+    const after = engine.snapshot().players.find(
+      (candidate) => candidate.id === playerId,
+    );
+    expect(engine.snapshot().status).toBe('PLAYING');
+    expect(after?.lockedRoomId).toBeNull();
   });
 
   it('auto-claims an empty bed only for an unclaimed survivor trapped in an occupied room at lights-on', () => {

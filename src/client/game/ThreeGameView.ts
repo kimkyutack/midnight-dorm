@@ -38,7 +38,9 @@ const BUILDING_DRAG_HOLD_MS = 380;
 const BUILDING_DRAG_CANCEL_DISTANCE = 10;
 const LOCAL_SOFT_RECONCILE_DISTANCE = 0.9;
 const LOCAL_HARD_RECONCILE_DISTANCE = 1.5;
-const LOCAL_MAX_PREDICTION_LEAD = 2.6;
+// Match the server's bounded release correction so a missed drag packet can
+// never place the rendered survivor beyond the authoritative interaction area.
+const LOCAL_MAX_PREDICTION_LEAD = 1.35;
 const LOCAL_INPUT_RELEASE_ACK_TIMEOUT_MS = 1_500;
 const MAX_RECONCILE_STEP = 0.18;
 const FLOOR_TILE_HEIGHT = 0.08;
@@ -90,34 +92,18 @@ export function limitLocalPredictionLead(
   current: Vec2,
   predicted: Vec2,
   authoritative: Vec2,
-  input: Vec2,
+  _input: Vec2,
   maximumLead = LOCAL_MAX_PREDICTION_LEAD,
-  localInputSequence?: number,
-  authoritativeInputSequence?: number,
+  _localInputSequence?: number,
+  _authoritativeInputSequence?: number,
 ): Vec2 {
-  // Room occupancy can be broadcast while the local survivor position still
-  // predates the newest drag intent. Capping prediction against that
-  // unacknowledged position creates an invisible wall. Shared map collision
-  // still constrains prediction, so wait for the server acknowledgement
-  // before applying the network lead cap.
-  if (
-    localInputSequence !== undefined &&
-    authoritativeInputSequence !== undefined &&
-    authoritativeInputSequence < localInputSequence
-  ) {
-    return predicted;
-  }
   const offsetX = authoritative.x - predicted.x;
   const offsetY = authoritative.y - predicted.y;
   const predictedError = Math.hypot(offsetX, offsetY);
-  const targetTrailsInput = offsetX * input.x + offsetY * input.y < -0.025;
-  // A held drag is continuous input, while lastInputSeq only acknowledges the
-  // latest direction packet. It does not mean the old authoritative position
-  // has caught up with every rendered frame. Bot room claims include a larger
-  // state frame and used to make this branch freeze the survivor at the lead
-  // cap until the server caught up. Shared collision remains authoritative, so
-  // keep moving forward and reconcile after the drag stops.
-  if (targetTrailsInput || predictedError <= maximumLead) return predicted;
+  // Trailing 10 Hz snapshots are expected, but the prediction leash remains
+  // absolute. Otherwise one missed start packet lets the sprite cross a room
+  // doorway while the server (and its interaction scan) stays behind.
+  if (predictedError <= maximumLead) return predicted;
 
   const currentError = Math.hypot(
     authoritative.x - current.x,
