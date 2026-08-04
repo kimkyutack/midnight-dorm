@@ -239,6 +239,12 @@ export class HideSeekEngine {
         } else exitInteractionClaimed = true;
       }
     }
+    if (
+      this.state.exitOpen
+      && this.state.phase !== 'LOBBY'
+      && this.state.phase !== 'RESULT'
+      && this.state.phase !== 'CLOSED'
+    ) this.completeSurvivorVictory();
     this.botCounter = data.botCounter;
     this.keySpawnIndex = data.keySpawnIndex;
     this.inactiveSince = data.inactiveSince;
@@ -467,6 +473,9 @@ export class HideSeekEngine {
   interact(playerId: string): HideSeekActionResult {
     const player = this.player(playerId);
     if (!player?.alive || player.escaped) return { ok: false, error: '상호작용할 수 없습니다.' };
+    if (this.state.phase === 'LOBBY' || this.state.phase === 'ROLE_LOCK' || this.state.phase === 'RESULT' || this.state.phase === 'CLOSED') {
+      return { ok: false, error: '지금은 상호작용할 수 없습니다.' };
+    }
     if (player.role === 'ghost') {
       const hideout = this.map.hideouts.find((candidate) => pointDistance(candidate.tile, player.position) <= 0.8);
       if (!hideout) return { ok: false, error: '수색할 은신처가 없습니다.' };
@@ -482,7 +491,7 @@ export class HideSeekEngine {
     }
     const carriedKey = this.carriedKey(player.id);
     const nearExit = pointDistance(player.position, this.state.activeExit) <= 0.9;
-    const shouldUseExit = nearExit && (this.state.exitOpen || Boolean(carriedKey));
+    const shouldUseExit = nearExit && Boolean(carriedKey);
     const nearbyGroundKey = this.state.keys.find((candidate) =>
       candidate.status === 'ground' && pointDistance(candidate.tile, player.position) <= 0.85,
     );
@@ -506,10 +515,6 @@ export class HideSeekEngine {
     if (!nearExit && carriedKey && nearbyGroundKey) return { ok: false, error: '열쇠는 한 개만 들 수 있습니다.' };
     if (nearExit) {
       this.state.exitDiscovered = true;
-      if (this.state.exitOpen) {
-        this.escapeSurvivor(player);
-        return { ok: true };
-      }
       if (!carriedKey) return { ok: false, error: '탈출로의 자물쇠를 풀 열쇠를 들고 있지 않습니다.' };
       if (this.activeExitUnlocker(player.id)) return { ok: false, error: '다른 생존자가 자물쇠를 해제 중입니다.' };
       const target = `exit:${carriedKey.id}`;
@@ -586,6 +591,7 @@ export class HideSeekEngine {
     }
     this.spawnDueKeys();
     this.updateInteractions(dt);
+    if (this.state.winner) return;
     this.updateDetection();
     this.resolveGhostContacts();
     this.updateProximityAlerts();
@@ -773,7 +779,6 @@ export class HideSeekEngine {
       if (!key || this.state.exitOpen) {
         player.interactionTarget = null;
         player.interactionProgress = 0;
-        if (this.state.exitOpen) this.escapeSurvivor(player);
         continue;
       }
       player.interactionProgress += dt;
@@ -784,9 +789,21 @@ export class HideSeekEngine {
       player.interactionTarget = null;
       player.interactionProgress = 0;
       if (this.state.unlockedLocks >= HIDE_SEEK_RULES.requiredKeys) {
-        this.state.exitOpen = true;
-        this.escapeSurvivor(player);
+        this.completeSurvivorVictory();
       }
+    }
+  }
+
+  private completeSurvivorVictory(): void {
+    this.state.exitOpen = true;
+    this.state.phase = 'RESULT';
+    this.state.phaseRemaining = 0;
+    this.state.winner = 'survivor';
+    this.state.resultReason = null;
+    for (const player of this.state.players) {
+      player.movement = { x: 0, y: 0 };
+      player.interactionTarget = null;
+      player.interactionProgress = 0;
     }
   }
 
@@ -822,24 +839,6 @@ export class HideSeekEngine {
     player.interactionProgress = 0;
   }
 
-  private escapeSurvivor(player: HideSeekPlayer): void {
-    if (!player.alive || player.escaped || player.role !== 'survivor') return;
-    player.escaped = true;
-    player.alive = false;
-    player.hiddenIn = null;
-    player.detected = false;
-    player.proximityAlert = false;
-    player.ghostFootstepLevel = 0;
-    player.movement = { x: 0, y: 0 };
-    player.interactionTarget = null;
-    player.interactionProgress = 0;
-    this.state.firstEscapeAt ??= this.state.elapsed;
-    if (this.state.phase === 'HUNT') {
-      this.state.phase = 'LAST_ESCAPE';
-      this.state.phaseRemaining = HIDE_SEEK_RULES.lastEscapeSeconds;
-    }
-  }
-
   private revealExploration(): void {
     const explored = new Set(this.state.exploredTileKeys);
     for (const survivor of this.state.players.filter((player) => player.role === 'survivor' && player.alive && !player.escaped)) {
@@ -871,7 +870,7 @@ export class HideSeekEngine {
     }
     if (this.state.phaseRemaining <= 0) {
       this.state.phase = 'RESULT';
-      this.state.winner = this.state.firstEscapeAt !== null ? 'survivor' : 'ghost';
+      this.state.winner = this.state.unlockedLocks >= HIDE_SEEK_RULES.requiredKeys ? 'survivor' : 'ghost';
       this.state.resultReason = null;
     }
   }
@@ -908,7 +907,7 @@ export class HideSeekEngine {
           continue;
         }
         const threatened = ghost && (bot.detected || (pointDistance(bot.position, ghost.position) <= 2.8 && hideSeekHasLineOfSight(this.map, bot.position, ghost.position)));
-        if (this.state.exitOpen || (carriedKey && this.state.exitDiscovered)) {
+        if (carriedKey && this.state.exitDiscovered) {
           target = { ...this.state.activeExit };
           this.botTargets.set(bot.id, target);
         } else if (threatened && ghost) {
@@ -950,8 +949,8 @@ export class HideSeekEngine {
           this.botPathTargets.delete(bot.id);
           continue;
         }
-        if (pointDistance(bot.position, this.state.activeExit) <= 0.8 && (this.state.exitOpen || carriedKey)) {
-          if (!this.state.exitOpen && carriedKey && this.activeExitUnlocker(bot.id)) {
+        if (pointDistance(bot.position, this.state.activeExit) <= 0.8 && carriedKey) {
+          if (this.activeExitUnlocker(bot.id)) {
             bot.movement = { x: 0, y: 0 };
             continue;
           }

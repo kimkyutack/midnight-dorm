@@ -254,8 +254,9 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       const previousKeyHintId = this.snapshot?.keyHint?.keyId;
       this.snapshot = this.withExploration(message.snapshot, message.exploredBits);
       this.snapshotReceivedAt = performance.now();
-      this.handlePlayerDeaths(previousSnapshot, this.snapshot);
       this.renderForSnapshot(previousPhase !== message.snapshot.phase || previousHostId !== message.snapshot.hostId);
+      this.handlePlayerDeaths(previousSnapshot, this.snapshot);
+      this.handleLockUnlocks(previousSnapshot, this.snapshot);
       this.syncSpectatorState();
       const spawnedKeyHint = this.snapshot.keyHint?.keyId !== previousKeyHintId ? this.snapshot.keyHint : null;
       const me = this.snapshot.players.find((player) => player.id === this.playerId);
@@ -343,7 +344,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     this.options.app.innerHTML = `<main class="hide-seek-lobby">
       <div class="hide-seek-lobby-art" aria-hidden="true"><img src="${LANTERN_GHOST}" alt=""/></div>
       <header><span class="hide-seek-lobby-emblem" aria-hidden="true">☾</span><div><small>NIGHT CHASE</small><h1>심야 술래잡기</h1></div><button class="hide-seek-code" data-hide-seek-copy><small>초대 코드</small><strong>${snapshot.code}</strong></button></header>
-      <section class="hide-seek-rule-card"><span>최대 1 VS 6</span><h2>불이 꺼지면, 소리 없이 숨으세요</h2><p>20초 동안 숨고 열쇠 5개를 모아 탈출하세요. 랜턴에 잡히면 추격이 시작됩니다.</p></section>
+      <section class="hide-seek-rule-card"><span>최대 1 VS 6</span><h2>불이 꺼지면, 소리 없이 숨으세요</h2><p>20초 동안 숨고 열쇠로 자물쇠 5개를 해제하세요. 랜턴에 잡히면 추격이 시작됩니다.</p></section>
       <section class="hide-seek-role-picker"><small>희망 역할</small><div><button data-pref="survivor" class="${me?.preference === 'survivor' ? 'active' : ''}">생존자</button><button data-pref="any" class="${me?.preference === 'any' ? 'active' : ''}">상관없음</button><button data-pref="ghost" class="${me?.preference === 'ghost' ? 'active' : ''}">술래</button></div></section>
       <section class="hide-seek-roster"><header><strong>참가자 <b data-hide-seek-roster-count>${snapshot.players.length}/7</b></strong><small>귀신 1명 · 생존자 최대 6명</small></header><ol data-hide-seek-roster></ol></section>
       <footer><div class="hide-seek-lobby-tools"><button class="danger" data-hide-seek-leave>방 나가기</button>${isHost ? '<button data-hide-seek-add-bot>＋ 봇 추가</button><button data-hide-seek-fill-bots>빈자리 채우기</button>' : '<span>방장이 게임을 준비하고 있습니다.</span>'}</div><div class="hide-seek-lobby-actions"><button class="secondary" data-hide-seek-ready>${me?.ready ? '준비 취소' : '준비'}</button>${isHost ? '<button class="primary" data-hide-seek-start>추격 시작</button>' : ''}</div></footer>
@@ -565,7 +566,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     if (!me) return;
     this.updateSpectatorControls(me, snapshot);
     const phaseLabels: Record<HideSeekSnapshot['phase'], string> = {
-      LOBBY: '대기 중', ROLE_LOCK: '역할 확인', HIDE: '숨을 시간', HUNT: '열쇠를 찾아 탈출', LAST_ESCAPE: '마지막 탈출', RESULT: '추격 종료', CLOSED: '방 종료',
+      LOBBY: '대기 중', ROLE_LOCK: '역할 확인', HIDE: '숨을 시간', HUNT: '열쇠를 찾아 자물쇠 해제', LAST_ESCAPE: '마지막 해제', RESULT: '추격 종료', CLOSED: '방 종료',
     };
     const phase = this.options.app.querySelector<HTMLElement>('[data-hide-seek-phase]');
     const objective = this.options.app.querySelector<HTMLElement>('[data-hide-seek-objective]');
@@ -648,7 +649,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
           if (copy) copy.textContent = '생존자가 게임을 탈주하였습니다.';
         } else {
           if (title) title.textContent = won ? '추격 성공!' : '다음 밤을 노려보세요';
-          if (copy) copy.textContent = snapshot.winner === 'survivor' ? '생존자 팀이 잠긴 탈출로를 열었습니다.' : '술래가 병동의 모든 생존자를 찾아냈습니다.';
+          if (copy) copy.textContent = snapshot.winner === 'survivor' ? '생존자 팀이 탈출로의 자물쇠 5개를 모두 해제했습니다.' : '술래가 병동의 모든 생존자를 찾아냈습니다.';
         }
         const reward = result.querySelector<HTMLElement>('[data-hide-seek-result-reward]');
         const rewardPoints = me.role === 'ghost' ? HIDE_SEEK_RULES.ghostVictoryPoints : HIDE_SEEK_RULES.survivorVictoryPoints;
@@ -692,24 +693,33 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       this.pointerId = null;
       this.pointerOrigin = null;
       this.movement = { x: 0, y: 0 };
-      this.enqueueDeathNotice('당신은 사망하였습니다', true);
+      this.enqueueCenterNotice('당신은 사망하였습니다', true);
     }
     if (me?.role === 'ghost') {
-      for (const _player of deaths) this.enqueueDeathNotice('생존자를 잡았습니다');
+      for (const _player of deaths) this.enqueueCenterNotice('생존자를 잡았습니다');
       return;
     }
     for (const player of deaths) {
-      if (player.id !== this.playerId) this.enqueueDeathNotice(`${player.number ?? '?'}번이 사망하였습니다`);
+      if (player.id !== this.playerId) this.enqueueCenterNotice(`${player.number ?? '?'}번이 사망하였습니다`);
     }
   }
 
-  private enqueueDeathNotice(message: string, priority = false): void {
-    if (priority) this.noticeQueue.unshift(message);
-    else this.noticeQueue.push(message);
-    if (!this.noticeTimer) this.showNextDeathNotice();
+  private handleLockUnlocks(previous: HideSeekSnapshot | null, next: HideSeekSnapshot): void {
+    if (!previous || previous.matchId !== next.matchId || previous.phase === 'LOBBY') return;
+    const previousCount = unlockedLockCount(previous);
+    const nextCount = unlockedLockCount(next);
+    for (let lock = previousCount + 1; lock <= nextCount; lock += 1) {
+      this.enqueueCenterNotice(`${lock}번째 자물쇠가 해제되었습니다.`);
+    }
   }
 
-  private showNextDeathNotice(): void {
+  private enqueueCenterNotice(message: string, priority = false): void {
+    if (priority) this.noticeQueue.unshift(message);
+    else this.noticeQueue.push(message);
+    if (!this.noticeTimer) this.showNextCenterNotice();
+  }
+
+  private showNextCenterNotice(): void {
     const notice = this.options.app.querySelector<HTMLElement>('[data-hide-seek-death-notice]');
     const message = this.noticeQueue.shift();
     if (!message) {
@@ -718,14 +728,14 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     }
     if (!notice) {
       this.noticeQueue.unshift(message);
-      this.noticeTimer = window.setTimeout(() => this.showNextDeathNotice(), 100);
+      this.noticeTimer = window.setTimeout(() => this.showNextCenterNotice(), 100);
       return;
     }
     notice.textContent = message;
     notice.classList.add('visible');
     this.noticeTimer = window.setTimeout(() => {
       notice.classList.remove('visible');
-      this.noticeTimer = window.setTimeout(() => this.showNextDeathNotice(), 120);
+      this.noticeTimer = window.setTimeout(() => this.showNextCenterNotice(), 120);
     }, 2_000);
   }
 

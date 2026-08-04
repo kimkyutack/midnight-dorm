@@ -287,7 +287,7 @@ describe('hide-and-seek authoritative rules', () => {
     expect(engine.snapshot().unlockedLocks).toBe(0);
   });
 
-  it('consumes one carried key per three-second delivery and opens the exit only on the fifth lock', () => {
+  it('consumes one carried key per three-second delivery and ends with a survivor victory on the fifth lock', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
     const seeded = engine.serialize();
@@ -301,7 +301,6 @@ describe('hide-and-seek authoritative rules', () => {
     ghost.position = { ...safeGhostTile };
     ghost.previousPosition = { ...safeGhostTile };
     ghost.movement = { x: 0, y: 0 };
-    inactiveSurvivor.alive = false;
     inactiveSurvivor.movement = { x: 0, y: 0 };
     engine.restore(seeded);
     engine.tick(0.1);
@@ -347,13 +346,14 @@ describe('hide-and-seek authoritative rules', () => {
         expect(deliveredCarrier).toMatchObject({ alive: true, escaped: false });
         expect(delivered.phase).toBe('HUNT');
       } else {
-        expect(deliveredCarrier).toMatchObject({ alive: false, escaped: true });
+        expect(deliveredCarrier).toMatchObject({ alive: true, escaped: false });
+        expect(delivered.players.find((player) => player.id === inactiveSurvivor.id)).toMatchObject({ alive: true, escaped: false });
         expect(delivered).toMatchObject({ phase: 'RESULT', winner: 'survivor' });
       }
     }
   });
 
-  it('keeps a carrier bot still at the exit until the fifth lock is opened and the match ends', () => {
+  it('keeps a carrier bot still at the exit until the fifth lock ends the match', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
     const persisted = engine.serialize();
@@ -394,8 +394,8 @@ describe('hide-and-seek authoritative rules', () => {
       winner: 'survivor',
     });
     expect(engine.snapshot().players.find((player) => player.id === carrierBot.id)).toMatchObject({
-      alive: false,
-      escaped: true,
+      alive: true,
+      escaped: false,
       movement: { x: 0, y: 0 },
     });
   });
