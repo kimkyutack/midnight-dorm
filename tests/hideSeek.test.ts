@@ -61,6 +61,12 @@ describe('hide-and-seek map', () => {
     expect(visited.size).toBe(walkable.size);
   });
 
+  it('keeps every exit candidate in the authoritative map only', () => {
+    const engine = new HideSeekEngine('PRIVATE1', 91_337);
+    expect(engine.map.exitCandidates).toHaveLength(4);
+    expect(engine.mapForClient().exitCandidates).toEqual([]);
+  });
+
   it('uses a wall-blocked 360-degree lantern radius and ignores hidden survivors', () => {
     const { engine, ids } = joinedEngine();
     advanceToHunt(engine, ids[0] as string);
@@ -239,6 +245,39 @@ describe('hide-and-seek authoritative rules', () => {
     expect(ghostView.players.find((player) => player.id === survivor.id)?.position).toEqual({ x: -999, y: -999 });
     const survivorView = engine.snapshotFor(survivor.id);
     expect(survivorView.players.find((player) => player.id === ghost.id)?.position).toEqual({ x: -999, y: -999 });
+  });
+
+  it('never exposes the active exit to the ghost before, during, or after the hunt', () => {
+    const { engine, ids } = joinedEngine();
+    expect(engine.start(ids[0] as string).ok).toBe(true);
+    const roleLocked = engine.snapshot();
+    const ghost = roleLocked.players.find((player) => player.role === 'ghost');
+    if (!ghost) throw new Error('missing ghost role');
+    const authoritativeExit = roleLocked.activeExit;
+    expect(authoritativeExit.x).toBeGreaterThanOrEqual(0);
+    expect(engine.snapshotFor(ghost.id)).toMatchObject({
+      activeExit: { x: -999, y: -999 },
+      exitDiscovered: false,
+    });
+
+    for (let index = 0; index < 260 && engine.snapshot().phase !== 'HUNT'; index += 1) engine.tick(0.1);
+    const discovered = engine.serialize();
+    discovered.snapshot.exitDiscovered = true;
+    engine.restore(discovered);
+    expect(engine.snapshotFor(ghost.id)).toMatchObject({
+      activeExit: { x: -999, y: -999 },
+      exitDiscovered: false,
+    });
+
+    const finished = engine.serialize();
+    finished.snapshot.phase = 'RESULT';
+    finished.snapshot.winner = 'ghost';
+    engine.restore(finished);
+    expect(engine.snapshotFor(ghost.id)).toMatchObject({
+      activeExit: { x: -999, y: -999 },
+      exitDiscovered: false,
+    });
+    expect(engine.snapshot().activeExit).toEqual(authoritativeExit);
   });
 
   it('carries a nearby key without unlocking a lock and rejects a second key for the same survivor', () => {
@@ -720,6 +759,22 @@ describe('hide-and-seek authoritative rules', () => {
       phase: 'RESULT',
       winner: 'ghost',
       resultReason: 'last-survivor-abandoned',
+    });
+  });
+
+  it('awards the ghost victory when time expires before all five locks are opened', () => {
+    const { engine, ids } = joinedEngine();
+    advanceToHunt(engine, ids[0] as string);
+    const persisted = engine.serialize();
+    persisted.snapshot.unlockedLocks = HIDE_SEEK_RULES.requiredKeys - 1;
+    persisted.snapshot.phaseRemaining = 0.05;
+    engine.restore(persisted);
+    engine.tick(0.1);
+    expect(engine.snapshot()).toMatchObject({
+      phase: 'RESULT',
+      winner: 'ghost',
+      resultReason: 'timeout',
+      unlockedLocks: HIDE_SEEK_RULES.requiredKeys - 1,
     });
   });
 

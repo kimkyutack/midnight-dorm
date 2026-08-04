@@ -647,6 +647,9 @@ class HideSeekExperience implements HideSeekExperienceHandle {
         } else if (snapshot.resultReason === 'last-survivor-abandoned') {
           if (title) title.textContent = '술래 승리!';
           if (copy) copy.textContent = '생존자가 게임을 탈주하였습니다.';
+        } else if (snapshot.resultReason === 'timeout') {
+          if (title) title.textContent = me.role === 'ghost' ? '술래 승리!' : '시간 초과';
+          if (copy) copy.textContent = '제한시간 안에 자물쇠 5개를 모두 해제하지 못했습니다.';
         } else {
           if (title) title.textContent = won ? '추격 성공!' : '다음 밤을 노려보세요';
           if (copy) copy.textContent = snapshot.winner === 'survivor' ? '생존자 팀이 탈출로의 자물쇠 5개를 모두 해제했습니다.' : '술래가 병동의 모든 생존자를 찾아냈습니다.';

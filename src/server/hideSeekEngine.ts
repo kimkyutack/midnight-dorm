@@ -122,6 +122,11 @@ export class HideSeekEngine {
     return snapshot;
   }
 
+  /** Candidate exits are server-only so clients cannot inspect the active exit pool. */
+  mapForClient(): HideSeekMap {
+    return { ...this.map, exitCandidates: [] };
+  }
+
   /**
    * Only send information that the requesting role is allowed to know.
    * Movement and collisions remain authoritative on the full private state.
@@ -129,8 +134,14 @@ export class HideSeekEngine {
   snapshotFor(viewerId: string, perspectivePlayerId?: string): HideSeekSnapshot {
     const snapshot = this.snapshot();
     const viewer = this.player(viewerId);
-    if (!viewer || snapshot.phase === 'LOBBY' || snapshot.phase === 'ROLE_LOCK' || snapshot.phase === 'RESULT') return snapshot;
     const hiddenPosition = { x: -999, y: -999 };
+    if (!viewer || !viewer.role) {
+      snapshot.keys = [];
+      snapshot.keyHint = null;
+      snapshot.activeExit = hiddenPosition;
+      snapshot.exitDiscovered = false;
+      return snapshot;
+    }
     if (viewer.role === 'ghost') {
       snapshot.keys = [];
       snapshot.keyHint = null;
@@ -162,6 +173,12 @@ export class HideSeekEngine {
       && !requestedPerspective.escaped
       ? requestedPerspective
       : viewer;
+    const exitIsVisible = snapshot.phase !== 'ROLE_LOCK'
+      && (snapshot.exitDiscovered || pointDistance(perspective.position, snapshot.activeExit) <= 3);
+    if (!exitIsVisible) {
+      snapshot.activeExit = hiddenPosition;
+      snapshot.exitDiscovered = false;
+    }
     const ghostIsNearby = ghost
       && pointDistance(perspective.position, ghost.position) <= HIDE_SEEK_RULES.lanternRange
       && hideSeekHasLineOfSight(this.map, perspective.position, ghost.position);
@@ -871,7 +888,7 @@ export class HideSeekEngine {
     if (this.state.phaseRemaining <= 0) {
       this.state.phase = 'RESULT';
       this.state.winner = this.state.unlockedLocks >= HIDE_SEEK_RULES.requiredKeys ? 'survivor' : 'ghost';
-      this.state.resultReason = null;
+      this.state.resultReason = this.state.winner === 'ghost' ? 'timeout' : null;
     }
   }
 

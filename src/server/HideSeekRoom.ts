@@ -159,7 +159,7 @@ export class HideSeekRoom extends DurableObject<Env> {
       type: 'welcome',
       playerId: joined.player.id,
       reconnectToken: joined.reconnectToken,
-      map: engine.map,
+      map: engine.mapForClient(),
       snapshot: welcomeSnapshot,
       exploredBits: welcomeExploredBits,
     });

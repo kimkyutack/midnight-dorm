@@ -42,7 +42,7 @@ export type HideSeekPhase =
   | 'RESULT'
   | 'CLOSED';
 export type HideSeekRole = 'ghost' | 'survivor';
-export type HideSeekResultReason = 'ghost-abandoned' | 'last-survivor-abandoned' | null;
+export type HideSeekResultReason = 'ghost-abandoned' | 'last-survivor-abandoned' | 'timeout' | null;
 export type HideSeekRolePreference = 'ghost' | 'survivor' | 'any';
 export type HideSeekQuickChat = '귀신 발견!' | '열쇠 발견!' | '탈출로 발견!' | '도망쳐!';
 export type HideSeekRegionId = 'reception' | 'ward' | 'surgery' | 'nurses' | 'laundry' | 'records' | 'maintenance';
