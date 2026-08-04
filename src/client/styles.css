@@ -11929,10 +11929,10 @@ body.game-chat-active {
 }
 .home-mode-options .launch-guide-target::after {
   top: 50%;
-  right: calc(100% + 8px);
+  right: clamp(48px, 13%, 66px);
   bottom: auto;
   left: auto;
-  content: "→";
+  content: "←";
   transform: translateY(-50%);
 }
 @keyframes hide-seek-guide-bounce {

@@ -105,6 +105,8 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   private pointerOrigin: Tile | null = null;
   private movement: Tile = { x: 0, y: 0 };
   private lastMoveSentAt = 0;
+  private localRenderMoving = false;
+  private localRenderStoppedAt = 0;
   private resizeObserver: ResizeObserver | null = null;
   private keyboard = new Set<string>();
   private readonly keyDown = (event: KeyboardEvent): void => {
@@ -955,10 +957,20 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     const activeGhostScreen = activeGhost
       ? toScreen(renderedPositions.get(activeGhost.id) ?? { ...activeGhost.position, initialized: true })
       : null;
-    const hiddenFrontScreen = me.hiddenIn
-      ? map.hideouts.find((hideout) => hideout.id === me.hiddenIn)?.front
+    const hiddenHideout = me.hiddenIn
+      ? map.hideouts.find((hideout) => hideout.id === me.hiddenIn)
       : null;
-    this.drawDarkness(context, width, height, tileSize, me, snapshot, activeGhostScreen, hiddenFrontScreen ? toScreen(hiddenFrontScreen) : null);
+    this.drawDarkness(
+      context,
+      width,
+      height,
+      tileSize,
+      me,
+      snapshot,
+      activeGhostScreen,
+      hiddenHideout ? toScreen(hiddenHideout.front) : null,
+      hiddenHideout ? toScreen(hiddenHideout.tile) : null,
+    );
     if (me.role === 'ghost') this.drawPlayer(context, me, toScreen(target), tileSize, time, true);
     for (const player of snapshot.players) {
       if (!player.detected || player.position.x < 0 || player.escaped) continue;
@@ -980,12 +992,68 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     const canMove = snapshot && (snapshot.phase === 'HUNT' || snapshot.phase === 'LAST_ESCAPE' || snapshot.phase === 'HIDE');
     const input = player.id === this.playerId ? this.movement : player.movement;
     const magnitude = canMove && !player.hiddenIn && player.alive && !player.escaped ? Math.min(1, Math.hypot(input.x, input.y)) : 0;
+    const canOccupy = (candidate: Tile): boolean => {
+      const candidateKey = tileKey(candidate);
+      if (!this.walkableTiles.has(candidateKey)) return false;
+      if (player.role === 'survivor' && this.ghostRoomRestrictedTiles.has(candidateKey)) return false;
+      if (player.role === 'ghost' && snapshot?.phase === 'HIDE' && !this.ghostRoomInteriorTiles.has(candidateKey)) return false;
+      return true;
+    };
+    let render = this.renderPositions.get(player.id);
+    if (!render || player.position.x < 0 || pointDistance(render, player.position) > 5) {
+      render = { ...player.position, initialized: true };
+      this.renderPositions.set(player.id, render);
+      return render;
+    }
+
+    const estimatedElapsed = (snapshot?.elapsed ?? 0) + sinceSnapshot;
+    const sprintMultiplier = estimatedElapsed < player.sprintUntil
+      ? player.role === 'ghost' ? HIDE_SEEK_RULES.ghostSprintMultiplier : HIDE_SEEK_RULES.survivorSprintMultiplier
+      : 1;
+
+    if (player.id === this.playerId) {
+      if (magnitude > .001) {
+        this.localRenderMoving = true;
+        const distance = HIDE_SEEK_RULES.baseSpeed * sprintMultiplier * magnitude * frameDelta;
+        const moved = resolveHideSeekMovement(
+          render,
+          {
+            x: (input.x / magnitude) * distance,
+            y: (input.y / magnitude) * distance,
+          },
+          canOccupy,
+        );
+        render.x = moved.x;
+        render.y = moved.y;
+
+        // Authoritative snapshots arrive behind the currently rendered frame.
+        // Correct only meaningful drift while moving; following every small
+        // network offset makes the camera repeatedly step backwards.
+        const error = pointDistance(render, player.position);
+        if (error > .8) {
+          const response = error > 2.5 ? 8 : 2.4;
+          const alpha = 1 - Math.exp(-response * frameDelta);
+          render.x += (player.position.x - render.x) * alpha;
+          render.y += (player.position.y - render.y) * alpha;
+        }
+      } else {
+        if (this.localRenderMoving) {
+          this.localRenderMoving = false;
+          this.localRenderStoppedAt = time;
+        }
+        // Give the server one snapshot interval to acknowledge the stop before
+        // settling, avoiding a visible rollback at pointer release.
+        if (time - this.localRenderStoppedAt > 150) {
+          const alpha = 1 - Math.exp(-10 * frameDelta);
+          render.x += (player.position.x - render.x) * alpha;
+          render.y += (player.position.y - render.y) * alpha;
+        }
+      }
+      return render;
+    }
+
     let predicted = { ...player.position };
     if (magnitude > .001) {
-      const estimatedElapsed = (snapshot?.elapsed ?? 0) + sinceSnapshot;
-      const sprintMultiplier = estimatedElapsed < player.sprintUntil
-        ? player.role === 'ghost' ? HIDE_SEEK_RULES.ghostSprintMultiplier : HIDE_SEEK_RULES.survivorSprintMultiplier
-        : 1;
       const distance = HIDE_SEEK_RULES.baseSpeed * sprintMultiplier * magnitude * sinceSnapshot;
       predicted = resolveHideSeekMovement(
         player.position,
@@ -993,23 +1061,10 @@ class HideSeekExperience implements HideSeekExperienceHandle {
           x: (input.x / magnitude) * distance,
           y: (input.y / magnitude) * distance,
         },
-        (candidate) => {
-          const candidateKey = tileKey(candidate);
-          if (!this.walkableTiles.has(candidateKey)) return false;
-          if (player.role === 'survivor' && this.ghostRoomRestrictedTiles.has(candidateKey)) return false;
-          if (player.role === 'ghost' && snapshot?.phase === 'HIDE' && !this.ghostRoomInteriorTiles.has(candidateKey)) return false;
-          return true;
-        },
+        canOccupy,
       );
     }
-    let render = this.renderPositions.get(player.id);
-    if (!render || player.position.x < 0 || pointDistance(render, predicted) > 5) {
-      render = { ...predicted, initialized: true };
-      this.renderPositions.set(player.id, render);
-      return render;
-    }
-    const response = player.id === this.playerId ? 20 : 15;
-    const alpha = 1 - Math.exp(-response * frameDelta);
+    const alpha = 1 - Math.exp(-15 * frameDelta);
     render.x += (predicted.x - render.x) * alpha;
     render.y += (predicted.y - render.y) * alpha;
     return render;
@@ -1087,6 +1142,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     snapshot: HideSeekSnapshot,
     activeGhostScreen: Tile | null,
     hiddenFrontScreen: Tile | null,
+    hiddenShelterScreen: Tile | null,
   ): void {
     const darkness = this.darknessContext;
     if (!darkness) return;
@@ -1127,8 +1183,9 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       darkness.globalCompositeOperation = 'destination-out';
       darkness.fillStyle = 'rgba(0, 0, 0, .96)';
       darkness.fillRect(left, top, roomWidth, roomHeight);
-    } else if (survivorHidden && hiddenFrontScreen) {
-      carveLight(hiddenFrontScreen, tileSize * .72, 1, .7);
+    } else if (survivorHidden) {
+      if (hiddenShelterScreen) carveLight(hiddenShelterScreen, tileSize * .9, 1, .68);
+      if (hiddenFrontScreen) carveLight(hiddenFrontScreen, tileSize * .72, 1, .7);
     } else {
       carveLight(center, tileSize * (me.role === 'ghost' ? HIDE_SEEK_RULES.lanternRange + .25 : 4), 1, me.role === 'ghost' ? .86 : .5);
     }
