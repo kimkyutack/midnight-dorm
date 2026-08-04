@@ -1108,7 +1108,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(WAVE_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '파도 타일',
-      unlock: { kind: 'points', price: 1_800 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(tileSkinTextureUrl(WAVE_TILE_SKIN_ID)).toBe('/assets/tiles/skin-wave/wave-tile.webp');
     expect(tileSkinTextureUrl(DEFAULT_TILE_SKIN_ID)).toBeUndefined();
@@ -1118,7 +1118,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(BEACH_SAND_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '모래사장 타일',
-      unlock: { kind: 'points', price: 1_800 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(tileSkinTextureUrl(BEACH_SAND_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-beach-sand/sand-tile.webp',
@@ -1129,7 +1129,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(CYBERPUNK_NEON_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '네온 회로 타일',
-      unlock: { kind: 'points', price: 1_800 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(tileSkinTextureUrl(CYBERPUNK_NEON_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-cyberpunk-neon/neon-circuit-tile.webp',
@@ -1140,7 +1140,7 @@ describe('survivor customization rules', () => {
     expect(cosmeticById(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toMatchObject({
       slot: 'tile',
       label: '특수수사본부 타일',
-      unlock: { kind: 'points', price: 1_800 },
+      unlock: { kind: 'points', price: 2_500 },
     });
     expect(tileSkinTextureUrl(SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID)).toBe(
       '/assets/tiles/skin-special-ops-headquarters/investigation-floor.webp',
@@ -1219,6 +1219,23 @@ describe('survivor customization rules', () => {
     );
   });
 
+  it('keeps each complete premium theme at exactly 10,000 points', () => {
+    const themedSets = [
+      ['skin-look-puppy-surfer', WAVE_TILE_SKIN_ID, SURFER_WATER_TURRET_SKIN_ID],
+      ['skin-look-tiger-lifeguard', BEACH_SAND_TILE_SKIN_ID, LIFEGUARD_PARASOL_TURRET_SKIN_ID],
+      ['skin-look-cat-neon-rider', CYBERPUNK_NEON_TILE_SKIN_ID, CYBERPUNK_LASER_TURRET_SKIN_ID],
+      ['skin-look-crocodile-police-enforcer', SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID],
+    ];
+
+    for (const itemIds of themedSets) {
+      const total = itemIds.reduce((sum, itemId) => {
+        const unlock = cosmeticById(itemId)?.unlock;
+        return sum + (unlock?.kind === 'points' ? unlock.price : 0);
+      }, 0);
+      expect(total).toBe(10_000);
+    }
+  });
+
   it('uses base concept art for characters and complete art only for skin cards', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
@@ -1281,19 +1298,19 @@ describe('survivor customization rules', () => {
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(false);
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat', 'skin-look-cat-ward'])).toBe(true);
     const explorerSkin = cosmeticById('skin-look-bunny-ward');
-    expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 800 });
+    expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 500 });
     const surferSkin = cosmeticById('skin-look-puppy-surfer');
-    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
-    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const neonLuluSkin = cosmeticById('skin-look-cat-neon-rider');
-    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const cyberKongSkin = cosmeticById('skin-look-hamster-cyber-driver');
-    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const policeCrocoSkin = cosmeticById('skin-look-crocodile-police-enforcer');
-    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     const secretAgentSkin = cosmeticById('skin-look-monkey-secret-agent');
-    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 8_000 });
+    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
       (item) => item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
@@ -1303,7 +1320,7 @@ describe('survivor customization rules', () => {
         || item.id === 'skin-look-hamster-cyber-driver'
         || item.id === 'skin-look-crocodile-police-enforcer'
         || item.id === 'skin-look-monkey-secret-agent'
-        || item.unlock.price === 4_000
+        || item.unlock.price === 2_500
       ),
     )).toBe(true);
   });
