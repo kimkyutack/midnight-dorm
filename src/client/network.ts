@@ -35,6 +35,28 @@ export function mergeSnapshotFrame(
   return { ...frame, buildings: nextBuildings };
 }
 
+/**
+ * A reconnect restores the authoritative player, including lastInputSeq, while
+ * a full page/HMR reload starts the client counter from zero.  Keep the next
+ * local input above the restored acknowledgement or the server will correctly
+ * discard every new drag as an old packet while local prediction keeps moving.
+ */
+export function reconcileMovementInputSequence(
+  current: number,
+  snapshot: Pick<GameSnapshot, 'players'>,
+  playerId: string,
+): number {
+  const authoritative = snapshot.players.find(
+    (player) => player.id === playerId,
+  )?.lastInputSeq;
+  return Math.max(
+    Number.isSafeInteger(current) && current >= 0 ? current : 0,
+    Number.isSafeInteger(authoritative) && (authoritative ?? -1) >= 0
+      ? authoritative ?? 0
+      : 0,
+  );
+}
+
 export class GameNetwork {
   private socket: WebSocket | null = null;
   private sequence = 0;

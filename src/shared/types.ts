@@ -582,6 +582,7 @@ export type GameEventKind =
   | 'item-pickup'
   | 'consumable-use'
   | 'elite-join'
+  | 'auto-bed-claim'
   | 'lights-on'
   | 'victory'
   | 'defeat';

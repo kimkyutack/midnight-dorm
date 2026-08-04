@@ -59,8 +59,8 @@ export const BALANCE = {
   // Two seconds of a fixed ghost poster followed by a two-second fade. The
   // 30-second preparation countdown begins only after this sequence ends.
   ghostIntroSeconds: 4,
-  // Time Attack is announced before the ghost poster so players understand
-  // the special rule before seeing that match's threat card.
+  // Time Attack is announced after the ghost poster and immediately before
+  // the preparation countdown.
   timeAttackIntroSeconds: 2.5,
   countdownSeconds: 30,
   player: {

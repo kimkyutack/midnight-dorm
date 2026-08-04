@@ -1306,10 +1306,10 @@ export class GameEngine {
       ? "PLAYING"
       : this.state.ranked?.firstRankedMatch
       ? 'RANKED_INTRO'
-      : this.state.difficulty.modifier === 'time-attack'
-        ? 'EVENT_INTRO'
-        : this.state.ranked
-          ? 'COUNTDOWN'
+      : this.state.ranked
+          ? this.state.difficulty.modifier === 'time-attack'
+            ? 'EVENT_INTRO'
+            : 'COUNTDOWN'
           : 'GHOST_INTRO';
     this.state.countdown = this.state.tutorial?.active
       ? 0
@@ -1638,54 +1638,67 @@ export class GameEngine {
             ? "비어 있는 2인 방의 침대에 더 가까이 가세요."
             : "다른 생존자가 점유하지 않은 방의 침대에 더 가까이 가세요.",
       };
-    const firstOccupant = candidate.room.ownerIds.length === 0;
-    candidate.room.ownerIds.push(player.id);
-    candidate.room.ownerId ??= player.id;
-    player.roomId = candidate.room.id;
-    player.bedIndex = candidate.bedIndex;
+    this.occupyBed(
+      player,
+      candidate.mapRoom,
+      candidate.room,
+      candidate.bedIndex,
+    );
+    return { ok: true };
+  }
+
+  private occupyBed(
+    player: PlayerState,
+    mapRoom: MapDefinition['rooms'][number],
+    room: RoomState,
+    bedIndex: number,
+  ): void {
+    const bed = mapRoom.beds[bedIndex];
+    if (!bed) return;
+    const firstOccupant = room.ownerIds.length === 0;
+    room.ownerIds.push(player.id);
+    room.ownerId ??= player.id;
+    player.roomId = room.id;
+    player.bedIndex = bedIndex;
     player.goldIncomeElapsed = 0;
     player.powerIncomeElapsed = 0;
-    player.position = { ...candidate.bed };
+    player.position = { ...bed };
     player.velocity = { x: 0, y: 0 };
     const occupancyTrait = this.characterTraitForPlayer(player);
     const grantedDoorLevel = Math.min(
       maxBuildingLevel('reinforced-door'),
       1 + occupancyTrait.occupiedDoorLevelBonus,
     );
-    if (grantedDoorLevel > candidate.room.doorLevel) {
-      candidate.room.doorLevel = grantedDoorLevel;
-      this.applyDoorMaxHp(candidate.room);
-      candidate.room.doorHp = candidate.room.doorMaxHp;
-      const occupiedMapRoom = this.map.rooms.find(
-        (room) => room.id === candidate.room.id,
-      );
+    if (grantedDoorLevel > room.doorLevel) {
+      room.doorLevel = grantedDoorLevel;
+      this.applyDoorMaxHp(room);
+      room.doorHp = room.doorMaxHp;
       this.pendingEvents.push({
         kind: 'upgrade',
-        roomId: candidate.room.id,
-        playerId,
-        position: occupiedMapRoom?.door,
+        roomId: room.id,
+        playerId: player.id,
+        position: mapRoom.door,
         label: `${BALANCE.buildings['reinforced-door'].label} Lv.${grantedDoorLevel}`,
       });
     }
     // The gorilla passive is a real outer door layer, not another door-level
     // shortcut. A stronger second occupant can increase the layer, while the
     // existing damage remains preserved.
-    this.refreshDoorShield(candidate.room, true);
+    this.refreshDoorShield(room, true);
     if (firstOccupant) {
-      candidate.room.tileSkinId =
+      room.tileSkinId =
         player.appearance.tileSkin &&
         player.appearance.tileSkin !== DEFAULT_TILE_SKIN_ID
           ? player.appearance.tileSkin
           : '';
-      candidate.room.tileSkinActivatedAt = this.state.elapsed;
+      room.tileSkinActivatedAt = this.state.elapsed;
       for (const building of this.state.buildings) {
-        if (building.roomId === candidate.room.id && !building.ownerId) {
+        if (building.roomId === room.id && !building.ownerId) {
           building.ownerId = player.id;
         }
       }
     }
-    this.placeCarriedLoot(player, candidate.room);
-    return { ok: true };
+    this.placeCarriedLoot(player, room);
   }
 
   build(
@@ -2825,22 +2838,23 @@ export class GameEngine {
       // the remaining two seconds before the countdown begins.
       this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
       if (this.state.difficulty.introRemaining <= 0) {
-        this.state.status = 'COUNTDOWN';
-        this.state.countdown = this.countdownSecondsForMatch();
-        this.releaseCountdownLoot();
-      }
-    } else if (this.state.status === 'EVENT_INTRO') {
-      // Time Attack is shown first, then the normal per-ghost warning poster.
-      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
-      if (this.state.difficulty.introRemaining <= 0) {
-        if (this.state.ranked) {
+        if (this.state.difficulty.modifier === 'time-attack') {
+          this.state.status = 'EVENT_INTRO';
+          this.state.difficulty.introRemaining = BALANCE.timeAttackIntroSeconds;
+        } else {
           this.state.status = 'COUNTDOWN';
           this.state.countdown = this.countdownSecondsForMatch();
           this.releaseCountdownLoot();
-        } else {
-          this.state.status = 'GHOST_INTRO';
-          this.state.difficulty.introRemaining = BALANCE.ghostIntroSeconds;
         }
+      }
+    } else if (this.state.status === 'EVENT_INTRO') {
+      // Time Attack follows the threat poster and sits directly before the
+      // preparation countdown. Ranked contracts skip the identity poster.
+      this.state.difficulty.introRemaining = Math.max(0, this.state.difficulty.introRemaining - dt);
+      if (this.state.difficulty.introRemaining <= 0) {
+        this.state.status = 'COUNTDOWN';
+        this.state.countdown = this.countdownSecondsForMatch();
+        this.releaseCountdownLoot();
       }
     } else if (this.state.status === "COUNTDOWN") {
       this.updateTutorialProgress();
@@ -2948,6 +2962,7 @@ export class GameEngine {
 
   private beginPlaying(): void {
     this.state.status = "PLAYING";
+    this.rescueUnclaimedPlayersTrappedInOccupiedRooms();
     for (const player of this.state.players) {
       if (!player.alive) continue;
       const enteredRoom = this.map.rooms.find((room) =>
@@ -2992,13 +3007,63 @@ export class GameEngine {
       ghost.wanderUntil = -1;
       ghost.path = [];
     }
-    // 점유는 interact()만 허용한다. 준비 시간이 끝났다고 빈 침대를
-    // 강제 배정하지 않아, 미점유 생존자는 복도에서 빈 방을 직접 찾아야 한다.
+    // 일반 미점유 생존자는 계속 직접 빈 침대를 찾아야 한다. 위 구조는
+    // 다른 생존자의 닫힌 방에 갇힌 경우에만 적용되는 단일 예외다.
     this.syncPrimaryGhost();
     this.pendingEvents.push({
       kind: "lights-on",
       label: "복도 불이 켜졌습니다. 귀신의 공격이 시작됩니다!",
     });
+  }
+
+  /**
+   * At lights-on an unclaimed survivor can be sealed inside another player's
+   * already occupied room. Only that trapped case receives a fallback bed;
+   * corridor survivors and survivors standing in an unoccupied room keep the
+   * normal last-chance route and must claim a bed themselves.
+   */
+  private rescueUnclaimedPlayersTrappedInOccupiedRooms(): void {
+    if (this.state.tutorial?.active) return;
+    for (const player of this.state.players) {
+      if (!player.alive || player.roomId) continue;
+      const enteredMapRoom = this.map.rooms.find((room) =>
+        isPositionOnRoomFloor(room, player.position),
+      );
+      if (!enteredMapRoom) continue;
+      const enteredRoom = this.state.rooms.find(
+        (room) => room.id === enteredMapRoom.id,
+      );
+      if (!enteredRoom?.ownerIds.length) continue;
+
+      const emptyBeds = this.map.rooms.flatMap((mapRoom) => {
+        const room = this.state.rooms.find(
+          (candidate) => candidate.id === mapRoom.id,
+        );
+        if (!room || room.ownerIds.length > 0) return [];
+        return mapRoom.beds.map((_, bedIndex) => ({
+          mapRoom,
+          room,
+          bedIndex,
+        }));
+      });
+      const fallback = emptyBeds.length
+        ? emptyBeds[this.rng.int(0, emptyBeds.length - 1)]
+        : undefined;
+      if (!fallback) continue;
+      this.occupyBed(
+        player,
+        fallback.mapRoom,
+        fallback.room,
+        fallback.bedIndex,
+      );
+      this.pendingEvents.push({
+        kind: 'auto-bed-claim',
+        playerId: player.id,
+        roomId: fallback.room.id,
+        position: { ...player.position },
+        label: '시간이 초과되어 자동 점유됩니다',
+      });
+    }
   }
 
   /**

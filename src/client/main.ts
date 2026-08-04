@@ -124,7 +124,10 @@ import {
   preloadBuildingCatalogArt,
   preloadSupplyCatalogArt,
 } from "./game/CatalogThumbnail3D";
-import { GameNetwork } from "./network";
+import {
+  GameNetwork,
+  reconcileMovementInputSequence,
+} from "./network";
 import { loadProfile, saveProfile } from "./storage";
 import { setupMobileViewportCompatibility } from "./viewport";
 import {
@@ -827,7 +830,7 @@ function loading(): void {
 }
 
 function loadingMarkup(title: string, detail: string): string {
-  return `<main class="boot-screen"><div class="boot-backdrop" aria-hidden="true"></div><header class="boot-brand"><i aria-hidden="true">☾</i><span><small>MIDNIGHT WARD</small><b>심야 병동</b></span></header><section class="boot-status" role="status"><div class="boot-ward-signal" aria-hidden="true"><i></i><i></i><i></i><b>7</b></div><div class="boot-status-copy"><small>WARD CONNECTION</small><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p></div><div class="boot-progress" aria-hidden="true"><i></i></div><div class="boot-progress-dots" aria-hidden="true"><i></i><i></i><i></i></div></section></main>`;
+  return `<main class="boot-screen"><img class="boot-scene-art" src="/assets/cinematic/arcade-stage-loading-v1.webp" alt="" aria-hidden="true" fetchpriority="high" decoding="sync" /><div class="boot-backdrop" aria-hidden="true"></div><header class="boot-brand"><i aria-hidden="true">☾</i><span><small>MIDNIGHT WARD</small><b>심야 병동</b></span></header><section class="boot-status" role="status"><div class="boot-ward-signal" aria-hidden="true"><i></i><i></i><i></i><b>7</b></div><div class="boot-status-copy"><small>WARD CONNECTION</small><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p></div><div class="boot-progress" aria-hidden="true"><i></i></div><div class="boot-progress-dots" aria-hidden="true"><i></i><i></i><i></i></div></section></main>`;
 }
 
 function desktopNotice(): void {
@@ -928,7 +931,7 @@ function homeScreen(): void {
       <header class="home-topbar">
         <button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
           <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div>
-          <div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small>${escapeHtml(profileDisplay.labelText)}</small><em>인게임 라벨 · 변경</em></div>
+          <div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small style="font-weight: 900;">${escapeHtml(profileDisplay.labelText)}</small><em style="font-weight: 900;">인게임 라벨 · 변경</em></div>
         </button>
         <div class="home-utility"><strong>${gameMenuIcon("points")}<span>${currentAccount.customPoints.toLocaleString()} P</span></strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div>
       </header>
@@ -1894,7 +1897,7 @@ function showRankingPreview(): void {
           ? "bronze"
           : null;
   dismissibleModal(
-    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ""}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영. 첫 5판 배치전은 RP 변동 폭이 2배입니다.</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
+    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ""}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영 · 첫 5판 배치전</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
     "home-picker-modal",
   );
   const board = document.querySelector<HTMLOListElement>(
@@ -2206,7 +2209,13 @@ function cosmeticCollectionScreen(
         : "equip";
       let status = shopping ? "보유 중" : "착용";
       let locked = false;
-      if (shopping && requiresCharacter) {
+      // The collection is the source of truth for storefront presentation.
+      // In particular, rank rewards can remain owned after the visible rank
+      // changes, and must not be presented as an unlockable reward again.
+      if (shopping && owned) {
+        action = null;
+        status = "보유 중";
+      } else if (shopping && requiresCharacter) {
         action = null;
         status = "캐릭터 구매 필요";
         locked = true;
@@ -2986,6 +2995,11 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     playerId = id;
     mapData = map;
     snapshot = initial;
+    inputSequence = reconcileMovementInputSequence(
+      inputSequence,
+      initial,
+      id,
+    );
     optimisticPowerPanelModes.clear();
     updateTestApi();
     profile.reconnectTokens[code] = roomNetwork.reconnectToken;
@@ -3023,6 +3037,11 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
+    inputSequence = reconcileMovementInputSequence(
+      inputSequence,
+      next,
+      playerId,
+    );
     reconcileOptimisticPowerPanelModes(next);
     const armedSoulVialId = next.players.find(
       (player) => player.id === playerId,
@@ -3282,6 +3301,15 @@ function updateLobby(state: GameSnapshot): void {
       } => Boolean(entry.definition),
     );
   const selected = new Set(me.consumableLoadout);
+  // Lobby snapshots arrive continuously. Replacing this subtree for every
+  // snapshot restarts image loading and causes the loadout list to flicker.
+  // Only rebuild it when the inventory or selected loadout actually changes.
+  const loadoutSignature = JSON.stringify({
+    consumables: owned.map(({ entry }) => [entry.itemId, entry.quantity]),
+    selected: me.consumableLoadout,
+  });
+  if (loadout.dataset.lobbyLoadoutSignature === loadoutSignature) return;
+  loadout.dataset.lobbyLoadoutSignature = loadoutSignature;
   loadout.innerHTML = `<header><div><span class="eyebrow">TACTICAL LOADOUT</span><strong>내 아이템 장착 <small>${selected.size}/3</small></strong></div><button class="btn ghost" data-open-supply-shop>상점</button></header>${owned.length ? `<div class="loadout-items">${owned.map(({ entry, definition }) => `<button class="loadout-item ${selected.has(definition.id) ? "selected" : ""}" data-loadout-id="${definition.id}" aria-pressed="${selected.has(definition.id)}"><span class="loadout-item-art"><img data-supply-art="${definition.id}" alt="${escapeHtml(definition.label)} 이미지"/></span><span><strong>${escapeHtml(definition.label)}</strong><small>${entry.quantity}개 보유 · ${escapeHtml(definition.description)}</small></span><b>${selected.has(definition.id) ? "장착" : "선택"}</b></button>`).join("")}</div><p>장착한 보급품은 한 판에 각각 한 번만 사용할 수 있습니다.</p>` : `<div class="loadout-empty"><span>아직 구매한 전술 보급이 없습니다.</span><button class="btn primary" data-open-supply-shop>전술 보급 상점</button></div>`}`;
   hydrateCatalogArt(loadout, {
     appearance: me.appearance,
@@ -3935,9 +3963,7 @@ function updateOpeningMinimap(): void {
       context.strokeStyle =
         player.id === playerId
           ? "rgba(255,77,91,.72)"
-          : player.isBot
-            ? "rgba(255,183,77,.48)"
-            : "rgba(91,226,245,.52)";
+          : "rgba(91,226,245,.52)";
       context.lineWidth = Math.max(1, scale * 0.3);
       context.lineCap = "round";
       context.stroke();
@@ -3954,9 +3980,7 @@ function updateOpeningMinimap(): void {
     context.fillStyle =
       player.id === playerId
         ? "#ff3d50"
-        : player.isBot
-          ? "#ffb347"
-          : "#5be2f5";
+        : "#5be2f5";
     context.fill();
     context.strokeStyle = "rgba(255,255,255,.9)";
     context.lineWidth = 0.8;
@@ -5350,6 +5374,10 @@ function playEvents(events: GameEvent[]): void {
     toast("귀신이 내 문을 공격해 골드 획득이 봉인됐습니다.");
   const lightsOn = events.find((event) => event.kind === "lights-on");
   if (lightsOn?.label) toast(lightsOn.label);
+  const autoBedClaim = events.find(
+    (event) => event.kind === "auto-bed-claim" && event.playerId === playerId,
+  );
+  if (autoBedClaim?.label) showCenteredGameNotice(autoBedClaim.label);
   if (
     events.some(
       (event) =>
@@ -5357,7 +5385,7 @@ function playEvents(events: GameEvent[]): void {
         event.label === TIME_ATTACK_EXPIRED_MESSAGE,
     )
   )
-    showTimeAttackExpiredNotice();
+    showCenteredGameNotice(TIME_ATTACK_EXPIRED_MESSAGE, 3_000);
   if (
     profile.vibration &&
     events.some(
@@ -5367,17 +5395,17 @@ function playEvents(events: GameEvent[]): void {
     navigator.vibrate?.(35);
 }
 
-function showTimeAttackExpiredNotice(): void {
+function showCenteredGameNotice(label: string, duration = 2_400): void {
   const notice = app.querySelector<HTMLElement>("[data-time-attack-expired]");
   if (!notice) return;
-  notice.textContent = TIME_ATTACK_EXPIRED_MESSAGE;
+  notice.textContent = label;
   notice.classList.remove("hidden");
   window.requestAnimationFrame(() => notice.classList.add("show"));
   window.clearTimeout(timeAttackExpiredTimer);
   timeAttackExpiredTimer = window.setTimeout(() => {
     notice.classList.remove("show");
     window.setTimeout(() => notice.classList.add("hidden"), 220);
-  }, 3_000);
+  }, duration);
 }
 
 const QUICK_CHAT_PHRASES: readonly QuickChatPhrase[] = [

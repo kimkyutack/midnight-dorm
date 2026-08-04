@@ -1888,7 +1888,6 @@
   -webkit-overflow-scrolling: touch;
 }
 .home-picker-modal .stage-picker-sheet {
-  height: min(calc(100dvh - 40px), 650px);
 }
 .home-picker-sheet > header {
   display: flex;
@@ -2086,7 +2085,7 @@
   display: grid;
   justify-items: center;
   gap: 7px;
-  margin: 0 0 15px;
+  margin: 15px 0;
   padding: 4px 0 15px;
   border-bottom: 1px solid rgba(202, 227, 234, 0.12);
 }
@@ -10297,7 +10296,7 @@ body.game-chat-active {
     -webkit-overflow-scrolling: touch;
   }
   .supply-shop-screen .supply-card {
-    min-height: 188px;
+    min-height: 194px;
     padding: 6px;
     grid-template-rows: 76px minmax(0, 1fr) 36px;
     gap: 5px;
@@ -12584,8 +12583,8 @@ body.game-chat-active {
 
 .game-home .home-footer-nav .game-menu-icon,
 .game-home .home-footer-nav button.active .game-menu-icon {
-  width: 37px;
-  height: 37px;
+  width: 39px;
+  height: 39px;
   margin: 0 auto;
 }
 
@@ -13257,10 +13256,8 @@ body.game-chat-active {
 .home-stage-grid,
 .profile-display-options,
 .mailbox-list,
-.home-picker-sheet > :not(header),
-.tutorial-sheet > :not(header) {
-  margin-right: 16px;
-  margin-left: 16px;
+.home-picker-sheet > :not(header) {
+  margin: 16px;
 }
 
 .home-mode-options > button,
@@ -14022,14 +14019,14 @@ body.game-chat-active {
 
 .game-home .home-side-menu > button > span:last-of-type {
   max-width: 53px;
-  padding: 1px 6px 2px;
+  padding: 3px 6px 2px;
   border: 1px solid rgba(255, 255, 255, 0.94);
   border-radius: 9px;
   color: #17325f;
   background: rgba(248, 253, 255, 0.92);
   box-shadow: 0 2px 0 rgba(41, 100, 187, 0.56);
-  font-size: 7px;
-  line-height: 10px;
+  font-size: 10px;
+  line-height: 13px;
   text-shadow: none;
 }
 
@@ -15143,8 +15140,6 @@ body.game-chat-active {
 .event-mission-reward button,
 .event-claim-footer button {
   color: #ffffff;
-  background: linear-gradient(180deg, #55d939, #2fab2a);
-  box-shadow: 0 3px 0 #12651b;
 }
 
 .modal-backdrop {

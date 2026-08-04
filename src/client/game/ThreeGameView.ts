@@ -6,6 +6,7 @@ import { combinedItemEffects, getRandomItem, isGoldProducingBuilding } from '../
 import { characterTraitForMatch } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
+  cosmeticById,
   CYBERPUNK_LASER_TURRET_SKIN_ID,
   CYBERPUNK_NEON_TILE_SKIN_ID,
   LIFEGUARD_PARASOL_TURRET_SKIN_ID,
@@ -50,6 +51,7 @@ const INTERACTION_SCAN_INTERVAL_MS = 100;
 const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
 const MAX_IDLE_BUILDING_TEXTURES = 12;
 const MAX_HUD_MESSAGES = 24;
+const RESOURCE_HUD_COMPACT_SCALE = 0.85;
 const BLACKOUT_REVEAL_RADIUS_TILES = 2;
 const CYBER_LASER_FORWARD = new THREE.Vector3(0, 0, 1);
 type EffectQuality = 'high' | 'balanced' | 'low';
@@ -191,6 +193,81 @@ export function doorHudMetricsForCameraScale(
       : Math.max(compact ? 18 : 22, Math.round(26 * relativeScale)),
     compact,
   };
+}
+
+export function resourceHudPresentationForCameraScale(
+  cameraDistanceScale: number,
+): { duration: number; rise: number; opacity: number; backgroundAlpha: number } {
+  const zoomedOut = Number.isFinite(cameraDistanceScale)
+    && cameraDistanceScale > RESOURCE_HUD_COMPACT_SCALE;
+  return zoomedOut
+    ? { duration: 800, rise: 0.28, opacity: 0.78, backgroundAlpha: 0.46 }
+    : { duration: 1_250, rise: 0.75, opacity: 1, backgroundAlpha: 0.72 };
+}
+
+export interface TurretFireVisualProfile {
+  tier: 0 | 1 | 2 | 3;
+  projectileColor: number;
+  impactColor: number;
+  projectileScale: number;
+  durationMultiplier: number;
+  impactGrowth: number;
+}
+
+const turretFireVisualProfileCache = new Map<string, TurretFireVisualProfile>();
+
+export function turretFireVisualProfile(
+  skinId: string | undefined,
+  kind: BuildingKind | undefined,
+  level: number,
+): TurretFireVisualProfile {
+  const safeLevel = Math.max(1, Math.min(15, Math.floor(level || 1)));
+  const tier: 0 | 1 | 2 | 3 = safeLevel >= 15
+    ? 3
+    : safeLevel >= 10
+      ? 2
+      : safeLevel >= 5
+        ? 1
+        : 0;
+  const cacheKey = `${skinId ?? ''}:${kind ?? ''}:${tier}`;
+  const cached = turretFireVisualProfileCache.get(cacheKey);
+  if (cached) return cached;
+  const fallbackColor = kind === 'rapid-turret'
+    ? 0x75e8ff
+    : kind === 'frost-turret'
+      ? 0x91efff
+      : kind === 'arc-turret' || kind === 'electric-coil'
+        ? 0xcf79ff
+        : 0xffd36f;
+  const specialColors: Record<string, [number, number]> = {
+    [SURFER_WATER_TURRET_SKIN_ID]: [0x62ddff, 0xd8fbff],
+    [LIFEGUARD_PARASOL_TURRET_SKIN_ID]: [0xff655c, 0xffd36f],
+    [CYBERPUNK_LASER_TURRET_SKIN_ID]: [0xff4fd8, 0x9ff8ff],
+    [SPECIAL_OPS_TRACKER_TURRET_SKIN_ID]: [0xf4fbff, 0x55bfff],
+  };
+  const cosmetic = skinId ? cosmeticById(skinId) : undefined;
+  const swatchColor = cosmetic?.slot === 'turret' && /^#[0-9a-f]{6}$/i.test(cosmetic.swatch)
+    ? Number.parseInt(cosmetic.swatch.slice(1), 16)
+    : fallbackColor;
+  const [baseColor, baseImpactColor] = skinId && specialColors[skinId]
+    ? specialColors[skinId]
+    : [swatchColor, swatchColor];
+  const brighten = [0, 0.08, 0.16, 0.25][tier] ?? 0;
+  const brightenColor = (color: number): number => {
+    const source = new THREE.Color(color);
+    source.lerp(new THREE.Color(0xffffff), brighten);
+    return source.getHex();
+  };
+  const profile: TurretFireVisualProfile = {
+    tier,
+    projectileColor: brightenColor(baseColor),
+    impactColor: brightenColor(baseImpactColor),
+    projectileScale: [1, 1.12, 1.25, 1.4][tier] ?? 1,
+    durationMultiplier: [1, 0.96, 0.91, 0.86][tier] ?? 1,
+    impactGrowth: [0.42, 0.58, 0.78, 1.02][tier] ?? 0.42,
+  };
+  turretFireVisualProfileCache.set(cacheKey, profile);
+  return profile;
 }
 
 export function goldSealIndicatorVisibleForBuilding(
@@ -493,6 +570,7 @@ interface HudMessage {
   born: number;
   duration: number;
   rise: number;
+  peakOpacity?: number;
 }
 
 interface TurretVisualProfile {
@@ -5012,7 +5090,11 @@ export class ThreeGameView {
     });
   }
 
-  private acquireNormalProjectile(kind?: BuildingKind): THREE.Mesh | null {
+  private acquireNormalProjectile(
+    kind: BuildingKind | undefined,
+    color: number,
+    levelScale: number,
+  ): THREE.Mesh | null {
     const projectile = this.acquirePooledObject(
       'normal-projectile',
       this.normalProjectilePool,
@@ -5029,8 +5111,8 @@ export class ThreeGameView {
     if (!projectile) return null;
     const rapid = kind === 'rapid-turret';
     const material = projectile.material as THREE.MeshBasicMaterial;
-    material.color.setHex(rapid ? 0x75e8ff : 0xffd36f);
-    projectile.scale.setScalar(rapid ? 0.62 : 1);
+    material.color.setHex(color);
+    projectile.scale.setScalar((rapid ? 0.62 : 1) * levelScale);
     return projectile;
   }
 
@@ -5111,7 +5193,10 @@ export class ThreeGameView {
     );
   }
 
-  private acquireCyberLaser(): THREE.Group | null {
+  private acquireCyberLaser(
+    glowColor: number,
+    coreColor: number,
+  ): THREE.Group | null {
     const laser = this.acquirePooledObject(
       'cyber-laser',
       this.cyberLaserPool,
@@ -5140,6 +5225,7 @@ export class ThreeGameView {
             depthWrite: false,
           }),
         );
+        core.name = 'cyber-laser-core';
         core.rotation.x = Math.PI / 2;
         beam.add(core);
         beam.renderOrder = 8_220;
@@ -5148,7 +5234,13 @@ export class ThreeGameView {
       16,
     );
     const glow = laser?.getObjectByName('cyber-laser-glow');
-    if (glow) glow.visible = this.effectQuality === 'high';
+    if (glow) {
+      glow.visible = this.effectQuality === 'high';
+      ((glow as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHex(glowColor);
+    }
+    const core = laser?.getObjectByName('cyber-laser-core');
+    if (core)
+      ((core as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHex(coreColor);
     return laser;
   }
 
@@ -5300,7 +5392,7 @@ export class ThreeGameView {
         y - boxHeight / 2 <= card.y + card.height / 2
       )) continue;
       context.save();
-      context.globalAlpha = clamp(opacity, 0, 1);
+      context.globalAlpha = clamp(opacity * (message.peakOpacity ?? 1), 0, 1);
       context.fillStyle = message.background;
       context.beginPath();
       context.roundRect(
@@ -5654,14 +5746,18 @@ export class ThreeGameView {
       return;
     }
     if ((event.kind === 'gold' || event.kind === 'power') && event.position && (event.amount ?? 0) > 0) {
+      const presentation = resourceHudPresentationForCameraScale(
+        this.cameraDistanceScale,
+      );
       this.queueHudMessage({
         key: `${event.kind}:${event.label ?? ''}:${event.position.x}:${event.position.y}`,
         text: `${event.kind === 'gold' ? '◆' : '⚡'} +${Math.max(1, Math.round(event.amount ?? 0))}`,
         color: event.kind === 'gold' ? '#ffd36f' : '#75e8ff',
-        background: 'rgba(5,8,16,.72)',
+        background: `rgba(5,8,16,${presentation.backgroundAlpha})`,
         position: event.position,
-        duration: 1_250,
-        rise: 0.75,
+        duration: presentation.duration,
+        rise: presentation.rise,
+        peakOpacity: presentation.opacity,
       });
       return;
     }
@@ -5708,8 +5804,28 @@ export class ThreeGameView {
       this.lastTurretVisualAt.set(sourceKey, born);
       const from = worldPoint(event.position, 0.58);
       const to = worldPoint(event.targetPosition, 0.9);
-      if (event.itemId === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) {
-        const line = this.acquireBeam(0xf4fbff);
+      const sourceBuilding = event.sourceId
+        ? this.buildingStateById.get(event.sourceId)
+        : undefined;
+      const skinId = event.itemId || sourceBuilding?.skinId || undefined;
+      const visualLevel = sourceBuilding?.effectiveLevel ?? sourceBuilding?.level ?? 1;
+      const profile = turretFireVisualProfile(
+        skinId,
+        event.buildingKind,
+        visualLevel,
+      );
+      const showLevelAccent = this.effectQuality === 'high'
+        ? profile.tier >= 1
+        : this.effectQuality === 'balanced'
+          ? profile.tier >= 2
+          : false;
+      const showLevelTrail = this.effectQuality === 'high'
+        ? profile.tier >= 2
+        : this.effectQuality === 'balanced'
+          ? profile.tier >= 3
+          : false;
+      if (skinId === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) {
+        const line = this.acquireBeam(profile.projectileColor);
         if (line) {
           const positions = line.geometry.getAttribute('position') as THREE.BufferAttribute;
           positions.setXYZ(0, from.x, from.y, from.z);
@@ -5718,67 +5834,77 @@ export class ThreeGameView {
           line.geometry.computeBoundingSphere();
           this.queuePooledEffect(line, this.beamPool, {
             born,
-            duration: 125,
+            duration: 125 * profile.durationMultiplier,
             baseScale: line.scale.clone(),
             scaleGrowth: 0,
           });
         }
         if (this.effectQuality !== 'low') {
-          const impact = this.acquireImpactRing(0x55bfff);
+          const impact = this.acquireImpactRing(profile.impactColor);
           if (impact) {
             impact.position.copy(to);
             impact.rotation.x = -Math.PI / 2;
+            impact.scale.setScalar(profile.projectileScale);
             this.queuePooledEffect(impact, this.impactRingPool, {
               born,
               duration: 150,
               baseScale: impact.scale.clone(),
-              scaleGrowth: 0.52,
+              scaleGrowth: profile.impactGrowth,
             });
           }
         }
-      } else if (event.itemId === CYBERPUNK_LASER_TURRET_SKIN_ID) {
+      } else if (skinId === CYBERPUNK_LASER_TURRET_SKIN_ID) {
         const direction = to.clone().sub(from);
         const length = direction.length();
         if (length > 0.001) {
           direction.normalize();
-          const laser = this.acquireCyberLaser();
+          const laser = this.acquireCyberLaser(
+            profile.projectileColor,
+            profile.impactColor,
+          );
           if (laser) {
             laser.position.lerpVectors(from, to, 0.5);
             laser.quaternion.setFromUnitVectors(
               CYBER_LASER_FORWARD,
               direction,
             );
-            laser.scale.set(0.28, 0.28, length);
+            laser.scale.set(
+              0.28 * profile.projectileScale,
+              0.28 * profile.projectileScale,
+              length,
+            );
             this.queuePooledEffect(laser, this.cyberLaserPool, {
               born,
-              duration: 135,
+              duration: 135 * profile.durationMultiplier,
               baseScale: laser.scale.clone(),
               scaleGrowth: 0,
             });
           }
           if (this.effectQuality === 'high') {
-            const impact = this.acquireImpactRing(0xff4fd8);
+            const impact = this.acquireImpactRing(profile.projectileColor);
             if (impact) {
               impact.position.copy(to);
               impact.rotation.x = -Math.PI / 2;
+              impact.scale.setScalar(profile.projectileScale);
               this.queuePooledEffect(impact, this.impactRingPool, {
                 born,
                 duration: 180,
                 baseScale: impact.scale.clone(),
-                scaleGrowth: 0.72,
+                scaleGrowth: profile.impactGrowth,
               });
             }
           }
         }
-      } else if (event.itemId === SURFER_WATER_TURRET_SKIN_ID) {
+      } else if (skinId === SURFER_WATER_TURRET_SKIN_ID) {
         const direction = to.clone().sub(from).normalize();
         const droplets = this.acquireWaterProjectile();
         if (droplets) {
           droplets.position.copy(from);
           droplets.rotation.y = Math.atan2(direction.x, direction.z);
+          droplets.scale.setScalar(profile.projectileScale);
           this.queuePooledEffect(droplets, this.waterProjectilePool, {
             born,
-            duration: 235,
+            duration: 235 * profile.durationMultiplier,
             from,
             to,
             baseScale: droplets.scale.clone(),
@@ -5790,17 +5916,17 @@ export class ThreeGameView {
           const splash = this.acquireWaterSplash();
           if (splash) {
             splash.position.copy(to);
+            splash.scale.setScalar(profile.projectileScale);
             this.queuePooledEffect(splash, this.waterSplashPool, {
               born,
               duration: 310,
               baseScale: splash.scale.clone(),
-              scaleGrowth: 0.9,
+              scaleGrowth: profile.impactGrowth + 0.4,
             });
           }
         }
       } else if (event.buildingKind === 'frost-turret' || event.buildingKind === 'arc-turret' || event.buildingKind === 'electric-coil') {
-        const color = event.buildingKind === 'frost-turret' ? 0x91efff : 0xcf79ff;
-        const line = this.acquireBeam(color);
+        const line = this.acquireBeam(profile.projectileColor);
         if (line) {
           const positions = line.geometry.getAttribute('position') as THREE.BufferAttribute;
           positions.setXYZ(0, from.x, from.y, from.z);
@@ -5809,23 +5935,73 @@ export class ThreeGameView {
           line.geometry.computeBoundingSphere();
           this.queuePooledEffect(line, this.beamPool, {
             born,
-            duration: 190,
+            duration: 190 * profile.durationMultiplier,
             baseScale: line.scale.clone(),
             scaleGrowth: 0,
           });
         }
+        if (showLevelAccent) {
+          const impact = this.acquireImpactRing(profile.impactColor);
+          if (impact) {
+            impact.position.copy(to);
+            impact.rotation.x = -Math.PI / 2;
+            impact.scale.setScalar(profile.projectileScale);
+            this.queuePooledEffect(impact, this.impactRingPool, {
+              born,
+              duration: 150,
+              baseScale: impact.scale.clone(),
+              scaleGrowth: profile.impactGrowth,
+            });
+          }
+        }
       } else {
-        const projectile = this.acquireNormalProjectile(event.buildingKind);
+        const projectile = this.acquireNormalProjectile(
+          event.buildingKind,
+          profile.projectileColor,
+          profile.projectileScale,
+        );
         if (projectile) {
           projectile.position.copy(from);
           this.queuePooledEffect(projectile, this.normalProjectilePool, {
             born,
-            duration: event.buildingKind === 'rapid-turret' ? 120 : 210,
+            duration:
+              (event.buildingKind === 'rapid-turret' ? 120 : 210) *
+              profile.durationMultiplier,
             from,
             to,
             baseScale: projectile.scale.clone(),
             scaleGrowth: 0.08,
           });
+        }
+        if (showLevelTrail) {
+          const trail = this.acquireBeam(profile.projectileColor);
+          if (trail) {
+            const positions = trail.geometry.getAttribute('position') as THREE.BufferAttribute;
+            positions.setXYZ(0, from.x, from.y, from.z);
+            positions.setXYZ(1, to.x, to.y, to.z);
+            positions.needsUpdate = true;
+            trail.geometry.computeBoundingSphere();
+            this.queuePooledEffect(trail, this.beamPool, {
+              born,
+              duration: 70,
+              baseScale: trail.scale.clone(),
+              scaleGrowth: 0,
+            });
+          }
+        }
+        if (showLevelAccent) {
+          const impact = this.acquireImpactRing(profile.impactColor);
+          if (impact) {
+            impact.position.copy(to);
+            impact.rotation.x = -Math.PI / 2;
+            impact.scale.setScalar(profile.projectileScale);
+            this.queuePooledEffect(impact, this.impactRingPool, {
+              born,
+              duration: 140,
+              baseScale: impact.scale.clone(),
+              scaleGrowth: profile.impactGrowth,
+            });
+          }
         }
       }
       return;

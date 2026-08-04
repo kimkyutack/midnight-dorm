@@ -20,14 +20,14 @@ import { isPlayerUnderGhostAttack } from '../src/shared/combatPresentation';
 import { rankedMatchmakingTier, rankedStageForTier } from '../src/server/rankedMatch';
 import { dampFacingYaw, facingDeltaForMotion, movementFacingYaw, shortestAngleDelta } from '../src/client/game/avatarMath';
 import { attackFrameAt, crocoStompPlacementForFacing, crocoStompStateAt, ghostSpriteDefinition, movementFrameAt, spriteFacingFromDelta, survivorSpriteDefinition, survivorSpriteId } from '../src/client/game/AtlasSpriteActor';
-import { cameraZoomLockedForSnapshot, doorHudMetricsForCameraScale, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, shouldHoldReleasedPrediction, snapCameraCoordinate, snapHudCoordinate } from '../src/client/game/ThreeGameView';
+import { cameraZoomLockedForSnapshot, doorHudMetricsForCameraScale, goldSealIndicatorVisibleForBed, goldSealIndicatorVisibleForBuilding, limitLocalPredictionLead, resourceHudPresentationForCameraScale, shouldHoldReleasedPrediction, snapCameraCoordinate, snapHudCoordinate, turretFireVisualProfile } from '../src/client/game/ThreeGameView';
 import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { nativeApiResourceUrl } from '../src/client/native/runtime';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
-import { GameNetwork, mergeSnapshotFrame } from '../src/client/network';
+import { GameNetwork, mergeSnapshotFrame, reconcileMovementInputSequence } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
 import { buildForceRefreshUrl } from '../src/client/pwaRefresh';
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
@@ -288,6 +288,17 @@ describe('cold realtime connection failures', () => {
 });
 
 describe('realtime snapshot frames', () => {
+  it('continues movement input sequences above a reconnected player acknowledgement', () => {
+    const snapshot = setup().engine.snapshot();
+    const local = snapshot.players[0];
+    if (!local) throw new Error('missing movement sequence player');
+    local.lastInputSeq = 37;
+
+    expect(reconcileMovementInputSequence(0, snapshot, local.id)).toBe(37);
+    expect(reconcileMovementInputSequence(42, snapshot, local.id)).toBe(42);
+    expect(reconcileMovementInputSequence(9, snapshot, 'missing-player')).toBe(9);
+  });
+
   it('reuses unchanged buildings and accepts a later building revision', () => {
     const full = setup().engine.snapshot();
     const { buildings, ...frame } = full;
@@ -964,6 +975,39 @@ describe('survivor customization rules', () => {
     expect(shieldedCard.height).toBeGreaterThan(defaultCard.height);
   });
 
+  it('shortens and softens resource gain labels only while zoomed out', () => {
+    expect(resourceHudPresentationForCameraScale(1 / Math.SQRT2)).toEqual({
+      duration: 1_250,
+      rise: 0.75,
+      opacity: 1,
+      backgroundAlpha: 0.72,
+    });
+    expect(resourceHudPresentationForCameraScale(1)).toEqual({
+      duration: 800,
+      rise: 0.28,
+      opacity: 0.78,
+      backgroundAlpha: 0.46,
+    });
+  });
+
+  it('uses cached skin colors and four lightweight turret effect level bands', () => {
+    const wardLevel1 = turretFireVisualProfile('turret-basic-ward', 'basic-turret', 1);
+    const toyLevel1 = turretFireVisualProfile('turret-basic-toy', 'basic-turret', 1);
+    const wardLevel5 = turretFireVisualProfile('turret-basic-ward', 'basic-turret', 5);
+    const wardLevel10 = turretFireVisualProfile('turret-basic-ward', 'basic-turret', 10);
+    const wardLevel15 = turretFireVisualProfile('turret-basic-ward', 'basic-turret', 15);
+
+    expect(wardLevel1.tier).toBe(0);
+    expect(wardLevel5.tier).toBe(1);
+    expect(wardLevel10.tier).toBe(2);
+    expect(wardLevel15.tier).toBe(3);
+    expect(wardLevel15.projectileScale).toBeGreaterThan(wardLevel1.projectileScale);
+    expect(wardLevel15.impactGrowth).toBeGreaterThan(wardLevel5.impactGrowth);
+    expect(toyLevel1.projectileColor).not.toBe(wardLevel1.projectileColor);
+    expect(turretFireVisualProfile('turret-basic-ward', 'basic-turret', 15))
+      .toBe(wardLevel15);
+  });
+
   it('keeps independently authored ghost movement and attack side rows facing their targets', () => {
     const authoredSideDirections = {
       wanderer: { movement: true, attack: false },
@@ -1231,6 +1275,7 @@ describe('survivor customization rules', () => {
     expect(pointItem && cosmeticAvailable(pointItem, 'beginner', ['character-cat'])).toBe(true);
     expect(rankItem && cosmeticAvailable(rankItem, 'intermediate', [])).toBe(false);
     expect(rankItem && cosmeticAvailable(rankItem, 'expert', [])).toBe(true);
+    expect(rankItem && cosmeticAvailable(rankItem, 'beginner', ['character-bear'])).toBe(true);
     const catSkin = cosmeticById('skin-look-cat-ward');
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', [])).toBe(false);
     expect(catSkin && cosmeticAvailable(catSkin, 'beginner', ['character-cat'])).toBe(false);
@@ -1737,6 +1782,73 @@ describe('authoritative game rules', () => {
     const after = engine.snapshot().players.find((candidate) => candidate.id === playerId);
     expect(after).toBeTruthy();
     expect(isPositionOnRoomFloor(room, after?.position as Tile)).toBe(true);
+  });
+
+  it('auto-claims an empty bed only for an unclaimed survivor trapped in an occupied room at lights-on', () => {
+    const { engine, ids } = setup(3, false);
+    const ownerId = ids[0] as string;
+    const trappedId = ids[1] as string;
+    const corridorId = ids[2] as string;
+    expect(engine.start(ownerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const occupiedMapRoom = engine.map.rooms[0];
+    if (!occupiedMapRoom) throw new Error('missing occupied rescue room');
+
+    const prepared = engine.serialize();
+    const owner = prepared.snapshot.players.find((player) => player.id === ownerId);
+    const trapped = prepared.snapshot.players.find((player) => player.id === trappedId);
+    const corridor = prepared.snapshot.players.find((player) => player.id === corridorId);
+    if (!owner || !trapped || !corridor) throw new Error('missing rescue players');
+    owner.position = { ...(occupiedMapRoom.beds[0] as Tile) };
+    trapped.position = { ...(occupiedMapRoom.floorTiles.at(-1) as Tile) };
+    corridor.position = { ...engine.map.playerSpawn };
+    engine.restore(prepared);
+    expect(engine.interact(ownerId).ok).toBe(true);
+
+    const closing = engine.serialize();
+    closing.snapshot.countdown = 0.01;
+    engine.restore(closing);
+    engine.tick(0.1);
+
+    const state = engine.snapshot();
+    const rescued = state.players.find((player) => player.id === trappedId);
+    const untouched = state.players.find((player) => player.id === corridorId);
+    expect(state.status).toBe('PLAYING');
+    expect(rescued?.roomId).toBeTruthy();
+    expect(rescued?.roomId).not.toBe(occupiedMapRoom.id);
+    expect(rescued?.lockedRoomId).toBe(rescued?.roomId);
+    const rescuedMapRoom = engine.map.rooms.find(
+      (room) => room.id === rescued?.roomId,
+    );
+    expect(rescuedMapRoom?.beds).toContainEqual(rescued?.position);
+    expect(untouched?.roomId).toBeNull();
+    expect(untouched?.lockedRoomId).toBeNull();
+    expect(engine.drainEvents()).toContainEqual(expect.objectContaining({
+      kind: 'auto-bed-claim',
+      playerId: trappedId,
+      roomId: rescued?.roomId,
+      label: '시간이 초과되어 자동 점유됩니다',
+    }));
+  });
+
+  it('shows the ghost poster before Time Attack and the preparation countdown', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    const prepared = engine.serialize();
+    prepared.snapshot.difficulty.modifier = 'time-attack';
+    prepared.snapshot.difficulty.timeAttackRemaining = 300;
+    engine.restore(prepared);
+
+    expect(engine.start(playerId).ok).toBe(true);
+    expect(engine.snapshot().status).toBe('GHOST_INTRO');
+    for (let index = 0; index < 50 && engine.snapshot().status === 'GHOST_INTRO'; index += 1) {
+      engine.tick(0.1);
+    }
+    expect(engine.snapshot().status).toBe('EVENT_INTRO');
+    for (let index = 0; index < 30 && engine.snapshot().status === 'EVENT_INTRO'; index += 1) {
+      engine.tick(0.1);
+    }
+    expect(engine.snapshot().status).toBe('COUNTDOWN');
   });
 
   it('shows Time Attack before ranked countdown without revealing the ghost', () => {

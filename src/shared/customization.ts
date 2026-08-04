@@ -260,12 +260,18 @@ export function skinTraitOverride(appearance: AvatarAppearance): SkinTraitOverri
 export function characterAvailable(characterId: string, rank: RankId, owned: readonly string[]): boolean {
   const character = cosmeticById(characterId);
   if (!character || character.slot !== 'character') return false;
+  // Rank rewards remain in the player's collection after a seasonal rank
+  // changes, so ownership must take precedence over the current rank.
+  if (owned.includes(characterId)) return true;
   if (character.unlock.kind === 'starter') return true;
   if (character.unlock.kind === 'rank') return rankIndex(rank) >= rankIndex(character.unlock.rank);
-  return owned.includes(characterId);
+  return false;
 }
 
 export function cosmeticAvailable(item: CosmeticDefinition, rank: RankId, owned: readonly string[]): boolean {
+  // This also covers rank-reward skins. A player who owns an item must never
+  // lose access to it when their displayed rank changes.
+  if (owned.includes(item.id)) return true;
   if (item.slot === 'skin' && (!item.characterId || !characterAvailable(item.characterId, rank, owned))) return false;
   if (item.unlock.kind === 'starter') return true;
   if (item.unlock.kind === 'points') return owned.includes(item.id);
