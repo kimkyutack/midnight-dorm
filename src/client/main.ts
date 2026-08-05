@@ -17,14 +17,28 @@ import {
 import {
   characterTrait,
   characterTraitForAppearance,
+  characterTraitForMatch,
   drawLimitForMatch,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
+import {
+  GHOST_ORB_DRAW_TABLE,
+  GHOST_ORB_CASH_COST,
+  GHOST_ORB_PACKAGE_COST,
+  ghostOrbEligibleCosmetics,
+  MOONLIT_PHANTOM_PACKAGE_ID,
+  MOONLIT_PHANTOM_SKIN_ID,
+  STARLIT_CLOUD_RABBIT_PACKAGE_ID,
+  ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID,
+  prestigeEmoteById,
+} from "../shared/prestige";
+import { CASH_STORE_PRODUCTS, cashGrantAmount, firstCashPurchaseBonus, type StoreProductId } from "../shared/storeProducts";
 import { isPlayerUnderGhostAttack } from "../shared/combatPresentation";
 import {
   characterAvailable,
   cosmeticAvailable,
   cosmeticById,
+  cosmeticVisibleInPointShop,
   cosmeticsForSlot,
   customizationReward,
   CYBERPUNK_LASER_TURRET_SKIN_ID,
@@ -36,6 +50,7 @@ import {
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
   turretSkinAssetUrl,
+  type CosmeticDefinition,
 } from "../shared/customization";
 import {
   rankBadgeImage,
@@ -96,9 +111,12 @@ import { SynthAudio, type BackgroundTrack } from "./audio";
 import {
   checkNicknameAvailability,
   dismissPromotion,
+  drawGhostOrbs,
   equipCosmetic,
+  exchangePrestigePackage,
   getAccount,
   getEventMissions,
+  grantDevelopmentCash,
   claimEventMissions,
   claimMatchReward,
   loginAccount,
@@ -108,6 +126,7 @@ import {
   purchaseConsumable,
   registerAccount,
   setProfileAvatar,
+  setPrestigeLoadout,
   setProfileDisplayMode,
   setNickname,
   setSelectedPlayMode,
@@ -120,6 +139,7 @@ import {
 import { AvatarPreview3D, type AvatarView } from "./game/AvatarPreview3D";
 import { AvatarPreview2D } from "./game/AvatarPreview2D";
 import { homePoseAsset, homePoseKey } from "./game/HomePoseAssets";
+import { baseConceptUrl, skinConceptUrl } from "./game/SkinAssets";
 import { hydrateCatalogArt } from "./game/CatalogThumbnail3D";
 import {
   GameNetwork,
@@ -133,7 +153,9 @@ import {
   signInWithGoogle,
   signOutGoogle,
 } from "./native/googleAuth";
+import { appleLoginAvailable, completeAppleSignup, signInWithApple } from "./native/appleAuth";
 import { initializeNativeRuntime, isNativeApp } from "./native";
+import { loadStoreProducts, purchaseStoreProduct } from "./native/purchases";
 import {
   prepareStageClearReward,
   showStageClearReward,
@@ -526,21 +548,47 @@ const DEFAULT_PROFILE_AVATAR = `/assets/ui/default-profile-v2.webp?v=${APP_RELEA
 const profileAvatarSource = (
   avatarUrl: string | null | undefined,
 ): string => nativeApiResourceUrl(avatarUrl || DEFAULT_PROFILE_AVATAR);
+const profileFrameAssetUrl = (profileFrameId?: string | null): string => {
+  switch (profileFrameId) {
+    case 'profile-frame-moonlit-phantom-fox': return '/assets/profile-images/moonlit-phantom-frame.png';
+    case 'profile-frame-starlit-cloud-rabbit': return '/assets/profile-images/starlit-cloud-frame.svg';
+    case 'profile-frame-abyssal-knight-gorilla': return '/assets/profile-images/abyssal-knight-frame.svg';
+    case 'profile-frame-basic': return '/assets/profile-images/basic-profile-frame.svg';
+    default: return '/assets/profile-images/basic-profile-frame.svg';
+  }
+};
 const profileAvatarHtml = (
   avatarUrl: string | null | undefined,
   className = "player-face profile-avatar",
+  profileFrameId?: string | null,
 ): string =>
-  `<img class="${className}" src="${escapeHtml(profileAvatarSource(avatarUrl))}" alt="" />`;
+  `<span class="profile-avatar-frame-shell ${profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit' : ''}"><img class="${className}" src="${escapeHtml(profileAvatarSource(avatarUrl))}" alt="" /><img class="profile-avatar-frame-art" src="${profileFrameAssetUrl(profileFrameId)}" alt=""/></span>`;
 const playerPortraitHtml = (player: PlayerState): string =>
   // The same default profile artwork is used everywhere.  Falling back to a
   // character face in-game made the lobby/home identity appear to change.
-  profileAvatarHtml(player.profileAvatarUrl);
+  profileAvatarHtml(player.profileAvatarUrl, 'player-face profile-avatar', player.profileFrameId);
+
+function compactWalletAmount(value: number): string {
+  const safe = Math.max(0, Math.floor(value));
+  if (safe < 1_000) return safe.toLocaleString();
+  const compact = (divisor: number, suffix: string): string => {
+    const scaled = safe / divisor;
+    const digits = scaled < 100 ? 1 : 0;
+    return `${scaled.toFixed(digits).replace(/\.0$/, '')}${suffix}`;
+  };
+  if (safe < 1_000_000) return compact(1_000, 'K');
+  if (safe < 1_000_000_000) return compact(1_000_000, 'M');
+  return compact(1_000_000_000, 'B');
+}
 
 function backgroundTrackForView(view: string): BackgroundTrack | null {
   if (view === "game") return "ingame";
   if (
     view === "home" ||
     view === "shop" ||
+    view === "orb-shop" ||
+    view === "orb-exchange" ||
+    view === "cash-shop" ||
     view === "room-menu" ||
     view === "lobby" ||
     view === "ranked-queue" ||
@@ -937,11 +985,18 @@ function homeScreen(): void {
     `<main class="game-home">
       <div class="home-atmosphere"></div>
       <header class="home-topbar">
-        <button class="home-account in-game-label ${profileDisplay.className}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
-          <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/></div>
+        <button class="home-account in-game-label ${profileDisplay.className} ${currentAccount.prestige.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
+          <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/>${currentAccount.prestige.profileFrameId ? '<img class="profile-avatar-frame-art" src="/assets/profile-images/moonlit-phantom-frame.png" alt=""/>' : ''}</div>
           <div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small style="font-weight: 900;">${escapeHtml(profileDisplay.labelText)}</small><em style="font-weight: 900;">인게임 라벨 · 변경</em></div>
         </button>
-        <div class="home-utility"><strong>${gameMenuIcon("points")}<span>${currentAccount.customPoints.toLocaleString()} P</span></strong><button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button></div>
+        <div class="home-utility">
+          <div class="home-currency home-cash-wallet" title="보유 캐시 ${currentAccount.cash.toLocaleString()}">
+            <button class="home-cash-add" type="button" data-cash-store aria-label="캐시 충전">＋</button>
+            <button class="home-cash-balance" type="button" data-cash-store aria-label="캐시 상점 · 보유 캐시 ${currentAccount.cash.toLocaleString()}"><i aria-hidden="true">C</i><span>${compactWalletAmount(currentAccount.cash)}</span></button>
+          </div>
+          <strong class="home-points-wallet" title="보유 포인트 ${currentAccount.customPoints.toLocaleString()}">${gameMenuIcon("points")}<span>${compactWalletAmount(currentAccount.customPoints)} P</span></strong>
+          <button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button>
+        </div>
       </header>
       <section class="home-stage-hub" aria-label="현재 스테이지">
         <button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "SEASON CONTRACT" : "NIGHT CHAPTER"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button>
@@ -950,6 +1005,7 @@ function homeScreen(): void {
       <nav class="home-side-menu home-side-menu-left" aria-label="홈 왼쪽 메뉴">
         <button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역">${gameMenuIcon("announcement")}<span>공지</span></button>
         <button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거">${gameMenuIcon("adfree")}<span>광고 제거</span></button>
+        <button class="home-orb-shop" data-orb-shop aria-label="구슬 상점"><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>구슬 상점</span></button>
       </nav>
       <nav class="home-side-menu home-side-menu-right" aria-label="홈 오른쪽 메뉴">
         <button class="home-ranking-shortcut" data-ranking aria-label="랭킹">${gameMenuIcon("ranking")}<span>랭킹</span></button>
@@ -1027,6 +1083,14 @@ function homeScreen(): void {
     audio.play("button");
     showAdFreePurchase();
   });
+  app.querySelector("[data-orb-shop]")?.addEventListener("click", () => {
+    audio.play("button");
+    ghostOrbShopScreen();
+  });
+  app.querySelectorAll("[data-cash-store]").forEach((button) => button.addEventListener("click", () => {
+    audio.play("button");
+    cashShopScreen();
+  }));
   app
     .querySelector("[data-home-settings]")
     ?.addEventListener("click", showSettings);
@@ -1039,6 +1103,612 @@ function homeScreen(): void {
   void refreshHomeEventMissionStatus();
   startSocialRealtime();
   showSkinLaunchPromoCarousel();
+}
+
+function cashPackPriceLabel(productId: string): string {
+  const product = CASH_STORE_PRODUCTS.find((candidate) => candidate.id === productId);
+  return product ? `₩${product.fallbackPriceKrw.toLocaleString()}` : '';
+}
+
+function showCashPurchaseConfirm(productId: StoreProductId, localizedPrice?: string): void {
+  if (!account) return authScreen();
+  const product = CASH_STORE_PRODUCTS.find((candidate) => candidate.id === productId);
+  if (!product) return;
+  const firstPurchase = !account.cashFirstPurchaseProductIds.includes(product.id);
+  const grantedCash = cashGrantAmount(product, firstPurchase);
+  const price = localizedPrice || cashPackPriceLabel(product.id);
+  const purchasingInApp = isNativeApp;
+  const modal = dismissibleModal(
+    `<section class="cash-purchase-sheet" role="dialog" aria-modal="true" aria-labelledby="cash-purchase-title">
+      <header><i aria-hidden="true">C</i><div><small>CASH CHARGE</small><h2 id="cash-purchase-title">캐시 ${product.cash.toLocaleString()}개</h2></div></header>
+      <div class="cash-purchase-summary"><strong>${grantedCash.toLocaleString()} C</strong>${firstPurchase ? `<span>첫 구매 +20% · ${firstCashPurchaseBonus(product).toLocaleString()} 캐시 추가</span>` : '<span>첫 구매 보너스를 이미 받았습니다.</span>'}<small>${devMode ? '로컬 개발 환경에서는 테스트 캐시로 충전됩니다.' : purchasingInApp ? '스토어 결제와 서버 영수증 검증 후 지급됩니다.' : '캐시 결제는 Google Play·App Store 앱에서 이용할 수 있습니다.'}</small></div>
+      <footer><button type="button" data-modal-close>취소</button><button type="button" class="confirm" data-cash-purchase ${!devMode && !purchasingInApp ? 'disabled' : ''}>${devMode ? '테스트 충전' : price}</button></footer>
+    </section>`,
+    'cash-purchase-modal',
+  );
+  modal.querySelector<HTMLButtonElement>('[data-cash-purchase]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    button.textContent = '처리 중…';
+    const operation = devMode
+      ? grantDevelopmentCash(product.id)
+      : purchaseStoreProduct(product.id, account!.id).then(async (verification) => {
+          if (verification.status !== 'verified') {
+            throw new Error('결제 확인 중입니다. 검증이 완료되면 캐시가 자동 지급됩니다.');
+          }
+          return getAccount();
+        });
+    void operation.then((profile) => {
+      account = profile;
+      modal.remove();
+      toast(`캐시 ${grantedCash.toLocaleString()}개가 충전되었습니다.${firstPurchase ? ' 첫 구매 +20%가 적용되었습니다.' : ''}`);
+      cashShopScreen();
+    }).catch((error) => {
+      button.disabled = false;
+      button.textContent = devMode ? '테스트 충전' : price;
+      toast(error instanceof Error ? error.message : '캐시 결제를 완료하지 못했습니다.');
+    });
+  });
+}
+
+function cashShopScreen(): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const cards = CASH_STORE_PRODUCTS.map((product, index) => {
+    const firstPurchase = !currentAccount.cashFirstPurchaseProductIds.includes(product.id);
+    const firstPurchaseGrant = cashGrantAmount(product, true);
+    return `<button type="button" class="cash-pack-card ${index === 2 ? 'featured' : ''}" data-cash-pack="${product.id}">
+    ${index === 2 ? '<b>BEST</b>' : ''}
+    <span class="cash-pack-gem" aria-hidden="true"><i>C</i></span>
+    <div><strong>${product.cash.toLocaleString()} 캐시</strong><small class="cash-first-purchase ${firstPurchase ? '' : 'claimed'}">${firstPurchase ? `첫 구매 +20% · ${firstPurchaseGrant.toLocaleString()} C` : '첫 구매 보너스 완료'}</small></div>
+    <em data-cash-price="${product.id}">${cashPackPriceLabel(product.id)}</em>
+  </button>`;
+  }).join('');
+  setContent('cash-shop', `<main class="cash-shop-screen">
+    <div class="cash-shop-atmosphere" aria-hidden="true"></div>
+    <header class="cash-shop-header"><button type="button" data-cash-shop-back aria-label="홈으로">‹</button><div><small>CASH SHOP</small><h2>캐시 상점</h2></div><strong><i>C</i>${currentAccount.cash.toLocaleString()}</strong></header>
+    <section class="cash-shop-scroll"><div class="cash-shop-hero"><span>PREMIUM CURRENCY</span><h3>필요할 때 원하는 만큼 충전하세요</h3><p>캐시는 유료 상품 구매에 사용되며 포인트와 별도로 보관됩니다.</p></div><div class="cash-pack-grid">${cards}</div><p class="cash-store-note">${devMode ? '로컬 테스트 환경 · 실제 결제가 발생하지 않습니다.' : isNativeApp ? '가격과 결제 통화는 스토어 계정 국가를 기준으로 표시됩니다.' : '실제 충전은 Google Play·App Store 앱에서 이용할 수 있습니다.'}</p></section>
+  </main>`);
+  app.querySelector('[data-cash-shop-back]')?.addEventListener('click', homeScreen);
+  app.querySelectorAll<HTMLButtonElement>('[data-cash-pack]').forEach((button) => button.addEventListener('click', () => {
+    const productId = button.dataset.cashPack as StoreProductId | undefined;
+    if (!productId) return;
+    showCashPurchaseConfirm(productId, button.querySelector('[data-cash-price]')?.textContent ?? undefined);
+  }));
+  if (isNativeApp) {
+    void loadStoreProducts().then((products) => {
+      for (const product of products) {
+        const price = app.querySelector<HTMLElement>(`[data-cash-price="${CSS.escape(product.identifier)}"]`);
+        if (price && product.priceString) price.textContent = product.priceString;
+      }
+    }).catch(() => undefined);
+  }
+}
+
+interface GhostOrbPreviewReward {
+  kind: 'points' | 'orbs' | 'cosmetic' | 'duplicate';
+  label: string;
+  symbol: string;
+  detail: string;
+  itemId?: string;
+  amount?: number;
+  imageUrl?: string;
+}
+
+interface PrestigeExchangeContent {
+  id: string;
+  label: string;
+  detail: string;
+  imageUrl: string;
+  imageFit?: 'contain' | 'cover';
+}
+
+const MOONLIT_PRESTIGE_CONTENTS: readonly PrestigeExchangeContent[] = [
+  { id: 'profile', label: '프로필 이미지', detail: '월령 환영 여우', imageUrl: '/assets/profile-images/moonlit-phantom-fox.webp', imageFit: 'cover' },
+  { id: 'frame', label: '프로필 테두리', detail: '월령 여우불 테두리', imageUrl: '/assets/profile-images/moonlit-phantom-frame.png' },
+  { id: 'emotes', label: '이모티콘 4종', detail: '월령 감정 표현 세트', imageUrl: '/assets/emotes/moonlit-phantom-fox/smug.webp', imageFit: 'cover' },
+  { id: 'skin', label: '프레스티지 스킨', detail: '월령 환영 여우', imageUrl: '/assets/sprites/skins/skin-moonlit-phantom-fox/concept.png', imageFit: 'cover' },
+  { id: 'tile', label: '타일 스킨', detail: '월령 여우불 타일', imageUrl: '/assets/tiles/skin-moonlit-phantom/moonfire-tile.webp', imageFit: 'cover' },
+  { id: 'turret', label: '포탑 스킨', detail: '월령 천호포', imageUrl: '/assets/turret-skins/skin-moonlit-foxfire/level-17.webp' },
+] as const;
+
+const MOONLIT_PRESTIGE_THEME = {
+  id: MOONLIT_PHANTOM_PACKAGE_ID,
+  available: true,
+  title: '월령 환영 여우',
+  subtitle: '달빛 아래 깨어난 첫 번째 프레스티지',
+  iconUrl: '/assets/profile-images/moonlit-phantom-fox.webp',
+  heroUrl: '/assets/prestige/moonlit-phantom-fox/featured-package.webp',
+  contents: MOONLIT_PRESTIGE_CONTENTS,
+} as const;
+
+const STARLIT_CLOUD_PRESTIGE_THEME = {
+  id: STARLIT_CLOUD_RABBIT_PACKAGE_ID,
+  available: false,
+  title: '성운 구름무희 모모',
+  subtitle: '별빛과 구름의 궤적을 지휘하는 천공 프레스티지',
+  iconUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png',
+  heroUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png',
+  contents: [
+    { id: 'profile', label: '프로필 이미지', detail: '성운 구름무희 모모', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'frame', label: '프로필 테두리', detail: '성운 프리즘 테두리', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'emotes', label: '이모티콘 4종', detail: '천공 감정 표현 세트', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'skin', label: '프레스티지 스킨', detail: '성운 구름무희 모모', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'tile', label: '타일 스킨', detail: '성운 구름무대 타일', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'turret', label: '포탑 스킨', detail: '성운 성좌포', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+  ] satisfies readonly PrestigeExchangeContent[],
+} as const;
+
+const ABYSSAL_KNIGHT_PRESTIGE_THEME = {
+  id: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID,
+  available: false,
+  title: '심연 기사단장 콩',
+  subtitle: '흑염 투구와 심연의 기사단을 이끄는 군단장',
+  iconUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png',
+  heroUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png',
+  contents: [
+    { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'frame', label: '프로필 테두리', detail: '흑염 군단 테두리', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'emotes', label: '이모티콘 4종', detail: '심연 기사단 감정 표현', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'skin', label: '프레스티지 스킨', detail: '심연 기사단장 콩', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'tile', label: '타일 스킨', detail: '심연 기사단 타일', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'turret', label: '포탑 스킨', detail: '심연 군단포', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+  ] satisfies readonly PrestigeExchangeContent[],
+} as const;
+
+const PRESTIGE_EXCHANGE_THEMES = [MOONLIT_PRESTIGE_THEME, STARLIT_CLOUD_PRESTIGE_THEME, ABYSSAL_KNIGHT_PRESTIGE_THEME] as const;
+
+function ghostOrbPreviewReward(): GhostOrbPreviewReward {
+  const totalWeight = GHOST_ORB_DRAW_TABLE.reduce((sum, reward) => sum + reward.weight, 0);
+  let roll = Math.random() * totalWeight;
+  const selected = GHOST_ORB_DRAW_TABLE.find((reward) => {
+    roll -= reward.weight;
+    return roll <= 0;
+  }) ?? GHOST_ORB_DRAW_TABLE[0];
+  if (selected.kind === 'points') {
+    return { kind: 'points', label: `${selected.amount.toLocaleString()} P`, symbol: '✦', detail: '커스텀 포인트' };
+  }
+  if (selected.kind === 'orbs') {
+    return { kind: 'orbs', label: `귀신구슬 ${selected.amount}개`, symbol: '◉', detail: '프레스티지 교환 재료' };
+  }
+  const candidates = ghostOrbEligibleCosmetics().filter((item) => item.slot === selected.slot);
+  const item = candidates[Math.floor(Math.random() * candidates.length)];
+  return item
+    ? { kind: 'cosmetic', itemId: item.id, label: item.label, symbol: item.symbol, detail: SHOP_SLOT_LABELS[item.slot as Exclude<ShopCatalogSlot, 'item'>] }
+    : { kind: 'points', label: '100 P', symbol: '✦', detail: '커스텀 포인트' };
+}
+
+function ghostOrbRewardImageUrl(reward: GhostOrbPreviewReward): string {
+  if (reward.kind === 'points') return '/assets/tutorial/rewards-points-guide.webp';
+  if (reward.kind === 'orbs') return '/assets/ui/orb-shop/menu-icon.webp';
+  const item = cosmeticById(reward.itemId ?? '');
+  if (!item) return '/assets/ui/orb-shop/menu-icon.webp';
+  if (item.slot === 'character') return baseConceptUrl(item.id);
+  if (item.slot === 'skin') return skinConceptUrl(item.id) ?? baseConceptUrl(item.characterId ?? 'character-bunny');
+  if (item.slot === 'tile') return tilePreviewUrl(item.id);
+  if (item.slot === 'turret') return turretSkinAssetUrl(item.id, 1) ?? '/assets/buildings/cute-basic-turret-1.png';
+  return '/assets/ui/orb-shop/menu-icon.webp';
+}
+
+function releaseVersionedAsset(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(APP_RELEASE_VERSION)}`;
+}
+
+const GHOST_ORB_SUMMON_VIDEO_URL = '/assets/ui/orb-shop/summon/open-capsule.mp4';
+const GHOST_ORB_SUMMON_WEBM_URL = '/assets/ui/orb-shop/summon/open-capsule.webm';
+// Keep this revision in the URL so an already-installed PWA cannot reuse the
+// previous landscape/HEVC trailer from its media cache.
+const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=3';
+const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=3';
+
+function playCinematicVideo(
+  video: HTMLVideoElement,
+  onReady: () => void,
+  onComplete: () => void,
+): () => void {
+  let stopped = false;
+  const releaseAudio = audio.bindCinematicMedia(video);
+  let sourceTimeout = 0;
+  let activeSource = 0;
+  const mp4Source = video.dataset.mp4Src;
+  const webmSource = video.dataset.webmSrc;
+  // Android WebView occasionally claims a WebM source and then never delivers
+  // a frame. Prefer H.264/AAC, then explicitly retry the alternate encoding.
+  const supportsMp4 = Boolean(video.canPlayType('video/mp4; codecs="avc1.640028, mp4a.40.2"'));
+  const sources = (supportsMp4 ? [mp4Source, webmSource] : [webmSource, mp4Source])
+    .filter((source): source is string => Boolean(source));
+  const handleReady = (): void => {
+    window.clearTimeout(sourceTimeout);
+    if (!stopped) onReady();
+  };
+  const handleComplete = (): void => {
+    window.clearTimeout(sourceTimeout);
+    if (!stopped) onComplete();
+  };
+  let loadSource = (): void => undefined;
+  const tryNextSource = (): void => {
+    if (stopped) return;
+    window.clearTimeout(sourceTimeout);
+    activeSource += 1;
+    if (activeSource >= sources.length) {
+      handleComplete();
+      return;
+    }
+    loadSource();
+  };
+  const playCurrentSource = (): void => {
+    if (stopped) return;
+    void video.play().catch(() => {
+      // A delayed purchase callback may lose iOS's unmuted autoplay allowance.
+      if (!video.muted) {
+        video.muted = true;
+        void video.play().catch(tryNextSource);
+        return;
+      }
+      tryNextSource();
+    });
+  };
+  loadSource = (): void => {
+    const source = sources[activeSource];
+    if (!source) {
+      handleComplete();
+      return;
+    }
+    video.pause();
+    video.src = source;
+    video.load();
+    // Some decoders neither reject play() nor emit an error. Avoid a permanent
+    // loading screen and give the fallback encoding a chance to start.
+    sourceTimeout = window.setTimeout(tryNextSource, 4_500);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      playCurrentSource();
+    } else {
+      video.addEventListener('canplay', playCurrentSource, { once: true });
+    }
+  };
+  video.addEventListener('playing', handleReady, { once: true });
+  video.addEventListener('ended', handleComplete, { once: true });
+  video.addEventListener('error', tryNextSource);
+  loadSource();
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    window.clearTimeout(sourceTimeout);
+    video.removeEventListener('playing', handleReady);
+    video.removeEventListener('ended', handleComplete);
+    video.removeEventListener('error', tryNextSource);
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    releaseAudio();
+  };
+}
+
+function ghostOrbRewardCardsMarkup(rewards: readonly GhostOrbPreviewReward[]): string {
+  return rewards.map((reward, index) => {
+    const imageUrl = reward.imageUrl ?? ghostOrbRewardImageUrl(reward);
+    const badge = reward.kind === 'duplicate'
+      ? '중복 전환'
+      : reward.kind === 'cosmetic'
+        ? 'NEW'
+        : reward.kind === 'orbs'
+          ? 'PRESTIGE'
+          : 'POINT';
+    return `<article class="orb-reward-shop-card reward-${reward.kind}" style="--result-index:${index}">
+      <div class="orb-reward-shop-art"><img src="${escapeHtml(releaseVersionedAsset(imageUrl))}" alt="${escapeHtml(reward.label)}"/></div>
+      <div class="orb-reward-shop-copy"><span>${escapeHtml(badge)}</span><strong>${escapeHtml(reward.label)}</strong><small>${escapeHtml(reward.detail)}</small></div>
+    </article>`;
+  }).join('');
+}
+
+function mappedGhostOrbDrawRewards(
+  rewards: readonly import('./auth').GhostOrbDrawRewardResult[],
+): GhostOrbPreviewReward[] {
+  return rewards.map((reward) => ({
+    kind: reward.kind,
+    amount: reward.amount,
+    itemId: reward.itemId,
+    label: reward.label,
+    symbol: reward.symbol,
+    detail: reward.detail,
+  }));
+}
+
+function showGhostOrbSummonAnimation(
+  rewards: readonly GhostOrbPreviewReward[],
+  resultMessage: string,
+  onClose?: () => void,
+  drawAgainCount?: 1 | 10,
+): void {
+  const overlay = document.createElement('div');
+  overlay.className = 'orb-gacha-overlay';
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  overlay.innerHTML = `<section class="orb-gacha-cinematic" role="dialog" aria-modal="true" aria-label="귀신구슬 뽑기 연출" tabindex="0">
+    <video class="orb-gacha-animation" aria-label="귀신구슬 소환함이 열리는 애니메이션" playsinline preload="auto" data-mp4-src="${releaseVersionedAsset(GHOST_ORB_SUMMON_VIDEO_URL)}" data-webm-src="${releaseVersionedAsset(GHOST_ORB_SUMMON_WEBM_URL)}"></video>
+    <div class="orb-summon-loader"><span></span><small>소환함을 깨우는 중</small></div>
+    <div class="orb-gacha-copy"><small>MOONLIGHT SUMMON</small><strong>달빛이 영혼을 깨웁니다</strong></div>
+    <p class="orb-gacha-tap-hint">화면을 누르면 건너뜁니다</p>
+    <div class="orb-gacha-results" data-orb-gacha-results></div>
+  </section>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector<HTMLElement>('.orb-gacha-cinematic')?.focus();
+  const resultHost = overlay.querySelector<HTMLElement>('[data-orb-gacha-results]');
+  const video = overlay.querySelector<HTMLVideoElement>('.orb-gacha-animation');
+  let revealed = false;
+  let skipArmed = false;
+  window.setTimeout(() => { skipArmed = true; }, 320);
+  let stopAnimation = (): void => undefined;
+  const close = (): void => {
+    stopAnimation();
+    audio.setBackgroundTrack('main');
+    overlay.remove();
+    onClose?.();
+  };
+  const renderResults = (
+    visibleRewards: readonly GhostOrbPreviewReward[],
+    message: string,
+  ): void => {
+    if (!resultHost) return;
+    resultHost.innerHTML = `<section class="orb-draw-result-sheet"><header><small>SUMMON RESULT</small><strong>${visibleRewards.length}개 보상 획득</strong></header><div class="orb-reward-shop-list">${ghostOrbRewardCardsMarkup(visibleRewards)}</div><p>${escapeHtml(message)}</p><footer><button type="button" class="orb-gacha-confirm" data-orb-gacha-close>확인</button>${drawAgainCount ? `<button type="button" class="orb-gacha-draw-again" data-orb-draw-again>${drawAgainCount}회 더 뽑기</button>` : ''}</footer></section>`;
+    resultHost.querySelector('[data-orb-gacha-close]')?.addEventListener('click', close);
+    resultHost.querySelector<HTMLButtonElement>('[data-orb-draw-again]')?.addEventListener('click', (event) => {
+      if (!drawAgainCount) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = `${drawAgainCount}회 보상 확인 중…`;
+      resultHost.setAttribute('aria-busy', 'true');
+      void drawGhostOrbs(drawAgainCount).then((result) => {
+        account = result.profile;
+        resultHost.removeAttribute('aria-busy');
+        renderResults(
+          mappedGhostOrbDrawRewards(result.rewards),
+          result.freePurchase
+            ? '애니메이션 없이 무료 재소환 보상이 지급되었습니다.'
+            : '애니메이션 없이 재소환 보상이 지급되었습니다.',
+        );
+        audio.play('item-draw');
+      }).catch((error) => {
+        resultHost.removeAttribute('aria-busy');
+        button.disabled = false;
+        button.textContent = `${drawAgainCount}회 더 뽑기`;
+        toast(error instanceof Error ? error.message : '귀신구슬 재소환을 완료하지 못했습니다.');
+      });
+    });
+  };
+  const reveal = (): void => {
+    if (revealed || !resultHost) return;
+    revealed = true;
+    stopAnimation();
+    audio.setBackgroundTrack('main');
+    overlay.classList.add('revealed');
+    renderResults(rewards, resultMessage);
+    audio.play('victory');
+  };
+  if (reducedMotion || !video) {
+    window.setTimeout(reveal, 80);
+  } else {
+    audio.setBackgroundTrack(null);
+    stopAnimation = playCinematicVideo(video, () => overlay.classList.add('ready'), reveal);
+  }
+  const skipAnimation = (): void => {
+    if (revealed || !skipArmed) return;
+    reveal();
+  };
+  overlay.addEventListener('click', skipAnimation);
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') skipAnimation();
+  });
+}
+
+function showMoonlitPrestigeAcquisition(
+  rewards: readonly GhostOrbPreviewReward[],
+  resultMessage: string,
+  onClose?: () => void,
+): void {
+  const overlay = document.createElement('div');
+  overlay.className = 'orb-gacha-overlay moonlit-prestige-overlay';
+  overlay.innerHTML = `<section class="orb-gacha-cinematic" role="dialog" aria-modal="true" aria-label="월령 환영 여우 획득 연출" tabindex="0">
+    <video class="moonlit-prestige-video" aria-label="초승달 풀숲에서 월령 환영 여우가 각성해 귀신들과 싸우는 애니메이션" playsinline preload="auto" data-mp4-src="${releaseVersionedAsset(MOONLIT_PRESTIGE_VIDEO_URL)}" data-webm-src="${releaseVersionedAsset(MOONLIT_PRESTIGE_WEBM_URL)}"></video>
+    <div class="moonlit-cinematic-loader"><span></span><small>달빛의 기억을 불러오는 중</small></div>
+    <p class="orb-gacha-tap-hint">화면을 누르면 건너뜁니다</p>
+    <div class="orb-gacha-results" data-orb-gacha-results></div>
+  </section>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector<HTMLElement>('.orb-gacha-cinematic')?.focus();
+  const resultHost = overlay.querySelector<HTMLElement>('[data-orb-gacha-results]');
+  const video = overlay.querySelector<HTMLVideoElement>('.moonlit-prestige-video');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let revealed = false;
+  let skipArmed = false;
+  window.setTimeout(() => { skipArmed = true; }, 320);
+  let stopVideo = (): void => undefined;
+  const reveal = (): void => {
+    if (revealed || !resultHost) return;
+    revealed = true;
+    stopVideo();
+    audio.setBackgroundTrack('main');
+    overlay.classList.add('revealed');
+    resultHost.innerHTML = `<div class="orb-gacha-result-grid ten">${rewards.map((reward, index) => `<article class="orb-gacha-result-card reward-${reward.kind}" style="--result-index:${index}">${reward.imageUrl ? `<img src="${reward.imageUrl}?v=${APP_RELEASE_VERSION}" alt=""/>` : `<i>${escapeHtml(reward.symbol)}</i>`}<strong>${escapeHtml(reward.label)}</strong><small>${escapeHtml(reward.detail)}</small></article>`).join('')}</div><p>${escapeHtml(resultMessage)}</p><button type="button" class="orb-gacha-confirm" data-orb-gacha-close>확인</button>`;
+    resultHost.querySelector('[data-orb-gacha-close]')?.addEventListener('click', () => {
+      overlay.remove();
+      onClose?.();
+    });
+    audio.play('victory');
+  };
+  if (reducedMotion || !video) {
+    window.setTimeout(reveal, 80);
+  } else {
+    audio.setBackgroundTrack(null);
+    stopVideo = playCinematicVideo(video, () => overlay.classList.add('ready'), reveal);
+  }
+  const skipAnimation = (): void => {
+    if (!revealed && skipArmed) reveal();
+  };
+  overlay.addEventListener('click', skipAnimation);
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') skipAnimation();
+  });
+}
+
+function showGhostOrbGachaAnimation(drawCount: 1 | 10): void {
+  showGhostOrbSummonAnimation(
+    Array.from({ length: drawCount }, ghostOrbPreviewReward),
+    devMode
+      ? '개발용 연출 미리보기 · 실제 보상은 지급되지 않습니다.'
+      : '결제 검증 후 동일한 연출로 보상이 지급됩니다.',
+  );
+}
+
+function ghostOrbOddsMarkup(): string {
+  return GHOST_ORB_DRAW_TABLE.map((reward) => {
+    const label = reward.kind === 'points'
+      ? `${reward.amount.toLocaleString()} P`
+      : reward.kind === 'orbs'
+        ? `귀신구슬 ${reward.amount}개`
+        : SHOP_SLOT_LABELS[reward.slot as Exclude<ShopCatalogSlot, 'item'>];
+    return `<li><span>${escapeHtml(label)}</span><strong>${reward.weight}%</strong></li>`;
+  }).join('');
+}
+
+function showGhostOrbOddsModal(): void {
+  dismissibleModal(
+    `<section class="orb-odds-sheet" role="dialog" aria-modal="true" aria-labelledby="orb-odds-title"><header><div><small>DRAW INFORMATION</small><h2 id="orb-odds-title">확률 및 중복 보상</h2></div><button type="button" data-modal-close aria-label="닫기">×</button></header><ul>${ghostOrbOddsMarkup()}</ul><div><strong>33회 천장</strong><p>33회 안에 귀신구슬 1개를 보장하며, 구슬을 획득하면 천장 횟수가 초기화됩니다.</p></div><div><strong>중복 보상</strong><p>이미 보유한 캐릭터·스킨·타일·포탑 스킨은 현재 포인트 상점 판매가만큼 포인트로 전환됩니다.</p></div></section>`,
+    'orb-odds-modal',
+  );
+}
+
+function showGhostOrbPurchaseConfirm(count: 1 | 10): void {
+  if (!account) return authScreen();
+  const productLabel = count === 10 ? '귀신구슬 10회 소환' : '귀신구슬 1회 소환';
+  const cashCost = GHOST_ORB_CASH_COST * count;
+  const canAfford = account.cash >= cashCost;
+  const modal = dismissibleModal(
+    `<section class="orb-purchase-sheet" role="dialog" aria-modal="true" aria-labelledby="orb-purchase-title"><header><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/><div><small>GHOST ORB PURCHASE</small><h2 id="orb-purchase-title">${escapeHtml(productLabel)}을 구매하시겠습니까?</h2></div></header><div class="orb-purchase-product"><span>${count}회</span><div><strong>${escapeHtml(productLabel)}</strong><small>${cashCost.toLocaleString()} 캐시</small></div></div><p class="${canAfford ? '' : 'insufficient'}">보유 캐시 ${account.cash.toLocaleString()}개${canAfford ? ' · 소환 즉시 차감됩니다.' : ` · ${Math.max(0, cashCost - account.cash).toLocaleString()}개가 부족합니다.`}</p><footer><button type="button" data-modal-close>취소</button><button type="button" class="confirm" ${canAfford ? 'data-orb-free-purchase' : 'data-open-cash-shop'}>${canAfford ? `${cashCost.toLocaleString()} C 사용` : '캐시 충전'}</button></footer></section>`,
+    'orb-purchase-modal',
+  );
+  modal.querySelector<HTMLButtonElement>('[data-open-cash-shop]')?.addEventListener('click', () => {
+    modal.remove();
+    cashShopScreen();
+  });
+  modal.querySelector<HTMLButtonElement>('[data-orb-free-purchase]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    button.textContent = '보상 확인 중…';
+    void drawGhostOrbs(count).then((result) => {
+      account = result.profile;
+      modal.remove();
+      showGhostOrbSummonAnimation(
+        mappedGhostOrbDrawRewards(result.rewards),
+        result.freePurchase
+          ? '스토어 연결 전 무료 구매 보상이 지급되었습니다.'
+          : '귀신구슬 소환 보상이 지급되었습니다.',
+        ghostOrbShopScreen,
+        count,
+      );
+    }).catch((error) => {
+      button.disabled = false;
+      button.textContent = `${cashCost.toLocaleString()} C 사용`;
+      toast(error instanceof Error ? error.message : '귀신구슬 소환을 완료하지 못했습니다.');
+    });
+  });
+}
+
+function ghostOrbShopScreen(): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const orbCount = currentAccount.prestige.ghostOrbs;
+  setContent('orb-shop', `<main class="orb-shop-screen">
+    <div class="orb-shop-atmosphere" aria-hidden="true"></div>
+    <header class="orb-shop-header"><button type="button" data-orb-shop-back aria-label="홈으로">‹</button><div><small>SPIRIT ORB SHOP</small><h2>구슬 상점</h2></div><div class="orb-shop-header-actions"><button type="button" data-orb-exchange-page>구슬 교환</button><strong><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/>${orbCount.toLocaleString()}</strong></div></header>
+    <section class="orb-shop-scroll gacha-only">
+      <section class="orb-summon-panel primary">
+        <div class="orb-summon-title"><span>GHOST ORB DRAW</span><h3>귀신구슬 소환</h3><p>프리미엄·프레스티지 스킨은 등장하지 않습니다.</p><button type="button" data-orb-odds aria-label="확률 및 중복 보상 안내" style="min-width: 30px; min-height: 30px;">i</button></div>
+        <div class="orb-summon-stage"><img src="${releaseVersionedAsset('/assets/ui/orb-shop/summon/summon-stage-preview.webp')}" alt="빛을 모으는 귀신구슬 소환함"/><button type="button" data-orb-animation-preview>소환 애니메이션 보기</button></div>
+        <div class="orb-draw-actions"><button type="button" data-orb-draw="1"><span>1회 소환</span><strong>${GHOST_ORB_CASH_COST.toLocaleString()} C</strong></button><button type="button" class="ten" data-orb-draw="10"><span>10회 소환</span><strong>${(GHOST_ORB_CASH_COST * 10).toLocaleString()} C</strong></button></div>
+        <p class="orb-iap-status">보유 캐시 ${currentAccount.cash.toLocaleString()} C · 부족한 캐시는 홈의 ＋ 버튼에서 충전할 수 있습니다.</p>
+      </section>
+    </section>
+  </main>`);
+  app.querySelector('[data-orb-shop-back]')?.addEventListener('click', homeScreen);
+  app.querySelector('[data-orb-exchange-page]')?.addEventListener('click', () => ghostOrbExchangeScreen());
+  app.querySelector('[data-orb-odds]')?.addEventListener('click', showGhostOrbOddsModal);
+  app.querySelector('[data-orb-animation-preview]')?.addEventListener('click', () => showGhostOrbGachaAnimation(1));
+  app.querySelectorAll<HTMLButtonElement>('[data-orb-draw]').forEach((button) => button.addEventListener('click', () => {
+    const count = button.dataset.orbDraw === '10' ? 10 : 1;
+    showGhostOrbPurchaseConfirm(count);
+  }));
+}
+
+function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MOONLIT_PHANTOM_PACKAGE_ID): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const orbCount = currentAccount.prestige.ghostOrbs;
+  const theme = PRESTIGE_EXCHANGE_THEMES.find((entry) => entry.id === activePackageId) ?? MOONLIT_PRESTIGE_THEME;
+  const ownsPackage = currentAccount.prestige.ownedPackageIds.includes(theme.id);
+  const activeContent = theme.contents.find((content) => content.id === activeContentId);
+  const previewUrl = activeContent?.imageUrl ?? theme.heroUrl;
+  const previewFit = activeContent?.imageFit ?? 'contain';
+  const exchangeStatus = ownsPackage
+    ? '패키지 보유 중'
+    : !theme.available
+      ? '제작 중 · 곧 교환 가능'
+    : orbCount >= GHOST_ORB_PACKAGE_COST
+      ? `귀신구슬 ${GHOST_ORB_PACKAGE_COST}개로 모두 교환`
+      : `귀신구슬 ${GHOST_ORB_PACKAGE_COST - orbCount}개 더 필요`;
+  const contentButtons = theme.contents.map((content) => `<button type="button" class="${content.id === activeContentId ? 'selected' : ''}" data-prestige-content="${content.id}"><img src="${content.imageUrl}?v=${APP_RELEASE_VERSION}" alt=""/><span><strong>${escapeHtml(content.label)}</strong><small>${escapeHtml(content.detail)}</small></span></button>`).join('');
+  const prestigeRewards = theme.contents.map((content) => ({
+    kind: 'cosmetic' as const,
+    label: content.label,
+    symbol: '✦',
+    detail: content.detail,
+    imageUrl: content.imageUrl,
+  }));
+  setContent('orb-exchange', `<main class="orb-shop-screen orb-exchange-screen">
+    <div class="orb-shop-atmosphere" aria-hidden="true"></div>
+    <header class="orb-shop-header"><button type="button" data-orb-exchange-back aria-label="구슬 상점으로">‹</button><div><small>PRESTIGE EXCHANGE</small><h2>구슬 교환</h2></div><div class="orb-shop-header-actions"><strong><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/>${orbCount.toLocaleString()}</strong></div></header>
+    <section class="orb-exchange-scroll">
+      <div class="orb-exchange-workbench">
+        <aside class="orb-prestige-list"><small>PRESTIGE</small>${PRESTIGE_EXCHANGE_THEMES.map((entry) => `<button type="button" class="${entry.id === theme.id ? 'selected' : ''}" data-prestige-package="${entry.id}" aria-pressed="${entry.id === theme.id}"><img src="${entry.iconUrl}?v=${APP_RELEASE_VERSION}" alt=""/><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.available ? `귀신구슬 ${GHOST_ORB_PACKAGE_COST}개` : '제작 중'}</small></span></button>`).join('')}</aside>
+        <section class="orb-exchange-detail">
+          <span class="orb-package-rarity">PRESTIGE · LIMITED</span>
+          <div class="orb-exchange-preview ${previewFit}"><img src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(activeContent?.label ?? theme.title)} 미리보기"/></div>
+          <div class="orb-exchange-copy"><small>${activeContent ? escapeHtml(activeContent.label) : '프레스티지 교환 계약'}</small><h3>${escapeHtml(activeContent?.detail ?? theme.title)}</h3><p>${escapeHtml(theme.subtitle)}</p></div>
+        </section>
+      </div>
+      <section class="orb-exchange-contents"><header><div><small>PACKAGE CONTENTS</small><h3>구성품 미리보기</h3></div></header><div>${contentButtons}</div></section>
+      ${devMode ? '<button type="button" class="orb-cinematic-preview" data-moonlit-cinematic-preview>획득 연출 미리보기</button>' : ''}
+      <button type="button" class="orb-package-exchange" data-orb-package-exchange ${!theme.available || ownsPackage || orbCount < GHOST_ORB_PACKAGE_COST ? 'disabled' : ''}>${escapeHtml(exchangeStatus)}</button>
+    </section>
+  </main>`);
+  app.querySelector('[data-orb-exchange-back]')?.addEventListener('click', ghostOrbShopScreen);
+  app.querySelectorAll<HTMLButtonElement>('[data-prestige-content]').forEach((button) => button.addEventListener('click', () => {
+    ghostOrbExchangeScreen(button.dataset.prestigeContent ?? 'bundle', theme.id);
+  }));
+  app.querySelectorAll<HTMLButtonElement>('[data-prestige-package]').forEach((button) => button.addEventListener('click', () => {
+    ghostOrbExchangeScreen('bundle', button.dataset.prestigePackage ?? MOONLIT_PHANTOM_PACKAGE_ID);
+  }));
+  app.querySelector('[data-moonlit-cinematic-preview]')?.addEventListener('click', () => {
+    audio.unlock();
+    showMoonlitPrestigeAcquisition(prestigeRewards, '개발용 획득 연출 미리보기입니다.', () => ghostOrbExchangeScreen());
+  });
+  app.querySelector<HTMLButtonElement>('[data-orb-package-exchange]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    audio.unlock();
+    button.disabled = true;
+    void withGlobalActionLoading(`${theme.title} 교환 중`, () => exchangePrestigePackage(theme.id))
+      .then((updated) => {
+        account = updated;
+        showMoonlitPrestigeAcquisition(
+          prestigeRewards,
+          `${theme.title} 프레스티지 패키지를 획득했습니다.`,
+          () => ghostOrbExchangeScreen('bundle', theme.id),
+        );
+      })
+      .catch((error) => {
+        button.disabled = false;
+        toast(error instanceof Error ? error.message : '프레스티지 패키지를 교환하지 못했습니다.');
+      });
+  });
 }
 
 async function refreshHomeEventMissionStatus(): Promise<void> {
@@ -1957,8 +2627,9 @@ function showProfileDisplayPicker(): void {
       return `<button class="profile-display-option ${display.className} ${selected ? "selected" : ""}" data-profile-display-mode="${mode}" aria-pressed="${selected}"><img src="${display.badgeUrl}" alt="${escapeHtml(display.badgeAlt)}"/><span><em>${display.modeLabel}</em><strong>${escapeHtml(display.rankText)}</strong><small>${escapeHtml(display.labelText)} · ${escapeHtml(currentAccount.nickname)}</small></span><b>${selected ? "표시 중" : "선택"}</b></button>`;
     })
     .join("");
+  const profileFrame = `<img class="profile-prestige-frame" src="${profileFrameAssetUrl(currentAccount.prestige.profileFrameId)}" alt="프로필 테두리"/>`;
   const modal = dismissibleModal(
-    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>PROFILE SETTINGS</small><h2 id="profile-display-title">프로필 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><section class="profile-photo-editor"><img src="${escapeHtml(profileAvatarSource(currentAccount.profileAvatarUrl))}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/><div class="profile-name-editor"><strong>${escapeHtml(currentAccount.nickname)}</strong><button type="button" data-profile-nickname-edit aria-label="닉네임 변경">✎</button></div><div class="profile-photo-actions"><label class="btn ghost profile-photo-select">사진 선택<input type="file" accept="image/jpeg,image/png,image/webp" data-profile-photo-input/></label><button class="btn ghost" data-profile-avatar-reset ${currentAccount.profileAvatarUrl ? "" : "disabled"}>기본 이미지</button></div></section><h3 class="profile-display-heading">인게임 라벨 설정</h3><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
+    `<section class="home-picker-sheet profile-display-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-display-title"><header><div><small>PROFILE SETTINGS</small><h2 id="profile-display-title">프로필 설정</h2></div><button data-modal-close aria-label="닫기">×</button></header><section class="profile-photo-editor"><button type="button" class="profile-avatar-preview profile-avatar-edit-trigger" data-profile-avatar-picker aria-label="프로필 이미지와 테두리 변경"><img src="${escapeHtml(profileAvatarSource(currentAccount.profileAvatarUrl))}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/>${profileFrame}<span>변경</span></button><div class="profile-name-editor"><strong>${escapeHtml(currentAccount.nickname)}</strong><button type="button" data-profile-nickname-edit aria-label="닉네임 변경">✎</button></div></section><h3 class="profile-display-heading">인게임 라벨 설정</h3><p class="profile-display-intro">선택한 뱃지와 라벨은 모든 인게임 이름표에 표시됩니다. 플레이 방식과 전투 능력치는 바뀌지 않습니다.</p><div class="profile-display-options">${cards}</div><section class="profile-title-slot"><div><small>칭호</small><strong>칭호 없음</strong></div><p>시즌 보상이나 업적 칭호를 획득하면 이곳에서 표시할 칭호를 고를 수 있습니다.</p></section></section>`,
     "home-picker-modal profile-display-modal",
   );
   modal
@@ -1967,6 +2638,10 @@ function showProfileDisplayPicker(): void {
       audio.play("button");
       showNicknameEditor(modal);
     });
+  modal.querySelector<HTMLButtonElement>('[data-profile-avatar-picker]')?.addEventListener('click', () => {
+    audio.play('button');
+    showProfileAssetPicker(modal);
+  });
   modal
     .querySelectorAll<HTMLButtonElement>("[data-profile-display-mode]")
     .forEach((button) =>
@@ -1991,6 +2666,40 @@ function showProfileDisplayPicker(): void {
       }),
     );
   modal
+    .querySelectorAll<HTMLButtonElement>('[data-prestige-profile-image]')
+    .forEach((button) => button.addEventListener('click', () => {
+      button.disabled = true;
+      const profileImageId = button.dataset.prestigeProfileImage === 'moonlit'
+        ? 'profile-image-moonlit-phantom-fox'
+        : null;
+      void setPrestigeLoadout({ profileImageId }).then((updated) => {
+        account = updated;
+        modal.remove();
+        homeScreen();
+        showProfileDisplayPicker();
+      }).catch((error) => {
+        button.disabled = false;
+        toast(error instanceof Error ? error.message : '프로필 이미지를 변경하지 못했습니다.');
+      });
+    }));
+  modal.querySelectorAll<HTMLButtonElement>('[data-prestige-profile-frame]').forEach((button) => {
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      const profileFrameId = button.dataset.prestigeProfileFrame === 'moonlit'
+        ? 'profile-frame-moonlit-phantom-fox'
+        : null;
+      void setPrestigeLoadout({ profileFrameId }).then((updated) => {
+        account = updated;
+        modal.remove();
+        homeScreen();
+        showProfileDisplayPicker();
+      }).catch((error) => {
+        button.disabled = false;
+        toast(error instanceof Error ? error.message : '프로필 테두리를 변경하지 못했습니다.');
+      });
+    });
+  });
+  modal
     .querySelector<HTMLInputElement>("[data-profile-photo-input]")
     ?.addEventListener("change", (event) => {
       const input = event.currentTarget as HTMLInputElement;
@@ -1998,7 +2707,7 @@ function showProfileDisplayPicker(): void {
       if (!file) return;
       input.disabled = true;
       void compactProfileAvatar(file)
-        .then((avatarData) => setProfileAvatar(avatarData))
+        .then((avatarData) => setPrestigeLoadout({ profileImageId: null }).then(() => setProfileAvatar(avatarData)))
         .then((updated) => {
           account = updated;
           modal.remove();
@@ -2020,7 +2729,8 @@ function showProfileDisplayPicker(): void {
     ?.addEventListener("click", (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       button.disabled = true;
-      void setProfileAvatar(null)
+      void setPrestigeLoadout({ profileImageId: null })
+        .then(() => setProfileAvatar(null))
         .then((updated) => {
           account = updated;
           modal.remove();
@@ -2037,6 +2747,77 @@ function showProfileDisplayPicker(): void {
           );
         });
     });
+}
+
+function showProfileAssetPicker(parentModal?: HTMLElement): void {
+  if (!account) return;
+  const currentAccount = account;
+  parentModal?.remove();
+  const ownedPackages = new Set(currentAccount.prestige.ownedPackageIds);
+  const presets = [
+    { id: 'profile-image-moonlit-phantom-fox', label: '월령 여우', image: '/assets/profile-images/moonlit-phantom-fox.webp', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
+    { id: 'profile-image-starlit-cloud-rabbit', label: '성운 모모', image: '/assets/profile-images/starlit-cloud-rabbit.webp', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
+    { id: 'profile-image-abyssal-knight-gorilla', label: '심연 콩', image: '/assets/profile-images/abyssal-knight-gorilla.webp', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
+  ].filter((entry) => ownedPackages.has(entry.packageId));
+  const frames = [
+    { id: 'profile-frame-basic', label: '기본 테두리', image: '/assets/profile-images/basic-profile-frame.svg' },
+    { id: 'profile-frame-moonlit-phantom-fox', label: '월령 여우불', image: '/assets/profile-images/moonlit-phantom-frame.png', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
+    { id: 'profile-frame-starlit-cloud-rabbit', label: '성운 프리즘', image: '/assets/profile-images/starlit-cloud-frame.svg', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
+    { id: 'profile-frame-abyssal-knight-gorilla', label: '심연 흑염', image: '/assets/profile-images/abyssal-knight-frame.svg', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
+  ].filter((entry) => !entry.packageId || ownedPackages.has(entry.packageId));
+  const imageCards = `<label class="profile-asset-card upload"><span>＋</span><strong>내 사진</strong><small>사진 추가 또는 변경</small><input type="file" accept="image/jpeg,image/png,image/webp" data-profile-picker-upload/></label>
+    <button type="button" class="profile-asset-card ${!currentAccount.prestige.profileImageId && !currentAccount.uploadedProfileAvatarUrl ? 'selected' : ''}" data-profile-picker-image="basic"><img src="${DEFAULT_PROFILE_AVATAR}" alt=""/><strong>기본 이미지</strong></button>
+    ${currentAccount.uploadedProfileAvatarUrl ? `<button type="button" class="profile-asset-card ${!currentAccount.prestige.profileImageId ? 'selected' : ''}" data-profile-picker-image="photo"><img src="${escapeHtml(profileAvatarSource(currentAccount.uploadedProfileAvatarUrl))}" alt=""/><strong>내 사진</strong></button>` : ''}
+    ${presets.map((entry) => `<button type="button" class="profile-asset-card ${currentAccount.prestige.profileImageId === entry.id ? 'selected' : ''}" data-profile-picker-image="${entry.id}"><img src="${entry.image}" alt=""/><strong>${entry.label}</strong></button>`).join('')}`;
+  const frameCards = frames.map((entry) => `<button type="button" class="profile-asset-card frame ${currentAccount.prestige.profileFrameId === entry.id ? 'selected' : ''}" data-profile-picker-frame="${entry.id}"><span class="profile-frame-sample"><img src="${DEFAULT_PROFILE_AVATAR}" alt=""/><img src="${entry.image}" alt=""/></span><strong>${entry.label}</strong></button>`).join('');
+  const modal = dismissibleModal(
+    `<section class="profile-asset-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-asset-picker-title"><header><div><small>PROFILE CUSTOMIZE</small><h2 id="profile-asset-picker-title">프로필 꾸미기</h2></div><button type="button" data-modal-close aria-label="닫기">×</button></header><nav class="profile-asset-tabs"><button type="button" class="active" data-profile-picker-tab="image">이미지</button><button type="button" data-profile-picker-tab="frame">테두리</button></nav><section class="profile-asset-grid" data-profile-picker-panel="image">${imageCards}</section><section class="profile-asset-grid hidden" data-profile-picker-panel="frame">${frameCards}</section></section>`,
+    'profile-asset-picker-modal',
+  );
+  modal.querySelectorAll<HTMLButtonElement>('[data-profile-picker-tab]').forEach((button) => button.addEventListener('click', () => {
+    const tab = button.dataset.profilePickerTab;
+    modal.querySelectorAll('[data-profile-picker-tab]').forEach((candidate) => candidate.classList.toggle('active', (candidate as HTMLElement).dataset.profilePickerTab === tab));
+    modal.querySelectorAll<HTMLElement>('[data-profile-picker-panel]').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.profilePickerPanel !== tab));
+  }));
+  const reopen = (updated: AccountProfile) => {
+    account = updated;
+    modal.remove();
+    homeScreen();
+    showProfileDisplayPicker();
+  };
+  modal.querySelectorAll<HTMLButtonElement>('[data-profile-picker-image]').forEach((button) => button.addEventListener('click', () => {
+    const choice = button.dataset.profilePickerImage;
+    button.disabled = true;
+    const selectImage = choice === 'basic' || choice === 'photo' ? null : choice;
+    const update = choice === 'basic'
+      ? setProfileAvatar(null).then(() => setPrestigeLoadout({ profileImageId: null }))
+      : setPrestigeLoadout({ profileImageId: selectImage });
+    void update.then(reopen).catch((error) => {
+      button.disabled = false;
+      toast(error instanceof Error ? error.message : '프로필 이미지를 변경하지 못했습니다.');
+    });
+  }));
+  modal.querySelectorAll<HTMLButtonElement>('[data-profile-picker-frame]').forEach((button) => button.addEventListener('click', () => {
+    button.disabled = true;
+    void setPrestigeLoadout({ profileFrameId: button.dataset.profilePickerFrame ?? 'profile-frame-basic' }).then(reopen).catch((error) => {
+      button.disabled = false;
+      toast(error instanceof Error ? error.message : '프로필 테두리를 변경하지 못했습니다.');
+    });
+  }));
+  modal.querySelector<HTMLInputElement>('[data-profile-picker-upload]')?.addEventListener('change', (event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.disabled = true;
+    void compactProfileAvatar(file)
+      .then(setProfileAvatar)
+      .then(() => setPrestigeLoadout({ profileImageId: null }))
+      .then(reopen)
+      .catch((error) => {
+      input.disabled = false;
+      toast(error instanceof Error ? error.message : '프로필 사진을 저장하지 못했습니다.');
+    });
+  });
 }
 
 function showHomeStagePicker(): void {
@@ -2137,17 +2918,22 @@ function showRankingPreview(): void {
     });
 }
 
+type LockerSlot = CosmeticSlot | 'emote';
 type ShopCatalogSlot = CosmeticSlot | "item";
 
-const CUSTOM_SLOT_LABELS: Record<CosmeticSlot, string> = {
+const CUSTOM_SLOT_LABELS: Record<LockerSlot, string> = {
   character: "캐릭터",
   skin: "스킨",
   tile: "타일",
   turret: "포탑",
+  emote: "이모티콘",
 };
 
 const SHOP_SLOT_LABELS: Record<ShopCatalogSlot, string> = {
-  ...CUSTOM_SLOT_LABELS,
+  character: CUSTOM_SLOT_LABELS.character,
+  skin: CUSTOM_SLOT_LABELS.skin,
+  tile: CUSTOM_SLOT_LABELS.tile,
+  turret: CUSTOM_SLOT_LABELS.turret,
   item: "아이템",
 };
 
@@ -2191,8 +2977,53 @@ function cosmeticEntitled(
   );
 }
 
-function customizationScreen(activeSlot: CosmeticSlot = "character"): void {
+function customizationScreen(activeSlot: LockerSlot = "character"): void {
+  if (activeSlot === 'emote') {
+    emoteLockerScreen();
+    return;
+  }
   cosmeticCollectionScreen("customize", activeSlot);
+}
+
+function emoteLockerScreen(): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const tabs = (Object.keys(CUSTOM_SLOT_LABELS) as LockerSlot[]).map((slot) =>
+    `<button class="custom-tab ${slot === 'emote' ? 'active' : ''}" data-custom-slot="${slot}">${CUSTOM_SLOT_LABELS[slot]}</button>`,
+  ).join('');
+  const emotes = [
+    ['moonlit-smug', '월령의 미소', '/assets/emotes/moonlit-phantom-fox/smug.webp'],
+    ['moonlit-shock', '여우불 깜짝', '/assets/emotes/moonlit-phantom-fox/shock.webp'],
+    ['moonlit-yawn', '달빛 하품', '/assets/emotes/moonlit-phantom-fox/yawn.webp'],
+    ['moonlit-victory', '월령 승리', '/assets/emotes/moonlit-phantom-fox/victory.webp'],
+  ] as const;
+  const owned = new Set(currentAccount.prestige.ownedEmoteIds);
+  const equipped = new Set(currentAccount.prestige.equippedEmoteIds);
+  const cards = emotes.filter(([id]) => owned.has(id)).map(([id, label, url]) =>
+    `<article class="emote-locker-card ${equipped.has(id) ? 'equipped' : ''}"><img src="${url}" alt="${label}"/><strong>${label}</strong><button type="button" data-emote-equip="${id}">${equipped.has(id) ? '장착 해제' : '장착'}</button></article>`,
+  ).join('');
+  const slots = Array.from({ length: 4 }, (_, index) => {
+    const id = currentAccount.prestige.equippedEmoteIds[index];
+    const emote = emotes.find(([candidate]) => candidate === id);
+    return `<span>${emote ? `<img src="${emote[2]}" alt="${emote[1]}"/>` : `<b>${index + 1}</b>`}</span>`;
+  }).join('');
+  setContent('customize', `<main class="custom-screen owned-custom-screen emote-locker-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="custom-layout"><aside class="custom-preview emote-preview"><div class="emote-preview-character"><img src="${escapeHtml(profileAvatarSource(currentAccount.profileAvatarUrl))}" alt=""/><span class="emote-preview-bubble">이모티콘은 메시지처럼 표시됩니다.</span></div><div class="emote-equipped-slots">${slots}</div><small>인게임 채팅에서 사용할 위치 · 최대 4개</small></aside><section class="custom-catalog"><nav>${tabs}</nav><div class="cosmetic-grid emote-grid">${cards || '<p class="empty-collection">보유한 이모티콘이 없습니다.<br/>프레스티지 패키지에서 획득할 수 있습니다.</p>'}</div></section></section></main>`);
+  app.querySelector('[data-custom-back]')?.addEventListener('click', homeScreen);
+  app.querySelectorAll<HTMLElement>('[data-custom-slot]').forEach((button) => button.addEventListener('click', () => customizationScreen(button.dataset.customSlot as LockerSlot)));
+  app.querySelectorAll<HTMLButtonElement>('[data-emote-equip]').forEach((button) => button.addEventListener('click', () => {
+    const id = button.dataset.emoteEquip ?? '';
+    const next = equipped.has(id)
+      ? currentAccount.prestige.equippedEmoteIds.filter((candidate) => candidate !== id)
+      : [...currentAccount.prestige.equippedEmoteIds, id].slice(-4);
+    button.disabled = true;
+    void setPrestigeLoadout({ emoteIds: next }).then((updated) => {
+      account = updated;
+      emoteLockerScreen();
+    }).catch((error) => {
+      button.disabled = false;
+      toast(error instanceof Error ? error.message : '이모티콘 장착을 변경하지 못했습니다.');
+    });
+  }));
 }
 
 function shopScreen(
@@ -2307,23 +3138,25 @@ function cosmeticCollectionScreen(
   const shopping = screen === "shop";
   const visibleSlots = shopping
     ? (Object.keys(SHOP_SLOT_LABELS) as ShopCatalogSlot[])
-    : (Object.keys(CUSTOM_SLOT_LABELS) as CosmeticSlot[]);
+    : (Object.keys(CUSTOM_SLOT_LABELS) as LockerSlot[]);
   const tabs = visibleSlots
     .map(
       (slot) =>
-        `<button class="custom-tab ${slot === selectedSlot ? "active" : ""}" data-custom-slot="${slot}">${shopping ? SHOP_SLOT_LABELS[slot as ShopCatalogSlot] : CUSTOM_SLOT_LABELS[slot as CosmeticSlot]}</button>`,
+        `<button class="custom-tab ${slot === selectedSlot ? "active" : ""}" data-custom-slot="${slot}">${shopping ? SHOP_SLOT_LABELS[slot as ShopCatalogSlot] : CUSTOM_SLOT_LABELS[slot as LockerSlot]}</button>`,
     )
     .join("");
   const catalog = cosmeticsForSlot(selectedSlot).filter(
     (item) =>
       (shopping || cosmeticEntitled(item, currentAccount)) &&
+      (!shopping || cosmeticVisibleInPointShop(item)) &&
       (!shopping || storefrontThemeVisible(item.id, currentAccount)) &&
       (selectedSlot !== "tile" || item.id !== DEFAULT_TILE_SKIN_ID) &&
       (selectedSlot !== "turret" ||
         item.id === CYBERPUNK_LASER_TURRET_SKIN_ID ||
         item.id === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID ||
         item.id === SURFER_WATER_TURRET_SKIN_ID ||
-        item.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID),
+        item.id === LIFEGUARD_PARASOL_TURRET_SKIN_ID ||
+        (!shopping && item.prestige === true)),
   );
   const displayCatalog =
     selectedSlot === "turret"
@@ -2355,7 +3188,27 @@ function cosmeticCollectionScreen(
             if (rightOrder < 0) return -1;
             return leftOrder - rightOrder;
           })
-        : catalog;
+        : !shopping && selectedSlot === "skin"
+          ? [...catalog].sort((left, right) => {
+              // The locker is a collection: show the most valuable skins
+              // first, rather than preserving authoring order.  Keep this
+              // independent from point price because rank/reward skins do
+              // not have a price.
+              const grade = (item: CosmeticDefinition): number => {
+                if (item.prestige) return 5;
+                if (item.premium) return 4;
+                if (item.unlock.kind === "rank") return 3;
+                if (item.unlock.kind === "reward") return 2;
+                if (item.unlock.kind === "points") return 1;
+                return 0;
+              };
+              const gradeDelta = grade(right) - grade(left);
+              if (gradeDelta !== 0) return gradeDelta;
+              if (left.unlock.kind === "points" && right.unlock.kind === "points")
+                return right.unlock.price - left.unlock.price;
+              return left.label.localeCompare(right.label, "ko");
+            })
+          : catalog;
   const preferredPreviewId =
     selectedSlot === "skin"
       ? POLICE_ENFORCER_CROCO_SKIN_ID
@@ -2385,13 +3238,15 @@ function cosmeticCollectionScreen(
       const premiumCyberKong = item.id === CYBER_DRIVER_KONG_SKIN_ID;
       const premiumPoliceCroco = item.id === POLICE_ENFORCER_CROCO_SKIN_ID;
       const premiumSecretMonkey = item.id === SECRET_AGENT_MONKEY_SKIN_ID;
+      const moonlitPrestige = item.id === MOONLIT_PHANTOM_SKIN_ID;
       const premiumSkin =
         premiumSurfer
         || premiumLifeguard
         || premiumNeonLulu
         || premiumCyberKong
         || premiumPoliceCroco
-        || premiumSecretMonkey;
+        || premiumSecretMonkey
+        || moonlitPrestige;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
@@ -2429,6 +3284,12 @@ function cosmeticCollectionScreen(
         status = "등급 보상";
       } else if (shopping && item.unlock.kind === "starter") {
         status = "기본 지급";
+      } else if (!shopping && requiresCharacter) {
+        action = null;
+        status = moonlitPrestige
+          ? "별여우 초롱 해금 필요"
+          : `${cosmeticById(item.characterId ?? "")?.label ?? "캐릭터"} 해금 필요`;
+        locked = true;
       } else if (!shopping && selected) {
         if (
           item.slot === "skin" ||
@@ -2475,8 +3336,10 @@ function cosmeticCollectionScreen(
       const art =
         item.slot === "tile"
           ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
-          : authoredTurretArt
+            : authoredTurretArt
             ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+            : moonlitPrestige
+              ? `<div class="catalog-art cosmetic-art moonlit-phantom-fox-card-art" style="--swatch:${item.swatch}"><span class="moonlit-phantom-fox-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 전신 이동 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
             : premiumSurfer
               ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
               : premiumLifeguard
@@ -2490,7 +3353,12 @@ function cosmeticCollectionScreen(
                       : premiumSecretMonkey
                         ? `<div class="catalog-art cosmetic-art secret-agent-monkey-card-art" style="--swatch:${item.swatch}"><span class="secret-agent-monkey-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 비밀 작전 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumSkin ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>' : ""}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      const premiumBadge = moonlitPrestige
+        ? '<span class="cosmetic-new-badge prestige-badge" aria-label="프레스티지 스킨">PRESTIGE</span>'
+        : premiumSkin
+          ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>'
+          : "";
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${moonlitPrestige ? "moonlit-prestige-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumBadge}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -2638,7 +3506,9 @@ function cosmeticCollectionScreen(
                 currentAccount.displayRank,
                 currentAccount.ownedCosmetics,
               )
-            ? `${cosmeticById(item.characterId)?.label ?? "해당 캐릭터"}를 먼저 보유해야 구매할 수 있습니다.`
+            ? item.id === MOONLIT_PHANTOM_SKIN_ID
+              ? "별여우 초롱을 해금해야 장착할 수 있습니다."
+              : `${cosmeticById(item.characterId)?.label ?? "해당 캐릭터"}을 해금해야 장착할 수 있습니다.`
             : shopping && !cosmeticEntitled(item, currentAccount)
               ? "미보유 아이템 미리보기 · 포인트는 차감되지 않습니다."
               : item.description,
@@ -2675,10 +3545,7 @@ function cosmeticCollectionScreen(
       button.addEventListener("click", () =>
         screen === "shop"
           ? shopScreen(button.dataset.customSlot as ShopCatalogSlot)
-          : cosmeticCollectionScreen(
-              screen,
-              button.dataset.customSlot as CosmeticSlot,
-            ),
+          : customizationScreen(button.dataset.customSlot as LockerSlot),
       ),
     );
   app
@@ -2773,6 +3640,7 @@ function googleNicknameScreen(
   signupToken: string,
   suggestedNickname = "",
   errorMessage = "",
+  provider: "google" | "apple" = "google",
 ): void {
   setContent(
     "auth",
@@ -2789,7 +3657,7 @@ function googleNicknameScreen(
       event.preventDefault();
       const nickname = input?.value.trim() ?? "";
       connectionOverlay("닉네임 중복을 확인하는 중…");
-      void completeGoogleSignup(signupToken, nickname)
+      void (provider === "apple" ? completeAppleSignup(signupToken, nickname) : completeGoogleSignup(signupToken, nickname))
         .then(continueAfterAuthentication)
         .catch((error) => {
           const message =
@@ -2803,7 +3671,8 @@ function authScreen(mode: "login" | "register" = "login"): void {
   const registering = mode === "register";
   const googleIconMarkup = '<div class="gsi-material-button-state"></div><div class="gsi-material-button-content-wrapper"><div class="gsi-material-button-icon"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg></div><span>Google로 계속하기</span></div>';
   const googleControl = `<button class="auth-google gsi-material-button" type="button" data-google-login aria-label="Google 계정으로 로그인" title="Google 계정으로 로그인">${googleIconMarkup}</button>`;
-  const googleButton = `<div class="auth-social-divider"><span>또는</span></div><div class="auth-google-wrap">${googleControl}</div>`;
+  const appleControl = appleLoginAvailable ? '<button class="auth-apple" type="button" data-apple-login aria-label="Apple로 계속하기" title="Apple로 계속하기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.68 12.18c-.02-2.16 1.76-3.21 1.84-3.26-.99-1.45-2.54-1.65-3.09-1.68-1.31-.14-2.56.77-3.23.77-.68 0-1.71-.75-2.81-.73-1.44.02-2.79.85-3.53 2.15-1.53 2.64-.39 6.52 1.08 8.67.74 1.05 1.6 2.22 2.73 2.18 1.1-.05 1.51-.7 2.84-.7 1.32 0 1.69.7 2.85.67 1.19-.02 1.94-1.05 2.65-2.11.85-1.2 1.19-2.39 1.2-2.45-.03-.01-2.29-.87-2.53-3.51ZM14.55 5.85c.6-.75 1.01-1.77.89-2.8-.87.04-1.96.6-2.59 1.33-.56.65-1.06 1.7-.93 2.69.98.08 1.99-.5 2.63-1.22Z"/></svg><span>Apple로 계속하기</span></button>' : '';
+  const googleButton = `<div class="auth-social-divider"><span>또는</span></div><div class="auth-social-actions">${googleControl}${appleControl}</div>`;
   setContent(
     "auth",
     `<main class="auth-screen ${registering ? "registering" : "logging-in"}"><div class="auth-backdrop" aria-hidden="true"></div><header class="auth-logo"><i aria-hidden="true">☾</i><span>MIDNIGHT WARD</span><h1>심야 병동</h1><p>문이 닫히기 전에 방을 찾고,<br/>오늘 밤을 함께 버텨보세요.</p></header><section class="auth-sheet"><i class="auth-sheet-handle" aria-hidden="true"></i><div class="auth-heading"><small>${registering ? "NEW SURVIVOR" : "SURVIVOR CHECK-IN"}</small><h2>${registering ? "새 생존자 등록" : "병동 체크인"}</h2><p>${registering ? "새 계정을 만들고 첫 생존 훈련을 시작하세요." : "저장된 계정으로 오늘의 생존 임무를 이어가세요."}</p></div><form id="auth-form" class="auth-form"><div class="auth-control"><label for="username">아이디</label><div><input id="username" type="text" minlength="4" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="영문 소문자·숫자 4~20자" /></div></div>${registering ? '<div class="auth-control"><label for="nickname">게임 닉네임</label><div><input id="nickname" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="게임에서 표시할 이름" /></div></div>' : ""}<div class="auth-control"><label for="password">비밀번호</label><div><input id="password" type="password" minlength="8" maxlength="72" autocomplete="${registering ? "new-password" : "current-password"}" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" placeholder="8자 이상" /><button type="button" class="auth-reveal" data-password-reveal aria-label="비밀번호 표시">보기</button></div></div><button class="auth-submit" type="submit"><span>${registering ? "생존자 등록" : "병동 입장"}</span><i aria-hidden="true">›</i></button></form>${googleButton}<button class="auth-switch" type="button" data-auth-tab="${registering ? "login" : "register"}" aria-label="${registering ? "로그인" : "새 계정"}"><span>${registering ? "이미 등록한 생존자인가요?" : "처음 병동에 왔나요?"}</span><strong>${registering ? "로그인" : "새 계정 만들기"}</strong></button></section><footer class="auth-footnote">진행도와 등급은 계정에 안전하게 저장됩니다.</footer></main>`,
@@ -2875,6 +3744,20 @@ function authScreen(mode: "login" | "register" = "login"): void {
     void signInWithGoogle()
       .then(handleGoogleResult)
       .catch(handleGoogleError);
+  });
+  app.querySelector<HTMLElement>("[data-apple-login]")?.addEventListener("click", () => {
+    audio.play("button");
+    connectionOverlay("Apple 계정에 로그인하는 중…");
+    void signInWithApple().then((result) => {
+      if (result.status === "nickname-required") {
+        googleNicknameScreen(result.signupToken, result.suggestedNickname, "", "apple");
+        return;
+      }
+      continueAfterAuthentication(result.profile);
+    }).catch((error) => {
+      authScreen(mode);
+      toast(error instanceof Error ? error.message : "Apple 로그인에 실패했습니다.");
+    });
   });
 }
 
@@ -3321,6 +4204,12 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     const speaker = snapshot.players.find((player) => player.id === speakerId);
     if (speaker) showQuickChatBubble(speaker.nickname, message);
   });
+  roomNetwork.on("gameEmote", ({ playerId: speakerId, emoteId }) => {
+    if (network !== roomNetwork || !snapshot) return;
+    const speaker = snapshot.players.find((player) => player.id === speakerId);
+    const emote = prestigeEmoteById(emoteId);
+    if (speaker && emote) showQuickChatBubble(speaker.nickname, emote.label, emote.assetUrl);
+  });
   roomNetwork.connect();
 }
 
@@ -3444,7 +4333,7 @@ function updateLobby(state: GameSnapshot): void {
           player.id !== playerId && !player.isBot && player.accountId
             ? `<button class="lobby-friend-add" data-lobby-friend-add="${escapeHtml(player.accountId)}" aria-label="${escapeHtml(player.nickname)}에게 친구 요청" title="친구 추가">＋</button>`
             : "";
-        return `<article class="player-card ${profileDisplay.className}" data-player-id="${player.id}">${playerPortraitHtml(player)}<div class="player-copy"><div class="player-name-row"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong>${friendAction}</div><span>${player.isBot ? "대기열 보충 봇" : player.connected ? (state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText) : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
+        return `<article class="player-card ${profileDisplay.className} ${player.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-player-id="${player.id}">${playerPortraitHtml(player)}<div class="player-copy"><div class="player-name-row"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong>${friendAction}</div><span>${player.isBot ? "대기열 보충 봇" : player.connected ? (state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText) : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
       })
       .join("") +
     (state.players.length < 4
@@ -3566,7 +4455,7 @@ function gameScreen(state: GameSnapshot): void {
     : "";
   setContent(
     "game",
-    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus ${me.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
     '[data-camera="rotate-left"]',
@@ -5142,7 +6031,8 @@ function renderTargetPanel(selection: SceneSelection): void {
     return;
   }
   const benefits = rankBenefits(modeRank);
-  const maxLevel = maxBuildingLevel(kind, modeRank);
+  const traitMaximum = characterTraitForMatch(me.appearance, Boolean(snapshot?.ranked)).basicTurretMaxLevel;
+  const maxLevel = maxBuildingLevel(kind, modeRank, traitMaximum);
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
   const doorDestroyed = selection.type === "door" && (room?.doorHp ?? 0) <= 0;
@@ -5152,7 +6042,7 @@ function renderTargetPanel(selection: SceneSelection): void {
   });
   const cost =
     !doorDestroyed && !requirement && currentLevel < maxLevel
-      ? upgradeCost(kind, nextLevel, modeRank)
+      ? upgradeCost(kind, nextLevel, modeRank, traitMaximum)
       : null;
   const canAffordUpgrade = Boolean(
     cost && me.gold >= cost.gold && me.power >= cost.power,
@@ -5664,7 +6554,8 @@ function showQuickChatPicker(): void {
   const picker = document.createElement("section");
   picker.className = "quick-chat-picker";
   picker.setAttribute("aria-label", "인게임 팀 채팅");
-  picker.innerHTML = `<header><strong>팀 채팅</strong><button type="button" class="quick-chat-close" data-chat-close aria-label="채팅 닫기">×</button></header><form class="game-chat-form" data-game-chat-form><input data-game-chat-input maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="메시지를 입력하세요" aria-label="팀 채팅 메시지"/><button type="submit">전송</button></form><div class="quick-chat-options" aria-label="빠른 문구">${QUICK_CHAT_PHRASES.map((phrase) => `<button type="button" data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}</div>`;
+  const emoteOptions = (account?.prestige.equippedEmoteIds ?? []).map((id) => prestigeEmoteById(id)).filter(Boolean);
+  picker.innerHTML = `<header><strong>팀 채팅</strong><button type="button" class="quick-chat-close" data-chat-close aria-label="채팅 닫기">×</button></header><form class="game-chat-form" data-game-chat-form><input data-game-chat-input maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="메시지를 입력하세요" aria-label="팀 채팅 메시지"/><button type="submit">전송</button></form><div class="quick-chat-options" aria-label="빠른 문구">${QUICK_CHAT_PHRASES.map((phrase) => `<button type="button" data-quick-phrase="${escapeHtml(phrase)}">${escapeHtml(phrase)}</button>`).join("")}</div>${emoteOptions.length ? `<div class="quick-chat-emotes" aria-label="장착 이모티콘">${emoteOptions.map((emote) => `<button type="button" data-game-emote="${emote!.id}" aria-label="${escapeHtml(emote!.label)}"><img src="${emote!.assetUrl}" alt=""/></button>`).join('')}</div>` : ''}`;
   const stableHeight = app.offsetHeight;
   const pageScrollY = window.scrollY;
   app.style.setProperty("--chat-stable-height", `${stableHeight}px`);
@@ -5723,6 +6614,11 @@ function showQuickChatPicker(): void {
         closePicker();
       }),
     );
+  picker.querySelectorAll<HTMLButtonElement>('[data-game-emote]').forEach((button) => button.addEventListener('click', () => {
+    network?.gameEmote(button.dataset.gameEmote ?? '');
+    audio.play('button');
+    closePicker();
+  }));
   window.setTimeout(() => {
     positionPicker();
     picker
@@ -5733,12 +6629,12 @@ function showQuickChatPicker(): void {
   }, 0);
 }
 
-function showQuickChatBubble(nickname: string, phrase: string): void {
+function showQuickChatBubble(nickname: string, phrase: string, emoteUrl?: string): void {
   const existing = app.querySelector(".quick-chat-bubble");
   existing?.remove();
   const bubble = document.createElement("div");
   bubble.className = "quick-chat-bubble";
-  bubble.innerHTML = `<strong>${escapeHtml(nickname)}</strong><span>${escapeHtml(phrase)}</span>`;
+  bubble.innerHTML = `<strong>${escapeHtml(nickname)}</strong>${emoteUrl ? `<img class="game-emote-message" src="${escapeHtml(emoteUrl)}" alt="${escapeHtml(phrase)}"/>` : `<span>${escapeHtml(phrase)}</span>`}`;
   app.appendChild(bubble);
   window.setTimeout(() => bubble.remove(), 2_600);
 }

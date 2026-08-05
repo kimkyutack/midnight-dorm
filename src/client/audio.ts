@@ -19,6 +19,8 @@ export class SynthAudio {
   private backgroundUnlockArmed = false;
   private musicMuted = false;
   private pageVisible = typeof document === 'undefined' || !document.hidden;
+  private cinematicEffect: HTMLAudioElement | null = null;
+  private cinematicMedia: HTMLMediaElement | null = null;
   private ghostFootstepLevel = 0;
   private ghostFootstepTimer = 0;
   volume = 0.65;
@@ -43,12 +45,19 @@ export class SynthAudio {
 
   setVolume(value: number): void {
     this.volume = Math.max(0, Math.min(1, value));
+    if (this.cinematicEffect) this.cinematicEffect.volume = this.volume;
+    if (this.cinematicMedia) {
+      this.cinematicMedia.volume = this.volume;
+      this.cinematicMedia.muted = this.muted || this.volume <= 0;
+    }
     if (this.volume <= 0) this.stopGhostFootsteps();
     else this.scheduleGhostFootstep();
   }
 
   setMuted(value: boolean): void {
     this.muted = value;
+    if (value) this.cinematicEffect?.pause();
+    if (this.cinematicMedia) this.cinematicMedia.muted = value || this.volume <= 0;
     if (value) this.stopGhostFootsteps();
     else this.scheduleGhostFootstep();
   }
@@ -80,10 +89,12 @@ export class SynthAudio {
     this.pageVisible = visible;
     if (!visible) {
       Object.values(this.background).forEach((track) => track?.pause());
+      this.cinematicEffect?.pause();
       this.stopGhostFootsteps();
       return;
     }
     if (this.activeBackground && !this.musicMuted) void this.playBackground(this.activeBackground);
+    if (this.cinematicEffect && !this.muted && !this.cinematicEffect.ended) void this.cinematicEffect.play().catch(() => undefined);
     this.scheduleGhostFootstep();
   }
 
@@ -103,6 +114,37 @@ export class SynthAudio {
     const next = this.background[track];
     if (next) next.currentTime = 0;
     void this.playBackground(track);
+  }
+
+  bindCinematicMedia(media: HTMLMediaElement): () => void {
+    if (this.cinematicMedia && this.cinematicMedia !== media) this.cinematicMedia.pause();
+    this.stopCinematicEffect();
+    this.cinematicMedia = media;
+    media.volume = this.volume;
+    media.muted = this.muted || this.volume <= 0;
+    return () => {
+      if (this.cinematicMedia === media) this.cinematicMedia = null;
+    };
+  }
+
+  playCinematicEffect(source: string): () => void {
+    this.stopCinematicEffect();
+    if (this.muted || this.volume <= 0 || typeof Audio === 'undefined') return () => undefined;
+    const track = new Audio(source);
+    track.preload = 'auto';
+    track.volume = this.volume;
+    this.cinematicEffect = track;
+    void track.play().catch(() => undefined);
+    return () => {
+      if (this.cinematicEffect !== track) return;
+      this.stopCinematicEffect();
+    };
+  }
+
+  private stopCinematicEffect(): void {
+    this.cinematicEffect?.pause();
+    if (this.cinematicEffect) this.cinematicEffect.currentTime = 0;
+    this.cinematicEffect = null;
   }
 
   play(name: SoundName): void {

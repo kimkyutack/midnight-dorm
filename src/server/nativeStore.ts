@@ -1,4 +1,5 @@
 import type { AccountProfile } from '../shared/types';
+import { CASH_PRODUCT_BY_ID, CASH_STORE_PRODUCTS } from '../shared/storeProducts';
 
 export interface NativeStoreEnv {
   STORE_VERIFICATION_ENABLED?: string;
@@ -37,7 +38,10 @@ export async function routeNativeStore(
 
   const enabled = env.STORE_VERIFICATION_ENABLED === 'true';
   if (url.pathname === '/api/store/config' && request.method === 'GET') {
-    return Response.json({ purchasesEnabled: enabled });
+    return Response.json({
+      purchasesEnabled: enabled,
+      products: CASH_STORE_PRODUCTS.map(({ id, cash }) => ({ id, cash })),
+    });
   }
   if (url.pathname !== '/api/store/purchases/verify' || request.method !== 'POST') {
     return Response.json({ error: '지원하지 않는 스토어 요청입니다.' }, { status: 404 });
@@ -56,9 +60,10 @@ export async function routeNativeStore(
   }
   const platform = body.platform === 'android' ? 'android' : body.platform === 'ios' ? 'ios' : '';
   const productId = body.productId?.trim() ?? '';
+  const cashProduct = CASH_PRODUCT_BY_ID.get(productId);
   const transactionId = body.transactionId?.trim() ?? '';
   const evidence = body.purchaseToken || body.jwsRepresentation || body.receipt || '';
-  if (!platform || !/^[A-Za-z0-9._-]{2,180}$/.test(productId) || !transactionId || !evidence) {
+  if (!platform || !cashProduct || !transactionId || !evidence) {
     return Response.json({ error: '구매 검증 정보가 올바르지 않습니다.' }, { status: 400 });
   }
 
@@ -66,9 +71,9 @@ export async function routeNativeStore(
   const id = crypto.randomUUID();
   try {
     await db.prepare(`INSERT INTO store_purchase_receipts
-      (id, account_id, platform, product_id, transaction_id, evidence_hash, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`)
-      .bind(id, profile.id, platform, productId, transactionId, await evidenceHash(evidence), now)
+      (id, account_id, platform, product_id, transaction_id, evidence_hash, status, created_at, granted_cash)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+      .bind(id, profile.id, platform, productId, transactionId, await evidenceHash(evidence), now, cashProduct.cash)
       .run();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

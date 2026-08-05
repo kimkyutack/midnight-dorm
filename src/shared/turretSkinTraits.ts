@@ -46,6 +46,21 @@ export const TURRET_SKIN_TRAITS: Readonly<Record<string, TurretSkinTrait>> = {
     label: '기밀 추적탄',
     description: '특수수사 장비 외형과 청백색 추적탄 효과를 적용합니다.',
   },
+  'turret-basic-moonlit-foxfire': {
+    ...neutral('basic-turret'),
+    label: '월령 여우불 포격',
+    description: '푸른 여우불 유도탄과 다중 월식 충격파를 적용합니다.',
+  },
+  'turret-basic-starlit-cloud': {
+    ...neutral('basic-turret'),
+    label: '성운 성좌포',
+    description: '별빛 성운탄과 프리즘 충격파를 적용합니다.',
+  },
+  'turret-basic-abyssal-knight': {
+    ...neutral('basic-turret'),
+    label: '심연 군단포',
+    description: '흑염 장창탄과 심연 폭발 연출을 적용합니다.',
+  },
   'turret-basic-toy': {
     ...neutral('basic-turret'),
     label: '별빛 탄환',

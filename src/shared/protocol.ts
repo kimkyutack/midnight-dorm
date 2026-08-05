@@ -1,9 +1,10 @@
 import { SHOP_CONSUMABLE_IDS } from './shopConsumables';
 import type { BuildingKind, ClientMessage, ServerMessage } from './types';
+import { prestigeEmoteById } from './prestige';
 
 const clientTypes = new Set([
   'ready', 'start', 'add-bot', 'remove-bot', 'leave-room', 'kick-player', 'move', 'interact', 'free-repair', 'build', 'move-building', 'upgrade',
-  'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'quick-chat', 'game-chat', 'rematch', 'ping', 'resync',
+  'remove-building', 'activate-building', 'draw-item', 'pickup-loot', 'set-consumable-loadout', 'use-consumable', 'quick-chat', 'game-chat', 'game-emote', 'rematch', 'ping', 'resync',
 ]);
 const buildingKinds = new Set<BuildingKind>([
   'bed', 'reinforced-door', 'basic-turret', 'rapid-turret', 'frost-turret', 'arc-turret', 'golden-turret', 'generator', 'repair-drone',
@@ -115,6 +116,11 @@ export function parseClientMessage(raw: string | ArrayBuffer): { ok: true; messa
     case 'game-chat':
       if (typeof value.message !== 'string' || value.message.trim().length < 1 || value.message.trim().length > 80) {
         return { ok: false, error: 'invalid game chat message' };
+      }
+      break;
+    case 'game-emote':
+      if (typeof value.emoteId !== 'string' || !prestigeEmoteById(value.emoteId)) {
+        return { ok: false, error: 'invalid game emote' };
       }
       break;
     case 'ping':

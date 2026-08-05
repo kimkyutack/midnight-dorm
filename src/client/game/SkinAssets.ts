@@ -6,6 +6,14 @@ export const SKIN_CELL_SIZE = 362;
 const SKIN_ASSET_VERSIONS = new Map<string, string>([
   ['skin-look-crocodile-police-enforcer', 'special-ops-v7'],
   ['skin-look-monkey-secret-agent', 'special-ops-v5'],
+  ['skin-look-fox-moonlit-phantom', 'moonlit-prestige-v4'],
+]);
+
+// These prestige atlases are WebP on web and native. Unlike legacy PNG skin
+// sheets they keep alpha while avoiding a multi-megabyte room-entry download.
+const WEBP_SKIN_IDS = new Set([
+  'skin-look-bunny-starlit-cloud',
+  'skin-look-gorilla-abyssal-knight',
 ]);
 
 const SURVIVOR_IDS = new Set([
@@ -34,6 +42,10 @@ function skinAssetVersion(skinId: string): string {
   return version ? `?v=${version}` : '';
 }
 
+function skinAssetExtension(skinId: string): 'png' | 'webp' {
+  return WEBP_SKIN_IDS.has(skinId) ? 'webp' : 'png';
+}
+
 /** A valid appearance always points to one fully rendered atlas, never layers. */
 export function skinAssetDirectory(appearance: AvatarAppearance): string {
   const skin = cosmeticById(appearance.skin);
@@ -44,13 +56,13 @@ export function skinAssetDirectory(appearance: AvatarAppearance): string {
 }
 
 export function skinMovementSheetUrl(appearance: AvatarAppearance): string {
-  return `${skinAssetDirectory(appearance)}/movement-sheet.png${skinAssetVersion(appearance.skin)}`;
+  return `${skinAssetDirectory(appearance)}/movement-sheet.${skinAssetExtension(appearance.skin)}${skinAssetVersion(appearance.skin)}`;
 }
 
 export function skinConceptUrl(skinId: string): string | undefined {
   const skin = cosmeticById(skinId);
   if (skin?.slot !== 'skin' || !skin.characterId) return undefined;
-  return `${skinDirectory(skinId, skin.characterId)}/concept.png${skinAssetVersion(skinId)}`;
+  return `${skinDirectory(skinId, skin.characterId)}/concept.${skinAssetExtension(skinId)}${skinAssetVersion(skinId)}`;
 }
 
 export function baseConceptUrl(characterId: string): string {
@@ -59,7 +71,7 @@ export function baseConceptUrl(characterId: string): string {
 }
 
 export function skinSleepUrl(appearance: AvatarAppearance): string {
-  return `${skinAssetDirectory(appearance)}/sleep.png${skinAssetVersion(appearance.skin)}`;
+  return `${skinAssetDirectory(appearance)}/sleep.${skinAssetExtension(appearance.skin)}${skinAssetVersion(appearance.skin)}`;
 }
 
 export function skinFrameIndex(frame: 'idle' | 'walk-1' | 'walk-2' | 'walk-3'): number {

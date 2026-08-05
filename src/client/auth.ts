@@ -44,6 +44,59 @@ export const setProfileAvatar = (avatarData: string | null): Promise<AccountProf
   method: 'POST', body: JSON.stringify({ avatarData }),
 });
 
+export const setPrestigeLoadout = (loadout: {
+  profileImageId?: string | null;
+  profileFrameId?: string | null;
+  emoteIds?: string[];
+}): Promise<AccountProfile> => authRequest('/api/auth/prestige-loadout', {
+  method: 'POST', body: JSON.stringify(loadout),
+});
+
+export const exchangePrestigePackage = (packageId: string): Promise<AccountProfile> =>
+  authRequest('/api/auth/prestige-package/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ packageId }),
+  });
+
+export const exchangeMoonlitPrestigePackage = (): Promise<AccountProfile> =>
+  exchangePrestigePackage('prestige-moonlit-phantom-fox');
+
+export interface GhostOrbDrawRewardResult {
+  kind: 'points' | 'orbs' | 'cosmetic' | 'duplicate';
+  amount?: number;
+  itemId?: string;
+  label: string;
+  symbol: string;
+  detail: string;
+}
+
+export interface GhostOrbDrawResult {
+  profile: AccountProfile;
+  rewards: GhostOrbDrawRewardResult[];
+  freePurchase: boolean;
+  storeConnected: boolean;
+  cashSpent: number;
+}
+
+export async function drawGhostOrbs(count: 1 | 10): Promise<GhostOrbDrawResult> {
+  const response = await fetch('/api/auth/ghost-orb/draw', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ count }),
+  });
+  const data = await response.json() as GhostOrbDrawResult & { error?: string };
+  if (!response.ok || !data.profile || !Array.isArray(data.rewards)) {
+    throw new Error(data.error ?? '귀신구슬 소환 보상을 지급하지 못했습니다.');
+  }
+  return data;
+}
+
+export const grantDevelopmentCash = (productId: string): Promise<AccountProfile> =>
+  authRequest('/api/auth/cash/dev-grant', {
+    method: 'POST',
+    body: JSON.stringify({ productId }),
+  });
+
 export async function checkNicknameAvailability(
   nickname: string,
 ): Promise<{ nickname: string; available: boolean }> {

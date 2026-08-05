@@ -1,10 +1,12 @@
 import { NativePurchases, PURCHASE_TYPE, type Product, type Transaction } from '@capgo/native-purchases';
 import { isNativeApp, nativePlatform } from './runtime';
+import { STORE_PRODUCT_IDS } from '../../shared/storeProducts';
 
-const productIds = ((import.meta.env.VITE_STORE_PRODUCT_IDS as string | undefined) ?? '')
+const configuredProductIds = ((import.meta.env.VITE_STORE_PRODUCT_IDS as string | undefined) ?? '')
   .split(',')
   .map((id) => id.trim())
   .filter(Boolean);
+const productIds = configuredProductIds.length ? configuredProductIds : [...STORE_PRODUCT_IDS];
 
 export interface PurchaseVerification {
   status: 'verified' | 'pending' | 'rejected';

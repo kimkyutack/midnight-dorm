@@ -301,12 +301,14 @@ function turretGoldCost(kind: BuildingKind, targetLevel: number): number {
   return baseGold * 2 ** Math.max(0, targetLevel - 1);
 }
 
-export function maxBuildingLevel(kind: BuildingKind, _soloRank: RankId = 'beginner'): number {
-  return BALANCE.buildings[kind].maxLevel;
+export function maxBuildingLevel(kind: BuildingKind, _soloRank: RankId = 'beginner', traitMaximum = 0): number {
+  return kind === 'basic-turret'
+    ? Math.max(BALANCE.buildings[kind].maxLevel, Math.floor(traitMaximum))
+    : BALANCE.buildings[kind].maxLevel;
 }
 
-export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: RankId = 'beginner'): { gold: number; power: number } {
-  const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind, soloRank), Math.floor(targetLevel)));
+export function upgradeCost(kind: BuildingKind, targetLevel: number, soloRank: RankId = 'beginner', traitMaximum = 0): { gold: number; power: number } {
+  const safeLevel = Math.max(1, Math.min(maxBuildingLevel(kind, soloRank, traitMaximum), Math.floor(targetLevel)));
   if (kind === 'golden-turret') {
     return {
       gold: safeLevel === 1 ? 0 : 150 * safeLevel * safeLevel,

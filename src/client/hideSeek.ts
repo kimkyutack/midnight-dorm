@@ -1266,16 +1266,12 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       darkness.fillStyle = gradient;
       darkness.fillRect(position.x - radius, position.y - radius, radius * 2, radius * 2);
     };
-    if (ghostConfined && this.map) {
-      const bounds = this.map.ghostRoom.bounds;
-      const left = center.x + (bounds.minX + .5 - me.position.x) * tileSize;
-      const top = center.y + (bounds.minY + .5 - me.position.y) * tileSize;
-      const roomWidth = (bounds.maxX - bounds.minX) * tileSize;
-      const roomHeight = (bounds.maxY - bounds.minY) * tileSize;
-      darkness.globalCompositeOperation = 'destination-out';
-      darkness.fillStyle = 'rgba(0, 0, 0, .96)';
-      darkness.fillRect(left, top, roomWidth, roomHeight);
-    } else if (survivorHidden) {
+    // The seeker remains physically confined to its start room during HIDE,
+    // but its viewport must remain the normal follow camera. Revealing the
+    // room bounds here made a moving rectangular "camera" around the ghost.
+    // Keep the regular local light radius instead, so only visibility is
+    // constrained and the camera never changes shape or origin.
+    if (survivorHidden) {
       if (hiddenShelterScreen) carveLight(hiddenShelterScreen, tileSize * .9, 1, .68);
       if (hiddenFrontScreen) carveLight(hiddenFrontScreen, tileSize * .72, 1, .7);
     } else {

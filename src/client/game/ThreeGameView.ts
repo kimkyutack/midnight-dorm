@@ -10,11 +10,14 @@ import {
   CYBERPUNK_LASER_TURRET_SKIN_ID,
   CYBERPUNK_NEON_TILE_SKIN_ID,
   LIFEGUARD_PARASOL_TURRET_SKIN_ID,
+  MOONLIT_PHANTOM_TILE_SKIN_ID,
+  MOONLIT_FOXFIRE_TURRET_SKIN_ID,
   SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID,
   SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
 } from '../../shared/customization';
+import { ABYSSAL_KNIGHT_GORILLA_TILE_ID, STARLIT_CLOUD_RABBIT_TILE_ID } from '../../shared/prestige';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import { tutorialGuidedBuildTile } from '../../shared/tutorial';
@@ -207,7 +210,8 @@ export function turretFireVisualProfile(
   kind: BuildingKind | undefined,
   level: number,
 ): TurretFireVisualProfile {
-  const safeLevel = Math.max(1, Math.min(15, Math.floor(level || 1)));
+  const cosmetic = skinId ? cosmeticById(skinId) : undefined;
+  const safeLevel = Math.max(1, Math.min(cosmetic?.prestige ? 17 : 15, Math.floor(level || 1)));
   const tier: 0 | 1 | 2 | 3 = safeLevel >= 15
     ? 3
     : safeLevel >= 10
@@ -230,8 +234,10 @@ export function turretFireVisualProfile(
     [LIFEGUARD_PARASOL_TURRET_SKIN_ID]: [0xff655c, 0xffd36f],
     [CYBERPUNK_LASER_TURRET_SKIN_ID]: [0xff4fd8, 0x9ff8ff],
     [SPECIAL_OPS_TRACKER_TURRET_SKIN_ID]: [0xf4fbff, 0x55bfff],
+    [MOONLIT_FOXFIRE_TURRET_SKIN_ID]: [0x4deaff, 0x8b63ff],
+    ['turret-basic-starlit-cloud']: [0x9df7ff, 0xffffff],
+    ['turret-basic-abyssal-knight']: [0xff5366, 0xffa44c],
   };
-  const cosmetic = skinId ? cosmeticById(skinId) : undefined;
   const swatchColor = cosmetic?.slot === 'turret' && /^#[0-9a-f]{6}$/i.test(cosmetic.swatch)
     ? Number.parseInt(cosmetic.swatch.slice(1), 16)
     : fallbackColor;
@@ -389,6 +395,8 @@ interface PlayerView {
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
   seed: number;
+  foxfireWisps: THREE.Mesh[];
+  foxfireTrail: Array<{ mesh: THREE.Mesh; tileKey: string }>;
 }
 
 interface GhostView {
@@ -406,6 +414,8 @@ interface GhostView {
   targetMarker: THREE.Mesh;
   confused: THREE.Sprite;
   goldLock: THREE.Sprite;
+  slowAura: THREE.Mesh;
+  slowNotice: THREE.Sprite;
 }
 
 interface BuildingView {
@@ -467,10 +477,17 @@ interface BedView {
 
 interface RoomTileSkinView {
   skinId: string;
-  transition: 'wave' | 'sand-vortex' | 'neon-collapse' | 'investigation-scan';
+  transition: 'wave' | 'sand-vortex' | 'neon-collapse' | 'investigation-scan' | 'moonfire';
   root: THREE.Group;
   baseFloor: THREE.InstancedMesh;
   settledFloor: THREE.InstancedMesh;
+  /**
+   * Prestige room shells are deliberately kept as one instanced draw call.
+   * The base map wall stays in place underneath, so a cosmetic swap never
+   * affects collision or the door's authoritative state.
+   */
+  themedWalls?: THREE.InstancedMesh;
+  wallDecorations?: THREE.Group;
   tiles: Array<{
     mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
     delay: number;
@@ -598,6 +615,23 @@ function effectMesh(
   result.castShadow = false;
   result.receiveShadow = false;
   return result;
+}
+
+function makeFoxfire(size = 0.24): THREE.Mesh {
+  const fire = effectMesh(
+    new THREE.CircleGeometry(size, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0x54efff,
+      transparent: true,
+      opacity: 0.82,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  fire.rotation.x = -Math.PI / 2;
+  fire.renderOrder = 8_580;
+  return fire;
 }
 
 function makeBillboard(width = 512, height = 128): THREE.Sprite {
@@ -1888,10 +1922,12 @@ function randomRewardTint(itemId?: string): number {
 export function createBuildingModel(building: BuildingState): { root: THREE.Group; barrel: THREE.Group | null } {
   const root = new THREE.Group();
   const visualLevel = building.effectiveLevel ?? building.level;
-  const artLevel = Math.min(
-    visualLevel,
-    maxBuildingLevel(building.kind),
-  );
+  // Prestige guardians legitimately exceed the ordinary Lv.15 cap.  Keep the
+  // visual level in lockstep with the authoritative level so the authored
+  // Lv.16 and Lv.17 art is never silently replaced by the Lv.15 texture.
+  const artLevel = building.kind === 'basic-turret' && building.skinId
+    ? Math.min(17, visualLevel)
+    : Math.min(visualLevel, maxBuildingLevel(building.kind));
   const imageAsset = buildingAssetUrl(
     building.kind,
     artLevel,
@@ -2579,6 +2615,7 @@ export class ThreeGameView {
       LIFEGUARD_PARASOL_TURRET_SKIN_ID,
       CYBERPUNK_LASER_TURRET_SKIN_ID,
       SPECIAL_OPS_TRACKER_TURRET_SKIN_ID,
+      MOONLIT_FOXFIRE_TURRET_SKIN_ID,
     ];
     const buildings: BuildingState[] = this.mapData.rooms
       .flatMap((room) =>
@@ -2832,7 +2869,10 @@ export class ThreeGameView {
     this.resizeObserver.disconnect();
     this.cancelBuildingDrag();
     this.unbindInput();
-    for (const view of this.playerViews.values()) view.actor.dispose();
+    for (const view of this.playerViews.values()) {
+      view.actor.dispose();
+      for (const trail of view.foxfireTrail) disposeTransientObject(trail.mesh);
+    }
     for (const view of this.ghostViews.values()) view.actor.dispose();
     this.playerViews.clear();
     this.ghostViews.clear();
@@ -3254,6 +3294,8 @@ export class ThreeGameView {
             ? 'neon-collapse'
             : room.tileSkinId === SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID
               ? 'investigation-scan'
+              : room.tileSkinId === MOONLIT_PHANTOM_TILE_SKIN_ID
+                ? 'moonfire'
             : 'wave';
       const root = new THREE.Group();
       root.name = `room-tile-skin:${room.id}:${room.tileSkinId}`;
@@ -3273,6 +3315,125 @@ export class ThreeGameView {
       });
       settledFloor.instanceMatrix.needsUpdate = true;
       root.add(settledFloor);
+      const prestigeRoomTheme = room.tileSkinId === MOONLIT_PHANTOM_TILE_SKIN_ID
+        ? { key: 'moonfire', wall: '/assets/prestige/moonlit-phantom-fox/room-theme/moonfire-wall.webp', bracket: 0x192a64, colors: [0x46eaff, 0x7b65ff] as const }
+        : room.tileSkinId === STARLIT_CLOUD_RABBIT_TILE_ID
+          ? { key: 'starlit', wall: '/assets/prestige/starlit-cloud-rabbit/room-theme/starlit-wall.webp', bracket: 0x254767, colors: [0xa5edff, 0xffe9a7] as const }
+          : room.tileSkinId === ABYSSAL_KNIGHT_GORILLA_TILE_ID
+            ? { key: 'abyssal', wall: '/assets/prestige/abyssal-knight-gorilla/room-theme/abyssal-wall.webp', bracket: 0x28142e, colors: [0xff5b52, 0xa45cff] as const }
+            : null;
+      let themedWalls: THREE.InstancedMesh | undefined;
+      let wallDecorations: THREE.Group | undefined;
+      if (prestigeRoomTheme) {
+        const roomFloorKeys = new Set(
+          mapRoom.floorTiles.map((tile) => `${tile.x},${tile.y}`),
+        );
+        const themedWallTiles = this.mapData.walls.filter((wall) =>
+          [
+            `${wall.x - 1},${wall.y}`,
+            `${wall.x + 1},${wall.y}`,
+            `${wall.x},${wall.y - 1}`,
+            `${wall.x},${wall.y + 1}`,
+          ].some((key) => roomFloorKeys.has(key)),
+        );
+        if (themedWallTiles.length > 0) {
+          // The wall texture is 512px and shared by every room.  Instancing
+          // keeps a prestige room at one extra draw call rather than one per
+          // wall, even on a fully occupied multiplayer map.
+          themedWalls = new THREE.InstancedMesh(
+            new THREE.BoxGeometry(0.982, 0.604, 0.982),
+            new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              map: this.loadEnvironmentTexture(prestigeRoomTheme.wall),
+              fog: true,
+            }),
+            themedWallTiles.length,
+          );
+          themedWalls.name = `room-${prestigeRoomTheme.key}-walls:${room.id}`;
+          themedWalls.castShadow = true;
+          themedWalls.receiveShadow = true;
+          const wallMatrix = new THREE.Matrix4();
+          themedWallTiles.forEach((wall, index) => {
+            wallMatrix.makeTranslation(wall.x, 0.305, wall.y);
+            themedWalls?.setMatrixAt(index, wallMatrix);
+          });
+          themedWalls.instanceMatrix.needsUpdate = true;
+          root.add(themedWalls);
+
+          // Four lightweight procedural sconces replace the normal wall
+          // trinkets.  They use no extra textures and are capped per room.
+          wallDecorations = new THREE.Group();
+          wallDecorations.name = `room-${prestigeRoomTheme.key}-decorations:${room.id}`;
+          const stride = Math.max(1, Math.floor(themedWallTiles.length / 4));
+          themedWallTiles
+            .filter((_, index) => index % stride === 0)
+            .slice(0, 4)
+            .forEach((wall, index) => {
+              const sconce = new THREE.Group();
+              const bracket = new THREE.Mesh(
+                new THREE.BoxGeometry(0.32, 0.08, 0.12),
+                new THREE.MeshBasicMaterial({ color: prestigeRoomTheme.bracket }),
+              );
+              bracket.position.y = 0.66;
+              const flame = new THREE.Mesh(
+                new THREE.ConeGeometry(0.11, 0.38, 5),
+                new THREE.MeshBasicMaterial({
+                  color: prestigeRoomTheme.colors[index % 2]!,
+                  transparent: true,
+                  opacity: 0.9,
+                  blending: THREE.AdditiveBlending,
+                  depthWrite: false,
+                }),
+              );
+              flame.name = 'prestige-wall-flame';
+              flame.position.y = 0.88;
+              flame.rotation.y = index * 0.76;
+              sconce.add(bracket, flame);
+              sconce.position.set(wall.x, 0, wall.y);
+              wallDecorations?.add(sconce);
+            });
+          root.add(wallDecorations);
+        }
+      }
+      if (room.tileSkinId === MOONLIT_PHANTOM_TILE_SKIN_ID) {
+        const ownTiles = new Set(mapRoom.floorTiles.map((tile) => `${tile.x},${tile.y}`));
+        const otherRoomTiles = this.mapData.rooms
+          .filter((candidate) => candidate.id !== room.id)
+          .flatMap((candidate) => candidate.floorTiles);
+        const haloTiles = this.mapData.walkable.filter((tile) => {
+          if (ownTiles.has(`${tile.x},${tile.y}`)) return false;
+          const nearOwnRoom = mapRoom.floorTiles.some((floor) =>
+            Math.max(Math.abs(floor.x - tile.x), Math.abs(floor.y - tile.y)) <= 2,
+          );
+          if (!nearOwnRoom) return false;
+          return !otherRoomTiles.some((other) =>
+            Math.max(Math.abs(other.x - tile.x), Math.abs(other.y - tile.y)) <= 1,
+          );
+        });
+        if (haloTiles.length > 0) {
+          const halo = new THREE.InstancedMesh(
+            new THREE.PlaneGeometry(0.96, 0.96),
+            new THREE.MeshBasicMaterial({
+              color: 0x36dff5,
+              transparent: true,
+              opacity: 0.16,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+            haloTiles.length,
+          );
+          const haloMatrix = new THREE.Matrix4();
+          const haloRotation = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+          haloTiles.forEach((tile, index) => {
+            haloMatrix.makeTranslation(tile.x, 0.035, tile.y).multiply(haloRotation);
+            halo.setMatrixAt(index, haloMatrix);
+          });
+          halo.instanceMatrix.needsUpdate = true;
+          halo.renderOrder = 2_420;
+          root.add(halo);
+        }
+      }
 
       const tiles = mapRoom.floorTiles.map((tile) => {
         const floor = new THREE.Mesh(geometry, material);
@@ -3289,6 +3450,8 @@ export class ThreeGameView {
                 ? 560 + Math.hypot(tile.x - centerX, tile.y - centerY) * 78
                 : transition === 'investigation-scan'
                   ? 360 + Math.hypot(tile.x - centerX, tile.y - centerY) * 90
+                  : transition === 'moonfire'
+                    ? 500 + Math.hypot(tile.x - centerX, tile.y - centerY) * 72
               : Math.max(0, tile.x - minX) * 115,
         };
       });
@@ -3428,6 +3591,36 @@ export class ThreeGameView {
           effect.add(pulse);
         }
         effect.position.set(centerX, 0.22, centerY);
+      } else if (transition === 'moonfire') {
+        const maxRadius = Math.max(1.5, Math.hypot(maxX - minX + 1, maxY - minY + 1) * 0.58);
+        for (let index = 0; index < 3; index += 1) {
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.42 + index * 0.18, 0.5 + index * 0.18, 40),
+            new THREE.MeshBasicMaterial({
+              color: index === 1 ? 0x7657ff : 0x42eaff,
+              transparent: true,
+              opacity: 0.82 - index * 0.14,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+          );
+          ring.name = 'moonfire-ring';
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = 0.04 + index * 0.012;
+          ring.userData.maxScale = maxRadius / (0.5 + index * 0.18);
+          ring.scale.setScalar(0.001);
+          effect.add(ring);
+        }
+        const foxSigil = new THREE.Mesh(
+          new THREE.CircleGeometry(0.42, 6),
+          new THREE.MeshBasicMaterial({ color: 0xc9f9ff, transparent: true, opacity: 0.92, blending: THREE.AdditiveBlending, depthWrite: false }),
+        );
+        foxSigil.name = 'moonfire-fox-sigil';
+        foxSigil.rotation.x = -Math.PI / 2;
+        foxSigil.position.y = 0.075;
+        effect.add(foxSigil);
+        effect.position.set(centerX, 0.22, centerY);
       } else {
         const maxRadius = Math.max(
           1.4,
@@ -3504,6 +3697,8 @@ export class ThreeGameView {
             ? 1_180 + Math.max(...tiles.map((tile) => tile.delay), 0)
             : transition === 'investigation-scan'
               ? 1_080 + Math.max(...tiles.map((tile) => tile.delay), 0)
+              : transition === 'moonfire'
+                ? 1_280 + Math.max(...tiles.map((tile) => tile.delay), 0)
           : 820 + Math.max(0, maxX - minX) * 115;
       const serverProgressMs = Math.max(
         0,
@@ -3519,6 +3714,8 @@ export class ThreeGameView {
         root,
         baseFloor,
         settledFloor,
+        themedWalls,
+        wallDecorations,
         tiles,
         effect,
         startedAt: shouldAnimate ? now - serverProgressMs : now - transitionDuration,
@@ -3540,7 +3737,7 @@ export class ThreeGameView {
           tile.mesh.rotation.y = 0;
           root.remove(tile.mesh);
         }
-        if (transition === 'neon-collapse' || transition === 'investigation-scan') {
+        if (transition === 'neon-collapse' || transition === 'investigation-scan' || transition === 'moonfire') {
           root.remove(effect);
           disposeTransientObject(effect);
         }
@@ -3565,6 +3762,16 @@ export class ThreeGameView {
 
   private animateRoomTileSkins(time: number): void {
     for (const view of this.roomTileSkinViews.values()) {
+      // Tiny shader-free movement keeps the moonfire sconces alive without
+      // allocating particles or updating any instance buffers per frame.
+      if (view.wallDecorations) {
+        view.wallDecorations.children.forEach((sconce, index) => {
+          const flame = sconce.getObjectByName('prestige-wall-flame');
+          if (!(flame instanceof THREE.Mesh)) return;
+          const pulse = 0.9 + Math.sin(time * 0.006 + index * 1.7) * 0.1;
+          flame.scale.set(pulse * 0.88, pulse * 1.08, pulse * 0.88);
+        });
+      }
       if (view.complete) continue;
       const elapsed = Math.max(0, time - view.startedAt);
       const sweep = clamp(elapsed / view.duration, 0, 1);
@@ -3598,6 +3805,19 @@ export class ThreeGameView {
           pulse.scale.setScalar(Math.max(0.001, pulseProgress * 4.2));
           pulse.rotation.z += 0.025;
         }
+      } else if (view.transition === 'moonfire') {
+        const flip = view.effect.getObjectByName('moonfire-fox-sigil');
+        if (flip) {
+          const flipProgress = clamp(sweep / 0.42, 0, 1);
+          flip.rotation.z = flipProgress * Math.PI * 2;
+          flip.position.y = 0.075 + Math.sin(flipProgress * Math.PI) * 0.72;
+          flip.scale.setScalar(0.72 + Math.sin(flipProgress * Math.PI) * 0.48);
+        }
+        const fireProgress = clamp((sweep - 0.2) / 0.62, 0, 1);
+        for (const ring of view.effect.children.filter((child) => child.name === 'moonfire-ring')) {
+          ring.scale.setScalar(Math.max(0.001, fireProgress * Number(ring.userData.maxScale ?? 1)));
+          ring.rotation.z += 0.028;
+        }
       } else {
         const badge = view.effect.getObjectByName('investigation-badge');
         if (badge) {
@@ -3628,9 +3848,11 @@ export class ThreeGameView {
             ? Math.sin(Math.PI * Math.min(1, sweep / 0.82))
             : view.transition === 'investigation-scan'
               ? Math.sin(Math.PI * Math.min(1, sweep / 0.84))
+              : view.transition === 'moonfire'
+                ? Math.sin(Math.PI * Math.min(1, sweep / 0.9))
           : Math.sin(Math.PI * sweep);
       view.effect.visible =
-        view.transition === 'neon-collapse' || view.transition === 'investigation-scan'
+        view.transition === 'neon-collapse' || view.transition === 'investigation-scan' || view.transition === 'moonfire'
           ? sweep < 0.88
           : sweep < 1;
       view.effect.traverse((object) => {
@@ -3660,7 +3882,7 @@ export class ThreeGameView {
           tile.mesh.rotation.y = (1 - eased) * Math.PI;
           tile.mesh.position.y =
             ROOM_FLOOR_CENTER_Y + Math.sin(progress * Math.PI) * 0.2;
-        } else if (view.transition === 'investigation-scan') {
+        } else if (view.transition === 'investigation-scan' || view.transition === 'moonfire') {
           tile.mesh.scale.z = Math.max(0.001, eased);
           tile.mesh.rotation.y = (1 - eased) * Math.PI;
           tile.mesh.position.y =
@@ -3677,7 +3899,8 @@ export class ThreeGameView {
         view.settledFloor.visible = true;
         if (
           view.transition === 'neon-collapse' ||
-          view.transition === 'investigation-scan'
+          view.transition === 'investigation-scan' ||
+          view.transition === 'moonfire'
         ) {
           view.root.remove(view.effect);
           disposeTransientObject(view.effect);
@@ -4052,6 +4275,10 @@ export class ThreeGameView {
       const appearanceKey = [player.appearance.character, player.appearance.skin].join('|');
       if (view && view.appearanceKey !== appearanceKey) {
         this.scene.remove(view.root);
+        for (const trail of view.foxfireTrail) {
+          this.scene.remove(trail.mesh);
+          disposeTransientObject(trail.mesh);
+        }
         view.actor.dispose();
         disposeBillboards(view.root);
         this.playerViews.delete(player.id);
@@ -4064,6 +4291,10 @@ export class ThreeGameView {
         root.userData.appearance = { ...player.appearance };
         const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
+        const foxfireWisps = player.appearance.skin === 'skin-look-fox-moonlit-phantom'
+          ? [makeFoxfire(0.12), makeFoxfire(0.09)]
+          : [];
+        foxfireWisps.forEach((wisp) => root.add(wisp));
         const label = makeBillboard();
         label.scale.set(2.48, 0.66, 1);
         label.position.set(0.1, PLAYER_HEIGHT + 0.42, -0.72);
@@ -4083,6 +4314,8 @@ export class ThreeGameView {
           target: worldPoint(player.position),
           lastPosition: worldPoint(player.position),
           seed: player.id.length * 0.71,
+          foxfireWisps,
+          foxfireTrail: [],
         };
         this.playerViews.set(player.id, view);
       }
@@ -4123,6 +4356,10 @@ export class ThreeGameView {
     for (const [id, view] of this.playerViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
+      for (const trail of view.foxfireTrail) {
+        this.scene.remove(trail.mesh);
+        disposeTransientObject(trail.mesh);
+      }
       view.actor.dispose();
       disposeBillboards(view.root);
       this.playerViews.delete(id);
@@ -4190,6 +4427,26 @@ export class ThreeGameView {
           false,
           44,
         );
+        const slowAura = effectMesh(
+          new THREE.RingGeometry(0.58, 0.82, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0x49ddff,
+            transparent: true,
+            opacity: 0.62,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+          [0, 0.1, 0],
+        );
+        slowAura.rotation.x = -Math.PI / 2;
+        slowAura.renderOrder = 8_610;
+        slowAura.visible = false;
+        const slowNotice = makeBillboard(640, 144);
+        slowNotice.scale.set(2.25, 0.5, 1);
+        slowNotice.position.set(0, ghost.variant === 'giant' ? 4.15 : 3.1, -1.15);
+        slowNotice.renderOrder = 11_360;
+        slowNotice.visible = false;
+        updateTextBillboard(slowNotice, 'slow', '❄ 이동속도 감소', '#9af3ff', 'rgba(8,30,72,.9)', null, false, 40);
         const abilityColor =
           ghost.variant === 'wallpaper' ? 0xb856ff : 0xff304f;
         const telegraph = effectMesh(
@@ -4219,7 +4476,7 @@ export class ThreeGameView {
         targetMarker.rotation.x = -Math.PI / 2;
         targetMarker.renderOrder = 8_590;
         targetMarker.visible = false;
-        root.add(label, hp, confused, goldLock, telegraph);
+        root.add(label, hp, confused, goldLock, slowAura, slowNotice, telegraph);
         this.scene.add(targetMarker);
         // Minion waves can contain twelve actors. A dynamic point light for
         // every minion multiplies the fragment-lighting cost while adding
@@ -4250,6 +4507,8 @@ export class ThreeGameView {
           targetMarker,
           confused,
           goldLock,
+          slowAura,
+          slowNotice,
         };
         this.ghostViews.set(ghost.id, view);
       }
@@ -4279,6 +4538,18 @@ export class ThreeGameView {
           (ghost.variant === 'minion' ? 0.48 : 0.68) * pulse,
           1,
         );
+      }
+      const timedSlow = this.snapshotData.elapsed < ghost.slowUntil;
+      const prestigeSlow = (ghost.prestigeSlowMultiplier ?? 1) < 0.999;
+      const slowed = timedSlow || prestigeSlow;
+      view.slowAura.visible = slowed;
+      view.slowNotice.visible = slowed;
+      if (slowed) {
+        const pulse = 1 + Math.sin(this.snapshotData.elapsed * 6 + view.seed) * 0.12;
+        view.slowAura.scale.setScalar(pulse);
+        const material = view.slowAura.material as THREE.MeshBasicMaterial;
+        material.color.setHex(prestigeSlow ? 0x45e8ff : 0xa7f5ff);
+        material.opacity = 0.5 + Math.sin(this.snapshotData.elapsed * 7) * 0.12;
       }
       const ratio = ghost.hp / Math.max(1, ghost.maxHp);
       updateBarBillboard(view.hp, `${Math.ceil(ghost.hp)}:${Math.ceil(ghost.maxHp)}:${ghost.retreating}`, ratio, `${Math.ceil(ghost.hp)} / ${Math.ceil(ghost.maxHp)}`, ghost.retreating ? '#8494bb' : '#ff315f');
@@ -4493,12 +4764,14 @@ export class ThreeGameView {
       if (!local?.alive || local.roomId !== building.roomId) {
         view.upgradeVisible = false;
       } else {
+        const traitMaximum = characterTraitForMatch(local.appearance, Boolean(snapshot.ranked)).basicTurretMaxLevel;
         const nextCost =
-          building.level < maxBuildingLevel(building.kind, rank ?? 'beginner')
+          building.level < maxBuildingLevel(building.kind, rank ?? 'beginner', traitMaximum)
             ? upgradeCost(
                 building.kind,
                 building.level + 1,
                 rank ?? 'beginner',
+                traitMaximum,
               )
             : null;
         const room = this.roomStateById.get(building.roomId);
@@ -4755,6 +5028,35 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
+      if (player.appearance.skin === 'skin-look-fox-moonlit-phantom') {
+        view.foxfireWisps.forEach((wisp, index) => {
+          const phase = time * 0.0045 + view.seed + index * Math.PI;
+          wisp.position.set(Math.cos(phase) * (0.42 + index * 0.08), 0.24 + Math.sin(phase * 1.4) * 0.12, Math.sin(phase) * 0.32);
+          wisp.scale.setScalar(moving ? 1 + Math.sin(phase * 2) * 0.2 : 0.72);
+        });
+        if (moving) {
+          const tileKey = `${Math.round(view.root.position.x)},${Math.round(view.root.position.z)}`;
+          const last = view.foxfireTrail[view.foxfireTrail.length - 1];
+          if (last?.tileKey !== tileKey) {
+            const flame = makeFoxfire(0.28);
+            flame.position.set(Math.round(view.root.position.x), 0.055, Math.round(view.root.position.z));
+            this.scene.add(flame);
+            view.foxfireTrail.push({ mesh: flame, tileKey });
+            while (view.foxfireTrail.length > 6) {
+              const expired = view.foxfireTrail.shift();
+              if (expired) {
+                this.scene.remove(expired.mesh);
+                disposeTransientObject(expired.mesh);
+              }
+            }
+          }
+        }
+        view.foxfireTrail.forEach((trail, index) => {
+          const progress = (index + 1) / Math.max(1, view.foxfireTrail.length);
+          trail.mesh.scale.setScalar(0.55 + progress * 0.65 + Math.sin(time * 0.006 + index) * 0.08);
+          (trail.mesh.material as THREE.MeshBasicMaterial).opacity = 0.12 + progress * 0.58;
+        });
+      }
       const bedIndex = player.bedIndex ?? 0;
       const lyingOnReversedBed = bedIndex % 2 === 1;
       if (lying) view.actor.setSleep(lyingOnReversedBed);
@@ -5810,7 +6112,41 @@ export class ThreeGameView {
         : this.effectQuality === 'balanced'
           ? profile.tier >= 3
           : false;
-      if (skinId === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) {
+      if (skinId === MOONLIT_FOXFIRE_TURRET_SKIN_ID) {
+        const direction = to.clone().sub(from);
+        const length = direction.length();
+        if (length > 0.001) {
+          direction.normalize();
+          const beam = this.acquireCyberLaser(profile.projectileColor, profile.impactColor);
+          if (beam) {
+            beam.position.lerpVectors(from, to, 0.5);
+            beam.quaternion.setFromUnitVectors(CYBER_LASER_FORWARD, direction);
+            beam.scale.set(0.36 * profile.projectileScale, 0.36 * profile.projectileScale, length);
+            this.queuePooledEffect(beam, this.cyberLaserPool, {
+              born,
+              duration: 190 * profile.durationMultiplier,
+              baseScale: beam.scale.clone(),
+              scaleGrowth: 0,
+            });
+          }
+          const rings = this.effectQuality === 'low' ? 1 : this.effectQuality === 'balanced' ? 2 : 3;
+          for (let index = 0; index < rings; index += 1) {
+            const impact = this.acquireImpactRing(index % 2 === 0 ? profile.impactColor : profile.projectileColor);
+            if (!impact) continue;
+            impact.position.copy(to);
+            impact.position.y += index * 0.035;
+            impact.rotation.x = -Math.PI / 2;
+            impact.rotation.z = index * Math.PI / 3;
+            impact.scale.setScalar(profile.projectileScale * (0.8 + index * 0.25));
+            this.queuePooledEffect(impact, this.impactRingPool, {
+              born: born + index * 24,
+              duration: 220 + index * 45,
+              baseScale: impact.scale.clone(),
+              scaleGrowth: profile.impactGrowth * (1.15 + index * 0.2),
+            });
+          }
+        }
+      } else if (skinId === SPECIAL_OPS_TRACKER_TURRET_SKIN_ID) {
         const line = this.acquireBeam(profile.projectileColor);
         if (line) {
           const positions = line.geometry.getAttribute('position') as THREE.BufferAttribute;

@@ -37,6 +37,10 @@ export interface CharacterTrait {
   occupiedDoorLevelBonus: number;
   /** Outer door shield as a ratio of the current maximum door HP. */
   doorShieldRatio: number;
+  doorShieldLayers: number;
+  doorShieldLayerRatio: number;
+  globalGhostSpeedMultiplier: number;
+  basicTurretMaxLevel: number;
 }
 
 const NONE: CharacterTrait = {
@@ -55,6 +59,10 @@ const NONE: CharacterTrait = {
   turretStartingLevel: 1,
   occupiedDoorLevelBonus: 0,
   doorShieldRatio: 0,
+  doorShieldLayers: 0,
+  doorShieldLayerRatio: 0,
+  globalGhostSpeedMultiplier: 1,
+  basicTurretMaxLevel: 15,
 };
 
 /** 캐릭터 외형은 서버가 판정하는 고유 특성 하나와 정확히 대응한다. */
@@ -170,6 +178,10 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     turretStartingLevel: base.turretStartingLevel,
     occupiedDoorLevelBonus: Math.round(base.occupiedDoorLevelBonus * multiplier),
     doorShieldRatio: base.doorShieldRatio * multiplier,
+    doorShieldLayers: base.doorShieldLayers,
+    doorShieldLayerRatio: base.doorShieldLayerRatio,
+    globalGhostSpeedMultiplier: base.globalGhostSpeedMultiplier,
+    basicTurretMaxLevel: base.basicTurretMaxLevel,
   };
   if (!special) return boosted;
   return {
@@ -189,6 +201,10 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     turretStartingLevel: special.turretStartingLevel ?? boosted.turretStartingLevel,
     occupiedDoorLevelBonus: special.occupiedDoorLevelBonus ?? boosted.occupiedDoorLevelBonus,
     doorShieldRatio: special.doorShieldRatio ?? boosted.doorShieldRatio,
+    doorShieldLayers: special.doorShieldLayers ?? boosted.doorShieldLayers,
+    doorShieldLayerRatio: special.doorShieldLayerRatio ?? boosted.doorShieldLayerRatio,
+    globalGhostSpeedMultiplier: special.globalGhostSpeedMultiplier ?? boosted.globalGhostSpeedMultiplier,
+    basicTurretMaxLevel: special.basicTurretMaxLevel ?? boosted.basicTurretMaxLevel,
   };
 };
 

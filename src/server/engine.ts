@@ -323,6 +323,9 @@ export class GameEngine {
       doorMaxHp: BALANCE.door.baseHp,
       doorShieldHp: 0,
       doorShieldMaxHp: 0,
+      prestigeShieldGranted: false,
+      prestigeShieldLayerHp: 0,
+      prestigeShieldLayersRemaining: 0,
       doorLevel: 1,
       bedLevel: 1,
       bedLevels: room.beds.map(() => 1),
@@ -805,6 +808,9 @@ export class GameEngine {
       room.doorMaxHpMultiplier ??= 1;
       room.doorShieldMaxHp ??= 0;
       room.doorShieldHp ??= 0;
+      room.prestigeShieldGranted ??= false;
+      room.prestigeShieldLayerHp ??= 0;
+      room.prestigeShieldLayersRemaining ??= 0;
       this.refreshDoorShield(room, false);
     }
     this.syncGoldSuppressionState();
@@ -947,6 +953,8 @@ export class GameEngine {
         player.profileRankedTier = normalizeProfileRankedTier(identity.profileRankedTier);
         player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
         player.profileAvatarUrl = identity.profileAvatarUrl ?? null;
+        player.profileFrameId = identity.profileFrameId ?? null;
+        player.equippedEmoteIds = [...new Set(identity.equippedEmoteIds ?? [])].slice(0, 4);
         player.appearance = normalizeAppearance(
           identity.appearance ?? player.appearance,
         );
@@ -989,6 +997,8 @@ export class GameEngine {
       identity.profileRankedRating,
       identity.profileAvatarUrl,
       identity.profileRankedSeasonId,
+      identity.profileFrameId,
+      identity.equippedEmoteIds,
     );
     this.state.players.push(player);
     if (this.state.tutorial?.active && !player.isBot && !this.state.tutorial.reservedRoomId) {
@@ -1233,6 +1243,9 @@ export class GameEngine {
         // GameRoom validates and broadcasts these short callouts before this
         // method is reached. Keep the engine switch exhaustive for tests and
         // reconnect replay safety.
+        return { ok: true };
+      case "game-emote":
+        // GameRoom validates ownership and broadcasts the cosmetic message.
         return { ok: true };
       case "game-chat":
         // Free-form team chat is validated, throttled and broadcast by the
@@ -1685,6 +1698,13 @@ export class GameEngine {
     // The gorilla passive is a real outer door layer, not another door-level
     // shortcut. A stronger second occupant can increase the layer, while the
     // existing damage remains preserved.
+    if (!room.prestigeShieldGranted && occupancyTrait.doorShieldLayers > 0) {
+      room.prestigeShieldGranted = true;
+      room.prestigeShieldLayerHp = Math.max(1, Math.floor(room.doorMaxHp * occupancyTrait.doorShieldLayerRatio));
+      room.prestigeShieldLayersRemaining = occupancyTrait.doorShieldLayers;
+      room.doorShieldMaxHp = room.prestigeShieldLayerHp * occupancyTrait.doorShieldLayers;
+      room.doorShieldHp = room.doorShieldMaxHp;
+    }
     this.refreshDoorShield(room, true);
     if (firstOccupant) {
       room.tileSkinId =
@@ -1858,7 +1878,7 @@ export class GameEngine {
             : "황금 티켓 1장당 황금 심판 포탑은 한 대만 설치할 수 있습니다.",
         };
     }
-    const buildCost = upgradeCost(kind, 1, activeRank);
+    const buildCost = upgradeCost(kind, 1, activeRank, this.characterTraitForPlayer(player).basicTurretMaxLevel);
     if (player.gold < buildCost.gold || player.power < buildCost.power)
       return { ok: false, error: "골드 또는 전력이 부족합니다." };
     const trait = this.characterTraitForPlayer(player);
@@ -1875,7 +1895,7 @@ export class GameEngine {
       ? 1 + trait.firstGuardianLevelBonus
       : 1;
     const initialLevel = Math.min(
-      maxBuildingLevel(kind, activeRank),
+      this.maxBuildingLevelForPlayer(kind, player),
       Math.max(1, traitStartingLevel, firstGuardianLevel),
     );
     player.gold -= buildCost.gold;
@@ -2146,7 +2166,10 @@ export class GameEngine {
           )
         : maximum;
     }, 0);
-    const nextMax = Math.max(0, Math.floor(room.doorMaxHp * ratio));
+    const prestigeCapacity = room.prestigeShieldGranted
+      ? room.prestigeShieldLayerHp * room.prestigeShieldLayersRemaining
+      : 0;
+    const nextMax = Math.max(prestigeCapacity, Math.floor(room.doorMaxHp * ratio));
     const current = Math.max(0, room.doorShieldHp ?? 0);
     room.doorShieldMaxHp = nextMax;
     room.doorShieldHp = grantNewCapacity
@@ -2252,14 +2275,19 @@ export class GameEngine {
       return { ok: false, error: "같은 방의 건물만 업그레이드할 수 있습니다." };
     const activeRank =
       this.playMode === "solo" ? player.soloRank : player.multiplayerRank;
-    if (building.level >= maxBuildingLevel(building.kind, activeRank))
+    if (building.level >= this.maxBuildingLevelForPlayer(building.kind, player))
       return { ok: false, error: "이미 최고 단계입니다." };
     const requirement = upgradeRequirement(building.kind, building.level, {
       bedLevel: buildingRoom.bedLevels[player.bedIndex ?? 0] ?? 1,
       doorLevel: buildingRoom.doorLevel,
     });
     if (requirement) return { ok: false, error: requirement };
-    const baseCost = upgradeCost(building.kind, building.level + 1, activeRank);
+    const baseCost = upgradeCost(
+      building.kind,
+      building.level + 1,
+      activeRank,
+      this.characterTraitForPlayer(player).basicTurretMaxLevel,
+    );
     const discounted = player.upgradeDiscountTargetId === building.id;
     const discountRate = discounted
       ? clamp(player.upgradeDiscountRate || 0.35, 0.05, 0.8)
@@ -3175,6 +3203,11 @@ export class GameEngine {
 
   private characterTraitForPlayer(player: PlayerState) {
     return characterTraitForMatch(player.appearance, Boolean(this.state.ranked));
+  }
+
+  private maxBuildingLevelForPlayer(kind: BuildingKind, player: PlayerState): number {
+    const rank = this.playMode === 'solo' ? player.soloRank : player.multiplayerRank;
+    return maxBuildingLevel(kind, rank, this.characterTraitForPlayer(player).basicTurretMaxLevel);
   }
 
   private unclaimedPlayerSpeed(player: PlayerState): number {
@@ -5183,6 +5216,12 @@ export class GameEngine {
           0,
           room.doorShieldHp - shieldAbsorbed,
         );
+      if (room.prestigeShieldLayerHp > 0) {
+        room.prestigeShieldLayersRemaining = Math.max(
+          0,
+          Math.ceil(room.doorShieldHp / room.prestigeShieldLayerHp),
+        );
+      }
       if (shieldAbsorbed > 0 && room.ownerIds.length > 0) {
         const credit = shieldAbsorbed / room.ownerIds.length;
         for (const ownerId of room.ownerIds) {
@@ -5663,13 +5702,21 @@ export class GameEngine {
               : 1;
     const slowed = this.state.elapsed < ghost.slowUntil;
     const slowMultiplier = slowed ? clamp(ghost.slowMultiplier ?? 0.76, 0.35, 1) : 1;
+    const prestigeSlowMultiplier = this.playMode === 'multiplayer' && !this.state.ranked
+      ? this.state.players.reduce((minimum, player) =>
+          player.alive
+            ? Math.min(minimum, this.characterTraitForPlayer(player).globalGhostSpeedMultiplier)
+            : minimum,
+        1)
+      : 1;
+    ghost.prestigeSlowMultiplier = prestigeSlowMultiplier;
     let speed =
       BALANCE.ghost.speed *
       this.stage.speedMultiplier *
       variantSpeed *
       speedMultiplier *
       (ghost.rage ? 1.32 : 1) *
-      slowMultiplier;
+      slowMultiplier * prestigeSlowMultiplier;
     speed = Math.max(speed, minimumSpeed);
     if (ghost.retreating) speed *= BALANCE.ghost.retreatSpeedMultiplier;
     const radius =
@@ -5910,6 +5957,8 @@ export class GameEngine {
     profileRankedRating = 800,
     profileAvatarUrl: string | null = null,
     profileRankedSeasonId = 'S1',
+    profileFrameId: string | null = null,
+    equippedEmoteIds: string[] = [],
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -5926,6 +5975,8 @@ export class GameEngine {
       profileRankedTier: normalizeProfileRankedTier(profileRankedTier),
       profileRankedRating: normalizeProfileRankedRating(profileRankedRating),
       profileAvatarUrl,
+      profileFrameId,
+      equippedEmoteIds: [...new Set(equippedEmoteIds)].slice(0, 4),
       appearance: normalizeAppearance(appearance),
       turretSkins: normalizeTurretSkins(turretSkins),
       color: COLORS[this.state.players.length % COLORS.length] as number,

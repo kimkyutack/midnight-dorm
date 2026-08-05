@@ -21,6 +21,7 @@ export interface Env {
   DATA_ENV: 'remote-d1' | 'local-e2e';
   NATIVE_ALLOWED_ORIGINS?: string;
   GOOGLE_WEB_CLIENT_ID?: string;
+  APPLE_CLIENT_ID?: string;
   STORE_VERIFICATION_ENABLED?: string;
 }
 
@@ -309,6 +310,8 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-profile-ranked-tier', profile.ranked.tier);
   headers.set('x-profile-ranked-rating', String(profile.ranked.rating));
   headers.set('x-profile-avatar-url', profile.profileAvatarUrl ?? '');
+  headers.set('x-profile-frame-id', profile.prestige.profileFrameId ?? '');
+  headers.set('x-profile-emote-ids', encodeURIComponent(JSON.stringify(profile.prestige.equippedEmoteIds)));
   headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
   headers.set('x-turret-skins', encodeURIComponent(JSON.stringify(profile.turretSkins)));
   headers.set('x-consumable-inventory', encodeURIComponent(JSON.stringify(profile.consumables)));
@@ -332,6 +335,7 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
       env.DB,
       env.DATA_ENV === 'local-e2e',
       env.GOOGLE_WEB_CLIENT_ID,
+      env.APPLE_CLIENT_ID,
     );
     if (authResponse) return authResponse;
     if (url.pathname.startsWith('/api/store/')) {

@@ -11,8 +11,8 @@ export interface HomePoseAsset {
 // Every sheet is repacked into exact 384px square cells. All six frames share
 // one optical centre and baseline, so a yawn never shifts the character or
 // samples a neighbouring row on fractional mobile pixels.
-const atlas = (index: number, row: number): HomePoseAsset => ({
-  atlasUrl: `/assets/home-poses/home-pose-atlas-${index}.webp?v=2026.08.04.2`,
+const atlas = (index: number, row: number, version = '2026.08.04.2'): HomePoseAsset => ({
+  atlasUrl: `/assets/home-poses/home-pose-atlas-${index}.webp?v=${version}`,
   row,
   cellAspectRatio: 1,
   frameColumns: 6,
@@ -49,6 +49,11 @@ const HOME_POSE_ASSETS: Readonly<Record<string, HomePoseAsset>> = {
   'skin-look-hamster-cyber-driver': atlas(6, 2),
   'skin-look-crocodile-police-enforcer': atlas(6, 3),
   'skin-look-monkey-secret-agent': atlas(6, 4),
+  'skin-look-fox-moonlit-phantom': atlas(7, 0, '2026.08.05.2'),
+  // Upcoming prestige sets deliberately reserve separate atlas rows now so
+  // their home pose can never silently fall back to the bunny presentation.
+  'skin-look-bunny-starlit-cloud': atlas(7, 1, '2026.08.05.1'),
+  'skin-look-gorilla-abyssal-knight': atlas(7, 2, '2026.08.05.1'),
 };
 
 /** Selects the authored seated/yawn frames for the currently equipped full appearance. */

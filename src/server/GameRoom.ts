@@ -158,6 +158,12 @@ export class GameRoom extends DurableObject<Env> {
       ? Math.max(0, Math.min(1_000_000, Math.floor(requestedRankedRating)))
       : 800;
     const profileAvatarUrl = request.headers.get('x-profile-avatar-url') || null;
+    const profileFrameId = request.headers.get('x-profile-frame-id') || null;
+    let equippedEmoteIds: string[] = [];
+    try {
+      const parsed = JSON.parse(decodeURIComponent(request.headers.get('x-profile-emote-ids') ?? '[]'));
+      if (Array.isArray(parsed)) equippedEmoteIds = parsed.filter((id): id is string => typeof id === 'string').slice(0, 4);
+    } catch { equippedEmoteIds = []; }
     const appearanceHeader = request.headers.get('x-avatar-appearance');
     const turretSkinsHeader = request.headers.get('x-turret-skins');
     const consumablesHeader = request.headers.get('x-consumable-inventory');
@@ -209,6 +215,8 @@ export class GameRoom extends DurableObject<Env> {
         profileRankedTier,
         profileRankedRating,
         profileAvatarUrl,
+        profileFrameId,
+        equippedEmoteIds,
         appearance,
         turretSkins,
         consumables,
@@ -322,6 +330,27 @@ export class GameRoom extends DurableObject<Env> {
         timestamp: now,
         playerId: player.id,
         message: messageText,
+      });
+      for (const targetSocket of this.ctx.getWebSockets()) {
+        if (targetSocket.readyState === WebSocket.OPEN) targetSocket.send(message);
+      }
+      return;
+    }
+    if (parsed.message.type === 'game-emote') {
+      const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
+      const now = Date.now();
+      if (!player || player.isBot || !player.equippedEmoteIds?.includes(parsed.message.emoteId) || now - (attachment.lastQuickChatAt ?? 0) < 1_000) {
+        this.sendError(socket, 'ACTION_THROTTLED', '장착한 이모티콘만 잠시 간격을 두고 사용할 수 있습니다.');
+        return;
+      }
+      attachment.lastQuickChatAt = now;
+      socket.serializeAttachment(attachment);
+      const message = encodeMessage({
+        type: 'game-emote',
+        sequence: engine.snapshot().serverSeq,
+        timestamp: now,
+        playerId: player.id,
+        emoteId: parsed.message.emoteId,
       });
       for (const targetSocket of this.ctx.getWebSockets()) {
         if (targetSocket.readyState === WebSocket.OPEN) targetSocket.send(message);

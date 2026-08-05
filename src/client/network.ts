@@ -11,6 +11,7 @@ export interface NetworkEvents {
   roomExit: { reason: 'left' | 'kicked' | 'room-closed' };
   quickChat: { playerId: string; phrase: QuickChatPhrase };
   gameChat: { playerId: string; message: string };
+  gameEmote: { playerId: string; emoteId: string };
 }
 
 type Listener<K extends keyof NetworkEvents> = (value: NetworkEvents[K]) => void;
@@ -313,6 +314,7 @@ export class GameNetwork {
   }
   quickChat(phrase: QuickChatPhrase): void { this.send({ type: 'quick-chat', phrase }); }
   gameChat(message: string): void { this.send({ type: 'game-chat', message }); }
+  gameEmote(emoteId: string): void { this.send({ type: 'game-emote', emoteId }); }
   rematch(): void { this.send({ type: 'rematch' }); }
   resync(): void { this.send({ type: 'resync' }); }
 
@@ -424,6 +426,7 @@ export class GameNetwork {
     else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
     else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });
     else if (message.type === 'game-chat') this.emit('gameChat', { playerId: message.playerId, message: message.message });
+    else if (message.type === 'game-emote') this.emit('gameEmote', { playerId: message.playerId, emoteId: message.emoteId });
     else if (message.type === 'room-exit') {
       this.clearPendingLeave();
       this.stopped = true;

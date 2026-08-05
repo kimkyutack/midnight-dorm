@@ -2,7 +2,9 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
 const clientAssetsRoot = resolve("dist/client/assets");
-const generatedSourcePattern = /(?:-master|-chroma)\.(?:png|webp)$/i;
+// Image-generation masters are kept in the repository for future art revisions,
+// but must never be copied into the Cloudflare/native runtime bundle.
+const generatedSourcePattern = /(?:^source-|(?:-master|-chroma)\.)(?:.*\.)?(?:png|webp)$/i;
 
 async function directorySize(path) {
   const entries = await readdir(path, { withFileTypes: true });

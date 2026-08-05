@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, characterAvailable, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, cosmeticVisibleInPointShop, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isAreaOnRoomFloor, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -25,6 +25,7 @@ import { mobileViewportCompatibilityScale } from '../src/client/viewport';
 import { nativeApiResourceUrl } from '../src/client/native/runtime';
 import { cosmeticPreviewLayerUrl, cosmeticProductUrl } from '../src/client/game/CosmeticAssets';
 import { baseConceptUrl, skinConceptUrl, skinMovementSheetUrl, skinSleepUrl } from '../src/client/game/SkinAssets';
+import { homePoseAsset, homePoseKey } from '../src/client/game/HomePoseAssets';
 import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/BuildingAssets';
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame, reconcileMovementInputSequence, shouldFlushMovementStart } from '../src/client/network';
@@ -37,6 +38,90 @@ import { rankedSeasonRules } from '../src/shared/rankedRules';
 import { rankedRatingDelta } from '../src/server/rankedScoring';
 import { routeAuth } from '../src/server/auth';
 import { ghostFootstepGain, ghostFootstepIntervalMs } from '../src/client/audio';
+import { duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS } from '../src/shared/prestige';
+import { CASH_PRODUCT_BY_ID, CASH_STORE_PRODUCTS, STORE_PRODUCT_IDS, cashGrantAmount, firstCashPurchaseBonus } from '../src/shared/storeProducts';
+
+describe('cash store products', () => {
+  it('keeps native SKUs, server grants, and the displayed catalog on one canonical list', () => {
+    expect(STORE_PRODUCT_IDS).toEqual(CASH_STORE_PRODUCTS.map((product) => product.id));
+    expect(new Set(STORE_PRODUCT_IDS).size).toBe(STORE_PRODUCT_IDS.length);
+    expect(CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.1200')?.cash).toBe(1_200);
+    expect(CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10400')).toMatchObject({
+      cash: 10_400,
+      fallbackPriceKrw: 156_000,
+    });
+    expect(Math.max(...CASH_STORE_PRODUCTS.map((product) => product.cash))).toBe(10_400);
+    expect(CASH_STORE_PRODUCTS.every((product) => product.cash > 0 && product.fallbackPriceKrw > 0)).toBe(true);
+  });
+
+  it('adds the 20 percent bonus exactly once for each product SKU', () => {
+    const product = CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10400');
+    expect(product).toBeDefined();
+    expect(firstCashPurchaseBonus(product!)).toBe(2_080);
+    expect(cashGrantAmount(product!, true)).toBe(12_480);
+    expect(cashGrantAmount(product!, false)).toBe(10_400);
+  });
+});
+
+describe('moonlit phantom prestige rules', () => {
+  it('excludes premium and prestige rewards from the ghost-orb cosmetic pool', () => {
+    const ids = new Set(ghostOrbEligibleCosmetics().map((item) => item.id));
+    for (const premiumId of PREMIUM_SKIN_IDS) expect(ids.has(premiumId)).toBe(false);
+    expect(ids.has(MOONLIT_PHANTOM_SKIN_ID)).toBe(false);
+    expect(ids.has(MOONLIT_PHANTOM_TILE_ID)).toBe(false);
+    expect(ids.has(MOONLIT_FOXFIRE_TURRET_ID)).toBe(false);
+    expect(GHOST_ORB_PITY_DRAWS * 10 * GHOST_ORB_CASH_COST).toBe(33_000);
+    expect(GHOST_ORB_CASH_COST).toBe(100);
+  });
+
+  it('refunds duplicate cosmetics at the exact current point-shop price', () => {
+    const cat = cosmeticById('character-cat');
+    expect(duplicatePointRefund('character-cat')).toBe(cat?.unlock.kind === 'points' ? cat.unlock.price : 0);
+    expect(duplicatePointRefund('skin-look-cat-neon-rider')).toBe(5_000);
+    expect(duplicatePointRefund(MOONLIT_PHANTOM_SKIN_ID)).toBe(0);
+  });
+
+  it('defines the authored prestige combat package without leaking into ranked matches', () => {
+    const appearance = { character: 'character-fox', skin: MOONLIT_PHANTOM_SKIN_ID };
+    const casual = characterTraitForMatch(appearance, false);
+    expect(casual.turretDamageMultiplier).toBe(2.2);
+    expect(casual.turretRateMultiplier).toBeCloseTo(1 / 1.5, 5);
+    expect(casual.turretStartingLevel).toBe(6);
+    expect(casual.basicTurretMaxLevel).toBe(17);
+    expect(casual.doorShieldLayers).toBe(2);
+    expect(casual.globalGhostSpeedMultiplier).toBe(0.85);
+    expect(characterTraitForMatch(appearance, true).globalGhostSpeedMultiplier).toBe(1);
+  });
+
+  it('keeps prestige cosmetics out of the point shop and collection-locked until owned', () => {
+    for (const id of [MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, MOONLIT_FOXFIRE_TURRET_ID]) {
+      const item = cosmeticById(id);
+      expect(item).toBeDefined();
+      expect(cosmeticVisibleInPointShop(item!)).toBe(false);
+      expect(cosmeticAvailable(item!, 'legend', [])).toBe(false);
+      expect(cosmeticAvailable(item!, 'beginner', [id])).toBe(true);
+    }
+  });
+
+  it('equips and resolves the authored prestige fox instead of the base fox fallback', () => {
+    const skin = cosmeticById(MOONLIT_PHANTOM_SKIN_ID);
+    expect(skin).toBeDefined();
+    const appearance = appearanceAfterCosmeticEquip(DEFAULT_APPEARANCE, skin!);
+    expect(appearance).toMatchObject({
+      character: 'character-fox',
+      skin: MOONLIT_PHANTOM_SKIN_ID,
+    });
+    expect(skinMovementSheetUrl(appearance)).toContain('/skin-moonlit-phantom-fox/movement-sheet.png');
+    expect(homePoseAsset(appearance).atlasUrl).toContain('home-pose-atlas-7.webp');
+    expect(homePoseKey(appearance)).toBe(MOONLIT_PHANTOM_SKIN_ID);
+  });
+
+  it('requires the fox character unlock before the owned prestige skin can be equipped', () => {
+    expect(characterAvailable('character-fox', 'beginner', [MOONLIT_PHANTOM_SKIN_ID])).toBe(false);
+    expect(characterAvailable('character-fox', 'master', [MOONLIT_PHANTOM_SKIN_ID])).toBe(true);
+    expect(characterAvailable('character-fox', 'beginner', [MOONLIT_PHANTOM_SKIN_ID, 'character-fox'])).toBe(true);
+  });
+});
 
 const RANKED_OPENING: NonNullable<MatchConfig['ranked']> = {
   seasonId: 'S-test',
@@ -158,8 +243,8 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.7')).toBe(true);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.3')).toBe(false);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.05.3')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.7')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
   });
@@ -1190,15 +1275,15 @@ describe('survivor customization rules', () => {
   });
 
   it('defines characters, complete skins, tile skins, and turret skins without equipment slots', () => {
-    expect(COSMETIC_CATALOG).toHaveLength(51);
+    expect(COSMETIC_CATALOG).toHaveLength(60);
     expect(new Set(COSMETIC_CATALOG.map((item) => item.slot))).toEqual(
       new Set(['character', 'skin', 'tile', 'turret']),
     );
     expect(STARTER_COSMETICS).toContain(DEFAULT_APPEARANCE.character);
     expect(STARTER_COSMETICS).toContain(DEFAULT_TILE_SKIN_ID);
     expect(STARTER_COSMETICS).not.toContain(DEFAULT_APPEARANCE.skin);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(18);
-    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(5);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin')).toHaveLength(21);
+    expect(COSMETIC_CATALOG.filter((item) => item.slot === 'tile')).toHaveLength(8);
     expect(defaultSkinForCharacter('character-fox')).toBe('skin-basic-fox');
   });
 
@@ -1410,7 +1495,7 @@ describe('survivor customization rules', () => {
     const secretAgentSkin = cosmeticById('skin-look-monkey-secret-agent');
     expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
-      (item) => item.unlock.kind === 'points' && (
+      (item) => item.unlock.kind === 'reward' || (item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
         || item.id === 'skin-look-puppy-surfer'
         || item.id === 'skin-look-tiger-lifeguard'
@@ -1419,7 +1504,7 @@ describe('survivor customization rules', () => {
         || item.id === 'skin-look-crocodile-police-enforcer'
         || item.id === 'skin-look-monkey-secret-agent'
         || item.unlock.price === 2_500
-      ),
+      )),
     )).toBe(true);
   });
 

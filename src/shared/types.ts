@@ -184,6 +184,8 @@ export interface PlayerState {
   profileRankedRating: number;
   /** Public, versioned same-origin profile image URL when the player chose one. */
   profileAvatarUrl?: string | null;
+  profileFrameId?: string | null;
+  equippedEmoteIds?: string[];
   appearance: AvatarAppearance;
   color: number;
   isBot: boolean;
@@ -253,6 +255,10 @@ export interface RoomState {
   /** Gorilla double-door passive: temporary outer shield that takes door hits first. */
   doorShieldHp: number;
   doorShieldMaxHp: number;
+  /** Prestige shield is granted once per match and never replenished by upgrades. */
+  prestigeShieldGranted: boolean;
+  prestigeShieldLayerHp: number;
+  prestigeShieldLayersRemaining: number;
   doorLevel: number;
   bedLevel: number;
   bedLevels: number[];
@@ -346,6 +352,8 @@ export interface GhostState {
   stunnedUntil: number;
   /** 활성 감속 배율. 중첩된 서리 스프레이 효과를 서버가 권한 있게 보존한다. */
   slowMultiplier: number;
+  /** Friends-mode prestige aura; separated from timed frost effects for clear rendering. */
+  prestigeSlowMultiplier?: number;
   rage: boolean;
   phase: number;
   path: Tile[];
@@ -469,8 +477,23 @@ export interface AccountProfile {
   profileDisplayMode: ProfileDisplayMode;
   /** Small, server-served image selected from the device photo library. */
   profileAvatarUrl: string | null;
+  /** Uploaded avatar remains stored even when a prestige preset is selected. */
+  uploadedProfileAvatarUrl: string | null;
+  prestige: {
+    ghostOrbs: number;
+    pityDrawCount: number;
+    ownedPackageIds: string[];
+    profileImageId: string | null;
+    profileFrameId: string | null;
+    ownedEmoteIds: string[];
+    equippedEmoteIds: string[];
+  };
   ranked: RankedProfile;
   victories: number;
+  /** Paid, server-authoritative currency. Store purchases only top up this wallet. */
+  cash: number;
+  /** Product IDs that already consumed their per-SKU first-purchase 20% bonus. */
+  cashFirstPurchaseProductIds: string[];
   customPoints: number;
   /** Server-authoritative ad-removal entitlement used by reward and home UI. */
   adFree: {
@@ -647,6 +670,7 @@ export type ClientMessage =
   | (BaseMessage & { type: 'use-consumable'; itemId: ConsumableId; roomId?: string; targetId?: string; tile?: Tile })
   | (BaseMessage & { type: 'quick-chat'; phrase: QuickChatPhrase })
   | (BaseMessage & { type: 'game-chat'; message: string })
+  | (BaseMessage & { type: 'game-emote'; emoteId: string })
   | (BaseMessage & { type: 'rematch' })
   | (BaseMessage & { type: 'ping'; clientTime: number })
   | (BaseMessage & { type: 'resync' });
@@ -672,6 +696,7 @@ export type ServerMessage =
   | (BaseMessage & { type: 'pong'; clientTime: number; serverTime: number })
   | (BaseMessage & { type: 'quick-chat'; playerId: string; phrase: QuickChatPhrase })
   | (BaseMessage & { type: 'game-chat'; playerId: string; message: string })
+  | (BaseMessage & { type: 'game-emote'; playerId: string; emoteId: string })
   | (BaseMessage & { type: 'room-exit'; reason: 'left' | 'kicked' | 'room-closed' })
   | (BaseMessage & { type: 'room-closed'; reason: string });
 
@@ -687,6 +712,8 @@ export interface JoinIdentity {
   profileRankedTier?: RankedTier;
   profileRankedRating?: number;
   profileAvatarUrl?: string | null;
+  profileFrameId?: string | null;
+  equippedEmoteIds?: string[];
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
   consumables?: OwnedConsumable[];

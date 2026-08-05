@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.04.6";
+export const APP_RELEASE_VERSION = "2026.08.05.2";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "술래잡기 근접 경고와 발소리",
+  title: "캐시 지갑과 충전 상점",
   summary:
-    "• 술래와 생존자가 6칸 안으로 가까워지면 양쪽에 노란 느낌표로 위험을 알립니다.\n• 생존자는 술래가 가까워질수록 더 크고 빠르게 들리는 거리 기반 발소리를 들을 수 있습니다.\n• 은신 중에도 발소리는 들리지만 술래에게 은신처 점유 여부가 노출되지 않도록 처리했습니다.",
-  publishedAt: 1785849968000,
+    "• 홈 포인트 왼쪽에 캐시 지갑과 충전 버튼을 추가하고 작은 화면에서도 프로필이 잘리지 않도록 잔액을 축약 표시합니다.\n• 100·550·1,200·2,500·5,200·10,400 캐시 충전 상품과 Google Play·App Store 공통 SKU를 추가했습니다. 10,400 캐시 팩의 가격은 ₩156,000입니다.\n• 각 캐시 팩은 계정당 최초 1회에 한해 20% 추가 캐시를 지급합니다. 예를 들어 10,400 캐시 팩은 첫 구매 시 12,480 캐시를 지급합니다.\n• 유료 콘텐츠는 개별 결제 대신 충전한 캐시를 사용하며, 캐시 부족 시 충전 상점으로 바로 이동합니다.\n• 캐시 확인·차감·보상 지급을 서버 원장에서 함께 처리해 중복 요청이나 동시 결제로 잔액이 음수가 되지 않도록 보호했습니다.",
+  publishedAt: 1785931403000,
 };
 
 /**
