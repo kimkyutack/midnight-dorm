@@ -2852,21 +2852,8 @@ function showHomeStagePicker(): void {
 function showRankingPreview(): void {
   if (!account) return;
   const currentAccount = account;
-  const hasPlayedRanked = currentAccount.ranked.contractsPlayed > 0;
-  const rankedStatus = hasPlayedRanked
-    ? RANKED_TIER_LABEL[currentAccount.ranked.tier]
-    : "Unranked";
-  const rankedStatusBadge = hasPlayedRanked
-    ? rankedBadgeImage(currentAccount.ranked.tier)
-    : rankBadgeImage("beginner");
-  const crown =
-    currentAccount.ranked.tier === "challenger" ||
-    currentAccount.ranked.tier === "master"
-      ? "gold"
-      : currentAccount.ranked.tier === "diamond" ||
-          currentAccount.ranked.tier === "platinum"
-        ? "silver"
-        : "bronze";
+  type RankingMode = "solo" | "multiplayer" | "ranked";
+  let activeMode: RankingMode = "ranked";
   const crownForPlacement = (
     placement: number,
   ): "gold" | "silver" | "bronze" | null =>
@@ -2877,44 +2864,83 @@ function showRankingPreview(): void {
         : placement <= 20
           ? "bronze"
           : null;
-  dismissibleModal(
-    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">${currentAccount.ranked.seasonId} 랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-my-record ranked-my-record"><span><img src="${rankedStatusBadge}" alt="${rankedStatus}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}${hasPlayedRanked ? `<img class="season-crown" src="/assets/ranks/crown-${crown}.png" alt="시즌 왕관"/>` : ""}</strong><p>${rankedStatus}${hasPlayedRanked ? ` · ${currentAccount.ranked.rating} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div></div><p class="ranking-notice">4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영 · 첫 5판 배치전</p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>시즌 순위를 불러오는 중…</li></ol><div class="ranked-reward-strip"><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
-    "home-picker-modal",
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet ranking-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-title"><header><div><small>RANKING</small><h2 id="ranking-title">랭킹</h2></div><button data-modal-close aria-label="닫기">×</button></header><nav class="ranking-tabs" aria-label="랭킹 모드"><button class="active" data-ranking-mode="ranked">랭크전</button><button data-ranking-mode="solo">혼자하기</button><button data-ranking-mode="multiplayer">친구랑하기</button></nav><div class="ranking-my-record ranked-my-record" data-ranking-my-record></div><p class="ranking-notice" data-ranking-notice></p><ol class="ranked-leaderboard" data-ranked-leaderboard><li>순위를 불러오는 중…</li></ol><div class="ranked-reward-strip" data-ranked-rewards><span>1위 · 금 왕관</span><span>2~5위 · 은 왕관</span><span>6~20위 · 동 왕관</span></div></section>`,
+    "home-picker-modal ranking-modal",
   );
-  const board = document.querySelector<HTMLOListElement>(
-    "[data-ranked-leaderboard]",
+  const board = modal.querySelector<HTMLOListElement>("[data-ranked-leaderboard]");
+  const myRecord = modal.querySelector<HTMLElement>("[data-ranking-my-record]");
+  const notice = modal.querySelector<HTMLElement>("[data-ranking-notice]");
+  const rewards = modal.querySelector<HTMLElement>("[data-ranked-rewards]");
+  const renderMyRecord = (mode: RankingMode) => {
+    if (!myRecord || !notice || !rewards) return;
+    if (mode === "ranked") {
+      const hasPlayed = currentAccount.ranked.contractsPlayed > 0;
+      const tier = hasPlayed ? currentAccount.ranked.tier : "bronze";
+      const label = hasPlayed ? RANKED_TIER_LABEL[tier] : "배치 전";
+      myRecord.innerHTML = `<span><img src="${hasPlayed ? rankedBadgeImage(tier) : rankBadgeImage("beginner")}" alt="${label}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${label}${hasPlayed ? ` · ${currentAccount.ranked.rating.toLocaleString()} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div>`;
+      notice.textContent = "4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영 · 첫 5판 배치전";
+      rewards.hidden = false;
+      return;
+    }
+    const isSolo = mode === "solo";
+    const xp = isSolo ? currentAccount.soloXp : currentAccount.multiplayerXp;
+    const rank = isSolo ? currentAccount.soloRank : currentAccount.multiplayerRank;
+    const stageIndex = isSolo ? currentAccount.soloStageIndex : currentAccount.multiplayerStageIndex;
+    myRecord.innerHTML = `<span><img src="${rankBadgeImage(rank)}" alt="${rankLabel(rank)}"/></span><div><small>내 ${isSolo ? "혼자하기" : "친구랑하기"} 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${rankLabel(rank)} · ${xp.toLocaleString()} XP · 최고 ${getStage(stagesThrough(stageIndex).at(-1)?.id ?? "easy-1").label}</p></div>`;
+    notice.textContent = `${isSolo ? "혼자하기" : "친구랑하기"} 누적 XP 순위 · 최고 스테이지와 승리 기록을 함께 반영합니다.`;
+    rewards.hidden = true;
+  };
+  const renderBoard = (mode: RankingMode) => {
+    if (!board) return;
+    activeMode = mode;
+    modal.querySelectorAll<HTMLButtonElement>("[data-ranking-mode]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.rankingMode === mode);
+    });
+    renderMyRecord(mode);
+    board.innerHTML = "<li>순위를 불러오는 중…</li>";
+    const endpoint = mode === "ranked" ? "/api/ranked/season" : `/api/rankings/${mode}`;
+    void fetch(endpoint)
+      .then(async (response) => response.ok ? response.json() as Promise<{ leaderboard?: Array<{ accountId: string; avatarUrl: string | null; rank: number; nickname: string; rating?: number; xp?: number; tier: RankId | keyof typeof RANKED_TIER_LABEL; stageIndex?: number; }> }> : Promise.reject(new Error("랭킹 조회 실패")))
+      .then((data) => {
+        if (!board || activeMode !== mode) return;
+        board.innerHTML = data.leaderboard?.length
+          ? data.leaderboard.map((entry) => {
+            const isRanked = mode === "ranked";
+            const placementCrown = isRanked ? crownForPlacement(entry.rank) : null;
+            const crownImage = placementCrown ? `<img class="leader-crown" src="/assets/ranks/crown-${placementCrown}.png" alt="${entry.rank}위 왕관"/>` : "";
+            const tierName = isRanked ? RANKED_TIER_LABEL[entry.tier as keyof typeof RANKED_TIER_LABEL] : rankLabel(entry.tier as RankId);
+            const badge = isRanked ? rankedBadgeImage(entry.tier as keyof typeof RANKED_TIER_LABEL) : rankBadgeImage(entry.tier as RankId);
+            const score = isRanked ? `${Math.max(0, entry.rating ?? 0).toLocaleString()} RP` : `${Math.max(0, entry.xp ?? 0).toLocaleString()} XP`;
+            return `<li><button type="button" data-ranking-profile="${escapeHtml(entry.accountId)}" aria-label="${escapeHtml(entry.nickname)} 프로필 보기"><div class="leader-first"><b class="leader-place">${entry.rank}</b>${profileAvatarHtml(entry.avatarUrl, "leader-avatar profile-avatar")}<span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><span class="leader-tier"><img src="${badge}" alt="${escapeHtml(tierName)}"/><strong>${score}</strong></span></button></li>`;
+          }).join("")
+          : `<li>${mode === "ranked" ? "아직 기록된 시즌 계약이 없습니다." : "아직 기록된 플레이어가 없습니다."}</li>`;
+        board.querySelectorAll<HTMLButtonElement>("[data-ranking-profile]").forEach((button) => button.addEventListener("click", () => showRankingProfile(button.dataset.rankingProfile ?? "")));
+      })
+      .catch(() => {
+        if (board && activeMode === mode) board.innerHTML = "<li>순위를 불러오지 못했습니다.</li>";
+      });
+  };
+  modal.querySelectorAll<HTMLButtonElement>("[data-ranking-mode]").forEach((button) => button.addEventListener("click", () => renderBoard(button.dataset.rankingMode as RankingMode)));
+  renderBoard("ranked");
+}
+
+function showRankingProfile(accountId: string): void {
+  if (!accountId) return;
+  const modal = dismissibleModal(
+    `<section class="home-picker-sheet ranking-profile-sheet" role="dialog" aria-modal="true" aria-labelledby="ranking-profile-title"><header><div><small>PLAYER PROFILE</small><h2 id="ranking-profile-title">플레이어 프로필</h2></div><button data-modal-close aria-label="닫기">×</button></header><div class="ranking-profile-content" data-ranking-profile-content><div class="spinner" aria-hidden="true"></div><p>프로필을 불러오는 중…</p></div></section>`,
+    "home-picker-modal ranking-profile-modal",
   );
-  void fetch("/api/ranked/season")
-    .then(async (response) =>
-      response.ok
-        ? (response.json() as Promise<{
-            leaderboard?: Array<{
-              avatarUrl: string | null;
-              rank: number;
-              nickname: string;
-              rating: number;
-              tier: keyof typeof RANKED_TIER_LABEL;
-            }>;
-          }>)
-        : Promise.reject(new Error("랭킹 조회 실패")),
-    )
-    .then((data) => {
-      if (!board) return;
-      board.innerHTML = data.leaderboard?.length
-        ? data.leaderboard
-            .map((entry) => {
-              const placementCrown = crownForPlacement(entry.rank);
-              const crownImage = placementCrown
-                ? `<img class="leader-crown" src="/assets/ranks/crown-${placementCrown}.png" alt="${entry.rank}위 왕관"/>`
-                : "";
-              const tierName = RANKED_TIER_LABEL[entry.tier];
-              return `<li><div class="leader-first"><b class="leader-place">${entry.rank}</b>${profileAvatarHtml(entry.avatarUrl, "leader-avatar profile-avatar")}<span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><span class="leader-tier"><img src="${rankedBadgeImage(entry.tier)}" alt="${escapeHtml(tierName)}" style="margin-top: 5px;"/><strong>${entry.rating.toLocaleString()} RP</strong></span></li>`;
-            })
-            .join("")
-        : "<li>아직 기록된 시즌 계약이 없습니다.</li>";
+  const content = modal.querySelector<HTMLElement>("[data-ranking-profile-content]");
+  void fetch(`/api/rankings/profile/${encodeURIComponent(accountId)}`)
+    .then(async (response) => response.ok ? response.json() as Promise<{ profile: { avatarUrl: string | null; nickname: string; victories: number; solo: { xp: number; tier: RankId; stageIndex: number }; multiplayer: { xp: number; tier: RankId; stageIndex: number }; ranked: { rating: number; tier: keyof typeof RANKED_TIER_LABEL; contractsPlayed: number } } }> : Promise.reject(new Error("프로필 조회 실패")))
+    .then(({ profile }) => {
+      if (!content) return;
+      const stageLabel = (index: number) => getStage(stagesThrough(index).at(-1)?.id ?? "easy-1").label;
+      content.innerHTML = `<div class="ranking-profile-identity">${profileAvatarHtml(profile.avatarUrl, "ranking-profile-avatar profile-avatar")}<div><strong>${escapeHtml(profile.nickname)}</strong><small>총 승리 ${profile.victories.toLocaleString()}회</small></div></div><div class="ranking-profile-stats"><article><img src="${rankBadgeImage(profile.solo.tier)}" alt="${rankLabel(profile.solo.tier)}"/><div><small>혼자하기</small><strong>${rankLabel(profile.solo.tier)}</strong><span>${profile.solo.xp.toLocaleString()} XP · ${stageLabel(profile.solo.stageIndex)}</span></div></article><article><img src="${rankBadgeImage(profile.multiplayer.tier)}" alt="${rankLabel(profile.multiplayer.tier)}"/><div><small>친구랑하기</small><strong>${rankLabel(profile.multiplayer.tier)}</strong><span>${profile.multiplayer.xp.toLocaleString()} XP · ${stageLabel(profile.multiplayer.stageIndex)}</span></div></article><article><img src="${rankedBadgeImage(profile.ranked.tier)}" alt="${RANKED_TIER_LABEL[profile.ranked.tier]}"/><div><small>랭크전</small><strong>${profile.ranked.contractsPlayed ? RANKED_TIER_LABEL[profile.ranked.tier] : "배치 전"}</strong><span>${profile.ranked.contractsPlayed ? `${profile.ranked.rating.toLocaleString()} RP` : "시즌 기록 없음"}</span></div></article></div>`;
     })
     .catch(() => {
-      if (board) board.innerHTML = "<li>시즌 순위를 불러오지 못했습니다.</li>";
+      if (content) content.innerHTML = "<p>프로필을 불러오지 못했습니다.</p>";
     });
 }
 

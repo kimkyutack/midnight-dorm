@@ -3,7 +3,7 @@ import type { HideSeekRoom } from './HideSeekRoom';
 import { getStage, unlockedStageIndex } from '../shared/progression';
 import { CURRENT_APP_UPDATE, isUpdateAvailable, type AppUpdate } from '../shared/appUpdates';
 import type { AccountProfile, PlayMode, StageId } from '../shared/types';
-import { getAuthenticatedProfile, profileAvatarResponse, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
+import { getAuthenticatedProfile, profileAvatarResponse, progressionLeaderboard, publicRankingProfile, rankedContractNumber, rankedLeaderboard, rankedSeasonId, routeAuth } from './auth';
 import type { RankedQueue } from './RankedQueue';
 import { createRoomCode, rankedMatchForContract, rankedMatchmakingTier, rankedStageForTier } from './rankedMatch';
 import { routeMailbox } from './mailbox';
@@ -351,6 +351,22 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
       const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
       if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
       return Response.json({ seasonId: rankedSeasonId(), me: profile.ranked, leaderboard: await rankedLeaderboard(env.DB) });
+    }
+    const progressionRankingMatch = url.pathname.match(/^\/api\/rankings\/(solo|multiplayer)$/);
+    if (progressionRankingMatch && request.method === 'GET') {
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      const mode = progressionRankingMatch[1] as 'solo' | 'multiplayer';
+      return Response.json({ mode, leaderboard: await progressionLeaderboard(env.DB, mode) });
+    }
+    const rankingProfileMatch = url.pathname.match(/^\/api\/rankings\/profile\/([a-zA-Z0-9-]{8,80})$/);
+    if (rankingProfileMatch && request.method === 'GET') {
+      const profile = await getAuthenticatedProfile(request, env.DB, env.DATA_ENV === 'local-e2e');
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      const publicProfile = await publicRankingProfile(env.DB, rankingProfileMatch[1] as string);
+      return publicProfile
+        ? Response.json({ profile: publicProfile })
+        : Response.json({ error: '플레이어를 찾을 수 없습니다.' }, { status: 404 });
     }
     if (/^\/api\/ranked\/queue\/(join|status|leave)$/.test(url.pathname)) {
       return routeRankedQueue(request, env);

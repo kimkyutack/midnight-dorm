@@ -16181,6 +16181,218 @@ body.game-chat-active {
   box-shadow: 0 3px 0 #12101a;
 }
 
+/* Ranking must remain a single portrait-width surface on every mobile browser. */
+.home-picker-modal.ranking-modal {
+  overflow-x: hidden;
+}
+
+.ranking-sheet,
+.ranking-profile-sheet {
+  box-sizing: border-box;
+  width: min(100%, 620px);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.ranking-sheet > *,
+.ranking-sheet header > *,
+.ranking-my-record > *,
+.ranked-leaderboard,
+.ranked-leaderboard li,
+.ranked-leaderboard li > button,
+.leader-first,
+.leader-tier {
+  min-width: 0;
+}
+
+.ranking-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 2px 0 4px;
+}
+
+.ranking-tabs button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 4px;
+  border: 1px solid #46588f;
+  border-radius: 12px;
+  color: #b9c7ed;
+  background: linear-gradient(180deg, #293967, #172246);
+  box-shadow: 0 3px 0 #0b112b;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ranking-tabs button.active {
+  border-color: #ffdf7d;
+  color: #302405;
+  background: linear-gradient(180deg, #fff39c, #ffc94a);
+  box-shadow: 0 3px 0 #a96a1f;
+}
+
+.ranking-sheet .ranking-my-record {
+  margin-top: 14px;
+}
+
+.ranked-leaderboard li {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ranked-leaderboard li > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 13px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.ranked-leaderboard li > button:active {
+  background: rgba(117, 223, 247, 0.12);
+}
+
+.leader-first {
+  flex: 1 1 auto;
+}
+
+.leader-tier {
+  flex: 0 1 auto;
+}
+
+.ranking-profile-modal {
+  z-index: 110;
+}
+
+.ranking-profile-sheet {
+  width: min(88cqw, 420px);
+}
+
+.ranking-profile-content {
+  display: grid;
+  min-height: 300px;
+  align-content: center;
+  gap: 18px;
+  padding: 12px 2px;
+  text-align: center;
+}
+
+.ranking-profile-content > .spinner {
+  margin-inline: auto;
+}
+
+.ranking-profile-identity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.ranking-profile-avatar {
+  width: 72px;
+  height: 72px;
+  border: 2px solid #6de5ff;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #101a3b;
+}
+
+.ranking-profile-identity strong,
+.ranking-profile-identity small,
+.ranking-profile-stats small,
+.ranking-profile-stats strong,
+.ranking-profile-stats span {
+  display: block;
+}
+
+.ranking-profile-identity strong {
+  color: #ffffff;
+  font-size: 18px;
+}
+
+.ranking-profile-identity small,
+.ranking-profile-stats span {
+  margin-top: 3px;
+  color: #aebce1;
+  font-size: 10px;
+}
+
+.ranking-profile-stats {
+  display: grid;
+  gap: 8px;
+}
+
+.ranking-profile-stats article {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #40548a;
+  border-radius: 15px;
+  background: rgba(16, 26, 59, 0.88);
+  text-align: left;
+}
+
+.ranking-profile-stats article > img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.ranking-profile-stats article > div {
+  min-width: 0;
+}
+
+.ranking-profile-stats small {
+  color: #7eeaff;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.ranking-profile-stats strong {
+  margin-top: 2px;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+@media (orientation: portrait) {
+  .home-picker-modal.ranking-modal {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .home-picker-modal.ranking-modal .ranking-sheet {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .home-picker-modal.ranking-profile-modal {
+    padding: 18px;
+    align-items: center;
+  }
+
+  .ranking-profile-sheet {
+    width: min(100%, 420px);
+    height: auto;
+    max-height: min(84dvh, 620px);
+    padding: 18px;
+  }
+}
+
 @media (orientation: portrait) and (max-height: 720px) {
   .game-home .home-footer-nav {
     min-height: 54px;

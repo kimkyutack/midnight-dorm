@@ -2197,6 +2197,7 @@ export async function recordRankedMatchResult(
 }
 
 export interface RankedLeaderboardEntry {
+  accountId: string;
   avatarUrl: string | null;
   nickname: string;
   rank: number;
@@ -2240,6 +2241,7 @@ export async function rankedLeaderboard(
     const hasAvatar = Boolean(row.profile_avatar) && avatarUpdatedAt > 0;
     const rating = Math.max(0, row.ranked_rating ?? 800);
     return {
+      accountId: row.account_id,
       avatarUrl: hasAvatar
         ? `/api/profile-avatar/${encodeURIComponent(row.account_id)}?v=${avatarUpdatedAt}`
         : null,
@@ -2249,4 +2251,107 @@ export async function rankedLeaderboard(
       tier: rankedTierForRating(rating),
     };
   });
+}
+
+export type ProgressionLeaderboardMode = 'solo' | 'multiplayer';
+
+export interface ProgressionLeaderboardEntry {
+  accountId: string;
+  avatarUrl: string | null;
+  nickname: string;
+  rank: number;
+  xp: number;
+  tier: ReturnType<typeof rankFromXp>;
+  stageIndex: number;
+}
+
+/** Public progression leaderboard. Only completed progression is included. */
+export async function progressionLeaderboard(
+  db: D1Database,
+  mode: ProgressionLeaderboardMode,
+): Promise<ProgressionLeaderboardEntry[]> {
+  const xpColumn = mode === 'solo' ? 'solo_xp' : 'multiplayer_xp';
+  const stageColumn = mode === 'solo' ? 'solo_stage_index' : 'multiplayer_stage_index';
+  const rows = await db.prepare(`SELECT id, nickname, profile_avatar, profile_avatar_updated_at,
+      ${xpColumn} AS xp, ${stageColumn} AS stage_index
+    FROM accounts
+    WHERE ${xpColumn} > 0 OR ${stageColumn} > 0
+    ORDER BY ${xpColumn} DESC, ${stageColumn} DESC, victories DESC, created_at ASC
+    LIMIT 50`).all<{
+      id: string;
+      nickname: string;
+      profile_avatar: string;
+      profile_avatar_updated_at: number;
+      xp: number;
+      stage_index: number;
+    }>();
+  return (rows.results ?? []).map((row, index) => {
+    const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
+    return {
+      accountId: row.id,
+      avatarUrl: row.profile_avatar && avatarUpdatedAt > 0
+        ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
+        : null,
+      nickname: row.nickname,
+      rank: index + 1,
+      xp: Math.max(0, row.xp ?? 0),
+      tier: rankFromXp(Math.max(0, row.xp ?? 0)),
+      stageIndex: Math.max(0, row.stage_index ?? 0),
+    };
+  });
+}
+
+export interface PublicRankingProfile {
+  accountId: string;
+  avatarUrl: string | null;
+  nickname: string;
+  solo: { xp: number; tier: ReturnType<typeof rankFromXp>; stageIndex: number };
+  multiplayer: { xp: number; tier: ReturnType<typeof rankFromXp>; stageIndex: number };
+  ranked: { rating: number; tier: RankedTier; contractsPlayed: number };
+  victories: number;
+}
+
+/** A deliberately small, safe profile used by the public ranking card. */
+export async function publicRankingProfile(
+  db: D1Database,
+  accountId: string,
+): Promise<PublicRankingProfile | null> {
+  const row = await db.prepare(`SELECT id, nickname, profile_avatar, profile_avatar_updated_at,
+      solo_xp, multiplayer_xp, solo_stage_index, multiplayer_stage_index, victories,
+      ranked_rating, ranked_season_id, ranked_contracts_played
+    FROM accounts WHERE id = ?`).bind(accountId).first<{
+      id: string;
+      nickname: string;
+      profile_avatar: string;
+      profile_avatar_updated_at: number;
+      solo_xp: number;
+      multiplayer_xp: number;
+      solo_stage_index: number;
+      multiplayer_stage_index: number;
+      victories: number;
+      ranked_rating: number;
+      ranked_season_id: string;
+      ranked_contracts_played: number;
+    }>();
+  if (!row) return null;
+  const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
+  const soloXp = Math.max(0, row.solo_xp ?? 0);
+  const multiplayerXp = Math.max(0, row.multiplayer_xp ?? 0);
+  const rankedCurrent = row.ranked_season_id === rankedSeasonId();
+  const rankedRating = rankedCurrent ? Math.max(0, row.ranked_rating ?? 800) : 800;
+  return {
+    accountId: row.id,
+    avatarUrl: row.profile_avatar && avatarUpdatedAt > 0
+      ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
+      : null,
+    nickname: row.nickname,
+    solo: { xp: soloXp, tier: rankFromXp(soloXp), stageIndex: Math.max(0, row.solo_stage_index ?? 0) },
+    multiplayer: { xp: multiplayerXp, tier: rankFromXp(multiplayerXp), stageIndex: Math.max(0, row.multiplayer_stage_index ?? 0) },
+    ranked: {
+      rating: rankedRating,
+      tier: rankedTierForRating(rankedRating),
+      contractsPlayed: rankedCurrent ? Math.max(0, row.ranked_contracts_played ?? 0) : 0,
+    },
+    victories: Math.max(0, row.victories ?? 0),
+  };
 }
