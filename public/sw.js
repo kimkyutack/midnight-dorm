@@ -1,5 +1,5 @@
-const CACHE = "midnight-dorm-shell-v20";
-const ASSET_CACHE = "midnight-dorm-assets-v20";
+const CACHE = "midnight-dorm-shell-v21";
+const ASSET_CACHE = "midnight-dorm-assets-v21";
 const SHELL = [
   "/",
   "/manifest.webmanifest",

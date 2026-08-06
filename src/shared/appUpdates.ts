@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.05.2";
+export const APP_RELEASE_VERSION = "2026.08.06.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "캐시 지갑과 충전 상점",
+  title: "연결 안정성 및 앱 캐시 갱신",
   summary:
-    "• 홈 포인트 왼쪽에 캐시 지갑과 충전 버튼을 추가하고 작은 화면에서도 프로필이 잘리지 않도록 잔액을 축약 표시합니다.\n• 100·550·1,200·2,500·5,200·10,400 캐시 충전 상품과 Google Play·App Store 공통 SKU를 추가했습니다. 10,400 캐시 팩의 가격은 ₩156,000입니다.\n• 각 캐시 팩은 계정당 최초 1회에 한해 20% 추가 캐시를 지급합니다. 예를 들어 10,400 캐시 팩은 첫 구매 시 12,480 캐시를 지급합니다.\n• 유료 콘텐츠는 개별 결제 대신 충전한 캐시를 사용하며, 캐시 부족 시 충전 상점으로 바로 이동합니다.\n• 캐시 확인·차감·보상 지급을 서버 원장에서 함께 처리해 중복 요청이나 동시 결제로 잔액이 음수가 되지 않도록 보호했습니다.",
-  publishedAt: 1785931403000,
+    "• 앱 셸과 서비스워커 캐시를 새 버전으로 갱신해 이전 배포본이 오래된 API 경로를 호출하는 문제를 정리했습니다.\n• 존재하지 않는 API 요청도 HTML이 아닌 JSON 오류로 응답하도록 수정해 로그인과 데이터 요청이 파싱 오류로 멈추지 않게 했습니다.\n• 최신 버전 적용 후에도 문제가 보이면 설정에서 업데이트를 확인하거나 앱을 한 번 새로고침해 주세요.",
+  publishedAt: 1785999600000,
 };
 
 /**
