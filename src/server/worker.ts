@@ -395,6 +395,13 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
     if (hideSeekMatch) return routeHideSeekRoom(request, env, hideSeekMatch[1] as string, hideSeekMatch[2] as 'ws' | 'status');
     const match = url.pathname.match(/^\/api\/rooms\/([A-Z2-9]{8})\/(ws|status)$/);
     if (match) return routeRoom(request, env, match[1] as string, match[2] as 'ws' | 'status');
+    // API requests must never fall through to the SPA asset handler.  The
+    // assets binding intentionally serves index.html for client-side routes;
+    // doing that for a typo or a stale API endpoint turns a recoverable 404
+    // into `Unexpected token '<'` in the login/client JSON parser.
+    if (url.pathname.startsWith('/api/')) {
+      return Response.json({ error: '지원하지 않는 API 요청입니다.' }, { status: 404, headers: noStoreHeaders });
+    }
     return staticAssetResponse(request, env);
 }
 

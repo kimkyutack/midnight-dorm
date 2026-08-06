@@ -19,6 +19,19 @@ export type GoogleLoginResult =
       suggestedNickname: string;
     };
 
+async function googleJson<T>(response: Response): Promise<T> {
+  const payload = await response.text();
+  try {
+    return JSON.parse(payload) as T;
+  } catch {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('text/html') || /^\s*</.test(payload)) {
+      throw new Error('인증 서버 대신 웹 페이지가 응답했습니다. 잠시 후 새로고침한 뒤 다시 시도해주세요.');
+    }
+    throw new Error('인증 서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.');
+  }
+}
+
 async function googleWebClientId(): Promise<string> {
   if (bundledGoogleWebClientId) return bundledGoogleWebClientId;
   if (!googleWebClientIdRequest) {
@@ -26,7 +39,7 @@ async function googleWebClientId(): Promise<string> {
       headers: { accept: 'application/json' },
     })
       .then(async (response) => {
-        const data = await response.json() as { clientId?: string; error?: string };
+        const data = await googleJson<{ clientId?: string; error?: string }>(response);
         const clientId = data.clientId?.trim() ?? '';
         if (!response.ok || !clientId) {
           throw new Error(data.error ?? 'Google 로그인이 서버에 설정되지 않았습니다.');
@@ -53,14 +66,14 @@ async function exchangeGoogleIdToken(idToken: string): Promise<GoogleLoginResult
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ idToken }),
   });
-  const data = await response.json() as {
+  const data = await googleJson<{
     status?: 'authenticated' | 'nickname-required';
     profile?: AccountProfile;
     sessionToken?: string;
     signupToken?: string;
     suggestedNickname?: string;
     error?: string;
-  };
+  }>(response);
   if (!response.ok) {
     throw new Error(data.error ?? 'Google 로그인에 실패했습니다.');
   }
@@ -249,11 +262,11 @@ export async function completeGoogleSignup(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ signupToken, nickname }),
   });
-  const data = await response.json() as {
+  const data = await googleJson<{
     profile?: AccountProfile;
     sessionToken?: string;
     error?: string;
-  };
+  }>(response);
   if (!response.ok || !data.profile || (isNativeApp && !data.sessionToken)) {
     throw new Error(data.error ?? '닉네임을 저장하지 못했습니다.');
   }
