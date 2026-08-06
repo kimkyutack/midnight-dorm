@@ -32,6 +32,8 @@ export interface AtlasSpriteDefinition extends AtlasLayerDefinition {
   movementSideFacesLeft?: boolean;
   /** Direction authored into the side row of the three-frame attack/skill sheet. */
   attackSideFacesLeft?: boolean;
+  /** Direction authored into the side row of the three-frame skill sheets. */
+  skillSideFacesLeft?: boolean;
   /** Some early concept sheets exported front/back rows in reverse order. */
   frontBackSwapped?: boolean;
 }
@@ -377,6 +379,12 @@ export function ghostSpriteDefinition(variant: GhostVariant): AtlasSpriteDefinit
     attackSideFacesLeft:
       variant === 'twin-a' ||
       variant === 'undead',
+    // The wallpaper ghost's roller skill sheets were authored from the same
+    // left-facing side reference as its walk sheet, not its attack sheet.
+    skillSideFacesLeft:
+      variant === 'wallpaper' ||
+      variant === 'twin-a' ||
+      variant === 'undead',
   };
 }
 
@@ -391,6 +399,7 @@ export class AtlasSpriteActor {
   private facing: SpriteFacing = { direction: 'front', mirrored: false };
   private readonly movementSideFacesLeft: boolean;
   private readonly attackSideFacesLeft: boolean;
+  private readonly skillSideFacesLeft: boolean;
   private readonly frontBackSwapped: boolean;
   private readonly movementEffect: SpecialOpsMotionEffect | null;
   private disposed = false;
@@ -399,6 +408,7 @@ export class AtlasSpriteActor {
     this.size = definition.size;
     this.movementSideFacesLeft = Boolean(definition.movementSideFacesLeft);
     this.attackSideFacesLeft = Boolean(definition.attackSideFacesLeft);
+    this.skillSideFacesLeft = definition.skillSideFacesLeft ?? this.attackSideFacesLeft;
     this.frontBackSwapped = Boolean(definition.frontBackSwapped);
     this.object.name = `${definition.name}-sprite-actor`;
     this.object.userData.renderMode = 'atlas-2d';
@@ -659,8 +669,9 @@ export class AtlasSpriteActor {
       const usesThreeColumns = useAttack || useSkillPrepare || useSkillCast;
       const activeColumns = useSleep ? 1 : usesThreeColumns ? 3 : 4;
       const activeFrame = useSleep ? 0 : usesThreeColumns ? safeFrame : Math.min(3, safeFrame);
-      const authoredSideFacesLeft =
-        useAttack || useSkillPrepare || useSkillCast
+      const authoredSideFacesLeft = useSkillPrepare || useSkillCast
+        ? this.skillSideFacesLeft
+        : useAttack
           ? this.attackSideFacesLeft
           : this.movementSideFacesLeft;
       const mirrored =

@@ -1203,7 +1203,7 @@ describe('survivor customization rules', () => {
       undead: { movement: false, attack: true },
       giant: { movement: false, attack: false },
       demolisher: { movement: false, attack: false },
-      wallpaper: { movement: true, attack: false },
+      wallpaper: { movement: true, attack: false, skill: true },
     } as const;
     for (const [variant, directions] of Object.entries(authoredSideDirections)) {
       const definition = ghostSpriteDefinition(
@@ -1214,6 +1214,9 @@ describe('survivor customization rules', () => {
       );
       expect(definition.attackSideFacesLeft, `${variant} attack`).toBe(
         directions.attack,
+      );
+      expect(definition.skillSideFacesLeft, `${variant} skill`).toBe(
+        ('skill' in directions ? directions.skill : directions.attack),
       );
       expect(definition.frontBackSwapped, `${variant} front/back`).toBeFalsy();
     }

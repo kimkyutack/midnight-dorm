@@ -223,6 +223,7 @@ interface MailboxMessage {
   claimedAt: number | null;
 }
 let mailboxUnreadCount = 0;
+let announcementUnread = false;
 let socialUnreadCount = 0;
 let eventMissionOverviewCache: EventMissionOverview | null = null;
 let socialSocket: WebSocket | null = null;
@@ -995,26 +996,27 @@ function homeScreen(): void {
             <button class="home-cash-balance" type="button" data-cash-store aria-label="캐시 상점 · 보유 캐시 ${currentAccount.cash.toLocaleString()}"><i aria-hidden="true">C</i><span>${compactWalletAmount(currentAccount.cash)}</span></button>
           </div>
           <strong class="home-points-wallet" title="보유 포인트 ${currentAccount.customPoints.toLocaleString()}">${gameMenuIcon("points")}<span>${compactWalletAmount(currentAccount.customPoints)} P</span></strong>
-          <button class="home-mailbox" data-mailbox aria-label="우편함">${homeUtilityIcon("mail")}<b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-home-settings aria-label="설정">${homeUtilityIcon("settings")}</button>
         </div>
       </header>
       <section class="home-stage-hub" aria-label="현재 스테이지">
         <button class="home-stage-summary" data-home-stage-picker aria-label="스테이지 난이도 선택" ${homePlayMode === "ranked" ? "disabled" : ""}><span>${homePlayMode === "ranked" ? "SEASON CONTRACT" : "NIGHT CHAPTER"}</span><strong>${stageLabel}</strong><small>${modeLabel} · ${homePlayMode === "ranked" ? `배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5 · ${currentAccount.ranked.eligible ? "참가 가능" : "참가 조건 확인"}` : perk}</small><i>⌄</i></button>
         <div class="home-stage-route" aria-hidden="true"><i class="cleared"></i><i class="cleared"></i><i class="active"></i><i></i><i></i></div>
       </section>
+      <div class="home-stage-menu" aria-label="홈 메뉴"><button class="home-stage-menu-trigger" data-home-stage-menu aria-label="메뉴 열기" aria-expanded="false"><span></span><span></span><span></span><b class="home-stage-menu-alert ${announcementUnread ? "visible" : ""}" data-announcement-alert aria-hidden="true"></b></button><div class="home-stage-menu-dropdown hidden" data-home-stage-menu-dropdown><button data-app-updates>${gameMenuIcon("announcement")}<span>공지사항</span><b class="home-stage-menu-alert ${announcementUnread ? "visible" : ""}" data-announcement-alert aria-hidden="true"></b></button><button data-home-settings>${homeUtilityIcon("settings")}<span>설정</span></button></div></div>
       <nav class="home-side-menu home-side-menu-left" aria-label="홈 왼쪽 메뉴">
-        <button class="home-update-notice" data-app-updates aria-haspopup="dialog" aria-label="업데이트 내역">${gameMenuIcon("announcement")}<span>공지</span></button>
+        <button class="home-event-missions" data-event-missions aria-label="이벤트"><img class="home-event-fireworks" src="/assets/ui/events/birthday-fireworks.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>이벤트</span></button>
         <button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거">${gameMenuIcon("adfree")}<span>광고 제거</span></button>
         <button class="home-orb-shop" data-orb-shop aria-label="구슬 상점"><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>구슬 상점</span></button>
       </nav>
       <nav class="home-side-menu home-side-menu-right" aria-label="홈 오른쪽 메뉴">
         <button class="home-ranking-shortcut" data-ranking aria-label="랭킹">${gameMenuIcon("ranking")}<span>랭킹</span></button>
         <button class="home-guide" data-page-guide data-guide-topic="battle" aria-label="생존 가이드 도움말">${gameMenuIcon("guide")}<span>가이드</span></button>
+        <button class="home-event-missions" data-event-missions aria-label="미션">${gameMenuIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button>
       </nav>
       <section class="home-avatar-showcase" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div></section>
       <footer class="home-actions">
         <div class="home-launch"><button class="home-mode-select ${hideSeekLaunchGuideStep === "home-mode" ? "launch-guide-target" : ""}" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
-        <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-event-tab" data-event-missions aria-label="미션">${homeFooterIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
+        <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-mailbox-tab" data-mailbox aria-label="우편함">${homeFooterIcon("mail")}<span>우편함</span><b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
       </footer>
     </main>`,
   );
@@ -1048,6 +1050,13 @@ function homeScreen(): void {
     audio.play("button");
     showHomeStagePicker();
   });
+  const stageMenuTrigger = app.querySelector<HTMLButtonElement>("[data-home-stage-menu]");
+  const stageMenuDropdown = app.querySelector<HTMLElement>("[data-home-stage-menu-dropdown]");
+  stageMenuTrigger?.addEventListener("click", () => {
+    audio.play("button");
+    const expanded = stageMenuDropdown?.classList.toggle("hidden") === false;
+    stageMenuTrigger.setAttribute("aria-expanded", String(expanded));
+  });
   app
     .querySelector("[data-home-stage-picker]")
     ?.addEventListener("click", () => {
@@ -1067,10 +1076,10 @@ function homeScreen(): void {
     audio.play("button");
     showRankingPreview();
   });
-  app.querySelector("[data-event-missions]")?.addEventListener("click", () => {
+  app.querySelectorAll("[data-event-missions]").forEach((button) => button.addEventListener("click", () => {
     audio.play("button");
     void eventMissionScreen();
-  });
+  }));
   app.querySelector("[data-mailbox]")?.addEventListener("click", () => {
     audio.play("button");
     void showMailbox();
@@ -1091,14 +1100,20 @@ function homeScreen(): void {
     audio.play("button");
     cashShopScreen();
   }));
-  app
-    .querySelector("[data-home-settings]")
-    ?.addEventListener("click", showSettings);
-  app.querySelector("[data-app-updates]")?.addEventListener("click", () => {
+  app.querySelectorAll("[data-app-updates]").forEach((button) => button.addEventListener("click", () => {
     audio.play("button");
+    stageMenuDropdown?.classList.add("hidden");
+    stageMenuTrigger?.setAttribute("aria-expanded", "false");
     void showAppUpdateHistory();
-  });
+  }));
+  app.querySelectorAll("[data-home-settings]").forEach((button) => button.addEventListener("click", () => {
+    audio.play("button");
+    stageMenuDropdown?.classList.add("hidden");
+    stageMenuTrigger?.setAttribute("aria-expanded", "false");
+    showSettings();
+  }));
   void refreshMailboxUnreadCount();
+  void refreshAnnouncementUnread();
   void refreshSocialUnreadCount();
   void refreshHomeEventMissionStatus();
   startSocialRealtime();
@@ -1141,8 +1156,8 @@ function showCashPurchaseConfirm(productId: StoreProductId, localizedPrice?: str
     void operation.then((profile) => {
       account = profile;
       modal.remove();
-      toast(`캐시 ${grantedCash.toLocaleString()}개가 충전되었습니다.${firstPurchase ? ' 첫 구매 +20%가 적용되었습니다.' : ''}`);
       cashShopScreen();
+      toast(`캐시 ${grantedCash.toLocaleString()}개가 충전되었습니다.${firstPurchase ? ' 첫 구매 +20%가 적용되었습니다.' : ''}`);
     }).catch((error) => {
       button.disabled = false;
       button.textContent = devMode ? '테스트 충전' : price;
@@ -2165,11 +2180,12 @@ function gameActionIcon(kind: "bed" | "repair"): string {
   return '<svg class="game-action-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M9 43h46v10H9zM13 26h38c3 0 5 2 5 5v12H8V31c0-3 2-5 5-5z"/><path d="M13 26v-8h15c4 0 7 3 7 7v1M14 53v4m36-4v4"/><circle cx="19" cy="22" r="4"/></svg>';
 }
 
-function homeFooterIcon(kind: "shop" | "event" | "stage" | "social" | "custom"): string {
+function homeFooterIcon(kind: "shop" | "event" | "stage" | "social" | "mail" | "custom"): string {
   if (kind === "shop") return gameMenuIcon("shop");
   if (kind === "event") return gameMenuIcon("event");
   if (kind === "stage") return gameMenuIcon("home");
   if (kind === "social") return gameMenuIcon("social");
+  if (kind === "mail") return gameMenuIcon("mail");
   return gameMenuIcon("locker");
 }
 
@@ -6928,6 +6944,32 @@ async function fetchLatestAppUpdate(): Promise<AppUpdate | null> {
   return data.latest ?? null;
 }
 
+function announcementStorageKey(): string {
+  return `midnight-dorm-seen-announcement:${account?.id ?? "guest"}`;
+}
+
+function syncAnnouncementUnreadIndicators(): void {
+  app.querySelectorAll<HTMLElement>("[data-announcement-alert]").forEach((indicator) =>
+    indicator.classList.toggle("visible", announcementUnread),
+  );
+}
+
+async function refreshAnnouncementUnread(): Promise<void> {
+  try {
+    const latest = await fetchLatestAppUpdate();
+    announcementUnread = Boolean(latest && localStorage.getItem(announcementStorageKey()) !== latest.version);
+    syncAnnouncementUnreadIndicators();
+  } catch {
+    // Announcements are supplementary; avoid blocking home if the feed is unavailable.
+  }
+}
+
+function markAnnouncementRead(version: string): void {
+  localStorage.setItem(announcementStorageKey(), version);
+  announcementUnread = false;
+  syncAnnouncementUnreadIndicators();
+}
+
 async function showAppUpdateHistory(): Promise<void> {
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
@@ -6940,6 +6982,7 @@ async function showAppUpdateHistory(): Promise<void> {
   try {
     const updates = await fetchAppUpdates();
     if (!list || !modal.isConnected) return;
+    if (updates[0]) markAnnouncementRead(updates[0].version);
     list.innerHTML = updates.length
       ? updates
           .map(

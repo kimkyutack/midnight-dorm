@@ -9250,6 +9250,9 @@ body.game-chat-active {
   line-height: 1.45;
 }
 .mailbox-list {
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 16px;
   display: grid;
   gap: 9px;
 }
@@ -13146,11 +13149,6 @@ body.game-chat-active {
   align-items: flex-start;
 }
 
-.game-home .home-topbar > .home-account {
-  flex: 0 1 198px;
-  min-width: 0;
-}
-
 .home-side-menu {
   position: absolute;
   z-index: 9;
@@ -13456,6 +13454,18 @@ body.game-chat-active {
 .game-home .home-side-menu > button > span:last-of-type {
   font-family: var(--game-arcade-font);
   font-weight: 900;
+}
+
+.game-home .home-side-menu .home-event-fireworks {
+  width: 45px;
+  height: 45px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 0 #ffffff) drop-shadow(0 4px 5px rgba(24, 72, 147, 0.26));
+}
+
+.game-home .home-side-menu-right .home-event-nudge {
+  right: calc(100% + 5px);
+  left: auto;
 }
 
 .game-home .home-stage-hub .home-stage-summary i {
@@ -14193,7 +14203,6 @@ body.game-chat-active {
 .profile-display-options,
 .mailbox-list,
 .home-picker-sheet > :not(header) {
-  margin: 16px;
 }
 
 .home-mode-options > button,
@@ -14704,7 +14713,6 @@ body.game-chat-active {
 }
 
 .game-home .home-topbar > .home-account {
-  max-width: 142px;
   height: 49px;
   min-height: 49px;
   padding: 4px 8px 4px 4px;
