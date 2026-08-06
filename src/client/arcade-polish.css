@@ -2309,3 +2309,72 @@
   color: #9bf4e0;
   font: 900 9px/1 var(--game-arcade-font, inherit);
 }
+
+/* Orb exchange has four stacked regions: header, tabs, content, and actions. */
+.orb-exchange-screen {
+  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+}
+
+.orb-exchange-screen > .orb-exchange-tabs {
+  position: relative;
+  z-index: 4;
+  box-sizing: border-box;
+  padding: 10px 18px 8px;
+  background: rgba(7, 13, 37, 0.96);
+}
+
+/* Locker tabs are nested groups, so they must not inherit the shop's five-column nav. */
+.custom-catalog.locker-catalog {
+  grid-template-rows: 46px minmax(0, 1fr) !important;
+}
+
+.custom-catalog.locker-catalog.has-locker-subtabs {
+  grid-template-rows: 86px minmax(0, 1fr) !important;
+}
+
+.custom-catalog nav.locker-nav {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: 34px !important;
+  gap: 0 !important;
+  min-width: 0 !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+}
+
+.custom-catalog.has-locker-subtabs nav.locker-nav {
+  grid-template-rows: 34px 34px !important;
+  gap: 6px !important;
+  min-height: 84px !important;
+  max-height: 84px !important;
+}
+
+.custom-catalog nav.locker-nav .locker-top-tabs,
+.custom-catalog nav.locker-nav .locker-sub-tabs {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+}
+
+.custom-catalog nav.locker-nav .locker-sub-tabs {
+  padding-top: 0;
+}
+
+.custom-catalog nav.locker-nav .custom-tab {
+  min-width: 0;
+  padding-right: 3px !important;
+  padding-left: 3px !important;
+  overflow: hidden;
+  font-size: 9px !important;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+
+/* Place the mission claim marker over the icon corner, matching the menu marker. */
+.game-home .home-side-menu .home-event-missions .home-event-alert {
+  top: -3px;
+  right: 3px;
+}
