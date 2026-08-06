@@ -29,7 +29,7 @@
     "native:open:android": "npx cap open android",
     "native:open:ios": "npx cap open ios",
     "preview": "WRANGLER_LOG_PATH=.wrangler/logs/preview.log vite preview --host 0.0.0.0",
-    "deploy": "npm run build && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
+    "deploy": "npm run build && npm run db:migrate:remote && WRANGLER_LOG_PATH=.wrangler/logs/deploy.log wrangler deploy"
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.0.0",
