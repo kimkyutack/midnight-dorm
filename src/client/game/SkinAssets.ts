@@ -45,7 +45,13 @@ function skinAssetVersion(skinId: string): string {
 }
 
 function skinAssetExtension(skinId: string): 'png' | 'webp' {
-  return WEBP_SKIN_IDS.has(skinId) ? 'webp' : 'png';
+  // The production/native bundle is image-optimized after Vite finishes: PNG
+  // files are replaced by WebP files.  Do not rely on that post-build script
+  // rewriting a dynamically assembled URL; otherwise a cached production
+  // chunk can request a now-removed PNG and leave the avatar canvas empty.
+  // Local Vite keeps the authoring PNGs for quick iteration, while the two
+  // prestige atlases are authored as WebP in both environments.
+  return !import.meta.env.DEV || WEBP_SKIN_IDS.has(skinId) ? 'webp' : 'png';
 }
 
 /** A valid appearance always points to one fully rendered atlas, never layers. */

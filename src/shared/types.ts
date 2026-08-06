@@ -485,6 +485,9 @@ export interface AccountProfile {
     ownedPackageIds: string[];
     profileImageId: string | null;
     profileFrameId: string | null;
+    nameplateId: string | null;
+    homeAuraId: string | null;
+    ownedAccessoryIds: string[];
     ownedEmoteIds: string[];
     equippedEmoteIds: string[];
   };

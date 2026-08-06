@@ -6,7 +6,7 @@ import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributi
 import { claimEventMissionRewards, ensureEventMissionSchema, eventMissionOverview, recordLoginMissionProgress, recordRankedCompletionMissionProgress, recordStageClearMissionProgress } from './eventMissions';
 import { hideSeekVictoryPoints, type HideSeekResultReason, type HideSeekRole } from '../shared/hideSeek';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { BASIC_PROFILE_FRAME_ID, duplicatePointRefund, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PACKAGE_COST, GHOST_ORB_PITY_DRAWS, ghostOrbEligibleCosmetics, MOONLIT_PHANTOM_SKIN_ID, PRESTIGE_PACKAGES, prestigeEmoteById, prestigePackageById, prestigePackageForProfileFrame, prestigePackageForProfileImage } from '../shared/prestige';
+import { BASIC_PROFILE_FRAME_ID, duplicatePointRefund, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PACKAGE_COST, GHOST_ORB_PITY_DRAWS, ghostOrbEligibleCosmetics, MOONLIT_PHANTOM_SKIN_ID, PRESTIGE_PACKAGES, prestigeAccessoryById, prestigeAccessoryIdsForPackages, prestigeEmoteById, prestigePackageById } from '../shared/prestige';
 import { CASH_PRODUCT_BY_ID, cashGrantAmount, firstCashPurchaseBonus } from '../shared/storeProducts';
 
 const SESSION_COOKIE = 'midnight_session';
@@ -139,6 +139,11 @@ interface PrestigeLoadoutRow {
   profile_image_id: string | null;
   profile_frame_id: string | null;
   emote_ids: string;
+}
+
+interface PrestigeEffectLoadoutRow {
+  nameplate_id: string | null;
+  home_aura_id: string | null;
 }
 
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
@@ -274,6 +279,8 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_wallets (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, ghost_orbs INTEGER NOT NULL DEFAULT 0 CHECK (ghost_orbs >= 0), pity_draw_count INTEGER NOT NULL DEFAULT 0 CHECK (pity_draw_count >= 0), total_draw_count INTEGER NOT NULL DEFAULT 0 CHECK (total_draw_count >= 0), updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_packages (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, package_id TEXT NOT NULL, acquired_at INTEGER NOT NULL, PRIMARY KEY (account_id, package_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, profile_image_id TEXT, profile_frame_id TEXT, emote_ids TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_effect_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, nameplate_id TEXT, home_aura_id TEXT, updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_accessories (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, accessory_id TEXT NOT NULL, acquired_at INTEGER NOT NULL, PRIMARY KEY (account_id, accessory_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_consumables (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0), updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_promotion_dismissals (
@@ -427,7 +434,9 @@ function profileFromRow(
   storefrontThemes: StorefrontThemeSetting[],
   prestigeWallet: PrestigeWalletRow | null,
   prestigePackages: string[],
+  purchasedPrestigeAccessoryIds: string[],
   prestigeLoadout: PrestigeLoadoutRow | null,
+  prestigeEffectLoadout: PrestigeEffectLoadoutRow | null,
   cashWallet: CashWalletRow | null,
   cashFirstPurchaseProductIds: string[],
 ): AccountProfile {
@@ -435,6 +444,10 @@ function profileFromRow(
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
   const displayRank = higherRank(soloRank, multiplayerRank);
   const ownedPrestigePackages = PRESTIGE_PACKAGES.filter((entry) => prestigePackages.includes(entry.id));
+  const ownedPrestigeAccessoryIds = [...new Set([
+    ...prestigeAccessoryIdsForPackages(prestigePackages),
+    ...purchasedPrestigeAccessoryIds.filter((id) => Boolean(prestigeAccessoryById(id))),
+  ])];
   const ownedCosmetics = [...new Set([
     ...STARTER_COSMETICS,
     ...purchasedCosmetics.filter((itemId) => Boolean(cosmeticById(itemId))),
@@ -473,19 +486,27 @@ function profileFromRow(
     ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
     : null;
   const requestedProfileImageId = prestigeLoadout?.profile_image_id ?? null;
-  const profileImageId = requestedProfileImageId && ownedPrestigePackages.some((entry) => entry.profileImageId === requestedProfileImageId)
+  const profileImageId = requestedProfileImageId && ownedPrestigeAccessoryIds.includes(requestedProfileImageId)
     ? requestedProfileImageId
     : null;
   const requestedProfileFrameId = prestigeLoadout?.profile_frame_id ?? BASIC_PROFILE_FRAME_ID;
   const profileFrameId = requestedProfileFrameId === BASIC_PROFILE_FRAME_ID
-    || ownedPrestigePackages.some((entry) => entry.profileFrameId === requestedProfileFrameId)
+    || ownedPrestigeAccessoryIds.includes(requestedProfileFrameId)
       ? requestedProfileFrameId
       : BASIC_PROFILE_FRAME_ID;
+  const requestedNameplateId = prestigeEffectLoadout?.nameplate_id ?? null;
+  const nameplateId = requestedNameplateId && ownedPrestigeAccessoryIds.includes(requestedNameplateId)
+    ? requestedNameplateId
+    : null;
+  const requestedHomeAuraId = prestigeEffectLoadout?.home_aura_id ?? null;
+  const homeAuraId = requestedHomeAuraId && ownedPrestigeAccessoryIds.includes(requestedHomeAuraId)
+    ? requestedHomeAuraId
+    : null;
   let equippedEmoteIds: string[] = [];
   try {
     const parsed = JSON.parse(prestigeLoadout?.emote_ids ?? '[]');
     if (Array.isArray(parsed)) equippedEmoteIds = parsed.filter((id): id is string =>
-      typeof id === 'string' && ownedPrestigePackages.some((entry) => entry.emotes.some((emote) => emote.id === id)),
+      typeof id === 'string' && ownedPrestigeAccessoryIds.includes(id) && Boolean(prestigeEmoteById(id)),
     ).slice(0, 4);
   } catch { equippedEmoteIds = []; }
   const selectedProfileAvatarUrl = profileImageId
@@ -533,7 +554,10 @@ function profileFromRow(
       ownedPackageIds: [...new Set(prestigePackages)],
       profileImageId,
       profileFrameId,
-      ownedEmoteIds: ownedPrestigePackages.flatMap((entry) => entry.emotes.map((emote) => emote.id)),
+      nameplateId,
+      homeAuraId,
+      ownedAccessoryIds: ownedPrestigeAccessoryIds,
+      ownedEmoteIds: ownedPrestigeAccessoryIds.filter((id) => Boolean(prestigeEmoteById(id))),
       equippedEmoteIds,
     },
     ranked: {
@@ -655,7 +679,11 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       .bind(row.id),
     db.prepare('SELECT package_id FROM account_prestige_packages WHERE account_id = ? ORDER BY acquired_at ASC')
       .bind(row.id),
+    db.prepare('SELECT accessory_id FROM account_prestige_accessories WHERE account_id = ? ORDER BY acquired_at ASC')
+      .bind(row.id),
     db.prepare('SELECT profile_image_id, profile_frame_id, emote_ids FROM account_prestige_loadouts WHERE account_id = ?')
+      .bind(row.id),
+    db.prepare('SELECT nameplate_id, home_aura_id FROM account_prestige_effect_loadouts WHERE account_id = ?')
       .bind(row.id),
     db.prepare('SELECT cash_balance FROM account_cash_wallets WHERE account_id = ?')
       .bind(row.id),
@@ -674,9 +702,11 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
   const storefrontThemeRows = profileResults[9]!;
   const prestigeWalletResult = profileResults[10]!;
   const prestigePackagesResult = profileResults[11]!;
-  const prestigeLoadoutResult = profileResults[12]!;
-  const cashWalletResult = profileResults[13]!;
-  const cashFirstPurchaseResult = profileResults[14]!;
+  const prestigeAccessoriesResult = profileResults[12]!;
+  const prestigeLoadoutResult = profileResults[13]!;
+  const prestigeEffectLoadoutResult = profileResults[14]!;
+  const cashWalletResult = profileResults[15]!;
+  const cashFirstPurchaseResult = profileResults[16]!;
   const customization = (customizationResult.results?.[0] as CustomizationRow | undefined) ?? null;
   const cashWallet = (cashWalletResult.results?.[0] as CashWalletRow | undefined) ?? null;
   const cashFirstPurchaseProductIds = (cashFirstPurchaseResult.results ?? [])
@@ -739,7 +769,9 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     }, new Map<StorefrontThemeId, StorefrontThemeSetting>()).values()],
     (prestigeWalletResult.results?.[0] as PrestigeWalletRow | undefined) ?? null,
     (prestigePackagesResult.results ?? []).map((item) => (item as { package_id: string }).package_id),
+    (prestigeAccessoriesResult.results ?? []).map((item) => (item as { accessory_id: string }).accessory_id),
     (prestigeLoadoutResult.results?.[0] as PrestigeLoadoutRow | undefined) ?? null,
+    (prestigeEffectLoadoutResult.results?.[0] as PrestigeEffectLoadoutRow | undefined) ?? null,
     cashWallet,
     cashFirstPurchaseProductIds,
   );
@@ -1387,23 +1419,34 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   const row = await authenticatedRowFromReadySchema(request, db);
   if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
-  let body: { profileImageId?: string | null; profileFrameId?: string | null; emoteIds?: string[] };
+  let body: { profileImageId?: string | null; profileFrameId?: string | null; nameplateId?: string | null; homeAuraId?: string | null; emoteIds?: string[] };
   try { body = await request.json(); } catch { return Response.json({ error: '프레스티지 장착 정보를 확인해주세요.' }, { status: 400 }); }
   const packageRows = await db.prepare(`SELECT package_id FROM account_prestige_packages WHERE account_id = ?`)
     .bind(row.id).all<{ package_id: string }>();
   const ownedPackageIds = new Set((packageRows.results ?? []).map((entry) => entry.package_id));
-  const imagePackage = body.profileImageId ? prestigePackageForProfileImage(body.profileImageId) : undefined;
-  const framePackage = body.profileFrameId ? prestigePackageForProfileFrame(body.profileFrameId) : undefined;
-  if (imagePackage && !ownedPackageIds.has(imagePackage.id)) return Response.json({ error: `${imagePackage.title} 패키지를 보유하지 않았습니다.` }, { status: 403 });
-  if (framePackage && !ownedPackageIds.has(framePackage.id)) return Response.json({ error: `${framePackage.title} 패키지를 보유하지 않았습니다.` }, { status: 403 });
-  if (body.profileImageId !== undefined && body.profileImageId !== null && !imagePackage)
+  const accessoryRows = await db.prepare('SELECT accessory_id FROM account_prestige_accessories WHERE account_id = ?')
+    .bind(row.id).all<{ accessory_id: string }>();
+  const ownedAccessoryIds = new Set([
+    ...prestigeAccessoryIdsForPackages([...ownedPackageIds]),
+    ...(accessoryRows.results ?? []).map((entry) => entry.accessory_id),
+  ]);
+  const ownsAccessory = (id: string | null | undefined, category?: string): boolean => {
+    if (!id) return true;
+    const accessory = prestigeAccessoryById(id);
+    return Boolean(accessory && (!category || accessory.category === category) && ownedAccessoryIds.has(id));
+  };
+  if (body.profileImageId !== undefined && body.profileImageId !== null && !ownsAccessory(body.profileImageId, 'profile'))
     return Response.json({ error: '선택할 수 없는 프로필 이미지입니다.' }, { status: 400 });
-  if (body.profileFrameId !== undefined && body.profileFrameId !== null && body.profileFrameId !== BASIC_PROFILE_FRAME_ID && !framePackage)
+  if (body.profileFrameId !== undefined && body.profileFrameId !== null && body.profileFrameId !== BASIC_PROFILE_FRAME_ID && !ownsAccessory(body.profileFrameId, 'frame'))
     return Response.json({ error: '선택할 수 없는 프로필 테두리입니다.' }, { status: 400 });
+  if (body.nameplateId !== undefined && !ownsAccessory(body.nameplateId, 'nameplate'))
+    return Response.json({ error: '선택할 수 없는 명찰입니다.' }, { status: 400 });
+  if (body.homeAuraId !== undefined && !ownsAccessory(body.homeAuraId, 'aura'))
+    return Response.json({ error: '선택할 수 없는 홈 오라입니다.' }, { status: 400 });
   const emoteIds = [...new Set(body.emoteIds ?? [])];
   if (emoteIds.length > 4 || emoteIds.some((id) => {
     const emote = prestigeEmoteById(id);
-    return !emote || !PRESTIGE_PACKAGES.some((entry) => entry.emotes.some((candidate) => candidate.id === id) && ownedPackageIds.has(entry.id));
+    return !emote || !ownedAccessoryIds.has(id);
   }))
     return Response.json({ error: '이모티콘은 보유한 항목 중 최대 4개까지 장착할 수 있습니다.' }, { status: 400 });
   const current = await db.prepare(`SELECT profile_image_id, profile_frame_id, emote_ids
@@ -1431,6 +1474,21 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
       body.profileImageId === undefined ? current?.profile_image_id ?? null : body.profileImageId,
       body.profileFrameId === undefined ? current?.profile_frame_id ?? null : body.profileFrameId,
       JSON.stringify(body.emoteIds === undefined ? currentEmoteIds : emoteIds),
+      now,
+    ).run();
+  const currentEffects = await db.prepare(`SELECT nameplate_id, home_aura_id
+    FROM account_prestige_effect_loadouts WHERE account_id = ?`).bind(row.id).first<PrestigeEffectLoadoutRow>();
+  await db.prepare(`INSERT INTO account_prestige_effect_loadouts
+      (account_id, nameplate_id, home_aura_id, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(account_id) DO UPDATE SET
+      nameplate_id = excluded.nameplate_id,
+      home_aura_id = excluded.home_aura_id,
+      updated_at = excluded.updated_at`)
+    .bind(
+      row.id,
+      body.nameplateId === undefined ? currentEffects?.nameplate_id ?? null : body.nameplateId,
+      body.homeAuraId === undefined ? currentEffects?.home_aura_id ?? null : body.homeAuraId,
       now,
     ).run();
   return Response.json({ profile: await profileForRow(db, row) });
@@ -1483,6 +1541,43 @@ async function exchangePrestigePackage(request: Request, db: D1Database): Promis
     const message = error instanceof Error ? error.message : String(error);
     if (/UNIQUE constraint failed/i.test(message))
       return Response.json({ error: `이미 ${prestigePackage.title} 패키지를 보유하고 있습니다.` }, { status: 409 });
+    throw error;
+  }
+  return Response.json({ profile: await profileForRow(db, row) });
+}
+
+async function exchangePrestigeAccessory(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { accessoryId?: string };
+  try { body = await request.json(); } catch { return Response.json({ error: '교환할 소품을 확인해주세요.' }, { status: 400 }); }
+  const accessory = prestigeAccessoryById(body.accessoryId ?? '');
+  if (!accessory) return Response.json({ error: '존재하지 않는 소품입니다.' }, { status: 404 });
+  const packageRows = await db.prepare('SELECT package_id FROM account_prestige_packages WHERE account_id = ?')
+    .bind(row.id).all<{ package_id: string }>();
+  const ownedPackageIds = (packageRows.results ?? []).map((entry) => entry.package_id);
+  const alreadyOwned = prestigeAccessoryIdsForPackages(ownedPackageIds).includes(accessory.id)
+    || Boolean(await db.prepare('SELECT 1 AS owned FROM account_prestige_accessories WHERE account_id = ? AND accessory_id = ?')
+      .bind(row.id, accessory.id).first<{ owned: number }>());
+  if (alreadyOwned) return Response.json({ error: '이미 보유한 소품입니다.' }, { status: 409 });
+  const now = Date.now();
+  await db.prepare(`INSERT OR IGNORE INTO account_prestige_wallets
+    (account_id, ghost_orbs, pity_draw_count, total_draw_count, updated_at)
+    VALUES (?, 0, 0, 0, ?)`).bind(row.id, now).run();
+  const debit = await db.prepare(`UPDATE account_prestige_wallets
+    SET ghost_orbs = ghost_orbs - ?, updated_at = ?
+    WHERE account_id = ? AND ghost_orbs >= ?`)
+    .bind(accessory.orbCost, now, row.id, accessory.orbCost).run();
+  if ((debit.meta.changes ?? 0) === 0)
+    return Response.json({ error: `귀신구슬 ${accessory.orbCost}개가 필요합니다.` }, { status: 409 });
+  try {
+    await db.prepare(`INSERT INTO account_prestige_accessories (account_id, accessory_id, acquired_at)
+      VALUES (?, ?, ?)`).bind(row.id, accessory.id, now).run();
+  } catch (error) {
+    await db.prepare(`UPDATE account_prestige_wallets
+      SET ghost_orbs = ghost_orbs + ?, updated_at = ? WHERE account_id = ?`)
+      .bind(accessory.orbCost, Date.now(), row.id).run();
     throw error;
   }
   return Response.json({ profile: await profileForRow(db, row) });
@@ -1940,6 +2035,7 @@ export async function routeAuth(
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
     if (url.pathname === '/api/auth/prestige-loadout' && request.method === 'POST') return updatePrestigeLoadout(request, db);
     if (url.pathname === '/api/auth/prestige-package/exchange' && request.method === 'POST') return exchangePrestigePackage(request, db);
+    if (url.pathname === '/api/auth/prestige-accessory/exchange' && request.method === 'POST') return exchangePrestigeAccessory(request, db);
     if (url.pathname === '/api/auth/ghost-orb/draw' && request.method === 'POST') return drawGhostOrbs(request, db);
     if (bootstrapSchema && url.pathname === '/api/auth/cash/dev-grant' && request.method === 'POST') return grantDevelopmentCash(request, db);
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);

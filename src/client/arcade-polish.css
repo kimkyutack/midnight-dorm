@@ -77,6 +77,62 @@
 .profile-frame-sample img:first-child { width:51px; height:51px; border-radius:50%; object-fit:cover; }
 .profile-frame-sample img:last-child { position:absolute; inset:-9px; width:84px; height:84px; object-fit:contain; pointer-events:none; }
 
+/* Orb exchange: compact button tabs and a scroll-safe two-column accessory shop. */
+.orb-exchange-tabs { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 18px 0; }
+.orb-exchange-tabs button, .orb-accessory-categories button { min-height:40px; border:1px solid #4564aa; border-radius:12px; color:#dbe9ff; background:#142550; font:900 13px var(--game-arcade-font); }
+.orb-exchange-tabs button.active, .orb-accessory-categories button.active { color:#192044; border-color:#fff0a5; background:linear-gradient(180deg,#ffe886,#f5bb3d); box-shadow:inset 0 -3px 0 #c77818; }
+.orb-accessory-exchange-scroll { min-height:0; overflow:auto; padding:16px 18px calc(28px + env(safe-area-inset-bottom)); }
+.orb-accessory-exchange-scroll > header { padding:4px 2px 12px; }
+.orb-accessory-exchange-scroll > header small { color:#7eefff; font:900 10px var(--game-arcade-font); letter-spacing:.13em; }
+.orb-accessory-exchange-scroll > header h3 { margin:4px 0; color:#fff; font:900 24px var(--game-arcade-font); }
+.orb-accessory-exchange-scroll > header p { margin:0; color:#a9bce6; font-size:12px; line-height:1.5; }
+.orb-accessory-categories { display:flex; gap:7px; overflow-x:auto; padding:2px 0 14px; scrollbar-width:none; }
+.orb-accessory-categories button { flex:0 0 auto; min-width:76px; min-height:34px; padding:0 11px; font-size:11px; }
+.orb-accessory-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.orb-accessory-card { display:grid; grid-template-rows:112px auto auto; gap:7px; min-width:0; padding:8px; border:1px solid #4262a6; border-radius:16px; background:linear-gradient(160deg,#203a75,#111c42); box-shadow:0 7px 0 rgba(1,4,18,.34); }
+.orb-accessory-card > img { width:100%; height:112px; border-radius:10px; object-fit:cover; background:#071229; }
+.orb-accessory-card > div { min-width:0; }
+.orb-accessory-card small { display:block; overflow:hidden; color:#86dff2; font:800 9px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+.orb-accessory-card strong { display:block; overflow:hidden; margin-top:3px; color:#fff; font:900 12px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+.orb-accessory-card button { min-height:31px; border:0; border-radius:9px; color:#43270a; background:linear-gradient(180deg,#ffe88c,#ffc83f); box-shadow:inset 0 -3px 0 #c77d16; font:900 10px var(--game-arcade-font); }
+.orb-accessory-card.owned button { color:#9aaed0; background:#24345e; box-shadow:none; }
+.orb-accessory-card button:disabled { opacity:.72; }
+
+/* Locker hierarchy: four primary sections, then compact room/effect sub-tabs. */
+.locker-top-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; width:100%; }
+.locker-sub-tabs { display:flex; gap:7px; padding-top:8px; }
+.locker-sub-tabs button { flex:1; min-height:34px; border:1px solid #4564aa; border-radius:10px; color:#c9dcff; background:#11234d; font:900 11px var(--game-arcade-font); }
+.locker-sub-tabs button.active { color:#241b10; border-color:#ffe889; background:#ffd24b; box-shadow:inset 0 -3px 0 #bd791b; }
+.effect-preview { display:grid; place-items:center; }
+.effect-preview-stage { position:relative; display:grid; place-items:center; width:min(100%,260px); aspect-ratio:1/.92; overflow:hidden; border:1px solid #5a74c7; border-radius:18px; background:radial-gradient(circle at 50% 42%,#2a467f 0,#111c40 53%,#070d24 100%); }
+.effect-preview-avatar { position:relative; z-index:2; width:100%; height:100%; }
+.effect-preview-avatar .avatar-preview-canvas { width:100%; height:100%; }
+.effect-preview-aura { position:absolute; z-index:1; width:65%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle,rgba(126,238,255,.55),rgba(85,102,255,.18) 43%,transparent 72%); filter:blur(3px); animation:effect-aura-pulse 2.4s ease-in-out infinite; }
+.effect-preview-aura.home-aura-moonlit-phantom { background:radial-gradient(circle,rgba(86,218,255,.62),rgba(85,79,255,.24) 48%,transparent 72%); }
+.effect-preview-aura.home-aura-starlit-cloud { background:radial-gradient(circle,rgba(255,247,202,.66),rgba(133,202,255,.28) 48%,transparent 72%); }
+.effect-preview-aura.home-aura-abyssal-knight { background:radial-gradient(circle,rgba(255,87,63,.6),rgba(137,48,255,.28) 48%,transparent 72%); }
+.effect-preview-nameplate { position:absolute; z-index:3; bottom:25px; max-width:82%; padding:6px 13px; overflow:hidden; border:1px solid #8df1ff; border-radius:999px; color:#fff; background:rgba(7,15,39,.86); font:900 12px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+.effect-preview-stage > small { position:absolute; z-index:3; bottom:8px; color:#9fcdf5; font:800 9px var(--game-arcade-font); }
+.effect-preview > p { margin:9px 0 0; color:#a9bde9; font-size:11px; }
+.effect-locker-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.effect-locker-card { display:grid; grid-template-rows:100px auto auto; gap:6px; min-width:0; padding:8px; border:1px solid #405da4; border-radius:14px; background:#12204a; }
+.effect-locker-card.selected { border-color:#6deaff; box-shadow:0 0 0 2px rgba(83,224,255,.2); }
+.effect-locker-card > img { width:100%; height:100px; border-radius:9px; object-fit:cover; background:#071229; }
+.effect-locker-card small,.effect-locker-card strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.effect-locker-card small { color:#82dceb; font:800 9px var(--game-arcade-font); }
+.effect-locker-card strong { margin-top:2px; color:#fff; font:900 12px var(--game-arcade-font); }
+.effect-locker-card button { min-height:30px; border:0; border-radius:9px; color:#392406; background:#ffcf42; box-shadow:inset 0 -3px 0 #bc7514; font:900 10px var(--game-arcade-font); }
+.effect-locker-card button:disabled { color:#a6b7d7; background:#26345d; box-shadow:none; }
+@keyframes effect-aura-pulse { 50% { transform:scale(1.15); opacity:.72; } }
+
+.game-home .home-avatar-showcase { isolation:isolate; }
+.game-home .home-avatar-model { position:relative; z-index:2; }
+.home-prestige-aura { position:absolute; z-index:1; left:50%; bottom:12%; width:min(58vw,230px); aspect-ratio:1; transform:translateX(-50%); border-radius:50%; opacity:0; pointer-events:none; }
+.home-avatar-showcase.home-aura-moonlit-phantom .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(85,223,255,.5),rgba(94,74,255,.18) 48%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
+.home-avatar-showcase.home-aura-starlit-cloud .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,251,204,.58),rgba(135,206,255,.2) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
+.home-avatar-showcase.home-aura-abyssal-knight .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,81,56,.53),rgba(129,35,255,.22) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
+.home-prestige-nameplate { position:absolute; z-index:3; left:50%; bottom:6%; max-width:76%; padding:6px 14px; overflow:hidden; transform:translateX(-50%); border:1px solid #8beeff; border-radius:999px; color:#fff; background:rgba(4,10,31,.82); box-shadow:0 4px 14px rgba(0,0,0,.3); font:900 11px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+
 /* Cash and points share a bounded resource rail. The account card owns a
    non-shrinking column, while wallet values compact before they can push the
    profile out of the viewport. */
