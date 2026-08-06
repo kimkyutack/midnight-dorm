@@ -109,7 +109,7 @@
 
 .game-home .home-utility {
   display: grid;
-  grid-template-columns: 64px 62px;
+  grid-template-columns: 92px 70px;
   align-items: center;
   gap: 3px;
   width: max-content;
@@ -120,13 +120,22 @@
 .game-home .home-currency,
 .game-home .home-points-wallet {
   box-sizing: border-box;
-  min-width: 70px !important;
   height: 38px;
   min-height: 38px !important;
   overflow: hidden;
   border: 2px solid rgba(135, 225, 255, .72);
   background: linear-gradient(180deg, rgba(28, 39, 83, .97), rgba(12, 20, 54, .98));
   box-shadow: 0 3px 0 #101744, 0 0 0 1px rgba(181, 233, 255, .14), 0 6px 13px rgba(1, 5, 25, .34);
+}
+
+.game-home .home-currency {
+  width: 92px;
+  min-width: 92px !important;
+}
+
+.game-home .home-points-wallet {
+  width: 70px;
+  min-width: 70px !important;
 }
 
 .game-home .home-cash-wallet {
@@ -189,6 +198,11 @@
   white-space: nowrap;
 }
 
+.game-home .home-cash-balance span {
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .game-home .home-points-wallet {
   display: flex;
   align-items: center;
@@ -209,6 +223,109 @@
   width: 32px !important;
   min-width: 32px !important;
   height: 38px;
+}
+
+/* Prestige locker previews are authored idle clips, not canvas characters.
+   Keep the video inside the existing preview stage so it stays inline on iOS
+   and fills the card without opening the native full-screen player. */
+.owned-custom-screen .custom-avatar-stage.prestige-locker-video-stage {
+  cursor: default;
+  background: #050a16;
+}
+
+.owned-custom-screen .custom-avatar-stage.prestige-locker-video-stage::before {
+  display: none;
+}
+
+.prestige-locker-preview-video {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background: #050a16;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.prestige-locker-preview-video.is-ready {
+  opacity: 1;
+}
+
+.prestige-locker-preview-poster {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background: #050a16;
+}
+
+.prestige-locker-video-unavailable .prestige-locker-preview-video {
+  display: none;
+}
+
+/* Prestige cards use their authored package key art as one static collectible
+   image; do not combine a second card backdrop with a sprite atlas. */
+.cosmetic-grid .prestige-package-card-art {
+  overflow: hidden;
+  border: 1px solid rgba(148, 232, 255, 0.56);
+  background: #07112c;
+  box-shadow:
+    inset 0 0 18px rgba(103, 195, 255, 0.18),
+    0 5px 12px rgba(0, 0, 0, 0.38);
+}
+
+.cosmetic-grid .prestige-package-card-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.cosmetic-grid .prestige-package-card {
+  border-color: rgba(124, 226, 255, 0.86);
+  background: linear-gradient(155deg, rgba(17, 21, 65, 0.98), rgba(4, 8, 29, 0.99));
+  box-shadow:
+    0 0 0 1px rgba(135, 239, 255, 0.36),
+    0 0 22px rgba(89, 165, 255, 0.28),
+    inset 0 0 22px rgba(111, 77, 221, 0.2);
+}
+
+.cosmetic-grid .prestige-package-card .prestige-badge {
+  border-radius: 999px;
+  color: #101637;
+  background: linear-gradient(135deg, #fbf4ff, #74eaff 54%, #a68bff);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.34);
+}
+
+/* Static collection portraits: suppress the special-ops card-only dust,
+   wind and alert overlays while preserving their character and card frame. */
+.cosmetic-grid .police-enforcer-croco-card-art::before,
+.cosmetic-grid .police-enforcer-croco-card-art::after,
+.cosmetic-grid .secret-agent-monkey-card-art::before,
+.cosmetic-grid .secret-agent-monkey-card-art::after {
+  display: none;
+  animation: none !important;
+}
+
+/* Keep each card's authored backdrop, border and sparkle effects. Only the
+   character atlas itself is frozen on its representative front-facing frame. */
+.cosmetic-grid .moonlit-phantom-fox-card-sprite,
+.cosmetic-grid .surfer-mong-card-sprite,
+.cosmetic-grid .lifeguard-raon-card-sprite,
+.cosmetic-grid .neon-rider-lulu-card-sprite,
+.cosmetic-grid .cyber-driver-kong-card-sprite,
+.cosmetic-grid .police-enforcer-croco-card-sprite,
+.cosmetic-grid .secret-agent-monkey-card-sprite {
+  animation: none !important;
+  background-position: 0 0 !important;
 }
 
 .game-home .home-utility > button .game-menu-icon {
@@ -1998,4 +2115,141 @@
     width: 48px !important;
     height: 48px !important;
   }
+}
+
+/* Responsive ownership rail: resource values cannot collide with a growing
+   profile, and consumables scroll inside their own vertical list. */
+.game-home .home-topbar {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+}
+
+.game-home .home-topbar > .home-account {
+  min-width: 0;
+  max-width: calc(100cqw - 184px);
+  overflow: hidden;
+}
+
+.game-home .home-account > div:last-child {
+  min-width: 0;
+}
+
+.game-home .home-account strong {
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.game-home .home-utility {
+  grid-template-columns: clamp(96px, 28cqw, 106px) clamp(72px, 21cqw, 80px);
+  width: 100%;
+  min-width: 0;
+  justify-content: end;
+}
+
+.game-home .home-currency,
+.game-home .home-points-wallet {
+  width: 100%;
+  min-width: 0 !important;
+}
+
+@media (max-width: 350px) {
+  .game-home .home-topbar {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 5px;
+  }
+
+  .game-home .home-topbar > .home-account {
+    max-width: 100%;
+  }
+
+  .game-home .home-utility {
+    justify-self: end;
+    width: max-content;
+  }
+}
+
+.profile-display-sheet {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.profile-display-sheet .profile-photo-editor {
+  gap: 9px;
+  margin: 14px 16px 18px;
+  padding: 14px 12px 16px;
+  border: 1px solid rgba(116, 213, 245, 0.25);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(32, 50, 111, 0.72), rgba(9, 17, 45, 0.7));
+}
+
+.profile-display-sheet .profile-display-heading,
+.profile-display-sheet .profile-display-intro,
+.profile-display-sheet .profile-display-options,
+.profile-display-sheet .profile-title-slot {
+  margin-right: 16px;
+  margin-left: 16px;
+}
+
+.profile-display-sheet .profile-display-heading {
+  margin-top: 0;
+}
+
+.lobby-loadout:has(.loadout-items) {
+  display: grid;
+  max-height: min(246px, 32dvh);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.lobby-loadout .loadout-items {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  max-height: none;
+  min-height: 0;
+  gap: 7px !important;
+  padding: 2px 3px 4px 1px;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scroll-snap-type: none;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lobby-loadout .loadout-item {
+  display: grid;
+  width: 100% !important;
+  min-height: 58px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 7px 8px;
+  scroll-snap-align: none;
+}
+
+.lobby-loadout .loadout-item-art {
+  width: 42px;
+  height: 42px;
+}
+
+.lobby-loadout .loadout-item strong,
+.lobby-loadout .loadout-item small {
+  white-space: normal;
+}
+
+.lobby-loadout .loadout-item small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.lobby-loadout .loadout-item b {
+  display: block;
+  align-self: center;
+  color: #9bf4e0;
+  font: 900 9px/1 var(--game-arcade-font, inherit);
 }

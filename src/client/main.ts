@@ -30,7 +30,9 @@ import {
   MOONLIT_PHANTOM_PACKAGE_ID,
   MOONLIT_PHANTOM_SKIN_ID,
   STARLIT_CLOUD_RABBIT_PACKAGE_ID,
+  STARLIT_CLOUD_RABBIT_SKIN_ID,
   ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID,
+  ABYSSAL_KNIGHT_GORILLA_SKIN_ID,
   prestigeEmoteById,
 } from "../shared/prestige";
 import { CASH_STORE_PRODUCTS, cashGrantAmount, firstCashPurchaseBonus, type StoreProductId } from "../shared/storeProducts";
@@ -1337,6 +1339,108 @@ const GHOST_ORB_SUMMON_WEBM_URL = '/assets/ui/orb-shop/summon/open-capsule.webm'
 // previous landscape/HEVC trailer from its media cache.
 const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=3';
 const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=3';
+const STARLIT_CLOUD_PRESTIGE_VIDEO_URL = '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-awakening.mp4?revision=1';
+const PRESTIGE_CINEMATICS: Readonly<Record<string, {
+  title: string;
+  ariaLabel: string;
+  mp4Url: string;
+  webmUrl?: string;
+  backdropUrl: string;
+  themeClass: string;
+}>> = {
+  [MOONLIT_PHANTOM_PACKAGE_ID]: {
+    title: '월령 환영 여우',
+    ariaLabel: '초승달 풀숲에서 월령 환영 여우가 각성해 귀신들과 싸우는 애니메이션',
+    mp4Url: MOONLIT_PRESTIGE_VIDEO_URL,
+    webmUrl: MOONLIT_PRESTIGE_WEBM_URL,
+    backdropUrl: '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-vertical-backdrop.png',
+    themeClass: 'moonlit',
+  },
+  [STARLIT_CLOUD_RABBIT_PACKAGE_ID]: {
+    title: '성운 구름무희 모모',
+    ariaLabel: '별과 구름의 빛 속에서 성운 구름무희 모모가 각성하는 애니메이션',
+    mp4Url: STARLIT_CLOUD_PRESTIGE_VIDEO_URL,
+    backdropUrl: '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-vertical-backdrop.png',
+    themeClass: 'starlit-cloud',
+  },
+};
+const PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN: Readonly<Record<string, string>> = {
+  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=2',
+  [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait.mp4?revision=1',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=1',
+};
+const PRESTIGE_LOCKER_PREVIEW_POSTER_BY_SKIN: Readonly<Record<string, string>> = {
+  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait-poster.png?revision=1',
+  [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait-poster.png?revision=1',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait-poster.jpg?revision=1',
+};
+const PRESTIGE_LOCKER_PREVIEW_LABEL_BY_SKIN: Readonly<Record<string, string>> = {
+  [MOONLIT_PHANTOM_SKIN_ID]: '월령 환영 여우',
+  [STARLIT_CLOUD_RABBIT_SKIN_ID]: '성운 구름무희 모모',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '심연 기사단장 콩',
+};
+
+function prestigeLockerPreviewVideoUrl(skinId: string | undefined): string | null {
+  if (!skinId) return null;
+  const videoUrl = PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN[skinId];
+  return videoUrl ? releaseVersionedAsset(videoUrl) : null;
+}
+
+function prestigeLockerPreviewPosterUrl(skinId: string | undefined): string | null {
+  if (!skinId) return null;
+  const posterUrl = PRESTIGE_LOCKER_PREVIEW_POSTER_BY_SKIN[skinId];
+  return posterUrl ? releaseVersionedAsset(posterUrl) : null;
+}
+
+function characterViewSwitchMarkup(): string {
+  return '<div class="custom-view-switch" aria-label="캐릭터 보는 방향"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div>';
+}
+
+function prestigeLockerPreviewVideoMarkup(videoUrl: string, posterUrl: string | null, label: string): string {
+  const poster = posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : '';
+  const fallback = posterUrl
+    ? `<img class="prestige-locker-preview-poster" src="${escapeHtml(posterUrl)}" alt="${escapeHtml(label)}" />`
+    : '';
+  return `${fallback}<video class="prestige-locker-preview-video" data-prestige-locker-video aria-label="${escapeHtml(label)} 대기 모션" autoplay loop playsinline preload="auto" disablepictureinpicture${poster}><source src="${escapeHtml(videoUrl)}" type="video/mp4" /></video>`;
+}
+
+function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
+  video.muted = false;
+  video.defaultMuted = false;
+  video.loop = true;
+
+  const tryPlay = (): void => {
+    if (!video.isConnected) {
+      window.removeEventListener("pointerdown", tryPlay, true);
+      window.removeEventListener("touchend", tryPlay, true);
+      return;
+    }
+    void video.play().catch(() => undefined);
+  };
+  const markReady = (): void => {
+    video.classList.add("is-ready");
+  };
+  const resumeFromStart = (): void => {
+    video.currentTime = 0;
+    tryPlay();
+  };
+  const stopGestureRecovery = (): void => {
+    window.removeEventListener("pointerdown", tryPlay, true);
+    window.removeEventListener("touchend", tryPlay, true);
+  };
+
+  video.addEventListener("loadeddata", markReady, { once: true });
+  video.addEventListener("canplay", tryPlay);
+  video.addEventListener("ended", resumeFromStart);
+  video.addEventListener("playing", stopGestureRecovery, { once: true });
+  // iOS WebView and low-power Safari can reject the first muted autoplay
+  // attempt. The next user gesture resumes the same element without replacing
+  // it, so the idle clip does not remain frozen on its poster frame.
+  window.addEventListener("pointerdown", tryPlay, true);
+  window.addEventListener("touchend", tryPlay, true);
+  video.load();
+  tryPlay();
+}
 
 function playCinematicVideo(
   video: HTMLVideoElement,
@@ -1375,15 +1479,7 @@ function playCinematicVideo(
   };
   const playCurrentSource = (): void => {
     if (stopped) return;
-    void video.play().catch(() => {
-      // A delayed purchase callback may lose iOS's unmuted autoplay allowance.
-      if (!video.muted) {
-        video.muted = true;
-        void video.play().catch(tryNextSource);
-        return;
-      }
-      tryNextSource();
-    });
+    void video.play().catch(tryNextSource);
   };
   loadSource = (): void => {
     const source = sources[activeSource];
@@ -1491,6 +1587,14 @@ function showGhostOrbSummonAnimation(
     resultHost.querySelector<HTMLButtonElement>('[data-orb-draw-again]')?.addEventListener('click', (event) => {
       if (!drawAgainCount) return;
       const button = event.currentTarget as HTMLButtonElement;
+      const cashCost = GHOST_ORB_CASH_COST * drawAgainCount;
+      // Re-draw keeps its no-animation fast path when the wallet can pay, but
+      // it must never make a silent request when the displayed wallet is
+      // short. Use the exact same purchase sheet as the first draw instead.
+      if (!account || account.cash < cashCost) {
+        showGhostOrbPurchaseConfirm(drawAgainCount, { onOpenCashShop: close, host: overlay });
+        return;
+      }
       button.disabled = true;
       button.textContent = `${drawAgainCount}회 보상 확인 중…`;
       resultHost.setAttribute('aria-busy', 'true');
@@ -1508,6 +1612,18 @@ function showGhostOrbSummonAnimation(
         resultHost.removeAttribute('aria-busy');
         button.disabled = false;
         button.textContent = `${drawAgainCount}회 더 뽑기`;
+        // A second device can spend cash after this screen was opened. Refresh
+        // the wallet and present the same insufficient-cash purchase sheet
+        // rather than leaving the player with an unhelpful failed click.
+        if (error instanceof Error && /캐시|cash/i.test(error.message)) {
+          void getAccount().then((profile) => {
+            account = profile;
+            showGhostOrbPurchaseConfirm(drawAgainCount, { onOpenCashShop: close, host: overlay });
+          }).catch(() => {
+            toast(error.message);
+          });
+          return;
+        }
         toast(error instanceof Error ? error.message : '귀신구슬 재소환을 완료하지 못했습니다.');
       });
     });
@@ -1537,23 +1653,25 @@ function showGhostOrbSummonAnimation(
   });
 }
 
-function showMoonlitPrestigeAcquisition(
+function showPrestigeAcquisition(
+  packageId: string,
   rewards: readonly GhostOrbPreviewReward[],
   resultMessage: string,
   onClose?: () => void,
 ): void {
+  const cinematic = PRESTIGE_CINEMATICS[packageId] ?? PRESTIGE_CINEMATICS[MOONLIT_PHANTOM_PACKAGE_ID]!;
   const overlay = document.createElement('div');
-  overlay.className = 'orb-gacha-overlay moonlit-prestige-overlay';
-  overlay.innerHTML = `<section class="orb-gacha-cinematic" role="dialog" aria-modal="true" aria-label="월령 환영 여우 획득 연출" tabindex="0">
-    <video class="moonlit-prestige-video" aria-label="초승달 풀숲에서 월령 환영 여우가 각성해 귀신들과 싸우는 애니메이션" playsinline preload="auto" data-mp4-src="${releaseVersionedAsset(MOONLIT_PRESTIGE_VIDEO_URL)}" data-webm-src="${releaseVersionedAsset(MOONLIT_PRESTIGE_WEBM_URL)}"></video>
-    <div class="moonlit-cinematic-loader"><span></span><small>달빛의 기억을 불러오는 중</small></div>
+  overlay.className = `orb-gacha-overlay prestige-cinematic-overlay ${cinematic.themeClass}-prestige-cinematic`;
+  overlay.innerHTML = `<section class="orb-gacha-cinematic" role="dialog" aria-modal="true" aria-label="${escapeHtml(cinematic.title)} 획득 연출" tabindex="0" style="--prestige-cinematic-backdrop:url('${escapeHtml(releaseVersionedAsset(cinematic.backdropUrl))}')">
+    <video class="prestige-cinematic-video" aria-label="${escapeHtml(cinematic.ariaLabel)}" playsinline preload="auto" data-mp4-src="${releaseVersionedAsset(cinematic.mp4Url)}"${cinematic.webmUrl ? ` data-webm-src="${releaseVersionedAsset(cinematic.webmUrl)}"` : ''}></video>
+    <div class="prestige-cinematic-loader"><span></span><small>프레스티지의 기억을 불러오는 중</small></div>
     <p class="orb-gacha-tap-hint">화면을 누르면 건너뜁니다</p>
     <div class="orb-gacha-results" data-orb-gacha-results></div>
   </section>`;
   document.body.appendChild(overlay);
   overlay.querySelector<HTMLElement>('.orb-gacha-cinematic')?.focus();
   const resultHost = overlay.querySelector<HTMLElement>('[data-orb-gacha-results]');
-  const video = overlay.querySelector<HTMLVideoElement>('.moonlit-prestige-video');
+  const video = overlay.querySelector<HTMLVideoElement>('.prestige-cinematic-video');
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let revealed = false;
   let skipArmed = false;
@@ -1614,7 +1732,10 @@ function showGhostOrbOddsModal(): void {
   );
 }
 
-function showGhostOrbPurchaseConfirm(count: 1 | 10): void {
+function showGhostOrbPurchaseConfirm(
+  count: 1 | 10,
+  options: { onOpenCashShop?: () => void; host?: HTMLElement } = {},
+): void {
   if (!account) return authScreen();
   const productLabel = count === 10 ? '귀신구슬 10회 소환' : '귀신구슬 1회 소환';
   const cashCost = GHOST_ORB_CASH_COST * count;
@@ -1622,9 +1743,11 @@ function showGhostOrbPurchaseConfirm(count: 1 | 10): void {
   const modal = dismissibleModal(
     `<section class="orb-purchase-sheet" role="dialog" aria-modal="true" aria-labelledby="orb-purchase-title"><header><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/><div><small>GHOST ORB PURCHASE</small><h2 id="orb-purchase-title">${escapeHtml(productLabel)}을 구매하시겠습니까?</h2></div></header><div class="orb-purchase-product"><span>${count}회</span><div><strong>${escapeHtml(productLabel)}</strong><small>${cashCost.toLocaleString()} 캐시</small></div></div><p class="${canAfford ? '' : 'insufficient'}">보유 캐시 ${account.cash.toLocaleString()}개${canAfford ? ' · 소환 즉시 차감됩니다.' : ` · ${Math.max(0, cashCost - account.cash).toLocaleString()}개가 부족합니다.`}</p><footer><button type="button" data-modal-close>취소</button><button type="button" class="confirm" ${canAfford ? 'data-orb-free-purchase' : 'data-open-cash-shop'}>${canAfford ? `${cashCost.toLocaleString()} C 사용` : '캐시 충전'}</button></footer></section>`,
     'orb-purchase-modal',
+    options.host,
   );
   modal.querySelector<HTMLButtonElement>('[data-open-cash-shop]')?.addEventListener('click', () => {
     modal.remove();
+    options.onOpenCashShop?.();
     cashShopScreen();
   });
   modal.querySelector<HTMLButtonElement>('[data-orb-free-purchase]')?.addEventListener('click', (event) => {
@@ -1719,7 +1842,7 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
       <section class="orb-exchange-contents"><header><div><small>PACKAGE CONTENTS</small><h3>구성품 미리보기</h3></div></header><div>${contentButtons}</div></section>
     </section>
     <footer class="orb-exchange-actions ${devMode ? '' : 'single'}">
-      ${devMode ? '<button type="button" class="orb-cinematic-preview" data-moonlit-cinematic-preview><span aria-hidden="true">▶</span><strong>획득 연출</strong></button>' : ''}
+      ${devMode ? '<button type="button" class="orb-cinematic-preview" data-prestige-cinematic-preview><span aria-hidden="true">▶</span><strong>획득 연출</strong></button>' : ''}
       <button type="button" class="orb-package-exchange" data-orb-package-exchange ${!theme.available || ownsPackage || orbCount < GHOST_ORB_PACKAGE_COST ? 'disabled' : ''}><small>PRESTIGE EXCHANGE</small><strong>${escapeHtml(exchangeStatus)}</strong></button>
     </footer>
   </main>`);
@@ -1730,9 +1853,9 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
   app.querySelectorAll<HTMLButtonElement>('[data-prestige-package]').forEach((button) => button.addEventListener('click', () => {
     ghostOrbExchangeScreen('bundle', button.dataset.prestigePackage ?? MOONLIT_PHANTOM_PACKAGE_ID);
   }));
-  app.querySelector('[data-moonlit-cinematic-preview]')?.addEventListener('click', () => {
+  app.querySelector('[data-prestige-cinematic-preview]')?.addEventListener('click', () => {
     audio.unlock();
-    showMoonlitPrestigeAcquisition(prestigeRewards, '개발용 획득 연출 미리보기입니다.', () => ghostOrbExchangeScreen());
+    showPrestigeAcquisition(theme.id, prestigeRewards, '개발용 획득 연출 미리보기입니다.', () => ghostOrbExchangeScreen('bundle', theme.id));
   });
   app.querySelector<HTMLButtonElement>('[data-orb-package-exchange]')?.addEventListener('click', (event) => {
     const button = event.currentTarget as HTMLButtonElement;
@@ -1741,7 +1864,8 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
     void withGlobalActionLoading(`${theme.title} 교환 중`, () => exchangePrestigePackage(theme.id))
       .then((updated) => {
         account = updated;
-        showMoonlitPrestigeAcquisition(
+        showPrestigeAcquisition(
+          theme.id,
           prestigeRewards,
           `${theme.title} 프레스티지 패키지를 획득했습니다.`,
           () => ghostOrbExchangeScreen('bundle', theme.id),
@@ -2236,7 +2360,7 @@ function selectedHomeStage(
   return selected ?? fallback;
 }
 
-function dismissibleModal(markup: string, className: string): HTMLElement {
+function dismissibleModal(markup: string, className: string, host: HTMLElement = app): HTMLElement {
   const modal = document.createElement("div");
   modal.className = `modal-backdrop ${className}`;
   modal.innerHTML = markup;
@@ -2246,7 +2370,7 @@ function dismissibleModal(markup: string, className: string): HTMLElement {
   modal
     .querySelector("[data-modal-close]")
     ?.addEventListener("click", () => modal.remove());
-  app.appendChild(modal);
+  host.appendChild(modal);
   return modal;
 }
 
@@ -3032,8 +3156,7 @@ function modelPreviewHtml(
       "/assets/buildings/cute-basic-turret-1.png";
     return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>레벨별 외형 적용</span></div>`;
   }
-  const aria = turretMode ? "포탑 보는 방향" : "캐릭터 보는 방향";
-  return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview><div class="custom-view-switch" aria-label="${aria}"><button class="active" data-avatar-view="front">앞</button><button data-avatar-view="side">옆</button><button data-avatar-view="back">뒤</button></div></div>`;
+  return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview>${characterViewSwitchMarkup()}</div>`;
 }
 
 function cosmeticEntitled(
@@ -3308,7 +3431,15 @@ function cosmeticCollectionScreen(
       const premiumCyberKong = item.id === CYBER_DRIVER_KONG_SKIN_ID;
       const premiumPoliceCroco = item.id === POLICE_ENFORCER_CROCO_SKIN_ID;
       const premiumSecretMonkey = item.id === SECRET_AGENT_MONKEY_SKIN_ID;
-      const moonlitPrestige = item.id === MOONLIT_PHANTOM_SKIN_ID;
+      const prestigePackageImage =
+        item.id === MOONLIT_PHANTOM_SKIN_ID
+          ? '/assets/prestige/moonlit-phantom-fox/featured-package.webp'
+          : item.id === STARLIT_CLOUD_RABBIT_SKIN_ID
+            ? '/assets/prestige/starlit-cloud-rabbit/featured-package.png'
+            : item.id === ABYSSAL_KNIGHT_GORILLA_SKIN_ID
+              ? '/assets/prestige/abyssal-knight-gorilla/featured-package.png'
+              : undefined;
+      const prestigeSkin = Boolean(prestigePackageImage);
       const premiumSkin =
         premiumSurfer
         || premiumLifeguard
@@ -3316,7 +3447,7 @@ function cosmeticCollectionScreen(
         || premiumCyberKong
         || premiumPoliceCroco
         || premiumSecretMonkey
-        || moonlitPrestige;
+        || prestigeSkin;
       const initiallyPreviewed =
         shopping && item.id === initialCatalogPreviewId;
       const owned = currentAccount.ownedCosmetics.includes(item.id);
@@ -3356,7 +3487,7 @@ function cosmeticCollectionScreen(
         status = "기본 지급";
       } else if (!shopping && requiresCharacter) {
         action = null;
-        status = moonlitPrestige
+        status = item.id === MOONLIT_PHANTOM_SKIN_ID
           ? "별여우 초롱 해금 필요"
           : `${cosmeticById(item.characterId ?? "")?.label ?? "캐릭터"} 해금 필요`;
         locked = true;
@@ -3408,27 +3539,27 @@ function cosmeticCollectionScreen(
           ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
             : authoredTurretArt
             ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
-            : moonlitPrestige
-              ? `<div class="catalog-art cosmetic-art moonlit-phantom-fox-card-art" style="--swatch:${item.swatch}"><span class="moonlit-phantom-fox-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 전신 이동 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+            : prestigePackageImage
+              ? `<div class="catalog-art cosmetic-art prestige-package-card-art"><img class="ready" src="${prestigePackageImage}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 프레스티지 대표 이미지" loading="lazy" decoding="async" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
             : premiumSurfer
-              ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 파도타기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+              ? `<div class="catalog-art cosmetic-art surfer-mong-card-art" style="--swatch:${item.swatch}"><span class="surfer-mong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
               : premiumLifeguard
-                ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 달리기 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                ? `<div class="catalog-art cosmetic-art lifeguard-raon-card-art" style="--swatch:${item.swatch}"><span class="lifeguard-raon-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : premiumNeonLulu
-                  ? `<div class="catalog-art cosmetic-art neon-rider-lulu-card-art" style="--swatch:${item.swatch}"><span class="neon-rider-lulu-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 네온 스케이팅 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                  ? `<div class="catalog-art cosmetic-art neon-rider-lulu-card-art" style="--swatch:${item.swatch}"><span class="neon-rider-lulu-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                   : premiumCyberKong
-                    ? `<div class="catalog-art cosmetic-art cyber-driver-kong-card-art" style="--swatch:${item.swatch}"><span class="cyber-driver-kong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 사이버 드라이빙 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                    ? `<div class="catalog-art cosmetic-art cyber-driver-kong-card-art" style="--swatch:${item.swatch}"><span class="cyber-driver-kong-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                     : premiumPoliceCroco
-                      ? `<div class="catalog-art cosmetic-art police-enforcer-croco-card-art" style="--swatch:${item.swatch}"><span class="police-enforcer-croco-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 현장 지휘 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                      ? `<div class="catalog-art cosmetic-art police-enforcer-croco-card-art" style="--swatch:${item.swatch}"><span class="police-enforcer-croco-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                       : premiumSecretMonkey
-                        ? `<div class="catalog-art cosmetic-art secret-agent-monkey-card-art" style="--swatch:${item.swatch}"><span class="secret-agent-monkey-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 비밀 작전 미리보기"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                        ? `<div class="catalog-art cosmetic-art secret-agent-monkey-card-art" style="--swatch:${item.swatch}"><span class="secret-agent-monkey-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
-      const premiumBadge = moonlitPrestige
+      const premiumBadge = prestigeSkin
         ? '<span class="cosmetic-new-badge prestige-badge" aria-label="프레스티지 스킨">PRESTIGE</span>'
         : premiumSkin
           ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>'
           : "";
-      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${moonlitPrestige ? "moonlit-prestige-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumBadge}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
+      return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${prestigeSkin ? "prestige-package-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumBadge}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
     .join("");
   const character = cosmeticById(appearance.character);
@@ -3491,26 +3622,57 @@ function cosmeticCollectionScreen(
     turretSkins: currentAccount.turretSkins,
   });
   const previewHost = app.querySelector<HTMLElement>("[data-avatar-preview]");
-  if (previewHost && !tileMode && !turretMode) {
+  const bindAvatarViewButtons = (): void => {
+    app
+      .querySelectorAll<HTMLButtonElement>("[data-avatar-view]")
+      .forEach((button) =>
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          customAvatarPreview?.setView(button.dataset.avatarView as AvatarView);
+          app
+            .querySelectorAll("[data-avatar-view]")
+            .forEach((candidate) =>
+              candidate.classList.toggle("active", candidate === button),
+            );
+        }),
+      );
+  };
+  const mountCharacterPreview = (previewAppearance: AvatarAppearance): void => {
+    if (!previewHost) return;
+    customAvatarPreview?.destroy();
+    customAvatarPreview = null;
+    const prestigeVideoUrl = shopping
+      ? null
+      : prestigeLockerPreviewVideoUrl(previewAppearance.skin);
+    const prestigePosterUrl = shopping
+      ? null
+      : prestigeLockerPreviewPosterUrl(previewAppearance.skin);
+    const prestigeLabel =
+      PRESTIGE_LOCKER_PREVIEW_LABEL_BY_SKIN[previewAppearance.skin] ?? "프레스티지 스킨";
+    previewHost.classList.toggle("prestige-locker-video-stage", Boolean(prestigeVideoUrl));
+    previewHost.innerHTML = prestigeVideoUrl
+      ? prestigeLockerPreviewVideoMarkup(prestigeVideoUrl, prestigePosterUrl, prestigeLabel)
+      : characterViewSwitchMarkup();
+    if (prestigeVideoUrl) {
+      const video = previewHost.querySelector<HTMLVideoElement>("[data-prestige-locker-video]");
+      if (video) {
+        video.addEventListener("error", () => {
+          previewHost.classList.add("prestige-locker-video-unavailable");
+        }, { once: true });
+        startPrestigeLockerPreviewVideo(video);
+      }
+      return;
+    }
     customAvatarPreview = new AvatarPreview2D(
       previewHost,
-      initialPreviewAppearance,
+      previewAppearance,
       currentAccount.displayRank,
     );
+    bindAvatarViewButtons();
+  };
+  if (previewHost && !tileMode && !turretMode) {
+    mountCharacterPreview(initialPreviewAppearance);
   }
-  app
-    .querySelectorAll<HTMLButtonElement>("[data-avatar-view]")
-    .forEach((button) =>
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        customAvatarPreview?.setView(button.dataset.avatarView as AvatarView);
-        app
-          .querySelectorAll("[data-avatar-view]")
-          .forEach((candidate) =>
-            candidate.classList.toggle("active", candidate === button),
-          );
-      }),
-    );
   const showPreview = (itemId: string): void => {
     const item = cosmeticById(itemId);
     if (!item) return;
@@ -3549,10 +3711,7 @@ function cosmeticCollectionScreen(
                 tileSkin: appearance.tileSkin,
               }
             : appearance;
-      customAvatarPreview?.updateAppearance(
-        previewAppearance,
-        currentAccount.displayRank,
-      );
+      mountCharacterPreview(previewAppearance);
     }
     app
       .querySelectorAll("[data-cosmetic-preview]")
