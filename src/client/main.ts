@@ -1340,6 +1340,7 @@ const GHOST_ORB_SUMMON_WEBM_URL = '/assets/ui/orb-shop/summon/open-capsule.webm'
 const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=3';
 const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=3';
 const STARLIT_CLOUD_PRESTIGE_VIDEO_URL = '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-awakening.mp4?revision=1';
+const ABYSSAL_KNIGHT_PRESTIGE_VIDEO_URL = '/assets/prestige/abyssal-knight-gorilla/cinematic/abyssal-awakening.mp4?revision=1';
 const PRESTIGE_CINEMATICS: Readonly<Record<string, {
   title: string;
   ariaLabel: string;
@@ -1362,6 +1363,13 @@ const PRESTIGE_CINEMATICS: Readonly<Record<string, {
     mp4Url: STARLIT_CLOUD_PRESTIGE_VIDEO_URL,
     backdropUrl: '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-vertical-backdrop.png',
     themeClass: 'starlit-cloud',
+  },
+  [ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID]: {
+    title: '심연 기사단장 콩',
+    ariaLabel: '심연의 흑염 속에서 심연 기사단장 콩이 각성하는 애니메이션',
+    mp4Url: ABYSSAL_KNIGHT_PRESTIGE_VIDEO_URL,
+    backdropUrl: '/assets/prestige/abyssal-knight-gorilla/cinematic/abyssal-vertical-backdrop.jpg',
+    themeClass: 'abyssal-knight',
   },
 };
 const PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN: Readonly<Record<string, string>> = {
