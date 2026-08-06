@@ -1103,7 +1103,7 @@ describe('survivor customization rules', () => {
     expect(skinMovementSheetUrl(skinAppearance))
       .toBe('/assets/sprites/survivors/character-bunny/movement-sheet.png');
     expect(skinConceptUrl(skinAppearance.skin))
-      .toBe('/assets/sprites/survivors/character-bunny/concept.png');
+      .toBe('/assets/paperdoll/bases/character-bunny/concept.png');
 
     const surferAppearance = { character: 'character-puppy', skin: 'skin-look-puppy-surfer' };
     expect(skinMovementSheetUrl(surferAppearance))
@@ -1468,14 +1468,14 @@ describe('survivor customization rules', () => {
 
   it('uses base concept art for characters and complete art only for skin cards', () => {
     expect(baseConceptUrl('character-bunny')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
-    expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(cosmeticProductUrl('skin-look-bunny-ward')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('skin-look-puppy-surfer')).toBe('/assets/sprites/skins/skin-surfer-mong/concept.png');
     expect(cosmeticProductUrl('skin-look-tiger-lifeguard')).toBe('/assets/sprites/skins/skin-lifeguard-raon/concept.png');
     expect(cosmeticProductUrl('skin-look-cat-neon-rider')).toBe('/assets/sprites/skins/skin-neon-rider-lulu/concept.png');
     expect(cosmeticProductUrl('skin-look-hamster-cyber-driver')).toBe('/assets/sprites/skins/skin-cyber-driver-kong/concept.png');
     expect(cosmeticProductUrl('skin-look-crocodile-police-enforcer')).toBe('/assets/sprites/skins/skin-police-enforcer-croco/concept.png?v=special-ops-v7');
     expect(cosmeticProductUrl('skin-look-monkey-secret-agent')).toBe('/assets/sprites/skins/skin-secret-agent-monkey/concept.png?v=special-ops-v5');
-    expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/sprites/survivors/character-bunny/concept.png');
+    expect(cosmeticPreviewLayerUrl('skin-look-bunny-ward')).toBe('/assets/paperdoll/bases/character-bunny/concept.png');
     expect(cosmeticProductUrl('character-bunny')).toBeUndefined();
     expect(cosmeticProductUrl('hat-beanie')).toBeUndefined();
     expect(cosmeticProductUrl('missing-item')).toBeUndefined();

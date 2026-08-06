@@ -2201,7 +2201,7 @@
 
 .lobby-loadout:has(.loadout-items) {
   display: grid;
-  max-height: min(246px, 32dvh);
+  max-height: min(246px, 30.5dvh);
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 

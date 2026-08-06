@@ -64,6 +64,10 @@ export function skinMovementSheetUrl(appearance: AvatarAppearance): string {
 export function skinConceptUrl(skinId: string): string | undefined {
   const skin = cosmeticById(skinId);
   if (skin?.slot !== 'skin' || !skin.characterId) return undefined;
+  // Legacy/standard skins intentionally reuse the base survivor artwork. Do
+  // not manufacture a skin-directory URL for them: those images do not exist
+  // in the deployed asset bundle and would leave the gacha result card broken.
+  if (!skin.assetDirectory) return baseConceptUrl(skin.characterId);
   return `${skinDirectory(skinId, skin.characterId)}/concept.${skinAssetExtension(skinId)}${skinAssetVersion(skinId)}`;
 }
 
