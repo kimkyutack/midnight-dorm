@@ -13859,7 +13859,7 @@ body.game-chat-active {
 }
 
 .game-home .home-utility {
-  gap: 2px;
+  gap: 3px;
 }
 
 .game-home .home-utility > strong,
@@ -14715,7 +14715,7 @@ body.game-chat-active {
 .game-home .home-topbar > .home-account {
   height: 49px;
   min-height: 49px;
-  padding: 4px 8px 4px 4px;
+  padding: 4px 11px 8px 4px;
   border: 2px solid #ffffff;
   border-radius: 25px 13px 13px 25px;
   color: #17325f;

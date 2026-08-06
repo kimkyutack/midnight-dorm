@@ -120,7 +120,7 @@
 .game-home .home-currency,
 .game-home .home-points-wallet {
   box-sizing: border-box;
-  min-width: 0 !important;
+  min-width: 70px !important;
   height: 38px;
   min-height: 38px !important;
   overflow: hidden;
@@ -224,7 +224,7 @@
 
   .game-home .home-utility {
     grid-template-columns: minmax(53px, 1fr) minmax(50px, .9fr) 30px 30px;
-    gap: 2px;
+    gap: 3px;
   }
 
   .game-home .home-utility > button {
@@ -546,7 +546,7 @@
 
 @media (max-width: 374px) {
   .game-home .home-utility {
-    grid-template-columns: 59px 57px;
+    grid-template-columns: 76px 67px;
   }
 
   .game-home .home-stage-menu-trigger {
