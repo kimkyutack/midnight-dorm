@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
 import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, characterAvailable, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, cosmeticVisibleInPointShop, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
-import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch } from '../src/shared/characterTraits';
+import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch, upgradeCostForTrait } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isAreaOnRoomFloor, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
 import { findPath } from '../src/shared/pathfinding';
@@ -38,7 +38,7 @@ import { rankedSeasonRules } from '../src/shared/rankedRules';
 import { rankedRatingDelta } from '../src/server/rankedScoring';
 import { routeAuth } from '../src/server/auth';
 import { ghostFootstepGain, ghostFootstepIntervalMs } from '../src/client/audio';
-import { duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS } from '../src/shared/prestige';
+import { ABYSSAL_KNIGHT_GORILLA_SKIN_ID, duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS, STARLIT_CLOUD_RABBIT_SKIN_ID } from '../src/shared/prestige';
 import { CASH_PRODUCT_BY_ID, CASH_STORE_PRODUCTS, STORE_PRODUCT_IDS, cashGrantAmount, firstCashPurchaseBonus } from '../src/shared/storeProducts';
 
 describe('cash store products', () => {
@@ -82,15 +82,58 @@ describe('moonlit phantom prestige rules', () => {
   });
 
   it('defines the authored prestige combat package without leaking into ranked matches', () => {
-    const appearance = { character: 'character-fox', skin: MOONLIT_PHANTOM_SKIN_ID };
-    const casual = characterTraitForMatch(appearance, false);
-    expect(casual.turretDamageMultiplier).toBe(2.2);
-    expect(casual.turretRateMultiplier).toBeCloseTo(1 / 1.5, 5);
-    expect(casual.turretStartingLevel).toBe(6);
-    expect(casual.basicTurretMaxLevel).toBe(17);
-    expect(casual.doorShieldLayers).toBe(2);
-    expect(casual.globalGhostSpeedMultiplier).toBe(0.85);
-    expect(characterTraitForMatch(appearance, true).globalGhostSpeedMultiplier).toBe(1);
+    const foxAppearance = { character: 'character-fox', skin: MOONLIT_PHANTOM_SKIN_ID };
+    const fox = characterTraitForMatch(foxAppearance, false);
+    expect(fox.turretDamageMultiplier).toBe(2.5);
+    expect(fox.turretRateMultiplier).toBe(1);
+    expect(fox.turretStartingLevel).toBe(6);
+    expect(fox.basicTurretMaxLevel).toBe(17);
+    expect(fox.extraDraws).toBe(4);
+    expect(fox.doorShieldLayers).toBe(0);
+    expect(fox.globalGhostSpeedMultiplier).toBe(0.9);
+
+    const rabbit = characterTraitForMatch(
+      { character: 'character-bunny', skin: STARLIT_CLOUD_RABBIT_SKIN_ID },
+      false,
+    );
+    expect(rabbit.basicTurretMaxLevel).toBe(17);
+    expect(rabbit.turretRateMultiplier).toBeCloseTo(1 / 2.5, 5);
+    expect(rabbit.goldPerSecond).toBe(10);
+    expect(rabbit.powerPerSecond).toBe(5);
+    expect(rabbit.globalGhostAttackSpeedMultiplier).toBe(0.9);
+
+    const gorilla = characterTraitForMatch(
+      { character: 'character-gorilla', skin: ABYSSAL_KNIGHT_GORILLA_SKIN_ID },
+      false,
+    );
+    expect(gorilla.basicTurretMaxLevel).toBe(17);
+    expect(gorilla.repairEffectMultiplier).toBe(2);
+    expect(gorilla.doorShieldLayers).toBe(2);
+    expect(gorilla.doorShieldLayerRatio).toBe(1);
+    expect(gorilla.globalGhostHpMultiplier).toBe(0.9);
+    expect(upgradeCostForTrait('reinforced-door', { gold: 101, power: 3 }, gorilla)).toEqual({
+      gold: 51,
+      power: 2,
+    });
+    expect(upgradeCostForTrait('bed', { gold: 101, power: 3 }, gorilla)).toEqual({
+      gold: 101,
+      power: 3,
+    });
+
+    const rankedFox = characterTraitForMatch(foxAppearance, true);
+    expect(rankedFox.globalGhostSpeedMultiplier).toBe(1);
+    expect(rankedFox.extraDraws).toBe(1);
+    const rankedRabbit = characterTraitForMatch(
+      { character: 'character-bunny', skin: STARLIT_CLOUD_RABBIT_SKIN_ID },
+      true,
+    );
+    expect(rankedRabbit.globalGhostAttackSpeedMultiplier).toBe(1);
+    const rankedGorilla = characterTraitForMatch(
+      { character: 'character-gorilla', skin: ABYSSAL_KNIGHT_GORILLA_SKIN_ID },
+      true,
+    );
+    expect(rankedGorilla.globalGhostHpMultiplier).toBe(1);
+    expect(rankedGorilla.doorUpgradeCostMultiplier).toBe(1);
   });
 
   it('keeps prestige cosmetics out of the point shop and collection-locked until owned', () => {
@@ -264,6 +307,7 @@ describe('app update versioning', () => {
 describe('hide-and-seek proximity audio', () => {
   it('gets louder and quicker as the ghost approaches without exceeding the master volume', () => {
     expect(ghostFootstepGain(.15, .65)).toBeLessThan(ghostFootstepGain(.8, .65));
+    expect(ghostFootstepGain(.15, .65)).toBeGreaterThan(.05);
     expect(ghostFootstepGain(1, .65)).toBeLessThan(.65);
     expect(ghostFootstepIntervalMs(.15)).toBeGreaterThan(ghostFootstepIntervalMs(.8));
   });

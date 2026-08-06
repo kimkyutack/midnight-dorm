@@ -19,6 +19,7 @@ import {
   characterTraitForAppearance,
   characterTraitForMatch,
   drawLimitForMatch,
+  upgradeCostForTrait,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
@@ -552,8 +553,8 @@ const profileAvatarSource = (
 const profileFrameAssetUrl = (profileFrameId?: string | null): string => {
   switch (profileFrameId) {
     case 'profile-frame-moonlit-phantom-fox': return '/assets/profile-images/moonlit-phantom-frame.png';
-    case 'profile-frame-starlit-cloud-rabbit': return '/assets/profile-images/starlit-cloud-frame.svg';
-    case 'profile-frame-abyssal-knight-gorilla': return '/assets/profile-images/abyssal-knight-frame.svg';
+    case 'profile-frame-starlit-cloud-rabbit': return '/assets/profile-images/starlit-cloud-frame.webp?v=prestige-v2';
+    case 'profile-frame-abyssal-knight-gorilla': return '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2';
     case 'profile-frame-basic': return '/assets/profile-images/basic-profile-frame.svg';
     default: return '/assets/profile-images/basic-profile-frame.svg';
   }
@@ -987,7 +988,7 @@ function homeScreen(): void {
       <div class="home-atmosphere"></div>
       <header class="home-topbar">
         <button class="home-account in-game-label ${profileDisplay.className} ${currentAccount.prestige.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
-          <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/>${currentAccount.prestige.profileFrameId ? '<img class="profile-avatar-frame-art" src="/assets/profile-images/moonlit-phantom-frame.png" alt=""/>' : ''}</div>
+          <div class="home-profile-photo"><img src="${escapeHtml(profileAvatar)}" alt="${escapeHtml(currentAccount.nickname)} 프로필 사진"/>${currentAccount.prestige.profileFrameId ? `<img class="profile-avatar-frame-art" src="${profileFrameAssetUrl(currentAccount.prestige.profileFrameId)}" alt=""/>` : ''}</div>
           <div><span>프로필 설정</span><strong>${escapeHtml(currentAccount.nickname)} <img class="home-inline-badge rank-badge" src="${profileDisplay.badgeUrl}" alt="${escapeHtml(profileDisplay.badgeAlt)}"/></strong><small style="font-weight: 900;">${escapeHtml(profileDisplay.labelText)}</small><em style="font-weight: 900;">인게임 라벨 · 변경</em></div>
         </button>
         <div class="home-utility">
@@ -1219,10 +1220,10 @@ interface PrestigeExchangeContent {
 }
 
 const MOONLIT_PRESTIGE_CONTENTS: readonly PrestigeExchangeContent[] = [
-  { id: 'profile', label: '프로필 이미지', detail: '월령 환영 여우', imageUrl: '/assets/profile-images/moonlit-phantom-fox.webp', imageFit: 'cover' },
+  { id: 'profile', label: '프로필 이미지', detail: '월령 환영 여우', imageUrl: '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2', imageFit: 'cover' },
   { id: 'frame', label: '프로필 테두리', detail: '월령 여우불 테두리', imageUrl: '/assets/profile-images/moonlit-phantom-frame.png' },
   { id: 'emotes', label: '이모티콘 4종', detail: '월령 감정 표현 세트', imageUrl: '/assets/emotes/moonlit-phantom-fox/smug.webp', imageFit: 'cover' },
-  { id: 'skin', label: '프레스티지 스킨', detail: '월령 환영 여우', imageUrl: '/assets/sprites/skins/skin-moonlit-phantom-fox/concept.png', imageFit: 'cover' },
+  { id: 'skin', label: '프레스티지 스킨', detail: '월령 환영 여우', imageUrl: '/assets/sprites/skins/skin-moonlit-phantom-fox/concept.png?v=moonlit-prestige-v5', imageFit: 'contain' },
   { id: 'tile', label: '타일 스킨', detail: '월령 여우불 타일', imageUrl: '/assets/tiles/skin-moonlit-phantom/moonfire-tile.webp', imageFit: 'cover' },
   { id: 'turret', label: '포탑 스킨', detail: '월령 천호포', imageUrl: '/assets/turret-skins/skin-moonlit-foxfire/level-17.webp' },
 ] as const;
@@ -1232,42 +1233,63 @@ const MOONLIT_PRESTIGE_THEME = {
   available: true,
   title: '월령 환영 여우',
   subtitle: '달빛 아래 깨어난 첫 번째 프레스티지',
-  iconUrl: '/assets/profile-images/moonlit-phantom-fox.webp',
+  abilities: [
+    'Lv.17 포탑 해금',
+    '포탑 피해 +150%',
+    '포탑 Lv.6 시작',
+    '랜덤상자 뽑기 +4회',
+    '귀신 이동속도 -10%',
+  ],
+  iconUrl: '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2',
   heroUrl: '/assets/prestige/moonlit-phantom-fox/featured-package.webp',
   contents: MOONLIT_PRESTIGE_CONTENTS,
 } as const;
 
 const STARLIT_CLOUD_PRESTIGE_THEME = {
   id: STARLIT_CLOUD_RABBIT_PACKAGE_ID,
-  available: false,
+  available: true,
   title: '성운 구름무희 모모',
   subtitle: '별빛과 구름의 궤적을 지휘하는 천공 프레스티지',
-  iconUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png',
+  abilities: [
+    'Lv.17 포탑 해금',
+    '포탑 공격속도 +150%',
+    '점유 중 초당 골드 +10',
+    '점유 중 초당 전력 +5',
+    '귀신 공격속도 -10%',
+  ],
+  iconUrl: '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2',
   heroUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png',
   contents: [
-    { id: 'profile', label: '프로필 이미지', detail: '성운 구름무희 모모', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
-    { id: 'frame', label: '프로필 테두리', detail: '성운 프리즘 테두리', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
-    { id: 'emotes', label: '이모티콘 4종', detail: '천공 감정 표현 세트', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
-    { id: 'skin', label: '프레스티지 스킨', detail: '성운 구름무희 모모', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
-    { id: 'tile', label: '타일 스킨', detail: '성운 구름무대 타일', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
-    { id: 'turret', label: '포탑 스킨', detail: '성운 성좌포', imageUrl: '/assets/prestige/starlit-cloud-rabbit/featured-package.png', imageFit: 'cover' },
+    { id: 'profile', label: '프로필 이미지', detail: '성운 구름무희 모모', imageUrl: '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2', imageFit: 'cover' },
+    { id: 'frame', label: '프로필 테두리', detail: '성운 프리즘 테두리', imageUrl: '/assets/profile-images/starlit-cloud-frame.webp?v=prestige-v2' },
+    { id: 'emotes', label: '이모티콘 4종', detail: '천공 감정 표현 세트', imageUrl: '/assets/emotes/starlit-cloud-rabbit/cheer.webp?v=prestige-v2', imageFit: 'contain' },
+    { id: 'skin', label: '프레스티지 스킨', detail: '성운 구름무희 모모', imageUrl: '/assets/sprites/skins/skin-starlit-cloud-rabbit/concept.webp?v=prestige-v3', imageFit: 'contain' },
+    { id: 'tile', label: '타일 스킨', detail: '성운 구름무대 타일', imageUrl: '/assets/tiles/skin-starlit-cloud/starlit-cloud-tile.webp', imageFit: 'cover' },
+    { id: 'turret', label: '포탑 스킨', detail: '성운 성좌포', imageUrl: '/assets/turret-skins/skin-starlit-cloud/level-17.webp?v=prestige-v2' },
   ] satisfies readonly PrestigeExchangeContent[],
 } as const;
 
 const ABYSSAL_KNIGHT_PRESTIGE_THEME = {
   id: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID,
-  available: false,
+  available: true,
   title: '심연 기사단장 콩',
   subtitle: '흑염 투구와 심연의 기사단을 이끄는 군단장',
-  iconUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png',
+  abilities: [
+    'Lv.17 포탑 해금',
+    '수리대·수리스킬 효과 2배',
+    '문 HP 100% 방어막 2개',
+    '귀신 HP -10%',
+    '문 업그레이드 비용 -50%',
+  ],
+  iconUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2',
   heroUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png',
   contents: [
-    { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
-    { id: 'frame', label: '프로필 테두리', detail: '흑염 군단 테두리', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
-    { id: 'emotes', label: '이모티콘 4종', detail: '심연 기사단 감정 표현', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
-    { id: 'skin', label: '프레스티지 스킨', detail: '심연 기사단장 콩', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
-    { id: 'tile', label: '타일 스킨', detail: '심연 기사단 타일', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
-    { id: 'turret', label: '포탑 스킨', detail: '심연 군단포', imageUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png', imageFit: 'cover' },
+    { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', imageFit: 'cover' },
+    { id: 'frame', label: '프로필 테두리', detail: '흑염 군단 테두리', imageUrl: '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2' },
+    { id: 'emotes', label: '이모티콘 4종', detail: '심연 기사단 감정 표현', imageUrl: '/assets/emotes/abyssal-knight-gorilla/roar.webp?v=prestige-v2', imageFit: 'contain' },
+    { id: 'skin', label: '프레스티지 스킨', detail: '심연 기사단장 콩', imageUrl: '/assets/sprites/skins/skin-abyssal-knight-gorilla/concept.webp?v=prestige-v3', imageFit: 'contain' },
+    { id: 'tile', label: '타일 스킨', detail: '심연 기사단 타일', imageUrl: '/assets/tiles/skin-abyssal-knight/abyssal-knight-tile.webp', imageFit: 'cover' },
+    { id: 'turret', label: '포탑 스킨', detail: '심연 군단포', imageUrl: '/assets/turret-skins/skin-abyssal-knight/level-17.webp?v=prestige-v2' },
   ] satisfies readonly PrestigeExchangeContent[],
 } as const;
 
@@ -1663,6 +1685,9 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
   const activeContent = theme.contents.find((content) => content.id === activeContentId);
   const previewUrl = activeContent?.imageUrl ?? theme.heroUrl;
   const previewFit = activeContent?.imageFit ?? 'contain';
+  const abilityMarkup = !activeContent
+    ? `<section class="orb-prestige-abilities"><header><span>COMBAT TRAITS</span><strong>전투 능력</strong></header><ul>${theme.abilities.map((ability) => `<li><i aria-hidden="true">✦</i><span>${escapeHtml(ability)}</span></li>`).join('')}</ul><small>혼자하기 · 친구랑하기 적용 / 랭크전 미적용</small></section>`
+    : '';
   const exchangeStatus = ownsPackage
     ? '패키지 보유 중'
     : !theme.available
@@ -1670,7 +1695,7 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
     : orbCount >= GHOST_ORB_PACKAGE_COST
       ? `귀신구슬 ${GHOST_ORB_PACKAGE_COST}개로 모두 교환`
       : `귀신구슬 ${GHOST_ORB_PACKAGE_COST - orbCount}개 더 필요`;
-  const contentButtons = theme.contents.map((content) => `<button type="button" class="${content.id === activeContentId ? 'selected' : ''}" data-prestige-content="${content.id}"><img src="${content.imageUrl}?v=${APP_RELEASE_VERSION}" alt=""/><span><strong>${escapeHtml(content.label)}</strong><small>${escapeHtml(content.detail)}</small></span></button>`).join('');
+  const contentButtons = theme.contents.map((content) => `<button type="button" class="${content.id === activeContentId ? 'selected' : ''}" data-prestige-content="${content.id}"><img src="${releaseVersionedAsset(content.imageUrl)}" alt=""/><span><strong>${escapeHtml(content.label)}</strong><small>${escapeHtml(content.detail)}</small></span></button>`).join('');
   const prestigeRewards = theme.contents.map((content) => ({
     kind: 'cosmetic' as const,
     label: content.label,
@@ -1683,17 +1708,20 @@ function ghostOrbExchangeScreen(activeContentId = 'bundle', activePackageId = MO
     <header class="orb-shop-header"><button type="button" data-orb-exchange-back aria-label="구슬 상점으로">‹</button><div><small>PRESTIGE EXCHANGE</small><h2>구슬 교환</h2></div><div class="orb-shop-header-actions"><strong><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/>${orbCount.toLocaleString()}</strong></div></header>
     <section class="orb-exchange-scroll">
       <div class="orb-exchange-workbench">
-        <aside class="orb-prestige-list"><small>PRESTIGE</small>${PRESTIGE_EXCHANGE_THEMES.map((entry) => `<button type="button" class="${entry.id === theme.id ? 'selected' : ''}" data-prestige-package="${entry.id}" aria-pressed="${entry.id === theme.id}"><img src="${entry.iconUrl}?v=${APP_RELEASE_VERSION}" alt=""/><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.available ? `귀신구슬 ${GHOST_ORB_PACKAGE_COST}개` : '제작 중'}</small></span></button>`).join('')}</aside>
+        <aside class="orb-prestige-list"><small>PRESTIGE</small>${PRESTIGE_EXCHANGE_THEMES.map((entry) => `<button type="button" class="${entry.id === theme.id ? 'selected' : ''}" data-prestige-package="${entry.id}" aria-pressed="${entry.id === theme.id}"><img src="${releaseVersionedAsset(entry.iconUrl)}" alt=""/><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.available ? `귀신구슬 ${GHOST_ORB_PACKAGE_COST}개` : '제작 중'}</small></span></button>`).join('')}</aside>
         <section class="orb-exchange-detail">
           <span class="orb-package-rarity">PRESTIGE · LIMITED</span>
-          <div class="orb-exchange-preview ${previewFit}"><img src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(activeContent?.label ?? theme.title)} 미리보기"/></div>
+          <div class="orb-exchange-preview ${previewFit}"><img src="${releaseVersionedAsset(previewUrl)}" alt="${escapeHtml(activeContent?.label ?? theme.title)} 미리보기"/></div>
           <div class="orb-exchange-copy"><small>${activeContent ? escapeHtml(activeContent.label) : '프레스티지 교환 계약'}</small><h3>${escapeHtml(activeContent?.detail ?? theme.title)}</h3><p>${escapeHtml(theme.subtitle)}</p></div>
+          ${abilityMarkup}
         </section>
       </div>
       <section class="orb-exchange-contents"><header><div><small>PACKAGE CONTENTS</small><h3>구성품 미리보기</h3></div></header><div>${contentButtons}</div></section>
-      ${devMode ? '<button type="button" class="orb-cinematic-preview" data-moonlit-cinematic-preview>획득 연출 미리보기</button>' : ''}
-      <button type="button" class="orb-package-exchange" data-orb-package-exchange ${!theme.available || ownsPackage || orbCount < GHOST_ORB_PACKAGE_COST ? 'disabled' : ''}>${escapeHtml(exchangeStatus)}</button>
     </section>
+    <footer class="orb-exchange-actions ${devMode ? '' : 'single'}">
+      ${devMode ? '<button type="button" class="orb-cinematic-preview" data-moonlit-cinematic-preview><span aria-hidden="true">▶</span><strong>획득 연출</strong></button>' : ''}
+      <button type="button" class="orb-package-exchange" data-orb-package-exchange ${!theme.available || ownsPackage || orbCount < GHOST_ORB_PACKAGE_COST ? 'disabled' : ''}><small>PRESTIGE EXCHANGE</small><strong>${escapeHtml(exchangeStatus)}</strong></button>
+    </footer>
   </main>`);
   app.querySelector('[data-orb-exchange-back]')?.addEventListener('click', ghostOrbShopScreen);
   app.querySelectorAll<HTMLButtonElement>('[data-prestige-content]').forEach((button) => button.addEventListener('click', () => {
@@ -2771,15 +2799,15 @@ function showProfileAssetPicker(parentModal?: HTMLElement): void {
   parentModal?.remove();
   const ownedPackages = new Set(currentAccount.prestige.ownedPackageIds);
   const presets = [
-    { id: 'profile-image-moonlit-phantom-fox', label: '월령 여우', image: '/assets/profile-images/moonlit-phantom-fox.webp', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
-    { id: 'profile-image-starlit-cloud-rabbit', label: '성운 모모', image: '/assets/profile-images/starlit-cloud-rabbit.webp', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
-    { id: 'profile-image-abyssal-knight-gorilla', label: '심연 콩', image: '/assets/profile-images/abyssal-knight-gorilla.webp', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
+    { id: 'profile-image-moonlit-phantom-fox', label: '월령 여우', image: '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
+    { id: 'profile-image-starlit-cloud-rabbit', label: '성운 모모', image: '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
+    { id: 'profile-image-abyssal-knight-gorilla', label: '심연 콩', image: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
   ].filter((entry) => ownedPackages.has(entry.packageId));
   const frames = [
     { id: 'profile-frame-basic', label: '기본 테두리', image: '/assets/profile-images/basic-profile-frame.svg' },
     { id: 'profile-frame-moonlit-phantom-fox', label: '월령 여우불', image: '/assets/profile-images/moonlit-phantom-frame.png', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
-    { id: 'profile-frame-starlit-cloud-rabbit', label: '성운 프리즘', image: '/assets/profile-images/starlit-cloud-frame.svg', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
-    { id: 'profile-frame-abyssal-knight-gorilla', label: '심연 흑염', image: '/assets/profile-images/abyssal-knight-frame.svg', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
+    { id: 'profile-frame-starlit-cloud-rabbit', label: '성운 프리즘', image: '/assets/profile-images/starlit-cloud-frame.webp?v=prestige-v2', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
+    { id: 'profile-frame-abyssal-knight-gorilla', label: '심연 흑염', image: '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
   ].filter((entry) => !entry.packageId || ownedPackages.has(entry.packageId));
   const imageCards = `<label class="profile-asset-card upload"><span>＋</span><strong>내 사진</strong><small>사진 추가 또는 변경</small><input type="file" accept="image/jpeg,image/png,image/webp" data-profile-picker-upload/></label>
     <button type="button" class="profile-asset-card ${!currentAccount.prestige.profileImageId && !currentAccount.uploadedProfileAvatarUrl ? 'selected' : ''}" data-profile-picker-image="basic"><img src="${DEFAULT_PROFILE_AVATAR}" alt=""/><strong>기본 이미지</strong></button>
@@ -6073,7 +6101,8 @@ function renderTargetPanel(selection: SceneSelection): void {
     return;
   }
   const benefits = rankBenefits(modeRank);
-  const traitMaximum = characterTraitForMatch(me.appearance, Boolean(snapshot?.ranked)).basicTurretMaxLevel;
+  const matchTrait = characterTraitForMatch(me.appearance, Boolean(snapshot?.ranked));
+  const traitMaximum = matchTrait.basicTurretMaxLevel;
   const maxLevel = maxBuildingLevel(kind, modeRank, traitMaximum);
   const nextLevel = currentLevel + 1;
   const current = buildingStats(kind, currentLevel);
@@ -6084,7 +6113,11 @@ function renderTargetPanel(selection: SceneSelection): void {
   });
   const cost =
     !doorDestroyed && !requirement && currentLevel < maxLevel
-      ? upgradeCost(kind, nextLevel, modeRank, traitMaximum)
+      ? upgradeCostForTrait(
+          kind,
+          upgradeCost(kind, nextLevel, modeRank, traitMaximum),
+          matchTrait,
+        )
       : null;
   const canAffordUpgrade = Boolean(
     cost && me.gold >= cost.gold && me.power >= cost.power,
@@ -6982,7 +7015,12 @@ async function showAppUpdateHistory(): Promise<void> {
   try {
     const updates = await fetchAppUpdates();
     if (!list || !modal.isConnected) return;
-    if (updates[0]) markAnnouncementRead(updates[0].version);
+    // The unread badge is calculated from `/latest`, not merely the first D1
+    // row in the history list. Resolve that same canonical version before
+    // marking it read so returning home cannot recreate the red dot.
+    const latest = await fetchLatestAppUpdate().catch(() => null);
+    const readVersion = latest?.version ?? updates[0]?.version;
+    if (readVersion) markAnnouncementRead(readVersion);
     list.innerHTML = updates.length
       ? updates
           .map(

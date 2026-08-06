@@ -7,6 +7,7 @@ import {
 } from '../shared/balance';
 import { isPositionOnRoomFloor } from '../shared/map';
 import { findPath } from '../shared/pathfinding';
+import { characterTraitForMatch, upgradeCostForTrait } from '../shared/characterTraits';
 import type { BuildingKind, GameSnapshot, MapDefinition, PlayerState, Tile } from '../shared/types';
 
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
@@ -337,7 +338,11 @@ export function decideBotIntent(
       doorLevel: room.doorLevel,
     });
     if (requirement) return false;
-    const cost = upgradeCost(kind, currentLevel + 1, activeRank);
+    const cost = upgradeCostForTrait(
+      kind,
+      upgradeCost(kind, currentLevel + 1, activeRank),
+      characterTraitForMatch(bot.appearance, Boolean(snapshot.ranked)),
+    );
     return bot.gold >= cost.gold && bot.power >= cost.power;
   };
   const canUpgradeBuilding = (building: (typeof owned)[number]): boolean => {

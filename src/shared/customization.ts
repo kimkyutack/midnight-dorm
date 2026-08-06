@@ -28,6 +28,10 @@ export interface SkinTraitOverride {
   doorShieldLayers?: number;
   doorShieldLayerRatio?: number;
   globalGhostSpeedMultiplier?: number;
+  globalGhostAttackSpeedMultiplier?: number;
+  globalGhostHpMultiplier?: number;
+  repairEffectMultiplier?: number;
+  doorUpgradeCostMultiplier?: number;
   basicTurretMaxLevel?: number;
 }
 
@@ -65,7 +69,7 @@ const CHARACTERS = [
   { id: 'character-duck', slot: 'character', label: '달오리 꽥', description: '매초 전력 1을 충전하는 달빛 정찰대원', symbol: '오', swatch: '#f0cb4e', unlock: { kind: 'points', price: 1_400 } },
   { id: 'character-tiger', slot: 'character', label: '달호랑이 라온', description: '호랑이의 도약으로 누구보다 빠르게 방을 찾아간다', symbol: '호', swatch: '#e29a4d', unlock: { kind: 'points', price: 1_800 } },
   { id: 'character-dinosaur', slot: 'character', label: '별공룡 라그', description: '포탑의 과충전 발사를 지휘하는 작은 공룡', symbol: '공', swatch: '#73b85d', unlock: { kind: 'points', price: 2_000 } },
-  { id: 'character-monkey', slot: 'character', label: '달원숭이 몽키', description: '행운의 손재주로 램프를 두 번 더 돌린다', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_400 } },
+  { id: 'character-monkey', slot: 'character', label: '달원숭이 몽키', description: '행운의 손재주로 랜덤상자를 두 번 더 돌린다', symbol: '원', swatch: '#8d5c42', unlock: { kind: 'points', price: 2_400 } },
   { id: 'character-gorilla', slot: 'character', label: '요새고릴라 콩', description: '문 최대 HP의 50%만큼 이중문 방어막을 만든다', symbol: '고', swatch: '#53606d', unlock: { kind: 'points', price: 2_600 } },
 ] as const satisfies readonly CosmeticDefinition[];
 
@@ -82,7 +86,7 @@ const SKINS = [
   { id: 'skin-look-cat-neon-rider', slot: 'skin', characterId: 'character-cat', premium: true, traitMultiplier: 2, traitOverride: { label: '네온 오버클럭', description: '모든 포탑의 공격속도가 2배가 됩니다.', turretRateMultiplier: 0.5 }, assetDirectory: 'skin-neon-rider-lulu', label: '네온 라이더 루루', description: '네온 고글과 인라인 스케이트로 사이버 시티를 질주하는 프리미엄 스킨', symbol: '네', swatch: '#b347ff', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-hamster-cyber-driver', slot: 'skin', characterId: 'character-hamster', premium: true, traitMultiplier: 2, traitOverride: { label: 'Lv.5 양산 설계', description: '설치하는 모든 공격 포탑이 Lv.5로 시작합니다.', turretStartingLevel: 5 }, assetDirectory: 'skin-cyber-driver-kong', label: '사이버 드라이버 콩', description: '보랏빛 스포츠카와 무지개 휠로 네온 도로를 달리는 프리미엄 스킨', symbol: '카', swatch: '#803cff', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-crocodile-police-enforcer', slot: 'skin', characterId: 'character-crocodile', premium: true, traitMultiplier: 2, traitOverride: { label: '강력계 화력 지휘', description: '모든 포탑의 피해가 100% 증가하고 공격속도가 10% 증가합니다.', turretDamageMultiplier: 2, turretRateMultiplier: 1 / 1.1 }, assetDirectory: 'skin-police-enforcer-croco', label: '강력계 크로크', description: '압도적인 체격과 무전 장비로 현장을 장악하는 프리미엄 경찰 스킨', symbol: '경', swatch: '#315d8f', unlock: { kind: 'points', price: 5_000 } },
-  { id: 'skin-look-monkey-secret-agent', slot: 'skin', characterId: 'character-monkey', premium: true, traitMultiplier: 2, traitOverride: { label: '기밀 행운 조작', description: '램프 랜덤 뽑기를 3회 더 사용하고 신화·전설 아이템 확률이 5%p 증가합니다.', extraDraws: 3, highRarityChanceBonus: 0.05 }, assetDirectory: 'skin-secret-agent-monkey', label: '시크릿 에이전트 몽키', description: '검은 수트와 쌍수 사격 자세로 임무를 수행하는 프리미엄 비밀요원 스킨', symbol: '첩', swatch: '#98754f', unlock: { kind: 'points', price: 5_000 } },
+  { id: 'skin-look-monkey-secret-agent', slot: 'skin', characterId: 'character-monkey', premium: true, traitMultiplier: 2, traitOverride: { label: '기밀 행운 조작', description: '랜덤상자 뽑기를 3회 더 사용하고 신화·전설 아이템 확률이 5%p 증가합니다.', extraDraws: 3, highRarityChanceBonus: 0.05 }, assetDirectory: 'skin-secret-agent-monkey', label: '시크릿 에이전트 몽키', description: '검은 수트와 쌍수 사격 자세로 임무를 수행하는 프리미엄 비밀요원 스킨', symbol: '첩', swatch: '#98754f', unlock: { kind: 'points', price: 5_000 } },
   { id: 'skin-look-bear-ward', slot: 'skin', characterId: 'character-bear', traitMultiplier: 1.5, label: '야간 경비 밤이', description: '경비복을 입은 완성형 스킨', symbol: '곰', swatch: '#9b6f52', unlock: { kind: 'points', price: 2_500 } },
   { id: 'skin-look-fox-ward', slot: 'skin', characterId: 'character-fox', traitMultiplier: 1.5, label: '별빛 여우 초롱', description: '별 문양 코트를 입은 완성형 스킨', symbol: '여', swatch: '#d9784d', unlock: { kind: 'points', price: 2_500 } },
   {
@@ -93,14 +97,12 @@ const SKINS = [
     traitMultiplier: 1,
     traitOverride: {
       label: '월령의 지배',
-      description: '포탑 피해 +120%·공격속도 +50%, Lv.6 시작·Lv.17 해금, 한 판 1회 이중 영혼 방어막, 친구랑하기 귀신 전역 둔화가 적용됩니다.',
-      turretDamageMultiplier: 2.2,
-      turretRateMultiplier: 1 / 1.5,
+      description: 'Lv.17 포탑 해금, 포탑 피해 +150%, 포탑 Lv.6 시작, 랜덤상자 뽑기 +4회, 귀신 전역 이동속도 10% 감소.',
+      turretDamageMultiplier: 2.5,
       turretStartingLevel: 6,
       basicTurretMaxLevel: 17,
-      doorShieldLayers: 2,
-      doorShieldLayerRatio: 0.3,
-      globalGhostSpeedMultiplier: 0.85,
+      extraDraws: 4,
+      globalGhostSpeedMultiplier: 0.9,
     },
     assetDirectory: 'skin-moonlit-phantom-fox',
     label: '월령 환영 여우',
@@ -117,13 +119,12 @@ const SKINS = [
     traitMultiplier: 1,
     traitOverride: {
       label: '천공의 축복',
-      description: '포탑 피해 +90%·공격속도 +40%, 기본 포탑 Lv.5 설치·Lv.17 해금과 별빛 보호막이 적용됩니다.',
-      turretDamageMultiplier: 1.9,
-      turretRateMultiplier: 1 / 1.4,
-      turretStartingLevel: 5,
+      description: 'Lv.17 포탑 해금, 포탑 공격속도 +150%, 침대 점유 중 초당 골드 +10, 침대 점유 중 초당 전력 +5, 귀신 전역 공격속도 10% 감소.',
+      turretRateMultiplier: 1 / 2.5,
+      goldPerSecond: 10,
+      powerPerSecond: 5,
       basicTurretMaxLevel: 17,
-      doorShieldLayers: 1,
-      doorShieldLayerRatio: 0.4,
+      globalGhostAttackSpeedMultiplier: 0.9,
     },
     assetDirectory: 'skin-starlit-cloud-rabbit',
     label: '성운 구름무희 모모',
@@ -147,13 +148,13 @@ const SKINS = [
     traitMultiplier: 1,
     traitOverride: {
       label: '흑염 군단장',
-      description: '포탑 피해 +110%·공격속도 +35%, Lv.17 해금·문 이중 방어막과 귀신 전역 둔화가 적용됩니다.',
-      turretDamageMultiplier: 2.1,
-      turretRateMultiplier: 1 / 1.35,
+      description: 'Lv.17 포탑 해금, 수리대 및 수리스킬 효과 2배, 문 최대 HP 100%의 이중문 방어막 2개, 귀신 전역 HP 10% 감소, 문 업그레이드 비용 50% 감소.',
       basicTurretMaxLevel: 17,
+      repairEffectMultiplier: 2,
       doorShieldLayers: 2,
-      doorShieldLayerRatio: 0.35,
-      globalGhostSpeedMultiplier: 0.88,
+      doorShieldLayerRatio: 1,
+      globalGhostHpMultiplier: 0.9,
+      doorUpgradeCostMultiplier: 0.5,
     },
     assetDirectory: 'skin-abyssal-knight-gorilla',
     label: '심연 기사단장 콩',

@@ -30,17 +30,17 @@ export const MOONLIT_EMOTES = [
 ] as const;
 
 export const STARLIT_CLOUD_EMOTES = [
-  { id: 'starlit-cheer', label: '성운 환호', assetUrl: '/assets/emotes/starlit-cloud-rabbit/cheer.webp' },
-  { id: 'starlit-sparkle', label: '별빛 반짝', assetUrl: '/assets/emotes/starlit-cloud-rabbit/sparkle.webp' },
-  { id: 'starlit-cloud', label: '구름 휴식', assetUrl: '/assets/emotes/starlit-cloud-rabbit/cloud.webp' },
-  { id: 'starlit-dash', label: '유성 질주', assetUrl: '/assets/emotes/starlit-cloud-rabbit/dash.webp' },
+  { id: 'starlit-cheer', label: '성운 환호', assetUrl: '/assets/emotes/starlit-cloud-rabbit/cheer.webp?v=prestige-v2' },
+  { id: 'starlit-sparkle', label: '별빛 반짝', assetUrl: '/assets/emotes/starlit-cloud-rabbit/sparkle.webp?v=prestige-v2' },
+  { id: 'starlit-cloud', label: '구름 휴식', assetUrl: '/assets/emotes/starlit-cloud-rabbit/cloud.webp?v=prestige-v2' },
+  { id: 'starlit-dash', label: '유성 질주', assetUrl: '/assets/emotes/starlit-cloud-rabbit/dash.webp?v=prestige-v2' },
 ] as const;
 
 export const ABYSSAL_KNIGHT_EMOTES = [
-  { id: 'abyssal-roar', label: '심연의 포효', assetUrl: '/assets/emotes/abyssal-knight-gorilla/roar.webp' },
-  { id: 'abyssal-flame', label: '흑염 점화', assetUrl: '/assets/emotes/abyssal-knight-gorilla/flame.webp' },
-  { id: 'abyssal-guard', label: '기사단 방패', assetUrl: '/assets/emotes/abyssal-knight-gorilla/guard.webp' },
-  { id: 'abyssal-victory', label: '군단장 승리', assetUrl: '/assets/emotes/abyssal-knight-gorilla/victory.webp' },
+  { id: 'abyssal-roar', label: '심연의 포효', assetUrl: '/assets/emotes/abyssal-knight-gorilla/roar.webp?v=prestige-v2' },
+  { id: 'abyssal-flame', label: '흑염 점화', assetUrl: '/assets/emotes/abyssal-knight-gorilla/flame.webp?v=prestige-v2' },
+  { id: 'abyssal-guard', label: '기사단 방패', assetUrl: '/assets/emotes/abyssal-knight-gorilla/guard.webp?v=prestige-v2' },
+  { id: 'abyssal-victory', label: '군단장 승리', assetUrl: '/assets/emotes/abyssal-knight-gorilla/victory.webp?v=prestige-v2' },
 ] as const;
 
 export type PrestigeEmoteId =

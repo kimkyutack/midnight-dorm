@@ -17,6 +17,8 @@ const CYBER_DRIVER_KONG_SKIN_ID = 'skin-look-hamster-cyber-driver';
 const POLICE_ENFORCER_CROCO_SKIN_ID = 'skin-look-crocodile-police-enforcer';
 const SECRET_AGENT_MONKEY_SKIN_ID = 'skin-look-monkey-secret-agent';
 const MOONLIT_PHANTOM_FOX_SKIN_ID = 'skin-look-fox-moonlit-phantom';
+const STARLIT_CLOUD_RABBIT_SKIN_ID = 'skin-look-bunny-starlit-cloud';
+const ABYSSAL_KNIGHT_GORILLA_SKIN_ID = 'skin-look-gorilla-abyssal-knight';
 const SURF_FRAMES: readonly MovementFrame[] = ['idle', 'walk-1', 'walk-2', 'walk-3'];
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
@@ -151,6 +153,14 @@ export class AvatarPreview2D {
     return this.appearance.skin === MOONLIT_PHANTOM_FOX_SKIN_ID;
   }
 
+  private isStarlitCloudRabbit(): boolean {
+    return this.appearance.skin === STARLIT_CLOUD_RABBIT_SKIN_ID;
+  }
+
+  private isAbyssalKnightGorilla(): boolean {
+    return this.appearance.skin === ABYSSAL_KNIGHT_GORILLA_SKIN_ID;
+  }
+
   private isAnimatedPremiumSkin(): boolean {
     return this.isSurferMong()
       || this.isLifeguardRaon()
@@ -158,7 +168,9 @@ export class AvatarPreview2D {
       || this.isCyberDriverKong()
       || this.isPoliceEnforcerCroco()
       || this.isSecretAgentMonkey()
-      || this.isMoonlitPhantomFox();
+      || this.isMoonlitPhantomFox()
+      || this.isStarlitCloudRabbit()
+      || this.isAbyssalKnightGorilla();
   }
 
   private shouldAnimate(): boolean {

@@ -490,10 +490,10 @@ function profileFromRow(
   } catch { equippedEmoteIds = []; }
   const selectedProfileAvatarUrl = profileImageId
     ? profileImageId === 'profile-image-moonlit-phantom-fox'
-      ? '/assets/profile-images/moonlit-phantom-fox.webp'
+      ? '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2'
       : profileImageId === 'profile-image-starlit-cloud-rabbit'
-        ? '/assets/profile-images/starlit-cloud-rabbit.webp'
-        : '/assets/profile-images/abyssal-knight-gorilla.webp'
+        ? '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2'
+        : '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2'
     : profileAvatarUrl;
   const currentSeason = rankedSeasonId();
   const seasonIsCurrent = row.ranked_season_id === currentSeason;

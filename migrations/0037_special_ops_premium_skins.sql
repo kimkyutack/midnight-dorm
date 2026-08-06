@@ -44,7 +44,7 @@ INSERT INTO cosmetic_catalog (
     NULL,
     2,
     'skin-secret-agent-monkey',
-    '{"traitOverride":{"label":"기밀 행운 조작","description":"램프 랜덤 뽑기를 3회 더 사용하고 신화·전설 아이템 확률이 5%p 증가합니다.","extraDraws":3,"highRarityChanceBonus":0.05},"movementEffect":"wind-afterimage"}',
+    '{"traitOverride":{"label":"기밀 행운 조작","description":"랜덤상자 뽑기를 3회 더 사용하고 신화·전설 아이템 확률이 5%p 증가합니다.","extraDraws":3,"highRarityChanceBonus":0.05},"movementEffect":"wind-afterimage"}',
     2,
     1,
     1,

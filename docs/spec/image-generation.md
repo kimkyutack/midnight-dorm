@@ -83,7 +83,7 @@ Uniform seamless abandoned-hospital wall-cap material, strict orthographic top-d
 - 생존자 이동 시트는 4열 × 3행이다. 열은 `idle`, `walk-1`, `walk-2`, `walk-3`, 행은 `front`, `back`, `side` 순서다.
 - 귀신 이동 시트도 같은 4열 × 3행이고, 공격 시트는 3열 × 3행이다. 공격 열은 `attack-1`, `attack-2`, `attack-3`으로 준비·타격·회복을 표현한다.
 - `웃는 해체귀`는 기본 이동·공격 시트 외에 3열 × 3행 `skill-prepare-sheet.png`와 `skill-cast-sheet.png`를 사용한다. 준비 시트는 붉은 마나가 차오르는 3초 예고, 시전 시트는 전기톱과 철거 문양이 터지는 순간을 표현한다.
-- 해체귀는 전기톱이 크게 돌출되는 프레임에서도 몸통 중심과 발 기준선을 고정한다. 무기까지 포함한 전체 알파 박스 중앙값으로 프레임을 재정렬하지 않는다.
+- 해체귀는 전기톱이 크게 돌출되는 프레임에서도 몸통 중심과 발 기준선을 고정한다. 무기까지 포함한 전체 알파 상자 중앙값으로 프레임을 재정렬하지 않는다.
 - `오염 도배귀`도 기본 이동·공격 시트 외에 3열 × 3행 `skill-prepare-sheet.png`와 `skill-cast-sheet.png`를 사용한다. 준비 시트는 보랏빛 오염 문양과 풀 롤러의 3초 예고, 시전 시트는 벽지가 펼쳐지며 타일 3칸이 오염되는 순간을 표현한다.
 - 오염 도배귀의 자산은 `public/assets/sprites/ghosts/wallpaper/`에 저장한다. 모든 셀은 같은 몸통 중심과 발 기준선을 공유하고, 원본 크로마키 이미지는 `source/`에 보존한다.
 - `side`는 우측 방향 원본이며 왼쪽 이동은 런타임에서 수평 반전한다.

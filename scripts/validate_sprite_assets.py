@@ -99,7 +99,7 @@ def main() -> None:
         movement = expect_frames(directory / "movement", 12)
         attack = expect_frames(directory / "attack", 9)
         # 해체귀는 몸 중심은 동일하지만 전기톱·도끼의 좌우 돌출 폭이
-        # 프레임마다 달라 전체 알파 박스 중앙 비교가 유효하지 않다.
+        # 프레임마다 달라 전체 알파 상자 중앙 비교가 유효하지 않다.
         # 해당 시트는 고정 셀/발 기준선으로 제작하고 투명도·수량을
         # 아래에서 동일하게 검증한다.
         if ghost not in {"demolisher", "wallpaper"}:

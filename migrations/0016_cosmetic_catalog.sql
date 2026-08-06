@@ -48,7 +48,7 @@ INSERT INTO cosmetic_catalog (
   ('character-duck', 'character', NULL, '달오리 꽥', '달빛 동전을 물어오는 부유한 정찰대원', '오', '#f0cb4e', 'points', 1350, NULL, 1, NULL, '{"trait":"duck-treasure"}', 80, 1, 0, 1785225600000, 1785225600000),
   ('character-tiger', 'character', NULL, '달호랑이 라온', '호랑이의 시야로 수호 포탑의 사거리를 넓힌다', '호', '#e29a4d', 'points', 1800, NULL, 1, NULL, '{"trait":"tiger-range"}', 90, 1, 0, 1785225600000, 1785225600000),
   ('character-dinosaur', 'character', NULL, '별공룡 라그', '포탑의 과충전 발사를 지휘하는 작은 공룡', '공', '#73b85d', 'points', 2000, NULL, 1, NULL, '{"trait":"dino-overdrive"}', 100, 1, 0, 1785225600000, 1785225600000),
-  ('character-monkey', 'character', NULL, '달원숭이 몽키', '행운의 손재주로 램프를 두 번 더 돌린다', '원', '#8d5c42', 'points', 2400, NULL, 1, NULL, '{"trait":"monkey-luck"}', 110, 1, 0, 1785225600000, 1785225600000),
+  ('character-monkey', 'character', NULL, '달원숭이 몽키', '행운의 손재주로 랜덤상자를 두 번 더 돌린다', '원', '#8d5c42', 'points', 2400, NULL, 1, NULL, '{"trait":"monkey-luck"}', 110, 1, 0, 1785225600000, 1785225600000),
   ('character-gorilla', 'character', NULL, '요새고릴라 콩', '든든한 힘으로 점유한 방의 문을 강화한다', '고', '#53606d', 'points', 2600, NULL, 1, NULL, '{"trait":"fortress-door"}', 120, 1, 0, 1785225600000, 1785225600000)
 ON CONFLICT(id) DO UPDATE SET
   label = excluded.label,

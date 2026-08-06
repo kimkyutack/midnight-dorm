@@ -6,7 +6,7 @@ export type BackgroundTrack = 'main' | 'ingame';
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 export const ghostFootstepGain = (level: number, masterVolume: number): number =>
-  clamp01(masterVolume) * (.018 + clamp01(level) * .11);
+  clamp01(masterVolume) * (.08 + clamp01(level) * .42);
 
 export const ghostFootstepIntervalMs = (level: number): number =>
   Math.round(690 - clamp01(level) * 280);
@@ -23,18 +23,22 @@ export class SynthAudio {
   private cinematicMedia: HTMLMediaElement | null = null;
   private ghostFootstepLevel = 0;
   private ghostFootstepTimer = 0;
+  private readonly ghostFootstepAudio: HTMLAudioElement | null;
   volume = 0.65;
   musicVolume = 0.42;
 
   constructor() {
     if (typeof Audio === 'undefined') {
       this.background = {};
+      this.ghostFootstepAudio = null;
       return;
     }
     this.background = {
       main: this.createBackground('/audio/main.mp3'),
       ingame: this.createBackground('/audio/ingame.mp3'),
     };
+    this.ghostFootstepAudio = new Audio('/audio/ghost-footstep.wav');
+    this.ghostFootstepAudio.preload = 'auto';
   }
 
   unlock(): void {
@@ -57,15 +61,23 @@ export class SynthAudio {
   setMuted(value: boolean): void {
     this.muted = value;
     if (value) this.cinematicEffect?.pause();
+    if (value) this.ghostFootstepAudio?.pause();
     if (this.cinematicMedia) this.cinematicMedia.muted = value || this.volume <= 0;
     if (value) this.stopGhostFootsteps();
     else this.scheduleGhostFootstep();
   }
 
   setGhostFootstepLevel(value: number): void {
+    const wasAudible = this.ghostFootstepLevel > 0;
     this.ghostFootstepLevel = clamp01(value);
     if (this.ghostFootstepLevel <= 0) this.stopGhostFootsteps();
-    else this.scheduleGhostFootstep();
+    else {
+      // The ghost may only cross the six-tile warning radius briefly. Play the
+      // first step immediately instead of making the survivor wait for the
+      // first interval, then continue the distance-scaled cadence.
+      if (!wasAudible) this.emitGhostFootstep();
+      this.scheduleGhostFootstep();
+    }
   }
 
   setMusicVolume(value: number): void {
@@ -193,6 +205,7 @@ export class SynthAudio {
   private stopGhostFootsteps(): void {
     if (this.ghostFootstepTimer && typeof window !== 'undefined') window.clearTimeout(this.ghostFootstepTimer);
     this.ghostFootstepTimer = 0;
+    this.ghostFootstepAudio?.pause();
   }
 
   private scheduleGhostFootstep(): void {
@@ -206,10 +219,21 @@ export class SynthAudio {
   }
 
   private emitGhostFootstep(): void {
-    const context = this.context;
-    if (!context || context.state !== 'running' || this.muted || !this.pageVisible) return;
+    if (this.muted || !this.pageVisible || this.volume <= 0) return;
     const level = this.ghostFootstepLevel;
     const volume = ghostFootstepGain(level, this.volume);
+    if (this.ghostFootstepAudio) {
+      this.ghostFootstepAudio.currentTime = 0;
+      this.ghostFootstepAudio.volume = volume;
+      void this.ghostFootstepAudio.play().catch(() => this.emitSynthGhostFootstep(level, volume));
+      return;
+    }
+    this.emitSynthGhostFootstep(level, volume);
+  }
+
+  private emitSynthGhostFootstep(level: number, volume: number): void {
+    const context = this.context;
+    if (!context || context.state !== 'running' || this.muted || !this.pageVisible) return;
     for (const offset of [0, .13]) {
       const start = context.currentTime + offset;
       const duration = .16;
@@ -217,10 +241,10 @@ export class SynthAudio {
       const filter = context.createBiquadFilter();
       const gain = context.createGain();
       oscillator.type = 'triangle';
-      oscillator.frequency.setValueAtTime(94 + level * 10, start);
-      oscillator.frequency.exponentialRampToValueAtTime(43, start + duration);
+      oscillator.frequency.setValueAtTime(176 + level * 24, start);
+      oscillator.frequency.exponentialRampToValueAtTime(72, start + duration);
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(190 + level * 90, start);
+      filter.frequency.setValueAtTime(520 + level * 180, start);
       gain.gain.setValueAtTime(.0001, start);
       gain.gain.exponentialRampToValueAtTime(Math.max(.0001, volume), start + .018);
       gain.gain.exponentialRampToValueAtTime(.0001, start + duration);

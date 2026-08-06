@@ -1,5 +1,5 @@
 import { skinTraitMultiplier, skinTraitOverride } from './customization';
-import type { AvatarAppearance } from './types';
+import type { AvatarAppearance, BuildingKind } from './types';
 
 export type CharacterTraitId =
   | 'none'
@@ -40,6 +40,10 @@ export interface CharacterTrait {
   doorShieldLayers: number;
   doorShieldLayerRatio: number;
   globalGhostSpeedMultiplier: number;
+  globalGhostAttackSpeedMultiplier: number;
+  globalGhostHpMultiplier: number;
+  repairEffectMultiplier: number;
+  doorUpgradeCostMultiplier: number;
   basicTurretMaxLevel: number;
 }
 
@@ -62,6 +66,10 @@ const NONE: CharacterTrait = {
   doorShieldLayers: 0,
   doorShieldLayerRatio: 0,
   globalGhostSpeedMultiplier: 1,
+  globalGhostAttackSpeedMultiplier: 1,
+  globalGhostHpMultiplier: 1,
+  repairEffectMultiplier: 1,
+  doorUpgradeCostMultiplier: 1,
   basicTurretMaxLevel: 15,
 };
 
@@ -93,7 +101,7 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
     ...NONE,
     id: 'extra-draw',
     label: '별빛 행운',
-    description: '램프 랜덤 뽑기를 한 판에 1회 더 사용할 수 있습니다.',
+    description: '랜덤상자 뽑기를 한 판에 1회 더 사용할 수 있습니다.',
     extraDraws: 1,
   },
   'character-hamster': {
@@ -135,7 +143,7 @@ export const CHARACTER_TRAITS: Readonly<Record<string, CharacterTrait>> = {
     ...NONE,
     id: 'monkey-luck',
     label: '행운의 손재주',
-    description: '램프 랜덤 뽑기를 한 판에 2회 더 사용할 수 있습니다.',
+    description: '랜덤상자 뽑기를 한 판에 2회 더 사용할 수 있습니다.',
     extraDraws: 2,
   },
   'character-gorilla': {
@@ -181,6 +189,10 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     doorShieldLayers: base.doorShieldLayers,
     doorShieldLayerRatio: base.doorShieldLayerRatio,
     globalGhostSpeedMultiplier: base.globalGhostSpeedMultiplier,
+    globalGhostAttackSpeedMultiplier: base.globalGhostAttackSpeedMultiplier,
+    globalGhostHpMultiplier: base.globalGhostHpMultiplier,
+    repairEffectMultiplier: base.repairEffectMultiplier,
+    doorUpgradeCostMultiplier: base.doorUpgradeCostMultiplier,
     basicTurretMaxLevel: base.basicTurretMaxLevel,
   };
   if (!special) return boosted;
@@ -204,6 +216,10 @@ export const characterTraitForAppearance = (appearance: AvatarAppearance): Chara
     doorShieldLayers: special.doorShieldLayers ?? boosted.doorShieldLayers,
     doorShieldLayerRatio: special.doorShieldLayerRatio ?? boosted.doorShieldLayerRatio,
     globalGhostSpeedMultiplier: special.globalGhostSpeedMultiplier ?? boosted.globalGhostSpeedMultiplier,
+    globalGhostAttackSpeedMultiplier: special.globalGhostAttackSpeedMultiplier ?? boosted.globalGhostAttackSpeedMultiplier,
+    globalGhostHpMultiplier: special.globalGhostHpMultiplier ?? boosted.globalGhostHpMultiplier,
+    repairEffectMultiplier: special.repairEffectMultiplier ?? boosted.repairEffectMultiplier,
+    doorUpgradeCostMultiplier: special.doorUpgradeCostMultiplier ?? boosted.doorUpgradeCostMultiplier,
     basicTurretMaxLevel: special.basicTurretMaxLevel ?? boosted.basicTurretMaxLevel,
   };
 };
@@ -258,3 +274,15 @@ export const drawLimitForMatch = (
   appearance: AvatarAppearance,
   ranked: boolean,
 ): number => BASE_DRAW_LIMIT + characterTraitForMatch(appearance, ranked).extraDraws;
+
+export const upgradeCostForTrait = (
+  kind: BuildingKind,
+  cost: { gold: number; power: number },
+  trait: CharacterTrait,
+): { gold: number; power: number } => {
+  if (kind !== 'reinforced-door') return cost;
+  return {
+    gold: Math.ceil(cost.gold * trait.doorUpgradeCostMultiplier),
+    power: Math.ceil(cost.power * trait.doorUpgradeCostMultiplier),
+  };
+};

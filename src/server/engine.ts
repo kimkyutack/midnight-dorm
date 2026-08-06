@@ -18,6 +18,7 @@ import {
   bedGoldProductionForMatch,
   characterTraitForMatch,
   drawLimitForMatch,
+  upgradeCostForTrait,
 } from "../shared/characterTraits";
 import { turretSkinTrait } from "../shared/turretSkinTraits";
 import {
@@ -2233,7 +2234,11 @@ export class GameEngine {
         doorLevel: room.doorLevel,
       });
       if (requirement) return { ok: false, error: requirement };
-      const cost = upgradeCost(kind, level + 1, activeRank);
+      const cost = upgradeCostForTrait(
+        kind,
+        upgradeCost(kind, level + 1, activeRank),
+        this.characterTraitForPlayer(player),
+      );
       if (player.gold < cost.gold || player.power < cost.power)
         return { ok: false, error: "골드 또는 전력이 부족합니다." };
       player.gold -= cost.gold;
@@ -3013,6 +3018,9 @@ export class GameEngine {
     const maxHp =
       BALANCE.ghost.baseHp * (1 + BALANCE.ghost.hpPerPlayer * (combatants - 1));
     const rankPressure = this.humanRankPressure();
+    const prestigeHpMultiplier = this.globalPrestigeMultiplier(
+      (player) => this.characterTraitForPlayer(player).globalGhostHpMultiplier,
+    );
     for (const ghost of this.state.ghosts) {
       const variantHp =
         ghost.variant === "brute"
@@ -3030,7 +3038,8 @@ export class GameEngine {
         : (this.testMode ? maxHp * 0.34 : maxHp) *
           variantHp *
           this.stage.hpMultiplier *
-          rankPressure;
+          rankPressure *
+          prestigeHpMultiplier;
       ghost.hp = ghost.maxHp;
       // Keep the position reached during the blackout hunt. Reset only the
       // scouting target so the normal room/door combat selector takes over.
@@ -3203,6 +3212,17 @@ export class GameEngine {
 
   private characterTraitForPlayer(player: PlayerState) {
     return characterTraitForMatch(player.appearance, Boolean(this.state.ranked));
+  }
+
+  private globalPrestigeMultiplier(
+    select: (player: PlayerState) => number,
+  ): number {
+    if (this.state.ranked) return 1;
+    return this.state.players.reduce(
+      (minimum, player) =>
+        player.alive ? Math.min(minimum, select(player)) : minimum,
+      1,
+    );
   }
 
   private maxBuildingLevelForPlayer(kind: BuildingKind, player: PlayerState): number {
@@ -3808,7 +3828,11 @@ export class GameEngine {
         this.state.elapsed >= this.state.repairSuppressedUntil
       ) {
         const beforeRepair = room.doorHp;
-        room.doorHp = Math.min(room.doorMaxHp, room.doorHp + stats.value * dt);
+        const repairMultiplier = traitsByOwner.get(owner.id)?.repairEffectMultiplier ?? 1;
+        room.doorHp = Math.min(
+          room.doorMaxHp,
+          room.doorHp + stats.value * repairMultiplier * dt,
+        );
         owner.rankedContribution.defenseValue += Math.max(
           0,
           room.doorHp - beforeRepair,
@@ -4142,11 +4166,12 @@ export class GameEngine {
     room.freeRepairUntil = this.state.elapsed + 5;
     room.freeRepairReadyAt = room.freeRepairUntil + 60;
     room.freeRepairByPlayerId = playerId;
+    const repairMultiplier = this.characterTraitForPlayer(player).repairEffectMultiplier;
     this.pendingEvents.push({
       kind: "door-repair",
       playerId,
       roomId: room.id,
-      amount: 15,
+      amount: 15 * repairMultiplier,
       label: "무료 문 수리 시작",
     });
     return { ok: true };
@@ -4168,12 +4193,15 @@ export class GameEngine {
       );
       if (activeDuration <= 0) continue;
       const before = room.doorHp;
-      room.doorHp = Math.min(
-        room.doorMaxHp,
-        room.doorHp + 15 * activeDuration,
-      );
       const repairer = this.state.players.find(
         (candidate) => candidate.id === room.freeRepairByPlayerId,
+      );
+      const repairMultiplier = repairer
+        ? this.characterTraitForPlayer(repairer).repairEffectMultiplier
+        : 1;
+      room.doorHp = Math.min(
+        room.doorMaxHp,
+        room.doorHp + 15 * repairMultiplier * activeDuration,
       );
       if (repairer)
         repairer.rankedContribution.defenseValue += Math.max(
@@ -5159,7 +5187,11 @@ export class GameEngine {
       this.stage.damageMultiplier *
       rankPressure *
       2 ** this.state.difficulty.overtimeStacks;
-    const attackSpeed = this.ghostAttackSpeedMultiplier(ghost.variant);
+    const attackSpeed =
+      this.ghostAttackSpeedMultiplier(ghost.variant) *
+      this.globalPrestigeMultiplier(
+        (player) => this.characterTraitForPlayer(player).globalGhostAttackSpeedMultiplier,
+      );
     ghost.attackCooldown =
       Math.max(0.2, BALANCE.ghost.attackInterval / (attackSpeed * (ghost.rage ? 1.5 : 1) * 2 ** this.state.difficulty.overtimeStacks));
     if (room.doorHp > 0 && canStrikeDoor) {
@@ -5645,7 +5677,12 @@ export class GameEngine {
       };
       minion.level = ghost.level;
       minion.phase = ghost.level;
-      minion.maxHp = buildingStats("basic-turret", 1).value * 3.5;
+      minion.maxHp =
+        buildingStats("basic-turret", 1).value *
+        3.5 *
+        this.globalPrestigeMultiplier(
+          (player) => this.characterTraitForPlayer(player).globalGhostHpMultiplier,
+        );
       minion.hp = minion.maxHp;
       minion.targetRoomId = this.selectGhostTarget(minion);
       minion.summonerId = ghost.id;
@@ -5702,13 +5739,9 @@ export class GameEngine {
               : 1;
     const slowed = this.state.elapsed < ghost.slowUntil;
     const slowMultiplier = slowed ? clamp(ghost.slowMultiplier ?? 0.76, 0.35, 1) : 1;
-    const prestigeSlowMultiplier = this.playMode === 'multiplayer' && !this.state.ranked
-      ? this.state.players.reduce((minimum, player) =>
-          player.alive
-            ? Math.min(minimum, this.characterTraitForPlayer(player).globalGhostSpeedMultiplier)
-            : minimum,
-        1)
-      : 1;
+    const prestigeSlowMultiplier = this.globalPrestigeMultiplier(
+      (player) => this.characterTraitForPlayer(player).globalGhostSpeedMultiplier,
+    );
     ghost.prestigeSlowMultiplier = prestigeSlowMultiplier;
     let speed =
       BALANCE.ghost.speed *

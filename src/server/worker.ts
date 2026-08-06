@@ -110,7 +110,15 @@ async function routeAppUpdates(request: Request, env: Env): Promise<Response> {
     const result = await env.DB.prepare(
       'SELECT version, title, summary, published_at FROM app_updates ORDER BY published_at DESC, version DESC LIMIT ?',
     ).bind(limit).all<AppUpdateRow>();
-    return Response.json({ updates: (result.results ?? []).map(appUpdateFromRow) }, { headers: noStoreHeaders });
+    const updates = (result.results ?? []).map(appUpdateFromRow);
+    // Keep the history list and `/latest` endpoint on the same release. A
+    // client can otherwise mark the newest D1 row as read while `/latest`
+    // correctly selects a newer bundled fallback, making the home badge
+    // reappear after returning from another screen.
+    if (!updates[0] || isUpdateAvailable(CURRENT_APP_UPDATE.version, updates[0].version)) {
+      updates.unshift(CURRENT_APP_UPDATE);
+    }
+    return Response.json({ updates: updates.slice(0, limit) }, { headers: noStoreHeaders });
   } catch (error) {
     // A stale worker can briefly run before the D1 migration is applied. It
     // must not block login or cause an infinite refresh loop in that window.

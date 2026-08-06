@@ -3,7 +3,7 @@ import { BALANCE, buildingStats, maxBuildingLevel, upgradeCost, upgradeRequireme
 import { badgeArtworkViewport, isEliteRank, rankBadgeArtworkLayout, rankBadgeImage, rankBenefits, rankedBadgeArtworkLayout, rankedBadgeImage, RANKED_TIER_LABEL, rankLabel, rankLabelGradient } from '../../shared/progression';
 import { isPositionOnRoomFloor, moveInWalkableArea } from '../../shared/map';
 import { combinedItemEffects, getRandomItem, isGoldProducingBuilding } from '../../shared/randomItems';
-import { characterTraitForMatch } from '../../shared/characterTraits';
+import { characterTraitForMatch, upgradeCostForTrait } from '../../shared/characterTraits';
 import {
   BEACH_SAND_TILE_SKIN_ID,
   cosmeticById,
@@ -4913,8 +4913,16 @@ export class ThreeGameView {
       view.shield.visible = false;
       const local = snapshot.players.find((player) => player.id === this.playerId);
       const rank = snapshot.playMode === 'solo' ? local?.soloRank : local?.multiplayerRank;
+      const localTrait = characterTraitForMatch(
+        local?.appearance ?? { character: 'character-bunny', skin: 'skin-basic-bunny' },
+        Boolean(snapshot.ranked),
+      );
       const nextCost = intact && state.doorLevel < maxBuildingLevel('reinforced-door', rank ?? 'beginner')
-        ? upgradeCost('reinforced-door', state.doorLevel + 1, rank ?? 'beginner')
+        ? upgradeCostForTrait(
+            'reinforced-door',
+            upgradeCost('reinforced-door', state.doorLevel + 1, rank ?? 'beginner'),
+            localTrait,
+          )
         : null;
       const requirement = upgradeRequirement('reinforced-door', state.doorLevel, {
         bedLevel: state.bedLevels[local?.bedIndex ?? 0] ?? 1,
