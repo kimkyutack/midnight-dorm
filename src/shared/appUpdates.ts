@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.07.1";
+export const APP_RELEASE_VERSION = "2026.08.07.2";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "연출 상점과 일일 랜덤 상자",
+  title: "30일 출석판과 판별 생존 미션",
   summary:
-    "• 명찰 10종과 홈 배경 10종을 추가하고 상점·보관함·홈·인게임 이름표를 하나의 장착 흐름으로 연결했습니다.\n• 랜덤 상자는 매일 10회 지급되며 아이템 상점에서 하루 두 번, 한 번에 5회씩 광고 보상으로 보충할 수 있습니다. 광고 제거 이용자는 즉시 받습니다.\n• 복도 드롭 등급, 발전기 업그레이드 외형, 프레스티지 침대 잔상, 보급품 버튼, 프리미엄 캐시 가격과 구슬 포인트 상한을 함께 조정했습니다.",
-  publishedAt: 1786086400000,
+    "• 연속 출석 부담 없이 접속 횟수로 채우는 30일 출석 보상판을 추가했습니다. 7일 단위 특별 보상과 30일 프리미엄 스킨 선택권을 받을 수 있습니다.\n• 침대를 점유하면 30종 이상의 후보에서 매 판 새로 구성되는 생존 미션이 표시됩니다. 마지막 목표는 항상 스테이지 클리어입니다.\n• 완료한 판별 미션 포인트는 스테이지 클리어 보상에 합산되며, 진행도와 지급 결과는 서버에서 판정합니다.",
+  publishedAt: 1786094576000,
 };
 
 /**

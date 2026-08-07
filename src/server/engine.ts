@@ -53,6 +53,7 @@ import {
   type StageDefinition,
 } from "../shared/progression";
 import { SeededRandom, hashString } from "../shared/rng";
+import { advanceMatchMissions, createMatchMissions } from '../shared/matchMissions';
 import {
   isRankedTurretKind,
   normalizeRankedSeasonRules,
@@ -767,6 +768,9 @@ export class GameEngine {
       player.consumables ??= [];
       player.consumableLoadout ??= [];
       player.usedConsumables ??= [];
+      player.matchMissions ??= player.isBot || this.state.tutorial?.active
+        ? []
+        : createMatchMissions(this.state.matchId, player.id);
       player.speedBoostUntil ??= 0;
       player.stealthUntil ??= 0;
       player.bedrollUntil ??= 0;
@@ -1489,6 +1493,7 @@ export class GameEngine {
     owned.quantity -= 1;
     if (owned.quantity <= 0) player.consumables = player.consumables.filter((candidate) => candidate !== owned);
     player.usedConsumables.push(item.id);
+    advanceMatchMissions(player, { type: 'use-consumable' });
     this.pendingEvents.push({
       kind: 'consumable-use',
       playerId,
@@ -1942,6 +1947,8 @@ export class GameEngine {
       powerPanelMode: "attack",
     };
     this.state.buildings.push(building);
+    advanceMatchMissions(player, { type: 'build', kind, level: initialLevel });
+    advanceMatchMissions(player, { type: 'spend', gold: buildCost.gold, power: buildCost.power });
     if (kind === "hide-and-seek-doll") player.hideAndSeekDollBuilt = true;
     if (isFirstGuardian) player.firstGuardianBuilt = true;
     if (kind === "basic-turret" || kind === "turret-enhancer")
@@ -2094,6 +2101,7 @@ export class GameEngine {
         position: { ...target.tile },
         label: "영혼 레이저 충전 · 2초",
       });
+      advanceMatchMissions(player, { type: 'soul-vial-use' });
       return { ok: true };
     }
     if (building.kind === "hide-and-seek-doll" && message.action === "hide-and-seek") {
@@ -2272,6 +2280,8 @@ export class GameEngine {
             : mapRoom?.door,
         label: `${BALANCE.buildings[kind].label} Lv.${level + 1}`,
       });
+      advanceMatchMissions(player, { type: 'upgrade', kind, level: level + 1 });
+      advanceMatchMissions(player, { type: 'spend', gold: cost.gold, power: cost.power });
       return { ok: true };
     }
     const building = this.state.buildings.find(
@@ -2320,6 +2330,8 @@ export class GameEngine {
     // adjacency; leaving a restored generator's value behind made identical
     // levels use different meshes.
     building.effectiveLevel = building.level;
+    advanceMatchMissions(player, { type: 'upgrade', kind: building.kind, level: building.level });
+    advanceMatchMissions(player, { type: 'spend', gold: cost.gold, power: cost.power });
     if (building.kind === 'basic-turret' || building.kind === 'turret-enhancer')
       this.syncDynamicTurretLevels(this.createBuildingTickIndex());
     this.addBuildingInvestment(building, playerId, cost);
@@ -2520,6 +2532,8 @@ export class GameEngine {
     player.power -= cost.power;
     player.drawCount += 1;
     player.randomBoxesRemaining = Math.max(0, player.randomBoxesRemaining - 1);
+    advanceMatchMissions(player, { type: 'draw-item' });
+    advanceMatchMissions(player, { type: 'spend', gold: cost.gold, power: cost.power });
     this.revealedRandomItemIds.add(item.id);
     // A draw is no longer an invisible bag bonus.  The machine itself turns
     // into a removable reward object, so every buff has an obvious physical
@@ -4193,6 +4207,7 @@ export class GameEngine {
     room.freeRepairUntil = this.state.elapsed + 5;
     room.freeRepairReadyAt = room.freeRepairUntil + 60;
     room.freeRepairByPlayerId = playerId;
+    advanceMatchMissions(player, { type: 'free-repair' });
     const repairMultiplier = this.characterTraitForPlayer(player).repairEffectMultiplier;
     this.pendingEvents.push({
       kind: "door-repair",
@@ -5881,6 +5896,9 @@ export class GameEngine {
 
   private evaluateOutcome(): void {
     if (this.state.ghosts.every((ghost) => ghost.hp <= 0)) {
+      for (const player of this.state.players) {
+        if (!player.isBot) advanceMatchMissions(player, { type: 'clear' });
+      }
       this.state.status = "VICTORY";
       this.state.winner = "survivors";
       this.pendingEvents.push({
@@ -6089,6 +6107,9 @@ export class GameEngine {
         .map((item) => ({ itemId: item.itemId, quantity: item.quantity })),
       consumableLoadout: [],
       usedConsumables: [],
+      matchMissions: isBot || this.stage.id === 'tutorial-1'
+        ? []
+        : createMatchMissions(this.state.matchId, id),
       speedBoostUntil: 0,
       stealthUntil: 0,
       bedrollUntil: 0,

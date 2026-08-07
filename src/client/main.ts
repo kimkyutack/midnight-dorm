@@ -90,6 +90,7 @@ import type {
   EventMissionPeriod,
   EventMissionProgress,
 } from "../shared/eventMissions";
+import type { AttendanceRewardProgress } from '../shared/attendanceRewards';
 import { buildForceRefreshUrl } from "./pwaRefresh";
 import type {
   AccountProfile,
@@ -131,6 +132,8 @@ import {
   getEventMissions,
   grantDevelopmentCash,
   claimEventMissions,
+  claimAttendanceDay,
+  redeemAttendanceSkin,
   claimMatchReward,
   loginAccount,
   logoutAccount,
@@ -181,6 +184,7 @@ import type { HideSeekExperienceHandle } from "./hideSeek";
 import "./styles.css";
 import "./arcade-polish.css";
 import "./hide-seek-entry.css";
+import "./attendance-and-match-missions.css";
 
 initializeNativeRuntime();
 setupMobileViewportCompatibility();
@@ -255,6 +259,8 @@ let mailboxUnreadCount = 0;
 let announcementUnread = false;
 let socialUnreadCount = 0;
 let eventMissionOverviewCache: EventMissionOverview | null = null;
+let matchMissionsCollapsed = false;
+let matchMissionRenderKey = "";
 let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
 interface SocialRealtimeEvent {
@@ -1029,6 +1035,7 @@ function homeScreen(): void {
     ? ` style="--game-nameplate-image:url('${escapeHtml(releaseVersionedAsset(equippedNameplate.imageUrl))}')"`
     : '';
   const eventClaimable = (eventMissionOverviewCache?.claimableCount ?? 0) > 0;
+  const attendanceClaimable = (eventMissionOverviewCache?.attendance.claimableCount ?? 0) > 0;
   const eventNeedsStart = eventMissionOverviewCache !== null && !eventMissionOverviewCache.hasProgress;
   setContent(
     "home",
@@ -1053,14 +1060,14 @@ function homeScreen(): void {
       </section>
       <div class="home-stage-menu" aria-label="홈 메뉴"><button class="home-stage-menu-trigger" data-home-stage-menu aria-label="메뉴 열기" aria-expanded="false"><span></span><span></span><span></span><b class="home-stage-menu-alert ${announcementUnread ? "visible" : ""}" data-announcement-alert aria-hidden="true"></b></button><div class="home-stage-menu-dropdown hidden" data-home-stage-menu-dropdown><button data-app-updates>${gameMenuIcon("announcement")}<span>공지사항</span><b class="home-stage-menu-alert ${announcementUnread ? "visible" : ""}" data-announcement-alert aria-hidden="true"></b></button><button data-home-settings>${homeUtilityIcon("settings")}<span>설정</span></button></div></div>
       <nav class="home-side-menu home-side-menu-left" aria-label="홈 왼쪽 메뉴">
-        <button class="home-event-missions" data-event-missions aria-label="이벤트"><img class="home-event-fireworks" src="/assets/ui/events/birthday-fireworks.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>이벤트</span></button>
+        <button class="home-event-missions" data-event-missions data-event-section="attendance" aria-label="이벤트"><img class="home-event-fireworks" src="/assets/ui/events/birthday-fireworks.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>이벤트</span><b class="home-event-alert ${attendanceClaimable ? "visible" : ""}" data-attendance-alert aria-hidden="true"></b></button>
         <button class="home-ad-free ${currentAccount.adFree.active ? "active" : ""}" data-ad-free aria-label="광고 제거">${gameMenuIcon("adfree")}<span>광고 제거</span></button>
         <button class="home-orb-shop" data-orb-shop aria-label="구슬 상점"><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/><span>구슬 상점</span></button>
       </nav>
       <nav class="home-side-menu home-side-menu-right" aria-label="홈 오른쪽 메뉴">
         <button class="home-ranking-shortcut" data-ranking aria-label="랭킹">${gameMenuIcon("ranking")}<span>랭킹</span></button>
         <button class="home-guide" data-page-guide data-guide-topic="battle" aria-label="생존 가이드 도움말">${gameMenuIcon("guide")}<span>가이드</span></button>
-        <button class="home-event-missions" data-event-missions aria-label="미션">${gameMenuIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button>
+        <button class="home-event-missions" data-event-missions data-event-section="daily" aria-label="미션">${gameMenuIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button>
       </nav>
       <section class="home-avatar-showcase" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div><strong class="home-character-nameplate game-nameplate ${currentAccount.prestige.nameplateId ?? 'nameplate-basic'}"${homeNameplateStyle}>${escapeHtml(currentAccount.nickname)}</strong></section>
       <footer class="home-actions">
@@ -1124,9 +1131,9 @@ function homeScreen(): void {
     audio.play("button");
     showRankingPreview();
   });
-  app.querySelectorAll("[data-event-missions]").forEach((button) => button.addEventListener("click", () => {
+  app.querySelectorAll<HTMLElement>("[data-event-missions]").forEach((button) => button.addEventListener("click", () => {
     audio.play("button");
-    void eventMissionScreen();
+    void eventMissionScreen(button.dataset.eventSection === 'attendance' ? 'attendance' : 'daily');
   }));
   app.querySelector("[data-mailbox]")?.addEventListener("click", () => {
     audio.play("button");
@@ -2005,6 +2012,9 @@ async function refreshHomeEventMissionStatus(): Promise<void> {
       .querySelector("[data-event-alert]")
       ?.classList.toggle("visible", eventMissionOverviewCache.claimableCount > 0);
     app
+      .querySelector("[data-attendance-alert]")
+      ?.classList.toggle("visible", eventMissionOverviewCache.attendance.claimableCount > 0);
+    app
       .querySelector("[data-event-nudge]")
       ?.classList.toggle(
         "visible",
@@ -2014,6 +2024,7 @@ async function refreshHomeEventMissionStatus(): Promise<void> {
   } catch {
     if (currentView !== "home") return;
     app.querySelector("[data-event-alert]")?.classList.remove("visible");
+    app.querySelector("[data-attendance-alert]")?.classList.remove("visible");
     app.querySelector("[data-event-nudge]")?.classList.remove("visible");
   }
 }
@@ -2044,20 +2055,88 @@ function eventMissionCardMarkup(mission: EventMissionProgress): string {
   </article>`;
 }
 
+type EventCenterSection = 'attendance' | EventMissionPeriod;
+
+function attendanceRewardCardMarkup(reward: AttendanceRewardProgress): string {
+  const stateLabel = reward.claimed
+    ? '수령 완료'
+    : reward.claimable
+      ? '눌러서 수령'
+      : `${reward.day}회 출석 시 해금`;
+  return `<button type="button" class="attendance-reward ${reward.special ? 'special' : ''} ${reward.claimable ? 'claimable' : ''} ${reward.claimed ? 'claimed' : ''}" data-attendance-day="${reward.day}" ${reward.claimable ? '' : 'disabled'}>
+    <span>${reward.day}일 출석</span>
+    <img src="${escapeHtml(releaseVersionedAsset(reward.imageUrl))}" alt="${escapeHtml(reward.label)}" loading="lazy"/>
+    <strong>${escapeHtml(reward.label)}</strong>
+    <small>${stateLabel}</small>
+  </button>`;
+}
+
+function attendanceSectionMarkup(overview: EventMissionOverview): string {
+  const attendance = overview.attendance;
+  return `<section class="attendance-section">
+    <header><div><small>30-DAY CHECK-IN</small><strong>누적 출석 보상판</strong></div><span>${attendance.attendanceCount}/30회 출석</span></header>
+    <p>연속 출석이 아니며, 서로 다른 날 접속할 때마다 출석 횟수가 1회 올라갑니다. 해금된 보상을 직접 눌러 수령하세요.</p>
+    <div class="attendance-calendar">${attendance.rewards.map(attendanceRewardCardMarkup).join('')}</div>
+  </section>`;
+}
+
+function showAttendancePremiumChoice(overview: EventMissionOverview): void {
+  const choice = overview.attendance.premiumChoice;
+  if (!choice?.pending) return;
+  const modal = dismissibleModal(
+    `<section class="attendance-choice-sheet" role="dialog" aria-modal="true" aria-labelledby="attendance-choice-title">
+      <header><div><small>PREMIUM SELECT</small><h2 id="attendance-choice-title">프리미엄 스킨 선택권</h2></div><button type="button" data-modal-close aria-label="닫기">×</button></header>
+      <p>서퍼 몽을 이미 보유하고 있어 같은 가격대의 프리미엄 스킨 1개를 선택할 수 있습니다. 캐릭터가 없어도 먼저 수령할 수 있습니다.</p>
+      <div class="attendance-choice-grid">${choice.choices.map((item) => `<button type="button" data-attendance-choice="${escapeHtml(item.itemId)}"><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/><strong>${escapeHtml(item.label)}</strong><span>선택</span></button>`).join('')}</div>
+    </section>`,
+    'attendance-choice-modal',
+  );
+  modal.querySelectorAll<HTMLButtonElement>('[data-attendance-choice]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const itemId = button.dataset.attendanceChoice;
+      if (!itemId) return;
+      button.disabled = true;
+      void withGlobalActionLoading('프리미엄 스킨 수령 중', () => redeemAttendanceSkin(itemId))
+        .then(async (result) => {
+          account = await getAccount();
+          if (eventMissionOverviewCache) {
+            eventMissionOverviewCache = {
+              ...eventMissionOverviewCache,
+              customPoints: account.customPoints,
+              attendance: result.overview,
+            };
+          }
+          modal.remove();
+          audio.play('item-pickup');
+          toast('선택한 프리미엄 스킨을 수령했습니다.');
+          if (eventMissionOverviewCache) renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+        })
+        .catch((error) => {
+          button.disabled = false;
+          toast(error instanceof Error ? error.message : '프리미엄 스킨을 수령하지 못했습니다.');
+        });
+    });
+  });
+}
+
 function renderEventMissionScreen(
   overview: EventMissionOverview,
-  activePeriod: EventMissionPeriod,
+  activeSection: EventCenterSection,
 ): void {
-  const period = overview.periods[activePeriod];
+  const activePeriod = activeSection === 'attendance' ? null : activeSection;
+  const period = activePeriod ? overview.periods[activePeriod] : null;
+  const content = activeSection === 'attendance'
+    ? attendanceSectionMarkup(overview)
+    : `<section class="event-mission-section"><header><div><small>${activePeriod === "daily" ? "TODAY" : "THIS WEEK"}</small><strong>${activePeriod === "daily" ? "오늘의 생존 지령" : "주간 생존 작전"}</strong></div><span>${eventMissionResetLabel(activePeriod as EventMissionPeriod, period?.resetsAt ?? 0)}</span></header><div class="event-mission-list">${period?.missions.map(eventMissionCardMarkup).join("") ?? ''}</div></section>`;
   setContent(
     "events",
     `<main class="event-screen">
       <div class="event-screen-backdrop"></div>
-      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>MISSION</span><h1>미션</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
-      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="미션 이벤트"/><div><small>MIDNIGHT ORDERS</small><h2>생존 임무</h2><p>매일과 매주 갱신되는 임무를 달성하고 포인트를 받으세요.</p></div></section>
-      <nav class="event-tabs" aria-label="이벤트 종류"><button class="${activePeriod === "daily" ? "active" : ""}" data-event-period="daily">일일 미션</button><button class="${activePeriod === "weekly" ? "active" : ""}" data-event-period="weekly">주간 미션</button></nav>
-      <section class="event-mission-section"><header><div><small>${activePeriod === "daily" ? "TODAY" : "THIS WEEK"}</small><strong>${activePeriod === "daily" ? "오늘의 생존 지령" : "주간 생존 작전"}</strong></div><span>${eventMissionResetLabel(activePeriod, period.resetsAt)}</span></header><div class="event-mission-list">${period.missions.map(eventMissionCardMarkup).join("")}</div></section>
-      <footer class="event-claim-footer"><span>${overview.claimableCount > 0 ? `수령 가능한 보상 ${overview.claimableCount}개` : "수령 가능한 보상이 없습니다"}</span><button data-claim-all ${overview.claimableCount > 0 ? "" : "disabled"}>보상 일괄수령</button></footer>
+      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>EVENT CENTER</span><h1>이벤트</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
+      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="미션 이벤트"/><div><small>MIDNIGHT ORDERS</small><h2>생존 보급 작전</h2><p>출석하고 임무를 달성해 매일 새로운 보상을 받으세요.</p></div></section>
+      <nav class="event-tabs event-center-tabs" aria-label="이벤트 종류"><button class="attendance-tab ${activeSection === 'attendance' ? 'active' : ''}" data-event-section="attendance">출석보상</button><button class="${activeSection === "daily" ? "active" : ""}" data-event-section="daily">일일 미션</button><button class="${activeSection === "weekly" ? "active" : ""}" data-event-section="weekly">주간 미션</button></nav>
+      ${content}
+      ${activeSection === 'attendance' ? '' : `<footer class="event-claim-footer"><span>${overview.claimableCount > 0 ? `수령 가능한 미션 보상 ${overview.claimableCount}개` : "수령 가능한 미션 보상이 없습니다"}</span><button data-claim-all ${overview.claimableCount > 0 ? "" : "disabled"}>보상 일괄수령</button></footer>`}
     </main>`,
   );
   app.querySelector("[data-event-back]")?.addEventListener("click", () => {
@@ -2065,28 +2144,58 @@ function renderEventMissionScreen(
     homeScreen();
   });
   app
-    .querySelectorAll<HTMLButtonElement>("[data-event-period]")
+    .querySelectorAll<HTMLButtonElement>("[data-event-section]")
     .forEach((button) =>
       button.addEventListener("click", () => {
         audio.play("button");
-        renderEventMissionScreen(
-          overview,
-          button.dataset.eventPeriod === "weekly" ? "weekly" : "daily",
-        );
+        const section = button.dataset.eventSection;
+        renderEventMissionScreen(overview, section === 'attendance' ? 'attendance' : section === 'weekly' ? 'weekly' : 'daily');
       }),
     );
+  app.querySelectorAll<HTMLButtonElement>('[data-attendance-day]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const day = Number(button.dataset.attendanceDay);
+      if (!Number.isInteger(day)) return;
+      button.disabled = true;
+      void claimAttendanceRewardForDay(day);
+    });
+  });
   app
     .querySelectorAll<HTMLButtonElement>("[data-claim-mission]")
     .forEach((button) =>
       button.addEventListener("click", () => {
         const missionId = button.dataset.claimMission;
         if (!missionId) return;
-        void claimMissionRewards([missionId], activePeriod);
+        void claimMissionRewards([missionId], activePeriod ?? 'daily');
       }),
     );
   app.querySelector<HTMLButtonElement>("[data-claim-all]")?.addEventListener("click", () => {
-    void claimMissionRewards([], activePeriod);
+    void claimMissionRewards([], activePeriod ?? 'daily');
   });
+  if (activeSection === 'attendance' && overview.attendance.premiumChoice?.pending) {
+    window.setTimeout(() => showAttendancePremiumChoice(overview), 0);
+  }
+}
+
+async function claimAttendanceRewardForDay(day: number): Promise<void> {
+  try {
+    const result = await withGlobalActionLoading('출석 보상 수령 중', () => claimAttendanceDay(day));
+    account = await getAccount();
+    if (!eventMissionOverviewCache || !account) return;
+    eventMissionOverviewCache = {
+      ...eventMissionOverviewCache,
+      customPoints: account.customPoints,
+      attendance: result.overview,
+    };
+    renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+    audio.play('item-pickup');
+    if (result.premiumChoiceRequired) toast('프리미엄 스킨 선택권을 받았습니다.');
+    else if (result.awardedPoints > 0) toast(`${result.awardedPoints.toLocaleString()}P를 받았습니다.`);
+    else toast('출석 특별 보상을 받았습니다.');
+  } catch (error) {
+    if (eventMissionOverviewCache) renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+    toast(error instanceof Error ? error.message : '출석 보상을 수령하지 못했습니다.');
+  }
 }
 
 async function claimMissionRewards(
@@ -2120,7 +2229,7 @@ async function claimMissionRewards(
   }
 }
 
-async function eventMissionScreen(): Promise<void> {
+async function eventMissionScreen(initialSection: EventCenterSection = 'attendance'): Promise<void> {
   setContent(
     "events",
     loadingMarkup("이벤트를 불러오는 중", "오늘의 생존 지령을 확인하고 있습니다."),
@@ -2129,7 +2238,7 @@ async function eventMissionScreen(): Promise<void> {
     eventMissionOverviewCache = await getEventMissions();
     if (account) account.customPoints = eventMissionOverviewCache.customPoints;
     if (currentView !== "events") return;
-    renderEventMissionScreen(eventMissionOverviewCache, "daily");
+    renderEventMissionScreen(eventMissionOverviewCache, initialSection);
   } catch (error) {
     if (currentView !== "events") return;
     setContent(
@@ -5168,8 +5277,21 @@ function gameScreen(state: GameSnapshot): void {
     : "";
   setContent(
     "game",
-    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus ${me.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus ${me.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="match-mission-panel hidden" data-match-missions aria-label="이번 판 미션"><button type="button" class="match-mission-header" data-match-mission-toggle aria-expanded="true"><span><small>MATCH ORDERS</small><strong>이번 판 미션</strong></span><b data-match-mission-total>0P</b><i data-match-mission-arrow>⌃</i></button><ol data-match-mission-list></ol></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
+  matchMissionsCollapsed = false;
+  matchMissionRenderKey = "";
+  app.querySelector<HTMLButtonElement>('[data-match-mission-toggle]')?.addEventListener('click', () => {
+    const panel = app.querySelector<HTMLElement>('[data-match-missions]');
+    const button = app.querySelector<HTMLButtonElement>('[data-match-mission-toggle]');
+    const arrow = app.querySelector<HTMLElement>('[data-match-mission-arrow]');
+    if (!panel || !button || !arrow) return;
+    matchMissionsCollapsed = !matchMissionsCollapsed;
+    panel.classList.toggle('collapsed', matchMissionsCollapsed);
+    button.setAttribute('aria-expanded', String(!matchMissionsCollapsed));
+    arrow.textContent = matchMissionsCollapsed ? '⌄' : '⌃';
+    audio.play('button');
+  });
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
     '[data-camera="rotate-left"]',
   );
@@ -5507,6 +5629,7 @@ function updateHud(): void {
   }
   updateHudTeammates();
   updateOpeningMinimap();
+  updateMatchMissionPanel();
   setText("[data-gold]", me ? Math.floor(me.gold).toString() : "0");
   setText("[data-power]", me ? Math.floor(me.power).toString() : "0");
   setText("[data-door]", room ? `${Math.ceil(room.doorHp)}` : "미점유");
@@ -5800,6 +5923,45 @@ function updateOpeningMinimap(): void {
     context.lineWidth = 0.8;
     context.stroke();
   }
+}
+
+function updateMatchMissionPanel(): void {
+  const panel = app.querySelector<HTMLElement>('[data-match-missions]');
+  const list = app.querySelector<HTMLOListElement>('[data-match-mission-list]');
+  const total = app.querySelector<HTMLElement>('[data-match-mission-total]');
+  if (!panel || !list || !total || !snapshot) return;
+  const local = snapshot.players.find((player) => player.id === playerId);
+  const missions = local?.matchMissions ?? [];
+  const visible = Boolean(
+    local?.alive &&
+      local.roomId &&
+      missions.length > 0 &&
+      (snapshot.status === 'COUNTDOWN' ||
+        snapshot.status === 'PLAYING' ||
+        snapshot.status === 'OVERTIME'),
+  );
+  panel.classList.toggle('hidden', !visible);
+  if (!visible) {
+    matchMissionRenderKey = '';
+    return;
+  }
+  panel.classList.toggle('collapsed', matchMissionsCollapsed);
+  const earnedPoints = missions.reduce(
+    (sum, mission) => sum + (mission.completed ? mission.rewardPoints : 0),
+    0,
+  );
+  total.textContent = `+${earnedPoints}P`;
+  const renderKey = missions
+    .map((mission) => `${mission.id}:${mission.progress}:${mission.completed ? 1 : 0}`)
+    .join('|');
+  if (matchMissionRenderKey === renderKey) return;
+  matchMissionRenderKey = renderKey;
+  list.innerHTML = missions
+    .map((mission, index) => {
+      const progress = Math.min(mission.progress, mission.target);
+      return `<li class="${mission.completed ? 'completed' : ''}"><span>${index + 1}</span><div><strong>${escapeHtml(mission.title)}</strong><small>${escapeHtml(mission.description)}</small></div><b>${mission.completed ? '✓' : `${Math.floor(progress)}/${mission.target}`}</b><em>+${mission.rewardPoints}P</em></li>`;
+    })
+    .join('');
 }
 
 interface ResultScreenPresentation {

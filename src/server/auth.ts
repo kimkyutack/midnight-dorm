@@ -4,6 +4,7 @@ import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsuma
 import type { AccountProfile, AvatarAppearance, ConsumableId, OwnedConsumable, PlayMode, ProfileDisplayMode, PromotionCampaignId, PromotionCampaignSetting, RankedTier, StorefrontThemeId, StorefrontThemeSetting, TurretKind, TurretSkinLoadout } from '../shared/types';
 import { rankedContractScoreMultiplier, rankedRatingDelta, type RankedContributionSummary } from './rankedScoring';
 import { claimEventMissionRewards, ensureEventMissionSchema, eventMissionOverview, recordLoginMissionProgress, recordRankedCompletionMissionProgress, recordStageClearMissionProgress } from './eventMissions';
+import { claimAttendanceReward, redeemAttendancePremiumChoice } from './attendanceRewards';
 import { hideSeekVictoryPoints, type HideSeekResultReason, type HideSeekRole } from '../shared/hideSeek';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { BASIC_PROFILE_FRAME_ID, duplicatePointRefund, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PACKAGE_COST, GHOST_ORB_PITY_DRAWS, ghostOrbEligibleCosmetics, MOONLIT_PHANTOM_SKIN_ID, PRESTIGE_PACKAGES, prestigeAccessoryById, prestigeAccessoryIdsForPackages, prestigeEmoteById, prestigePackageById } from '../shared/prestige';
@@ -2230,6 +2231,38 @@ export async function routeAuth(
         { headers: { 'cache-control': 'no-store' } },
       );
     }
+    if (url.pathname === '/api/events/attendance/claim' && request.method === 'POST') {
+      if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+      const profile = await authenticatedProfileFromReadySchema(request, db);
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      let body: { day?: unknown };
+      try { body = await request.json(); } catch { body = {}; }
+      const day = typeof body.day === 'number' ? Math.floor(body.day) : 0;
+      try {
+        return Response.json(
+          await claimAttendanceReward(db, profile.id, day, Date.now(), bootstrapSchema),
+          { headers: { 'cache-control': 'no-store' } },
+        );
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : '출석 보상을 수령하지 못했습니다.' }, { status: 409 });
+      }
+    }
+    if (url.pathname === '/api/events/attendance/premium-choice' && request.method === 'POST') {
+      if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+      const profile = await authenticatedProfileFromReadySchema(request, db);
+      if (!profile) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      let body: { itemId?: unknown };
+      try { body = await request.json(); } catch { body = {}; }
+      const itemId = typeof body.itemId === 'string' ? body.itemId : '';
+      try {
+        return Response.json(
+          await redeemAttendancePremiumChoice(db, profile.id, itemId, Date.now(), bootstrapSchema),
+          { headers: { 'cache-control': 'no-store' } },
+        );
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : '프리미엄 스킨을 선택하지 못했습니다.' }, { status: 409 });
+      }
+    }
     if (url.pathname === '/api/entitlements/ad-free/purchase' && request.method === 'POST') return purchaseMockAdFree(request, db);
     if (url.pathname === '/api/auth/me' && request.method === 'GET') {
       const row = await authenticatedRowFromReadySchema(request, db);
@@ -2246,7 +2279,7 @@ export async function routeAuth(
 
 export async function recordMatchResult(
   db: D1Database,
-  input: { matchId: string; accountId: string; playMode: PlayMode; stageId?: string; stageIndex: number; victory: boolean; elapsed: number; timeAttack?: boolean },
+  input: { matchId: string; accountId: string; playMode: PlayMode; stageId?: string; stageIndex: number; victory: boolean; elapsed: number; timeAttack?: boolean; missionRewardPoints?: number },
   bootstrapSchema = false,
 ): Promise<void> {
   if (bootstrapSchema) await ensureAuthSchema(db);
@@ -2261,7 +2294,10 @@ export async function recordMatchResult(
   // The 35% event bonus is awarded only for a successful Time Attack clear.
   const eventBonus = input.victory && input.timeAttack ? 1.35 : 1;
   const xp = Math.round(baseXp * eventBonus);
-  const points = Math.round(basePoints * eventBonus);
+  const missionRewardPoints = input.victory
+    ? Math.max(0, Math.min(150, Math.floor(input.missionRewardPoints ?? 0)))
+    : 0;
+  const points = Math.round(basePoints * eventBonus) + missionRewardPoints;
   const now = Date.now();
   const rewardClaimedAt = tutorialMatch && input.victory ? now : 0;
   const rewardMultiplier = tutorialMatch && input.victory ? 1 : 0;

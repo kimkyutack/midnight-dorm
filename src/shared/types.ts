@@ -169,6 +169,31 @@ export interface OwnedItem {
   count: number;
 }
 
+export type MatchMissionMetric =
+  | 'build'
+  | 'build-count'
+  | 'upgrade-count'
+  | 'reach-level'
+  | 'spend-gold'
+  | 'spend-power'
+  | 'draw-item'
+  | 'use-consumable'
+  | 'free-repair'
+  | 'soul-vial-use'
+  | 'clear';
+
+export interface MatchMissionProgress {
+  id: string;
+  title: string;
+  description: string;
+  metric: MatchMissionMetric;
+  target: number;
+  targetKind?: BuildingKind;
+  rewardPoints: number;
+  progress: number;
+  completed: boolean;
+}
+
 export interface PlayerState {
   id: string;
   accountId: string | null;
@@ -232,6 +257,8 @@ export interface PlayerState {
   consumables: OwnedConsumable[];
   consumableLoadout: ConsumableId[];
   usedConsumables: ConsumableId[];
+  /** Optional per-match objectives. Rewards settle only with the final clear reward. */
+  matchMissions: MatchMissionProgress[];
   speedBoostUntil: number;
   stealthUntil: number;
   bedrollUntil: number;

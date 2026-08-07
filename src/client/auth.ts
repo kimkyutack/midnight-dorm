@@ -1,5 +1,6 @@
 import type { AccountProfile } from '../shared/types';
 import type { EventMissionOverview } from '../shared/eventMissions';
+import type { AttendanceOverview } from '../shared/attendanceRewards';
 import { setNativeSessionToken } from './native/runtime';
 
 async function authRequest(path: string, options?: RequestInit): Promise<AccountProfile> {
@@ -192,6 +193,40 @@ export async function claimEventMissions(
     awardedPoints: data.awardedPoints ?? 0,
     claimedCount: data.claimedCount ?? 0,
   };
+}
+
+export interface AttendanceClaimResult {
+  overview: AttendanceOverview;
+  awardedPoints: number;
+  awardedItemId: string | null;
+  premiumChoiceRequired: boolean;
+}
+
+export async function claimAttendanceDay(day: number): Promise<AttendanceClaimResult> {
+  const response = await fetch('/api/events/attendance/claim', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ day }),
+  });
+  const data = await response.json() as AttendanceClaimResult & { error?: string };
+  if (!response.ok || !data.overview) throw new Error(data.error ?? '출석 보상을 수령하지 못했습니다.');
+  return data;
+}
+
+export async function redeemAttendanceSkin(itemId: string): Promise<{
+  overview: AttendanceOverview;
+  awardedItemId: string;
+}> {
+  const response = await fetch('/api/events/attendance/premium-choice', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ itemId }),
+  });
+  const data = await response.json() as { overview?: AttendanceOverview; awardedItemId?: string; error?: string };
+  if (!response.ok || !data.overview || !data.awardedItemId) {
+    throw new Error(data.error ?? '프리미엄 스킨을 선택하지 못했습니다.');
+  }
+  return { overview: data.overview, awardedItemId: data.awardedItemId };
 }
 
 export const purchaseAdFree = (plan: 'monthly' | 'permanent'): Promise<AccountProfile> =>

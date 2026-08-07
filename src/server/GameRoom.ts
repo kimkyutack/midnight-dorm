@@ -4,6 +4,7 @@ import { normalizeAppearance, normalizeTurretSkins } from '../shared/customizati
 import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import { compactRealtimeEvents } from '../shared/realtimeEvents';
+import { completedMatchMissionPoints } from '../shared/matchMissions';
 import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
 import { consumeMatchConsumable, consumeRandomBox, recordMatchResult, recordRankedMatchResult, refundRandomBox } from './auth';
 import { summarizeRankedContributions } from './rankedScoring';
@@ -768,6 +769,7 @@ export class GameRoom extends DurableObject<Env> {
           victory,
           elapsed: snapshot.elapsed,
           timeAttack: snapshot.difficulty.modifier === 'time-attack',
+          missionRewardPoints: victory ? completedMatchMissionPoints(player) : 0,
         }, this.env.DATA_ENV === 'local-e2e');
         if (!snapshot.ranked) return;
         const ownedRooms = snapshot.rooms.filter((room) => room.ownerIds.includes(player.id));

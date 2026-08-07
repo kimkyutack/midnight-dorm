@@ -6,6 +6,7 @@ import {
   type EventMissionMetric,
   type EventMissionPeriod,
 } from '../shared/eventMissions';
+import { attendanceOverview, ensureAttendanceSchema, recordAttendanceVisit } from './attendanceRewards';
 
 interface ProgressRow {
   metric: EventMissionMetric;
@@ -56,6 +57,7 @@ async function upgradeLegacyEventMissionSchema(db: D1Database): Promise<void> {
 }
 
 export async function ensureEventMissionSchema(db: D1Database): Promise<void> {
+  await ensureAttendanceSchema(db);
   const columns = await db.prepare('PRAGMA table_info(event_mission_progress)')
     .all<{ name: string }>();
   const columnNames = new Set((columns.results ?? []).map((column) => column.name));
@@ -145,6 +147,7 @@ export async function recordLoginMissionProgress(
   bootstrapSchema = false,
 ): Promise<void> {
   if (bootstrapSchema) await ensureEventMissionSchema(db);
+  await recordAttendanceVisit(db, accountId, now);
   const daily = eventMissionPeriodWindow('daily', now);
   const weekly = eventMissionPeriodWindow('weekly', now);
   await db.prepare(`INSERT OR IGNORE INTO event_mission_login_days
@@ -180,7 +183,7 @@ export async function eventMissionOverview(
   if (bootstrapSchema) await ensureEventMissionSchema(db);
   const daily = eventMissionPeriodWindow('daily', now);
   const weekly = eventMissionPeriodWindow('weekly', now);
-  const [progressResult, claimsResult, wallet] = await Promise.all([
+  const [progressResult, claimsResult, wallet, attendance] = await Promise.all([
     db.prepare(`SELECT metric, period_type, period_key, progress_count
       FROM event_mission_progress
       WHERE account_id = ?
@@ -193,6 +196,7 @@ export async function eventMissionOverview(
       .bind(accountId, daily.key, weekly.key).all<ClaimRow>(),
     db.prepare('SELECT custom_points FROM account_customization WHERE account_id = ?')
       .bind(accountId).first<{ custom_points: number }>(),
+    attendanceOverview(db, accountId),
   ]);
   const progress = new Map(
     (progressResult.results ?? []).map((row) => [`${row.metric}:${row.period_type}:${row.period_key}`, row.progress_count]),
@@ -228,6 +232,7 @@ export async function eventMissionOverview(
     customPoints: wallet?.custom_points ?? 0,
     claimableCount: missions.filter((mission) => mission.claimable).length,
     hasProgress: missions.some((mission) => mission.progress > 0),
+    attendance,
     periods,
   };
 }

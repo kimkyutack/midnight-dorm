@@ -29,6 +29,7 @@ export interface EventMissionOverview {
   customPoints: number;
   claimableCount: number;
   hasProgress: boolean;
+  attendance: AttendanceOverview;
   periods: Record<EventMissionPeriod, EventMissionPeriodState>;
 }
 
@@ -169,3 +170,4 @@ export function eventMissionsForPeriod(
 ): EventMissionDefinition[] {
   return EVENT_MISSIONS.filter((mission) => mission.period === period);
 }
+import type { AttendanceOverview } from './attendanceRewards';
