@@ -3471,13 +3471,15 @@ describe('authoritative game rules', () => {
     const tiles = engine.map.rooms.find((room) => room.id === roomId)?.buildTiles ?? [];
     const persisted = engine.serialize();
     const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
-    if (!player || tiles.length < 3) throw new Error('missing range amplifier fixture');
-    player.gold = 100;
+    if (!player || tiles.length < 4) throw new Error('missing range amplifier fixture');
+    player.gold = 10_000;
     player.power = 10_000;
     engine.restore(persisted);
 
     expect(engine.build(playerId, roomId, tiles[0] as Tile, 'range-amplifier').ok).toBe(true);
-    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'range-amplifier').error).toContain('하나');
+    expect(engine.build(playerId, roomId, tiles[1] as Tile, 'range-amplifier').error).toContain('방에 이미');
+    expect(engine.build(playerId, roomId, tiles[2] as Tile, 'power-panel').ok).toBe(true);
+    expect(engine.build(playerId, roomId, tiles[3] as Tile, 'power-panel').error).toContain('방에 이미');
     const amplifierId = engine.snapshot().buildings.find((building) => building.kind === 'range-amplifier')?.id;
     if (!amplifierId) throw new Error('missing range amplifier');
     for (let level = 2; level <= 4; level += 1) expect(engine.upgrade(playerId, amplifierId).ok).toBe(true);
@@ -3498,6 +3500,62 @@ describe('authoritative game rules', () => {
     engine.drainEvents();
     engine.tick(0.05);
     expect(engine.drainEvents().some((event) => event.kind === 'turret-fire')).toBe(true);
+  });
+
+  it('shares one range amplifier and one power panel limit across both occupants', () => {
+    const map = generateMap(73_403, 'multiplayer');
+    const engine = new GameEngine('SHAREDSINGLETON', map, true, { playMode: 'multiplayer' });
+    const first = engine.join({ nickname: 'SingletonA', deviceId: 'shared-singleton-a' });
+    const second = engine.join({ nickname: 'SingletonB', deviceId: 'shared-singleton-b' });
+    engine.handle(second.player.id, envelope({ type: 'ready', ready: true }, 2));
+    begin(engine, first.player.id);
+    const roomId = engine.snapshot().players.find(
+      (player) => player.id === first.player.id,
+    )?.roomId;
+    const secondRoomId = engine.snapshot().players.find(
+      (player) => player.id === second.player.id,
+    )?.roomId;
+    const room = map.rooms.find((candidate) => candidate.id === roomId);
+    if (!roomId || roomId !== secondRoomId || !room || room.buildTiles.length < 4)
+      throw new Error('missing shared singleton fixture');
+    const funded = engine.serialize();
+    for (const player of funded.snapshot.players) {
+      player.gold = 10_000;
+      player.power = 10_000;
+    }
+    engine.restore(funded);
+
+    expect(engine.build(first.player.id, roomId, room.buildTiles[0] as Tile, 'range-amplifier').ok).toBe(true);
+    expect(engine.build(second.player.id, roomId, room.buildTiles[1] as Tile, 'range-amplifier')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('방에 이미'),
+    });
+    expect(engine.build(first.player.id, roomId, room.buildTiles[2] as Tile, 'power-panel').ok).toBe(true);
+    expect(engine.build(second.player.id, roomId, room.buildTiles[3] as Tile, 'power-panel')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('방에 이미'),
+    });
+  });
+
+  it('keeps the same room singleton limits in ranked matches', () => {
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
+    const playerId = ids[0] as string;
+    begin(engine, playerId);
+    const { roomId } = assigned(engine, playerId);
+    const room = engine.map.rooms.find((candidate) => candidate.id === roomId);
+    if (!room || room.buildTiles.length < 4)
+      throw new Error('missing ranked singleton fixture');
+    const funded = engine.serialize();
+    const player = funded.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing ranked singleton player');
+    player.gold = 10_000;
+    player.power = 10_000;
+    engine.restore(funded);
+
+    expect(engine.build(playerId, roomId, room.buildTiles[0] as Tile, 'range-amplifier').ok).toBe(true);
+    expect(engine.build(playerId, roomId, room.buildTiles[1] as Tile, 'range-amplifier').error).toContain('방에 이미');
+    expect(engine.build(playerId, roomId, room.buildTiles[2] as Tile, 'power-panel').ok).toBe(true);
+    expect(engine.build(playerId, roomId, room.buildTiles[3] as Tile, 'power-panel').error).toContain('방에 이미');
   });
 
   it('places one dormant starter structure in every live solo room and transfers the claimed one', () => {

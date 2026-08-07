@@ -137,6 +137,10 @@ const LIVE_BUILD_KINDS = new Set<BuildingKind>([
   'soul-vial',
   'hide-and-seek-doll',
 ]);
+const ROOM_SINGLETON_BUILD_KINDS = new Set<BuildingKind>([
+  'range-amplifier',
+  'power-panel',
+]);
 const OFFENSIVE_BUILD_KINDS = new Set<BuildingKind>([
   'basic-turret',
   'golden-turret',
@@ -1847,14 +1851,14 @@ export class GameEngine {
           : "랜덤 상자는 방마다 하나만 설치할 수 있습니다.",
       };
     if (
-      kind === "range-amplifier" &&
+      ROOM_SINGLETON_BUILD_KINDS.has(kind) &&
       this.state.buildings.some(
-        (building) => building.ownerId === playerId && building.kind === kind,
+        (building) => building.roomId === roomId && building.kind === kind,
       )
     )
       return {
         ok: false,
-        error: "사거리 증폭기는 철거 전까지 하나만 설치할 수 있습니다.",
+        error: `${BALANCE.buildings[kind].label}는 방에 이미 설치되어 있습니다.`,
       };
     if (
       kind === "ghost-net" &&
@@ -1867,7 +1871,7 @@ export class GameEngine {
         error: "봉쇄 그물 발사기는 방마다 하나만 설치할 수 있습니다.",
       };
     if (
-      ["overload-capacitor", "reflect-mirror", "power-panel", "soul-vial"].includes(kind) &&
+      ["overload-capacitor", "reflect-mirror", "soul-vial"].includes(kind) &&
       this.state.buildings.some(
         (building) => building.ownerId === playerId && building.kind === kind,
       )

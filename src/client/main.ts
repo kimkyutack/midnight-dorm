@@ -368,6 +368,10 @@ const BUILD_KINDS: Exclude<BuildingKind, "bed" | "reinforced-door">[] = [
   "soul-vial",
   "hide-and-seek-doll",
 ];
+const ROOM_SINGLETON_BUILD_KINDS = new Set<BuildingKind>([
+  "range-amplifier",
+  "power-panel",
+]);
 
 /** Gold tab is deliberately ordered from core economy to one-shot strategy. */
 const GOLD_BUILD_ORDER: BuildingKind[] = [
@@ -6420,12 +6424,27 @@ function canAffordResources(
   return player.gold + 1e-6 >= gold && player.power + 1e-6 >= power;
 }
 
+function roomSingletonBuildLimitReason(
+  gameState: GameSnapshot,
+  player: PlayerState,
+  kind: BuildingKind,
+): string | null {
+  if (!player.roomId || !ROOM_SINGLETON_BUILD_KINDS.has(kind)) return null;
+  return gameState.buildings.some(
+    (building) =>
+      building.roomId === player.roomId && building.kind === kind,
+  )
+    ? "방에 이미 설치됨"
+    : null;
+}
+
 /** Keeps an open install/upgrade sheet live while passive income changes. */
 function refreshOpenPanelAffordability(): void {
   if (!snapshot || currentView !== "game") return;
+  const gameState = snapshot;
   const panel = app.querySelector<HTMLElement>("[data-build-panel]");
   if (!panel || panel.classList.contains("hidden")) return;
-  const me = snapshot.players.find((player) => player.id === playerId);
+  const me = gameState.players.find((player) => player.id === playerId);
   if (!me) return;
   setText("[data-owned-gold]", Math.floor(me.gold).toString());
   setText("[data-owned-power]", Math.floor(me.power).toString());
@@ -6438,11 +6457,25 @@ function refreshOpenPanelAffordability(): void {
         Number.isFinite(gold) &&
         Number.isFinite(power) &&
         canAffordResources(me, gold, power);
-      const installLimited = button.dataset.buildLimit === "true";
+      const kind = button.dataset.build as BuildingKind | undefined;
+      const roomSingleton = button.dataset.roomSingleton === "true";
+      const liveLimitReason = roomSingleton && kind
+        ? roomSingletonBuildLimitReason(gameState, me, kind)
+        : null;
+      const installLimited = roomSingleton
+        ? Boolean(liveLimitReason)
+        : button.dataset.buildLimit === "true";
       const enabled = affordable && !installLimited;
       button.disabled = !enabled;
       button.classList.toggle("resource-insufficient", !enabled);
       button.setAttribute("aria-disabled", String(!enabled));
+      const liveLimitNote = button.querySelector<HTMLElement>(
+        "[data-live-build-limit]",
+      );
+      if (liveLimitNote) {
+        liveLimitNote.hidden = !liveLimitReason;
+        liveLimitNote.textContent = liveLimitReason ?? "";
+      }
       const actionLabel = button.querySelector<HTMLElement>(
         "[data-cost-action-label]",
       );
@@ -6519,6 +6552,12 @@ function renderBuildPanel(tile: Tile): void {
       rankedSeasonRules(gameState.ranked.seasonId))
     : null;
   const buildLimitReason = (kind: BuildingKind): string | null => {
+    const roomSingletonReason = roomSingletonBuildLimitReason(
+      gameState,
+      me,
+      kind,
+    );
+    if (roomSingletonReason) return roomSingletonReason;
     if (
       rankedRules?.constraint.kind === "turret-limit" &&
       isRankedTurretKind(kind) &&
@@ -6538,10 +6577,8 @@ function renderBuildPanel(tile: Tile): void {
         : "이미 설치됨";
     if (
       [
-        "range-amplifier",
         "overload-capacitor",
         "reflect-mirror",
-        "power-panel",
         "soul-vial",
         "hide-and-seek-doll",
       ].includes(kind) &&
@@ -6572,8 +6609,9 @@ function renderBuildPanel(tile: Tile): void {
     const powerOnly = cost.gold === 0 && cost.power > 0;
     const affordable = canAffordResources(me, cost.gold, cost.power);
     const limitReason = buildLimitReason(kind);
+    const roomSingleton = ROOM_SINGLETON_BUILD_KINDS.has(kind);
     const enabled = affordable && !limitReason;
-    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${limitReason ? ' data-build-limit="true"' : ""} ${enabled ? "" : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${ticketBuild ? '<span class="resource-cost gold">🎟 <b>티켓 1장</b></span>' : resourceCostMarkup(cost)}</span></button>`;
+    return `<button class="build-card catalog-card ${powerOnly ? "power-only-build" : ""}${enabled ? "" : " resource-insufficient"}" type="button" data-build="${kind}" data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${roomSingleton ? ' data-room-singleton="true"' : ""}${limitReason ? ' data-build-limit="true"' : ""} ${enabled ? "" : 'disabled aria-disabled="true"'}><span class="catalog-art build-art"><img data-building-art="${kind}" alt="${escapeHtml(definition.label)} 인게임 탑다운 모습" /></span><span class="build-card-copy"><strong>${definition.label}</strong>${powerOnly ? `<em class="power-only-badge">⚡ 전력 전용</em>` : ""}<small>${definition.description}</small>${roomSingleton ? `<em class="build-limit-note" data-live-build-limit${limitReason ? "" : " hidden"}>${limitReason ?? ""}</em>` : limitReason ? `<em class="build-limit-note">${limitReason}</em>` : ""}</span><span class="build-card-cost">${ticketBuild ? '<span class="resource-cost gold">🎟 <b>티켓 1장</b></span>' : resourceCostMarkup(cost)}</span></button>`;
   };
   const goldCards = GOLD_BUILD_ORDER
     // 랜덤 상자는 비용이 0이라 일반 비용 분류에서는 빠진다. 전력 설비가
