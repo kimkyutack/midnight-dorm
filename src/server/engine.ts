@@ -1383,6 +1383,12 @@ export class GameEngine {
     const player = this.state.players.find((candidate) => candidate.id === playerId);
     if (!player) return { ok: false, error: '플레이어를 찾을 수 없습니다.' };
     if (this.state.status !== 'LOBBY') return { ok: false, error: '보급품은 대기실에서만 선택할 수 있습니다.' };
+    if (!this.state.ranked) {
+      player.consumableLoadout = player.consumables
+        .filter((owned) => owned.quantity > 0 && Boolean(shopConsumableById(owned.itemId)))
+        .map((owned) => owned.itemId);
+      return { ok: true };
+    }
     const unique = [...new Set(itemIds)];
     if (unique.length !== itemIds.length || unique.length > 3) return { ok: false, error: '서로 다른 보급품을 최대 3종 선택할 수 있습니다.' };
     if (!unique.every((itemId) => player.consumables.some((owned) => owned.itemId === itemId && owned.quantity > 0))) {
@@ -1401,7 +1407,7 @@ export class GameEngine {
     if (!player || !item || !player.alive) return { ok: false, error: '전술 보급을 사용할 수 없습니다.' };
     if (this.state.ranked?.supplyPolicy === 'disabled') return { ok: false, error: '이 랭크 계약에서는 개인 전투 보급품을 사용할 수 없습니다.' };
     if (this.state.status !== 'PLAYING' && this.state.status !== 'OVERTIME') return { ok: false, error: '전술 보급은 귀신이 움직인 뒤 사용할 수 있습니다.' };
-    if (!player.consumableLoadout.includes(item.id)) return { ok: false, error: '대기실에서 선택한 보급품만 사용할 수 있습니다.' };
+    if (this.state.ranked && !player.consumableLoadout.includes(item.id)) return { ok: false, error: '대기실에서 선택한 보급품만 사용할 수 있습니다.' };
     if (player.usedConsumables.includes(item.id)) return { ok: false, error: '이 보급품은 이번 판에 이미 사용했습니다.' };
     if (!player.consumables.some((owned) => owned.itemId === item.id && owned.quantity > 0)) return { ok: false, error: '보급 재고가 없습니다.' };
 
@@ -1415,6 +1421,16 @@ export class GameEngine {
       return { ok: true };
     }
     if (!ownedRoom) return { ok: false, error: '방을 점유한 뒤 사용할 수 있습니다.' };
+    if (item.target === 'install') {
+      const tile = message.tile;
+      if (!tile || !isBuildTile(this.map, ownedRoom.id, tile)) {
+        return { ok: false, error: '내 방의 빈 설치 타일을 선택하세요.' };
+      }
+      if (this.state.buildings.some((building) => building.tile.x === tile.x && building.tile.y === tile.y)) {
+        return { ok: false, error: '이미 사용 중인 타일입니다.' };
+      }
+      return { ok: true };
+    }
     if (item.target === 'room' || item.target === 'door') {
       if (message.roomId && message.roomId !== ownedRoom.id) return { ok: false, error: '자신이 점유한 방에만 사용할 수 있습니다.' };
       if (item.target === 'door' && ownedRoom.doorHp <= 0) return { ok: false, error: '파괴된 문에는 사용할 수 없습니다.' };
@@ -1440,7 +1456,29 @@ export class GameEngine {
     const owned = player.consumables.find((candidate) => candidate.itemId === item.id)!;
     const room = player.roomId ? this.state.rooms.find((candidate) => candidate.id === player.roomId) : undefined;
 
-    if (item.id === 'scout-flare' && message.tile) {
+    if (item.id === 'ghost-lure-beacon' && room && message.tile) {
+      let buildingId: string;
+      do {
+        buildingId = `building-${++this.buildCounter}`;
+      } while (this.state.buildings.some((candidate) => candidate.id === buildingId));
+      this.state.buildings.push({
+        id: buildingId,
+        kind: 'ghost-lure-beacon',
+        roomId: room.id,
+        ownerId: player.id,
+        skinId: '',
+        tile: { x: message.tile.x, y: message.tile.y, roomId: room.id },
+        level: 1,
+        cooldown: 0,
+        hp: 100,
+        investedGold: 0,
+        investedPower: 0,
+        investmentByPlayer: { [player.id]: { gold: 0, power: 0 } },
+        effectiveLevel: 1,
+        lureUses: 0,
+        lureReadyAt: 0,
+      });
+    } else if (item.id === 'scout-flare' && message.tile) {
       for (const ghost of this.state.ghosts) {
         if (
           ghost.hp <= 0 ||
@@ -1997,6 +2035,46 @@ export class GameEngine {
       : undefined;
     if (!player || !player.alive || !building || !room || player.roomId !== room.id || building.ownerId !== playerId)
       return { ok: false, error: "같은 방의 내 설비만 사용할 수 있습니다." };
+
+    if (building.kind === 'ghost-lure-beacon' && message.action === 'use') {
+      const uses = Math.max(0, Math.floor(building.lureUses ?? 0));
+      if (uses >= 2) return { ok: false, error: '원혼 유도 송신기의 사용 횟수를 모두 소진했습니다.' };
+      if (uses > 0 && this.state.elapsed < (building.lureReadyAt ?? 0)) {
+        const remaining = Math.max(1, Math.ceil((building.lureReadyAt ?? 0) - this.state.elapsed));
+        return { ok: false, error: `원혼 유도 송신기 재충전까지 ${remaining}초 남았습니다.` };
+      }
+      const respawning = this.state.ghosts.some(
+        (ghost) => ghost.hp > 0 && (ghost.retreating || ghost.healing),
+      );
+      const activeGhosts = this.state.ghosts.filter(
+        (ghost) => ghost.hp > 0 && !ghost.retreating && !ghost.healing,
+      );
+      if (respawning || activeGhosts.length === 0) {
+        return { ok: false, error: '귀신이 리스폰 중일 때는 유인 송신기를 사용할 수 없습니다.' };
+      }
+      for (const ghost of activeGhosts) {
+        ghost.targetRoomId = room.id;
+        ghost.lureTargetRoomId = room.id;
+        ghost.targetPlayerId = null;
+        ghost.path = [];
+        ghost.wanderUntil = -1;
+        ghost.wanderTarget = null;
+        ghost.confusedUntil = -1;
+      }
+      const nextUses = uses + 1;
+      building.lureUses = nextUses;
+      building.lureReadyAt = nextUses === 1 ? this.state.elapsed + 60 : 0;
+      this.pendingEvents.push({
+        kind: 'ghost-skill',
+        roomId: room.id,
+        playerId,
+        position: { ...building.tile },
+        itemId: 'ghost-lure-beacon',
+        label: `원혼 유도 신호 · ${player.nickname}`,
+      });
+      if (nextUses >= 2) this.consumeBuilding(building.id);
+      return { ok: true };
+    }
 
     if (building.kind === "random-item" && building.itemId === "golden-ticket" && message.action === "install-golden-turret") {
       if (this.state.ranked?.goldenTurretPolicy === "disabled")
@@ -5067,6 +5145,7 @@ export class GameEngine {
       });
     }
     if (ghost.retreating) {
+      ghost.lureTargetRoomId = null;
       const respawnTarget = this.closestRespawnPoint(ghost.position);
       if (distance(ghost.position, respawnTarget) > 0.5)
         this.moveGhostToward(ghost, respawnTarget, dt);
@@ -5161,7 +5240,24 @@ export class GameEngine {
         });
       } else ghost.skillCooldown = 20;
     }
-    const outsideTarget = this.selectOutsideTarget(ghost);
+    if (ghost.lureTargetRoomId) {
+      const lureRoom = this.state.rooms.find(
+        (candidate) => candidate.id === ghost.lureTargetRoomId,
+      );
+      const lureOwnerAlive = lureRoom?.ownerIds.some((ownerId) =>
+        this.state.players.some((player) => player.id === ownerId && player.alive),
+      );
+      if (!lureRoom || !lureOwnerAlive) ghost.lureTargetRoomId = null;
+      else {
+        ghost.targetRoomId = lureRoom.id;
+        ghost.targetPlayerId = null;
+        ghost.wanderUntil = -1;
+        ghost.wanderTarget = null;
+      }
+    }
+    const outsideTarget = ghost.lureTargetRoomId
+      ? null
+      : this.selectOutsideTarget(ghost);
     if (outsideTarget) {
       if (ghost.targetPlayerId !== outsideTarget.id) {
         ghost.targetPlayerId = outsideTarget.id;
@@ -5230,6 +5326,7 @@ export class GameEngine {
     // parent could otherwise remain parked on the defeated survivor's bed
     // when one of its minions dealt the finishing blow.
     if (!targetPlayer) {
+      ghost.lureTargetRoomId = null;
       ghost.targetRoomId = null;
       ghost.targetPlayerId = null;
       ghost.path = [];

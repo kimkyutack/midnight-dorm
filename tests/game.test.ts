@@ -1698,23 +1698,22 @@ describe('survivor customization rules', () => {
 });
 
 describe('shop consumable rules', () => {
-  it('keeps twelve combat tactical supplies separate from lamp rewards', () => {
-    expect(SHOP_CONSUMABLES).toHaveLength(12);
+  it('keeps thirteen combat tactical supplies separate from lamp rewards', () => {
+    expect(SHOP_CONSUMABLES).toHaveLength(13);
     expect(new Set(SHOP_CONSUMABLES.map((item) => item.id)).size).toBe(SHOP_CONSUMABLES.length);
     expect(SHOP_CONSUMABLES.every((item) => !RANDOM_ITEMS.some((random) => random.id === item.id))).toBe(true);
     expect(SHOP_CONSUMABLES.filter((item) => item.category === 'assault')).toHaveLength(4);
     expect(SHOP_CONSUMABLES.filter((item) => item.category === 'defense')).toHaveLength(4);
-    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'engineering')).toHaveLength(4);
+    expect(SHOP_CONSUMABLES.filter((item) => item.category === 'engineering')).toHaveLength(5);
   });
 
-  it('allows a selected supply once per match and retains the remaining account inventory', () => {
+  it('allows any owned supply in a non-ranked match and retains the remaining account inventory', () => {
     const engine = new GameEngine('SUPPLYROOM', generateMap(9_078), true);
     const joined = engine.join({
       nickname: 'SupplyTester',
       deviceId: 'device-supply-tester',
       consumables: [{ itemId: 'scout-flare', quantity: 2 }],
     });
-    expect(engine.handle(joined.player.id, envelope({ type: 'set-consumable-loadout', itemIds: ['scout-flare'] })).ok).toBe(true);
     expect(engine.start(joined.player.id).ok).toBe(true);
     advanceFrozenIntros(engine);
     for (let index = 0; index < 400 && engine.snapshot().status === 'COUNTDOWN'; index += 1) engine.tick(0.1);
@@ -1725,11 +1724,103 @@ describe('shop consumable rules', () => {
       .sort((left, right) =>
         Math.hypot(left.x - (playerPosition?.x ?? 0), left.y - (playerPosition?.y ?? 0)) -
         Math.hypot(right.x - (playerPosition?.x ?? 0), right.y - (playerPosition?.y ?? 0)))[0]!;
-    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 2)).ok).toBe(true);
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 1)).ok).toBe(true);
     const player = engine.snapshot().players.find((candidate) => candidate.id === joined.player.id);
     expect(player?.consumables).toEqual([{ itemId: 'scout-flare', quantity: 1 }]);
     expect(player?.usedConsumables).toEqual(['scout-flare']);
-    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 3)).ok).toBe(false);
+    expect(engine.handle(joined.player.id, envelope({ type: 'use-consumable', itemId: 'scout-flare', tile: targetTile }, 2)).ok).toBe(false);
+  });
+
+  it('keeps ranked loadouts capped at three owned supplies', () => {
+    const engine = new GameEngine('RANKEDSUPPLY', generateMap(9_079), true, {
+      ranked: { ...RANKED_OPENING, supplyPolicy: 'penalized' },
+    });
+    const joined = engine.join({
+      nickname: 'RankedSupplyTester',
+      deviceId: 'device-ranked-supply-tester',
+      consumables: [
+        { itemId: 'scout-flare', quantity: 1 },
+        { itemId: 'path-chalk', quantity: 1 },
+        { itemId: 'adrenal-shot', quantity: 1 },
+        { itemId: 'ghost-lure-beacon', quantity: 1 },
+      ],
+    });
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'set-consumable-loadout',
+      itemIds: ['scout-flare', 'path-chalk', 'adrenal-shot', 'ghost-lure-beacon'],
+    })).ok).toBe(false);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'set-consumable-loadout',
+      itemIds: ['scout-flare', 'path-chalk', 'ghost-lure-beacon'],
+    }, 2)).ok).toBe(true);
+  });
+
+  it('installs a two-use ghost lure with a one-minute second-use cooldown and blocks respawn use', () => {
+    const engine = new GameEngine('GHOSTLURE', generateMap(9_080), true);
+    const joined = engine.join({
+      nickname: 'LureTester',
+      deviceId: 'device-lure-tester',
+      consumables: [{ itemId: 'ghost-lure-beacon', quantity: 2 }],
+    });
+    begin(engine, joined.player.id);
+    const { roomId, tile } = assigned(engine, joined.player.id);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'use-consumable',
+      itemId: 'ghost-lure-beacon',
+      tile,
+    })).ok).toBe(true);
+    let state = engine.snapshot();
+    let beacon = state.buildings.find((building) => building.kind === 'ghost-lure-beacon');
+    expect(beacon).toMatchObject({ roomId, ownerId: joined.player.id, lureUses: 0, lureReadyAt: 0 });
+    expect(state.players.find((player) => player.id === joined.player.id)?.consumables)
+      .toEqual([{ itemId: 'ghost-lure-beacon', quantity: 1 }]);
+
+    const recovering = engine.serialize();
+    for (const ghost of recovering.snapshot.ghosts) ghost.healing = true;
+    engine.restore(recovering);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'activate-building',
+      buildingId: beacon!.id,
+      action: 'use',
+    }, 2))).toMatchObject({ ok: false, error: expect.stringContaining('리스폰') });
+
+    const active = engine.serialize();
+    for (const ghost of active.snapshot.ghosts) {
+      ghost.healing = false;
+      ghost.retreating = false;
+      ghost.targetRoomId = null;
+    }
+    engine.restore(active);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'activate-building',
+      buildingId: beacon!.id,
+      action: 'use',
+    }, 3)).ok).toBe(true);
+    state = engine.snapshot();
+    beacon = state.buildings.find((building) => building.kind === 'ghost-lure-beacon');
+    expect(beacon?.lureUses).toBe(1);
+    expect((beacon?.lureReadyAt ?? 0) - state.elapsed).toBeCloseTo(60, 5);
+    expect(state.ghosts.every((ghost) => ghost.targetRoomId === roomId && ghost.lureTargetRoomId === roomId)).toBe(true);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'activate-building',
+      buildingId: beacon!.id,
+      action: 'use',
+    }, 4))).toMatchObject({ ok: false, error: expect.stringContaining('재충전') });
+
+    const recharged = engine.serialize();
+    recharged.snapshot.elapsed = beacon!.lureReadyAt ?? recharged.snapshot.elapsed;
+    engine.restore(recharged);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'activate-building',
+      buildingId: beacon!.id,
+      action: 'use',
+    }, 5)).ok).toBe(true);
+    expect(engine.snapshot().buildings.some((building) => building.id === beacon!.id)).toBe(false);
+    expect(engine.handle(joined.player.id, envelope({
+      type: 'use-consumable',
+      itemId: 'ghost-lure-beacon',
+      tile,
+    }, 6)).ok).toBe(false);
   });
 });
 

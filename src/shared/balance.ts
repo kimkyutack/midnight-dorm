@@ -276,6 +276,12 @@ export const BALANCE = {
       maxLevel: 1,
       levels: [level(100, 0, 0, 0, 0)],
     },
+    'ghost-lure-beacon': {
+      label: '원혼 유도 송신기',
+      description: '귀신을 내 방으로 유인합니다. 첫 사용 후 60초 뒤 한 번 더 사용할 수 있습니다.',
+      maxLevel: 1,
+      levels: [level(0, 0, 0, 0, 0)],
+    },
     'starter-grave': {
       label: '잠든 무덤',
       description: '방을 점유하면 매초 골드 1을 얻습니다.',

@@ -12,8 +12,8 @@ export interface ShopConsumableDefinition {
 
 /**
  * 상점 전술 보급은 랜덤 상자 보상과 의도적으로 별도 카탈로그를 사용한다.
- * 한 판에 선택한 보급품은 각각 한 번만 사용할 수 있으며, 실제 사용 시에만
- * 계정 재고가 차감된다.
+ * 랭크전은 선택한 보급품 3종만, 일반 모드는 보유한 모든 보급품을 사용할 수 있다.
+ * 실제 사용 또는 설치가 승인된 시점에만 계정 재고가 차감된다.
  */
 export const SHOP_CONSUMABLES = [
   { id: 'scout-flare', label: '섬광 충격탄', description: '선택 지점 주변 귀신에게 큰 피해를 주고 1.5초간 멈춥니다.', price: 200, target: 'tile', icon: '✹', category: 'assault' },
@@ -30,6 +30,7 @@ export const SHOP_CONSUMABLES = [
   { id: 'turret-grease', label: '고속 윤활 카트리지', description: '선택 포탑의 공격속도가 12초간 45% 빨라집니다.', price: 200, target: 'building', icon: '◐', category: 'engineering' },
   { id: 'lens-kit', label: '장거리 조준 렌즈', description: '선택 포탑의 사거리가 12초간 2칸 증가합니다.', price: 220, target: 'building', icon: '◉', category: 'engineering' },
   { id: 'field-crane', label: '전술 강화 신호기', description: '12초간 내 방 모든 포탑이 1레벨 강해집니다.', price: 320, target: 'room', icon: '⌗', category: 'engineering' },
+  { id: 'ghost-lure-beacon', label: '원혼 유도 송신기', description: '설치 후 최대 2회 모든 귀신을 내 방으로 유인합니다. 첫 사용 후 60초 재충전됩니다.', price: 450, target: 'install', icon: '◉', category: 'engineering' },
 ] as const satisfies readonly ShopConsumableDefinition[];
 
 /** Existing inventories are collapsed into the closest new combat role. */
@@ -68,5 +69,5 @@ export function normalizeConsumableId(id: string): ConsumableId | null {
 }
 
 export function isConsumableTarget(value: unknown): value is ConsumableTarget {
-  return value === 'self' || value === 'tile' || value === 'room' || value === 'door' || value === 'building';
+  return value === 'self' || value === 'tile' || value === 'room' || value === 'door' || value === 'building' || value === 'install';
 }

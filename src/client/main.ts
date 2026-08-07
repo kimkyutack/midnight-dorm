@@ -413,6 +413,7 @@ const BUILDING_PANEL_ICONS: Record<BuildingKind, string> = {
   "cursed-contract": "✧",
   "soul-vial": "◉",
   "hide-and-seek-doll": "◌",
+  "ghost-lure-beacon": "◎",
   "starter-grave": "†",
   "random-item": "✦",
 };
@@ -5294,17 +5295,23 @@ function updateLobby(state: GameSnapshot): void {
         definition: NonNullable<ReturnType<typeof shopConsumableById>>;
       } => Boolean(entry.definition),
     );
-  const selected = new Set(me.consumableLoadout);
+  const rankedLoadout = Boolean(state.ranked);
+  const selected = new Set(
+    rankedLoadout
+      ? me.consumableLoadout
+      : owned.map(({ definition }) => definition.id),
+  );
   // Lobby snapshots arrive continuously. Replacing this subtree for every
   // snapshot restarts image loading and causes the loadout list to flicker.
   // Only rebuild it when the inventory or selected loadout actually changes.
   const loadoutSignature = JSON.stringify({
     consumables: owned.map(({ entry }) => [entry.itemId, entry.quantity]),
     selected: me.consumableLoadout,
+    rankedLoadout,
   });
   if (loadout.dataset.lobbyLoadoutSignature === loadoutSignature) return;
   loadout.dataset.lobbyLoadoutSignature = loadoutSignature;
-  loadout.innerHTML = `<header><div><span class="eyebrow">TACTICAL LOADOUT</span><strong>내 아이템 장착 <small>${selected.size}/3</small></strong></div><button class="btn ghost" data-open-supply-shop>상점</button></header>${owned.length ? `<div class="loadout-items">${owned.map(({ entry, definition }) => `<button class="loadout-item ${selected.has(definition.id) ? "selected" : ""}" data-loadout-id="${definition.id}" aria-pressed="${selected.has(definition.id)}"><span class="loadout-item-art"><img data-supply-art="${definition.id}" alt="${escapeHtml(definition.label)} 이미지"/></span><span><strong>${escapeHtml(definition.label)}</strong><small>${entry.quantity}개 보유 · ${escapeHtml(definition.description)}</small></span><b>${selected.has(definition.id) ? "장착" : "선택"}</b></button>`).join("")}</div><p>장착한 보급품은 한 판에 각각 한 번만 사용할 수 있습니다.</p>` : `<div class="loadout-empty"><span>아직 구매한 전술 보급이 없습니다.</span><button class="btn primary" data-open-supply-shop>전술 보급 상점</button></div>`}`;
+  loadout.innerHTML = `<header><div><span class="eyebrow">TACTICAL LOADOUT</span><strong>${rankedLoadout ? `내 아이템 장착 <small>${selected.size}/3</small>` : `보유 아이템 전체 사용 <small>${selected.size}종</small>`}</strong></div><button class="btn ghost" data-open-supply-shop>상점</button></header>${owned.length ? `<div class="loadout-items">${owned.map(({ entry, definition }) => rankedLoadout ? `<button class="loadout-item ${selected.has(definition.id) ? "selected" : ""}" data-loadout-id="${definition.id}" aria-pressed="${selected.has(definition.id)}"><span class="loadout-item-art"><img data-supply-art="${definition.id}" alt="${escapeHtml(definition.label)} 이미지"/></span><span><strong>${escapeHtml(definition.label)}</strong><small>${entry.quantity}개 보유 · ${escapeHtml(definition.description)}</small></span><b>${selected.has(definition.id) ? "장착" : "선택"}</b></button>` : `<article class="loadout-item selected"><span class="loadout-item-art"><img data-supply-art="${definition.id}" alt="${escapeHtml(definition.label)} 이미지"/></span><span><strong>${escapeHtml(definition.label)}</strong><small>${entry.quantity}개 보유 · ${escapeHtml(definition.description)}</small></span><b>사용 가능</b></article>`).join("")}</div><p>${rankedLoadout ? "랭크전에서는 장착한 보급품 3종만 각각 한 번 사용할 수 있습니다." : "일반 모드에서는 보유한 모든 전술 보급을 사용할 수 있습니다."}</p>` : `<div class="loadout-empty"><span>아직 구매한 전술 보급이 없습니다.</span><button class="btn primary" data-open-supply-shop>전술 보급 상점</button></div>`}`;
   hydrateCatalogArt(loadout, {
     appearance: me.appearance,
     turretSkins: me.turretSkins,
@@ -6280,7 +6287,10 @@ function beginConsumableUseFromInstallPanel(itemId: ConsumableId): void {
   const me = gameState?.players.find((player) => player.id === playerId);
   const item = shopConsumableById(itemId);
   const quantity = me?.consumables.find((owned) => owned.itemId === itemId)?.quantity ?? 0;
-  if (!gameState || !me || !item || !me.consumableLoadout.includes(itemId)) return;
+  const availableInMode = Boolean(
+    me && (gameState?.ranked ? me.consumableLoadout.includes(itemId) : quantity > 0),
+  );
+  if (!gameState || !me || !item || !availableInMode) return;
   if (me.usedConsumables.includes(itemId) || quantity <= 0) {
     toast(me.usedConsumables.includes(itemId) ? "이 보급품은 이번 판에 이미 사용했습니다." : "보급 재고가 없습니다.");
     return;
@@ -6300,6 +6310,18 @@ function beginConsumableUseFromInstallPanel(itemId: ConsumableId): void {
     closeBuildPanel();
     audio.play("button");
     toast("전술 보급을 적용할 현재 방의 포탑을 선택하세요.");
+    return;
+  }
+  if (item.target === "install") {
+    if (!selectedTile || selectedTile.roomId !== me.roomId) {
+      toast("내 방의 빈 설치 타일을 선택하세요.");
+      return;
+    }
+    const installTile = { ...selectedTile };
+    closeBuildPanel();
+    network?.useConsumable(itemId, { tile: installTile });
+    audio.play("button");
+    toast("원혼 유도 송신기를 설치합니다.");
     return;
   }
   if ((item.target === "room" || item.target === "door") && !me.roomId) {
@@ -6661,8 +6683,13 @@ function renderBuildPanel(tile: Tile): void {
     .filter((kind) => upgradeCost(kind, 1, modeRank).power > 0)
     .map(buildCard)
     .join("");
+  const availableSupplyIds = gameState.ranked
+    ? me.consumableLoadout
+    : me.consumables
+        .filter((owned) => owned.quantity > 0)
+        .map((owned) => owned.itemId);
   const supplyCards =
-    me.consumableLoadout
+    availableSupplyIds
       .map((itemId) => {
         const owned = me.consumables.find((candidate) => candidate.itemId === itemId);
         const supply = shopConsumableById(itemId);
@@ -6671,6 +6698,8 @@ function renderBuildPanel(tile: Tile): void {
         const used = me.usedConsumables.includes(itemId);
         const targetLabel = supply.target === "tile"
           ? "복도 지정"
+          : supply.target === "install"
+            ? "빈 타일에 설치"
           : supply.target === "building"
             ? "포탑 지정"
             : supply.target === "door"
@@ -6679,10 +6708,10 @@ function renderBuildPanel(tile: Tile): void {
                 ? "방에 사용"
                 : "즉시 사용";
         const unavailable = used || quantity <= 0;
-        return `<article class="build-card catalog-card supply-build-card${unavailable ? " resource-insufficient" : ""}"><span class="catalog-art build-art"><img data-supply-art="${supply.id}" alt="${escapeHtml(supply.label)}" /></span><span class="build-card-copy"><strong>${escapeHtml(supply.label)} ×${quantity}</strong><small>${escapeHtml(supply.description)}</small></span><button class="build-card-cost supply-target-button" type="button" data-use-build-consumable="${supply.id}"${unavailable ? ' disabled aria-disabled="true"' : ""}>${used ? "이번 판 사용 완료" : targetLabel}</button></article>`;
+        return `<article class="build-card catalog-card supply-build-card${unavailable ? " resource-insufficient" : ""}"><span class="catalog-art build-art"><img data-supply-art="${supply.id}" alt="${escapeHtml(supply.label)}" /></span><span class="build-card-copy"><strong>${escapeHtml(supply.label)} ×${quantity}</strong><small>${escapeHtml(supply.description)}</small></span><button class="build-card-cost supply-target-button" type="button" data-use-build-consumable="${supply.id}"${unavailable ? ' disabled aria-disabled="true"' : ""}>${used ? (supply.target === "install" ? "이번 판 설치 완료" : "이번 판 사용 완료") : targetLabel}</button></article>`;
       })
       .join("") ||
-    '<p class="empty-build-tab">장착한 전투 보급이 없습니다. 대기실에서 최대 3종을 장착하세요.</p>';
+    `<p class="empty-build-tab">${gameState.ranked ? "장착한 전투 보급이 없습니다. 대기실에서 최대 3종을 장착하세요." : "사용할 수 있는 보유 전술 보급이 없습니다."}</p>`;
   const initialBuildTab = tutorialBuildTab ?? "gold";
   panel.innerHTML = `${panelHeadingMarkup("INSTALL", "빈 타일에 설비 설치")}<div class="panel-wallet"><span>타일 ${tile.x + 1}, ${tile.y + 1}</span><strong>◆ <b data-owned-gold>${Math.floor(me.gold)}</b></strong><strong>⚡ <b data-owned-power>${Math.floor(me.power)}</b></strong></div><nav class="build-resource-tabs ${tutorialBuildTab ? "tutorial-tab-locked" : ""}"><button class="${initialBuildTab === "gold" ? "active" : ""}" data-build-tab="gold"${tutorialBuildTab ? " disabled" : ""}>골드</button><button class="${initialBuildTab === "power" ? "active" : ""}" data-build-tab="power"${tutorialBuildTab ? " disabled" : ""}>전력</button><button data-build-tab="supply"${tutorialBuildTab ? " disabled" : ""}>보급</button></nav><section class="build-tab-panel ${initialBuildTab === "gold" ? "" : "hidden"}" data-build-tab-panel="gold"><div class="build-grid">${goldCards}</div></section><section class="build-tab-panel ${initialBuildTab === "power" ? "" : "hidden"}" data-build-tab-panel="power"><div class="build-grid">${powerCards}</div></section><section class="build-tab-panel hidden" data-build-tab-panel="supply"><div class="build-grid">${supplyCards}</div></section>`;
   panel.classList.remove("hidden");
@@ -6848,6 +6877,44 @@ function renderTargetPanel(selection: SceneSelection): void {
   const removalMarkup = building
     ? buildingRemovalMarkup(building, modeRank)
     : "";
+  if (building && kind === "ghost-lure-beacon") {
+    const uses = Math.max(0, Math.floor(building.lureUses ?? 0));
+    const remaining = Math.max(
+      0,
+      (building.lureReadyAt ?? 0) - snapshot.elapsed,
+    );
+    const ghostRespawning = snapshot.ghosts.some(
+      (ghost) => ghost.hp > 0 && (ghost.retreating || ghost.healing),
+    );
+    const activeGhosts = snapshot.ghosts.filter(
+      (ghost) => ghost.hp > 0 && !ghost.retreating && !ghost.healing,
+    );
+    const ready = uses < 2 && remaining <= 0 && !ghostRespawning && activeGhosts.length > 0;
+    const stateLabel = ghostRespawning || activeGhosts.length === 0
+      ? "귀신 리스폰 중"
+      : remaining > 0
+        ? "재충전 중"
+        : "유인 준비 완료";
+    const actionLabel = ghostRespawning || activeGhosts.length === 0
+      ? "리스폰 종료 대기"
+      : remaining > 0
+        ? `${Math.ceil(remaining)}초 후 다시 사용`
+        : uses === 0
+          ? "귀신 유인"
+          : "귀신 다시 유인";
+    panel.innerHTML = `${panelHeadingMarkup("ACTIVE", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>${stateLabel}</span><strong>남은 사용 ${Math.max(0, 2 - uses)}/2</strong></div><small>발동하면 현재 활동 중인 모든 귀신이 내 방을 공격 목표로 선택합니다. 두 번째 발동 후 송신기는 사라집니다.</small></div><button class="upgrade-cta${ready ? "" : " resource-insufficient"}" type="button" data-use-ghost-lure ${ready ? "" : 'disabled aria-disabled="true"'}>${actionLabel}</button>`;
+    panel.classList.remove("hidden");
+    wireBuildPanelClose(panel);
+    const button = panel.querySelector<HTMLButtonElement>("[data-use-ghost-lure]");
+    if (button)
+      wirePanelAction(button, () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        button.setAttribute("aria-disabled", "true");
+        network?.activateBuilding(building.id, "use");
+      });
+    return;
+  }
   if (building && kind === "overload-capacitor") {
     const remaining = Math.max(
       0,
@@ -7209,6 +7276,33 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
       selectedTarget.type === "door" &&
       Boolean(previousDoor && previousDoor > 0) !==
         Boolean(nextDoor && nextDoor > 0);
+    const previousBuilding = selectedTarget.buildingId
+      ? previous?.buildings.find(
+          (building) => building.id === selectedTarget?.buildingId,
+        )
+      : undefined;
+    const nextBuilding = selectedTarget.buildingId
+      ? snapshot?.buildings.find(
+          (building) => building.id === selectedTarget?.buildingId,
+        )
+      : undefined;
+    const previousLureCooldown = previousBuilding?.kind === "ghost-lure-beacon"
+      ? Math.max(0, Math.ceil((previousBuilding.lureReadyAt ?? 0) - (previous?.elapsed ?? 0)))
+      : null;
+    const nextLureCooldown = nextBuilding?.kind === "ghost-lure-beacon"
+      ? Math.max(0, Math.ceil((nextBuilding.lureReadyAt ?? 0) - (snapshot?.elapsed ?? 0)))
+      : null;
+    const previousLureRespawning = previousBuilding?.kind === "ghost-lure-beacon"
+      ? previous?.ghosts.some((ghost) => ghost.hp > 0 && (ghost.retreating || ghost.healing))
+      : false;
+    const nextLureRespawning = nextBuilding?.kind === "ghost-lure-beacon"
+      ? snapshot?.ghosts.some((ghost) => ghost.hp > 0 && (ghost.retreating || ghost.healing))
+      : false;
+    const lurePanelChanged = nextBuilding?.kind === "ghost-lure-beacon" && (
+      previousBuilding?.lureUses !== nextBuilding.lureUses ||
+      previousLureCooldown !== nextLureCooldown ||
+      previousLureRespawning !== nextLureRespawning
+    );
     if (selectedTarget.type === "building" && after === null) {
       closeBuildPanel();
       return;
@@ -7218,6 +7312,7 @@ function refreshSelectionPanel(previous: GameSnapshot | null): void {
       before !== after ||
       previousPlayer?.drawCount !== nextPlayer?.drawCount ||
       doorDestroyed ||
+      lurePanelChanged ||
       after === null
     )
       renderTargetPanel(selectedTarget);

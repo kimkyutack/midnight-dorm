@@ -114,6 +114,7 @@ export type BuildingKind =
   | 'cursed-contract'
   | 'soul-vial'
   | 'hide-and-seek-doll'
+  | 'ghost-lure-beacon'
   | 'starter-grave'
   /** A drawn or countdown loot reward. It is placed like a small building. */
   | 'random-item';
@@ -153,9 +154,10 @@ export type ConsumableId =
   | 'lens-kit'
   | 'welding-gel'
   | 'blueprint-chip'
-  | 'field-crane';
+  | 'field-crane'
+  | 'ghost-lure-beacon';
 
-export type ConsumableTarget = 'self' | 'tile' | 'room' | 'door' | 'building';
+export type ConsumableTarget = 'self' | 'tile' | 'room' | 'door' | 'building' | 'install';
 
 export interface OwnedConsumable {
   itemId: ConsumableId;
@@ -355,6 +357,10 @@ export interface BuildingState {
   supplyNextShotMultiplier?: number;
   supplyRateUntil?: number;
   supplyRangeUntil?: number;
+  /** Number of successful activations made by a placed ghost lure beacon. */
+  lureUses?: number;
+  /** Match time when the beacon's second and final activation becomes available. */
+  lureReadyAt?: number;
 }
 
 /** A reward falling into a corridor during the preparation countdown. */
@@ -374,6 +380,8 @@ export interface GhostState {
   maxHp: number;
   level: number;
   targetRoomId: string | null;
+  /** A lure beacon overrides normal room and corridor-player targeting until the target becomes invalid or the ghost retreats. */
+  lureTargetRoomId?: string | null;
   /** 방을 점유하지 못한 생존자는 문보다 먼저 직접 추적한다. */
   targetPlayerId: string | null;
   attackCooldown: number;

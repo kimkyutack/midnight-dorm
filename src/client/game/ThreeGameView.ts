@@ -2140,6 +2140,7 @@ function buildingColor(kind: BuildingKind): number {
     'cursed-contract': 0xe688bd,
     'soul-vial': 0x9beaff,
     'hide-and-seek-doll': 0xc6a2ff,
+    'ghost-lure-beacon': 0x67e8ff,
     'starter-grave': 0x8b97a5,
     'random-item': 0xffca62,
   };

@@ -29,6 +29,7 @@ const STATIC_ART: Partial<Record<BuildingKind, string>> = {
   'cursed-contract': 'cute-cursed-contract',
   'soul-vial': 'cute-soul-vial',
   'hide-and-seek-doll': 'cute-hide-and-seek-doll',
+  'ghost-lure-beacon': 'cute-ghost-lure-beacon',
 };
 
 /** Every random-box result owns a distinct, centered in-world illustration. */
