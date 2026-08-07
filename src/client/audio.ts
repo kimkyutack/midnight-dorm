@@ -175,6 +175,7 @@ export class SynthAudio {
       'consumable-use': [640, 1160, 'sine', .18],
       'elite-join': [260, 1380, 'triangle', .65],
       'auto-bed-claim': [520, 880, 'sine', .24],
+      'starter-allocation': [620, 1040, 'sine', .28],
       'lights-on': [180, 760, 'sine', .32],
       victory: [440, 990, 'triangle', .55], defeat: [180, 48, 'sawtooth', .65],
     };

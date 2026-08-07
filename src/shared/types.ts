@@ -647,6 +647,7 @@ export type GameEventKind =
   | 'consumable-use'
   | 'elite-join'
   | 'auto-bed-claim'
+  | 'starter-allocation'
   | 'lights-on'
   | 'victory'
   | 'defeat';

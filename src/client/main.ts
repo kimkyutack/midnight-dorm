@@ -7444,6 +7444,11 @@ function playEvents(events: GameEvent[]): void {
     (event) => event.kind === "auto-bed-claim" && event.playerId === playerId,
   );
   if (autoBedClaim?.label) showCenteredGameNotice(autoBedClaim.label);
+  const starterAllocation = events.find(
+    (event) => event.kind === "starter-allocation" && event.playerId === playerId,
+  );
+  if (starterAllocation?.label)
+    showCenteredGameNotice(starterAllocation.label, 3_000);
   if (
     events.some(
       (event) =>

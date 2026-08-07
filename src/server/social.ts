@@ -247,6 +247,12 @@ function normalizedText(value: unknown): string {
     : '';
 }
 
+export function socialInviteDecisionColumn(
+  action: 'accept' | 'decline',
+): 'accepted_at' | 'declined_at' {
+  return action === 'accept' ? 'accepted_at' : 'declined_at';
+}
+
 export async function routeSocial(request: Request, db: D1Database, env: SocialEnv): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/social')) return null;
@@ -384,12 +390,14 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
     const inviteMatch = url.pathname.match(/^\/api\/social\/invites\/([a-zA-Z0-9-]{8,80})\/(accept|decline)$/);
     if (inviteMatch && request.method === 'POST') {
       if (!sameOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
-      const [, inviteId, action] = inviteMatch;
+      const inviteId = inviteMatch[1] as string;
+      const action = inviteMatch[2] as 'accept' | 'decline';
       const invite = await db.prepare(`SELECT room_code FROM game_invites WHERE id = ? AND recipient_account_id = ?
         AND expires_at > ? AND accepted_at IS NULL AND declined_at IS NULL`)
         .bind(inviteId, profile.id, Date.now()).first<{ room_code: string }>();
       if (!invite) return Response.json({ error: '만료되었거나 처리된 초대입니다.' }, { status: 404 });
-      await db.prepare(`UPDATE game_invites SET ${action}_at = ? WHERE id = ?`).bind(Date.now(), inviteId).run();
+      const decisionColumn = socialInviteDecisionColumn(action);
+      await db.prepare(`UPDATE game_invites SET ${decisionColumn} = ? WHERE id = ?`).bind(Date.now(), inviteId).run();
       return Response.json({ ok: true, roomCode: action === 'accept' ? invite.room_code : undefined });
     }
     return Response.json({ error: '지원하지 않는 소셜 요청입니다.' }, { status: 404 });

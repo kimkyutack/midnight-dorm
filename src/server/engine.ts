@@ -390,17 +390,20 @@ export class GameEngine {
       "basic-turret",
     ];
     // 시뮬레이션 회귀 테스트는 기존 빈 방 전제를 유지한다. 실제 매치에서는
-    // 각 방에 하나씩 휴면 설비를 배치하고 첫 점유 전까지 작동시키지 않는다.
+    // 침대마다 휴면 설비를 하나씩 배치하고, 각 침대 점유자가 하나씩 받는다.
+    // 따라서 친구랑하기 2인실에는 서로 다른 두 설비가 미리 놓인다.
     const starterBuildings: BuildingState[] = this.testMode || this.stage.id === 'tutorial-1'
       ? []
       : this.map.rooms.flatMap((room, index) => {
-          const tile = [...room.buildTiles].sort(
-            (a, b) => distance(b, room.door) - distance(a, room.door),
-          )[0];
-          const kind = starterKinds[index % starterKinds.length] as BuildingKind;
-          return tile
-            ? [{
-                id: `starter:${room.id}`,
+          const tiles = [...room.buildTiles]
+            .sort((a, b) => distance(b, room.door) - distance(a, room.door))
+            .slice(0, room.beds.length);
+          return tiles.map((tile, starterIndex) => {
+            const kind = starterKinds[
+              (index + starterIndex) % starterKinds.length
+            ] as BuildingKind;
+            return {
+                id: `starter:${room.id}:${starterIndex}`,
                 kind,
                 roomId: room.id,
                 ownerId: "",
@@ -412,8 +415,8 @@ export class GameEngine {
                 investedGold: 0,
                 investedPower: 0,
                 investmentByPlayer: {},
-              }]
-            : [];
+              };
+          });
         });
     const eventNames: Record<GhostVariant, string> = {
       wanderer: "기본 악몽",
@@ -1733,13 +1736,27 @@ export class GameEngine {
           ? player.appearance.tileSkin
           : '';
       room.tileSkinActivatedAt = this.state.elapsed;
-      for (const building of this.state.buildings) {
-        if (building.roomId === room.id && !building.ownerId) {
-          building.ownerId = player.id;
-        }
-      }
     }
+    this.claimOneStarterBuilding(player, room.id);
     this.placeCarriedLoot(player, room);
+  }
+
+  /**
+   * A two-bed room starts with two dormant structures. The first occupant
+   * receives one at random and the next occupant necessarily receives the
+   * remaining structure. Ownership stays server-authoritative and therefore
+   * cannot be duplicated by simultaneous clients.
+   */
+  private claimOneStarterBuilding(player: PlayerState, roomId: string): void {
+    const unclaimed = this.state.buildings.filter(
+      (building) =>
+        building.roomId === roomId &&
+        building.id.startsWith(`starter:${roomId}`) &&
+        !building.ownerId,
+    );
+    if (unclaimed.length === 0) return;
+    const selected = unclaimed[this.rng.int(0, unclaimed.length - 1)];
+    if (selected) selected.ownerId = player.id;
   }
 
   build(
@@ -3016,7 +3033,9 @@ export class GameEngine {
         { x: building.tile.x, y: building.tile.y + 1 },
       ];
       for (const tile of adjacentTiles) {
-        const key = `${building.ownerId}:${building.roomId}:${tile.x}:${tile.y}`;
+        // Enhancers support every adjacent turret in the shared room. Keeping
+        // ownerId in this key incorrectly excluded a friend's turret.
+        const key = `${building.roomId}:${tile.x}:${tile.y}`;
         adjacentEnhancersByTurret.set(
           key,
           (adjacentEnhancersByTurret.get(key) ?? 0) + 1,
@@ -3035,7 +3054,7 @@ export class GameEngine {
     for (const turret of this.state.buildings) {
       if (turret.kind !== "basic-turret") continue;
       const adjacentEnhancers = index.adjacentEnhancersByTurret.get(
-        `${turret.ownerId}:${turret.roomId}:${turret.tile.x}:${turret.tile.y}`,
+        `${turret.roomId}:${turret.tile.x}:${turret.tile.y}`,
       ) ?? 0;
       turret.effectiveLevel = turret.level + adjacentEnhancers;
     }
@@ -3044,6 +3063,7 @@ export class GameEngine {
   private beginPlaying(): void {
     this.state.status = "PLAYING";
     this.rescueUnclaimedPlayersTrappedInOccupiedRooms();
+    this.grantUnclaimedSharedRoomStarters();
     for (const player of this.state.players) {
       if (!player.alive) continue;
       const enteredRoom = this.map.rooms.find((room) =>
@@ -3103,6 +3123,37 @@ export class GameEngine {
       kind: "lights-on",
       label: "복도 불이 켜졌습니다. 귀신의 공격이 시작됩니다!",
     });
+  }
+
+  /**
+   * Once preparation ends, a sole occupant no longer needs to wait for a
+   * roommate. Give that survivor every dormant starter still left in the
+   * two-bed room and notify only that player.
+   */
+  private grantUnclaimedSharedRoomStarters(): void {
+    if (this.playMode !== 'multiplayer') return;
+    for (const room of this.state.rooms) {
+      const mapRoom = this.map.rooms.find((candidate) => candidate.id === room.id);
+      if (!mapRoom || mapRoom.beds.length < 2 || room.ownerIds.length !== 1) continue;
+      const ownerId = room.ownerIds[0];
+      const owner = this.state.players.find((player) => player.id === ownerId);
+      if (!owner) continue;
+      const unclaimed = this.state.buildings.filter(
+        (building) =>
+          building.roomId === room.id &&
+          building.id.startsWith(`starter:${room.id}`) &&
+          !building.ownerId,
+      );
+      if (unclaimed.length === 0) continue;
+      for (const building of unclaimed) building.ownerId = owner.id;
+      this.pendingEvents.push({
+        kind: 'starter-allocation',
+        playerId: owner.id,
+        roomId: room.id,
+        position: { ...owner.position },
+        label: '다른 생존자가 들어오지 않아 설치 건물 2개를 모두 획득했습니다',
+      });
+    }
   }
 
   /**

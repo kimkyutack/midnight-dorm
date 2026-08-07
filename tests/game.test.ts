@@ -2677,6 +2677,46 @@ describe('authoritative game rules', () => {
     expect(engine.upgrade(second.player.id, `bed:${roomId}:${firstPlayer?.bedIndex ?? 0}`).ok).toBe(false);
   });
 
+  it("applies a roommate's turret enhancer to an adjacent shared-room turret", () => {
+    const map = generateMap(73_402, 'multiplayer');
+    const engine = new GameEngine('SHAREDENHANCER', map, true, { playMode: 'multiplayer' });
+    const first = engine.join({ nickname: 'EnhancerA', deviceId: 'shared-enhancer-a' });
+    const second = engine.join({ nickname: 'EnhancerB', deviceId: 'shared-enhancer-b' });
+    engine.handle(second.player.id, envelope({ type: 'ready', ready: true }, 2));
+    begin(engine, first.player.id);
+    const roomId = engine.snapshot().players.find((player) => player.id === first.player.id)?.roomId;
+    const room = map.rooms.find((candidate) => candidate.id === roomId);
+    if (!roomId || !room) throw new Error('missing shared enhancer room');
+    const available = room.buildTiles.filter((tile) =>
+      !engine.snapshot().buildings.some(
+        (building) => building.tile.x === tile.x && building.tile.y === tile.y,
+      ),
+    );
+    const enhancerTile = available.find((tile) =>
+      available.some(
+        (candidate) => Math.abs(candidate.x - tile.x) + Math.abs(candidate.y - tile.y) === 1,
+      ),
+    );
+    const turretTile = enhancerTile
+      ? available.find(
+          (tile) => Math.abs(tile.x - enhancerTile.x) + Math.abs(tile.y - enhancerTile.y) === 1,
+        )
+      : undefined;
+    if (!enhancerTile || !turretTile) throw new Error('missing adjacent shared building tiles');
+    const funded = engine.serialize();
+    for (const player of funded.snapshot.players) {
+      player.gold = 10_000;
+      player.power = 10_000;
+    }
+    engine.restore(funded);
+
+    expect(engine.build(first.player.id, roomId, enhancerTile, 'turret-enhancer').ok).toBe(true);
+    expect(engine.build(second.player.id, roomId, turretTile, 'basic-turret').ok).toBe(true);
+    expect(engine.snapshot().buildings.find(
+      (building) => building.kind === 'basic-turret' && building.ownerId === second.player.id,
+    )?.effectiveLevel).toBe(2);
+  });
+
   it('keeps an occupied player lying at the exact bed position', () => {
     const { engine, ids } = setup();
     const playerId = ids[0] as string;
@@ -3460,7 +3500,7 @@ describe('authoritative game rules', () => {
     expect(engine.drainEvents().some((event) => event.kind === 'turret-fire')).toBe(true);
   });
 
-  it('places one dormant starter structure in every live room and transfers the claimed one', () => {
+  it('places one dormant starter structure in every live solo room and transfers the claimed one', () => {
     const { engine, ids } = setup(1, false);
     const playerId = ids[0] as string;
     const initial = engine.snapshot();
@@ -3494,6 +3534,78 @@ describe('authoritative game rules', () => {
       expect(engine.snapshot().buildings.find((building) => building.id === claimedStarter.id))
         .toMatchObject({ level: 2, effectiveLevel: 2 });
     }
+  });
+
+  it('places two starter structures in each live two-bed room and splits them by claim order', () => {
+    const map = generateMap(734_902, 'multiplayer');
+    const engine = new GameEngine('LIVE2BED', map, false, { playMode: 'multiplayer' });
+    const first = engine.join({ nickname: 'StarterA', deviceId: 'starter-live-a' });
+    const second = engine.join({ nickname: 'StarterB', deviceId: 'starter-live-b' });
+    engine.handle(second.player.id, envelope({ type: 'ready', ready: true }, 2));
+    const expectedStarterCount = map.rooms.reduce((sum, room) => sum + room.beds.length, 0);
+    expect(engine.snapshot().buildings).toHaveLength(expectedStarterCount);
+    expect(engine.snapshot().buildings.every(
+      (building) => building.id.startsWith('starter:') && !building.ownerId,
+    )).toBe(true);
+
+    expect(engine.start(first.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const room = map.rooms[0];
+    if (!room?.beds[0] || !room.beds[1]) throw new Error('missing two-bed starter fixture');
+    const placeAtBed = (playerId: string, bedIndex: number) => {
+      const persisted = engine.serialize();
+      const player = persisted.snapshot.players.find((candidate) => candidate.id === playerId);
+      if (!player) throw new Error('missing starter claimant');
+      player.position = { ...(room.beds[bedIndex] as Tile) };
+      engine.restore(persisted);
+      expect(engine.interact(playerId).ok).toBe(true);
+    };
+
+    placeAtBed(first.player.id, 0);
+    let roomStarters = engine.snapshot().buildings.filter((building) => building.roomId === room.id);
+    expect(roomStarters).toHaveLength(2);
+    expect(roomStarters.filter((building) => building.ownerId === first.player.id)).toHaveLength(1);
+    expect(roomStarters.filter((building) => !building.ownerId)).toHaveLength(1);
+
+    placeAtBed(second.player.id, 1);
+    roomStarters = engine.snapshot().buildings.filter((building) => building.roomId === room.id);
+    expect(roomStarters.filter((building) => building.ownerId === first.player.id)).toHaveLength(1);
+    expect(roomStarters.filter((building) => building.ownerId === second.player.id)).toHaveLength(1);
+  });
+
+  it('grants both two-bed starter structures to the sole occupant when preparation ends', () => {
+    const map = generateMap(734_903, 'multiplayer');
+    const engine = new GameEngine('LIVE2BEDSOLO', map, false, { playMode: 'multiplayer' });
+    const first = engine.join({ nickname: 'StarterSolo', deviceId: 'starter-live-solo' });
+    expect(engine.start(first.player.id).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const room = map.rooms[0];
+    if (!room?.beds[0]) throw new Error('missing sole starter fixture');
+    const atBed = engine.serialize();
+    const player = atBed.snapshot.players.find((candidate) => candidate.id === first.player.id);
+    if (!player) throw new Error('missing sole starter claimant');
+    player.position = { ...(room.beds[0] as Tile) };
+    engine.restore(atBed);
+    expect(engine.interact(first.player.id).ok).toBe(true);
+    expect(engine.snapshot().buildings.filter(
+      (building) => building.roomId === room.id && building.ownerId === first.player.id,
+    )).toHaveLength(1);
+
+    engine.drainEvents();
+    const expiring = engine.serialize();
+    expiring.snapshot.countdown = 0.01;
+    engine.restore(expiring);
+    engine.tick(0.02);
+    expect(engine.snapshot().status).toBe('PLAYING');
+    expect(engine.snapshot().buildings.filter(
+      (building) => building.roomId === room.id && building.ownerId === first.player.id,
+    )).toHaveLength(2);
+    expect(engine.drainEvents()).toContainEqual(expect.objectContaining({
+      kind: 'starter-allocation',
+      playerId: first.player.id,
+      roomId: room.id,
+      label: '다른 생존자가 들어오지 않아 설치 건물 2개를 모두 획득했습니다',
+    }));
   });
 
   it('rejects construction inside another player room', () => {
