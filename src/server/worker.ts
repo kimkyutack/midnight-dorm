@@ -324,6 +324,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
   headers.set('x-turret-skins', encodeURIComponent(JSON.stringify(profile.turretSkins)));
   headers.set('x-consumable-inventory', encodeURIComponent(JSON.stringify(profile.consumables)));
+  headers.set('x-random-box-remaining', String(profile.randomBoxes.remaining));
   return stub.fetch(new Request(target, { method: request.method, headers }));
 }
 

@@ -3,7 +3,7 @@
  * the client bundle so an already-open, cached app can compare itself against
  * the uncached update API before it loads a newer shell.
  */
-export const APP_RELEASE_VERSION = "2026.08.06.1";
+export const APP_RELEASE_VERSION = "2026.08.07.1";
 
 export interface AppUpdate {
   version: string;
@@ -16,10 +16,10 @@ export interface AppUpdate {
 // migration. The D1 record remains the source of truth once it is available.
 export const CURRENT_APP_UPDATE: AppUpdate = {
   version: APP_RELEASE_VERSION,
-  title: "연결 안정성 및 앱 캐시 갱신",
+  title: "연출 상점과 일일 랜덤 상자",
   summary:
-    "• 앱 셸과 서비스워커 캐시를 새 버전으로 갱신해 이전 배포본이 오래된 API 경로를 호출하는 문제를 정리했습니다.\n• 존재하지 않는 API 요청도 HTML이 아닌 JSON 오류로 응답하도록 수정해 로그인과 데이터 요청이 파싱 오류로 멈추지 않게 했습니다.\n• 최신 버전 적용 후에도 문제가 보이면 설정에서 업데이트를 확인하거나 앱을 한 번 새로고침해 주세요.",
-  publishedAt: 1785999600000,
+    "• 명찰 10종과 홈 배경 10종을 추가하고 상점·보관함·홈·인게임 이름표를 하나의 장착 흐름으로 연결했습니다.\n• 랜덤 상자는 매일 10회 지급되며 아이템 상점에서 하루 두 번, 한 번에 5회씩 광고 보상으로 보충할 수 있습니다. 광고 제거 이용자는 즉시 받습니다.\n• 복도 드롭 등급, 발전기 업그레이드 외형, 프레스티지 침대 잔상, 보급품 버튼, 프리미엄 캐시 가격과 구슬 포인트 상한을 함께 조정했습니다.",
+  publishedAt: 1786086400000,
 };
 
 /**

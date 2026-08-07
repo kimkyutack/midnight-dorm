@@ -1917,6 +1917,7 @@
   font-size: 22px;
 }
 .home-mode-options {
+  padding: 16px;
   display: grid;
   gap: 8px;
 }
@@ -2217,7 +2218,7 @@
 }
 .home-invite {
   margin-top: 12px;
-  padding-top: 12px;
+  padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 .home-invite label {
@@ -5170,6 +5171,7 @@ select {
   text-transform: uppercase !important;
   letter-spacing: 0.24em;
   font-weight: 900;
+  height: 48px !important;
   text-align: center;
 }
 .button-row {
@@ -17856,24 +17858,6 @@ body.game-chat-active {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   animation: moonlit-card-border 3.2s ease-in-out infinite;
-}
-
-.moonlit-prestige-card .prestige-badge {
-  border-radius: 999px;
-  color: #101637;
-  background: linear-gradient(135deg, #fbf4ff, #74eaff 54%, #a68bff);
-  box-shadow: 0 0 12px rgba(109, 230, 255, .7);
-  letter-spacing: .05em;
-  transform: none;
-  top: 5px;
-  left: auto;
-  bottom: auto;
-  right: 5px;
-  width: auto;
-  max-width: calc(100% - 10px);
-  padding: 3px 4px;
-  font-size: 6px;
-  height: auto;
 }
 
 .moonlit-phantom-fox-card-art {

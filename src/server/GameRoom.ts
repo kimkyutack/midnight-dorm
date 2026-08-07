@@ -5,7 +5,7 @@ import { generateMap } from '../shared/map';
 import { encodeMessage, parseClientMessage } from '../shared/protocol';
 import { compactRealtimeEvents } from '../shared/realtimeEvents';
 import type { ConsumableId, GameSnapshot, OwnedConsumable, PlayMode, ProfileDisplayMode, RankedMatchState, RankedTier, RankId, ServerMessage, StageId } from '../shared/types';
-import { consumeMatchConsumable, recordMatchResult, recordRankedMatchResult } from './auth';
+import { consumeMatchConsumable, consumeRandomBox, recordMatchResult, recordRankedMatchResult, refundRandomBox } from './auth';
 import { summarizeRankedContributions } from './rankedScoring';
 import { normalizeConsumableId, shopConsumableById } from '../shared/shopConsumables';
 import { GameEngine, type PersistedEngine } from './engine';
@@ -67,6 +67,7 @@ export class GameRoom extends DurableObject<Env> {
   private recordingMatchId: string | null = null;
   private rankedQueue: RankedQueueRoomConfig | null = null;
   private lastBroadcastBuildingSignature = '';
+  private readonly randomBoxDrawsInFlight = new Set<string>();
   private readonly ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -168,6 +169,10 @@ export class GameRoom extends DurableObject<Env> {
     const appearanceHeader = request.headers.get('x-avatar-appearance');
     const turretSkinsHeader = request.headers.get('x-turret-skins');
     const consumablesHeader = request.headers.get('x-consumable-inventory');
+    const requestedRandomBoxes = Number(request.headers.get('x-random-box-remaining'));
+    const randomBoxesRemaining = Number.isFinite(requestedRandomBoxes)
+      ? Math.max(0, Math.floor(requestedRandomBoxes))
+      : 0;
     let appearance = normalizeAppearance(undefined);
     if (appearanceHeader) {
       try { appearance = normalizeAppearance(JSON.parse(decodeURIComponent(appearanceHeader))); } catch { appearance = normalizeAppearance(undefined); }
@@ -222,6 +227,7 @@ export class GameRoom extends DurableObject<Env> {
         appearance,
         turretSkins,
         consumables,
+        randomBoxesRemaining,
       });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : '참가할 수 없습니다.' }, { status: 409 });
@@ -398,6 +404,45 @@ export class GameRoom extends DurableObject<Env> {
       }
       this.broadcastSnapshot();
       await this.persist();
+      return;
+    }
+    if (parsed.message.type === 'draw-item') {
+      const validation = engine.validateDrawItem(attachment.playerId, parsed.message.machineId);
+      const player = engine.snapshot().players.find((candidate) => candidate.id === attachment.playerId);
+      if (!validation.ok || !player?.accountId) {
+        this.sendError(socket, 'ACTION_REJECTED', validation.error ?? '랜덤 상자를 사용할 수 없습니다.');
+        return;
+      }
+      if (this.randomBoxDrawsInFlight.has(player.accountId)) {
+        this.sendError(socket, 'ACTION_REJECTED', '랜덤 상자를 여는 중입니다.');
+        return;
+      }
+      this.randomBoxDrawsInFlight.add(player.accountId);
+      try {
+        const consumed = await consumeRandomBox(
+          this.env.DB,
+          player.accountId,
+          this.env.DATA_ENV === 'local-e2e',
+        );
+        if (!consumed.ok) {
+          this.sendError(socket, 'ACTION_REJECTED', consumed.error);
+          return;
+        }
+        const result = engine.drawItem(attachment.playerId, parsed.message.machineId);
+        if (!result.ok) {
+          await refundRandomBox(
+            this.env.DB,
+            player.accountId,
+            this.env.DATA_ENV === 'local-e2e',
+          );
+          this.sendError(socket, 'ACTION_REJECTED', result.error ?? '랜덤 상자를 열지 못했습니다.');
+          return;
+        }
+        this.broadcastSnapshot();
+        await this.persist();
+      } finally {
+        this.randomBoxDrawsInFlight.delete(player.accountId);
+      }
       return;
     }
     if (parsed.message.type === 'leave-room') {

@@ -97,6 +97,10 @@
 .orb-accessory-card button { min-height:31px; border:0; border-radius:9px; color:#43270a; background:linear-gradient(180deg,#ffe88c,#ffc83f); box-shadow:inset 0 -3px 0 #c77d16; font:900 10px var(--game-arcade-font); }
 .orb-accessory-card.owned button { color:#9aaed0; background:#24345e; box-shadow:none; }
 .orb-accessory-card button:disabled { opacity:.72; }
+.orb-accessory-card.profile-accessory-card > img { object-fit: cover; object-position: center; }
+.orb-frame-preview { position:relative; display:grid; width:100%; height:112px; place-items:center; overflow:hidden; border-radius:10px; background:radial-gradient(circle,#1c3567,#071229 70%); }
+.orb-frame-preview > img:first-child { width:76px; height:76px; border-radius:50%; object-fit:cover; }
+.orb-frame-preview > img:last-child { position:absolute; width:100px; height:100px; object-fit:contain; filter:drop-shadow(0 0 8px rgba(111,231,255,.45)); }
 
 /* Locker hierarchy: four primary sections, then compact room/effect sub-tabs. */
 .locker-top-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; width:100%; }
@@ -107,10 +111,6 @@
 .effect-preview-stage { position:relative; display:grid; place-items:center; width:min(100%,260px); aspect-ratio:1/.92; overflow:hidden; border:1px solid #5a74c7; border-radius:18px; background:radial-gradient(circle at 50% 42%,#2a467f 0,#111c40 53%,#070d24 100%); }
 .effect-preview-avatar { position:relative; z-index:2; width:100%; height:100%; }
 .effect-preview-avatar .avatar-preview-canvas { width:100%; height:100%; }
-.effect-preview-aura { position:absolute; z-index:1; width:65%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle,rgba(126,238,255,.55),rgba(85,102,255,.18) 43%,transparent 72%); filter:blur(3px); animation:effect-aura-pulse 2.4s ease-in-out infinite; }
-.effect-preview-aura.home-aura-moonlit-phantom { background:radial-gradient(circle,rgba(86,218,255,.62),rgba(85,79,255,.24) 48%,transparent 72%); }
-.effect-preview-aura.home-aura-starlit-cloud { background:radial-gradient(circle,rgba(255,247,202,.66),rgba(133,202,255,.28) 48%,transparent 72%); }
-.effect-preview-aura.home-aura-abyssal-knight { background:radial-gradient(circle,rgba(255,87,63,.6),rgba(137,48,255,.28) 48%,transparent 72%); }
 .effect-preview-nameplate { position:absolute; z-index:3; bottom:25px; max-width:82%; padding:7px 28px; overflow:hidden; border:2px solid #8df1ff; border-radius:12px; color:#fff; background:linear-gradient(90deg,#09152f,#1f3f75,#09152f); box-shadow:0 5px 12px rgba(0,0,0,.42),inset 0 0 12px rgba(139,241,255,.14); font:900 12px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
 .effect-preview-nameplate::before,.effect-preview-nameplate::after { position:absolute; top:50%; width:12px; height:12px; content:""; transform:translateY(-50%) rotate(45deg); border:2px solid currentColor; background:#152a53; box-shadow:0 0 8px currentColor; }
 .effect-preview-nameplate::before { left:8px; }
@@ -145,14 +145,8 @@
 .effect-locker-card strong { margin-top:2px; color:#fff; font:900 12px var(--game-arcade-font); }
 .effect-locker-card button { min-height:30px; border:0; border-radius:9px; color:#392406; background:#ffcf42; box-shadow:inset 0 -3px 0 #bc7514; font:900 10px var(--game-arcade-font); }
 .effect-locker-card button:disabled { color:#a6b7d7; background:#26345d; box-shadow:none; }
-@keyframes effect-aura-pulse { 50% { transform:scale(1.15); opacity:.72; } }
-
 .game-home .home-avatar-showcase { isolation:isolate; }
 .game-home .home-avatar-model { position:relative; z-index:2; }
-.home-prestige-aura { position:absolute; z-index:1; left:50%; bottom:12%; width:min(58vw,230px); aspect-ratio:1; transform:translateX(-50%); border-radius:50%; opacity:0; pointer-events:none; }
-.home-avatar-showcase.home-aura-moonlit-phantom .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(85,223,255,.5),rgba(94,74,255,.18) 48%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
-.home-avatar-showcase.home-aura-starlit-cloud .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,251,204,.58),rgba(135,206,255,.2) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
-.home-avatar-showcase.home-aura-abyssal-knight .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,81,56,.53),rgba(129,35,255,.22) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
 
 /* Cash and points share a bounded resource rail. The account card owns a
    non-shrinking column, while wallet values compact before they can push the
@@ -379,7 +373,24 @@
   border-radius: 999px;
   color: #101637;
   background: linear-gradient(135deg, #fbf4ff, #74eaff 54%, #a68bff);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 12px rgba(109, 230, 255, .7);
+  letter-spacing: .05em;
+  transform: none !important;
+  top: 5px;
+  right: 5px;
+  max-width: calc(100% - 10px);
+  padding: 3px 4px;
+  font-size: 6px;
+  position: absolute !important;
+  z-index: 8 !important;
+  display: grid;
+  width: 45px;
+  height: 17px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  font-weight: 1000;
+  line-height: 1;
+  pointer-events: none;
 }
 
 /* Static collection portraits: suppress the special-ops card-only dust,
@@ -2106,8 +2117,7 @@
 
 .stage-picker-sheet .home-stage-grid {
   box-sizing: border-box;
-  padding-top: 12px !important;
-  padding-bottom: 18px !important;
+  padding: 16px !important;
 }
 
 .game-home .home-side-menu {
@@ -2231,7 +2241,7 @@
 }
 
 .game-home .home-utility {
-  grid-template-columns: clamp(96px, 28cqw, 106px) clamp(72px, 21cqw, 80px);
+  grid-template-columns: clamp(89px, 28cqw, 96px) clamp(72px, 21cqw, 80px);
   width: 100%;
   min-width: 0;
   justify-content: end;
@@ -2422,6 +2432,676 @@
 
 /* Place the mission claim marker over the icon corner, matching the menu marker. */
 .game-home .home-side-menu .home-event-missions .home-event-alert {
-  top: -3px;
-  right: 3px;
+  top: 6px;
+  right: 9px;
+}
+
+/* 2026-08 presentation shop and account-wide tactile controls */
+.game-home.has-equipped-home-background {
+  background-image:
+    linear-gradient(rgba(3, 7, 25, .23), rgba(3, 7, 25, .38)),
+    var(--home-background-image) !important;
+  background-position: center !important;
+  background-size: cover !important;
+}
+
+.game-home .home-character-nameplate {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 7%;
+  display: grid;
+  width: clamp(142px, 42cqw, 210px);
+  min-height: 34px;
+  padding: 7px 24px;
+  place-items: center;
+  overflow: hidden;
+  color: #fff;
+  background: rgba(4, 10, 27, .88) center / 100% 100% no-repeat;
+  background-image: var(--home-nameplate-image);
+  filter: drop-shadow(0 4px 6px rgba(0, 2, 14, .65));
+  font: 900 12px/1 var(--game-arcade-font);
+  text-shadow: 0 2px 3px #000;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.game-home .home-character-nameplate.nameplate-basic {
+  border: 2px solid rgba(119, 235, 255, .78);
+  border-radius: 13px;
+  background-image: linear-gradient(90deg, #07162b, #16476c, #07162b);
+}
+
+.game-home .home-character-nameplate.nameplate-moonlit-phantom {
+  border: 2px solid #66e7ff;
+  border-radius: 13px;
+  color: #d6fbff;
+  background-image: linear-gradient(90deg, #06142d, #184b88, #06142d);
+  box-shadow: 0 0 14px rgba(76, 222, 255, .5), inset 0 0 12px rgba(117, 234, 255, .2);
+}
+
+.game-home .home-character-nameplate.nameplate-starlit-cloud {
+  border: 2px solid #ffe29a;
+  border-radius: 13px;
+  color: #fff4c7;
+  background-image: linear-gradient(90deg, #17204c, #4c67b2, #17204c);
+  box-shadow: 0 0 14px rgba(171, 214, 255, .55), inset 0 0 12px rgba(255, 241, 177, .2);
+}
+
+.game-home .home-character-nameplate.nameplate-abyssal-knight {
+  border: 2px solid #ff6649;
+  border-radius: 13px;
+  color: #ffd2c1;
+  background-image: linear-gradient(90deg, #160818, #4a1539, #160818);
+  box-shadow: 0 0 14px rgba(255, 67, 46, .52), inset 0 0 12px rgba(195, 83, 255, .2);
+}
+
+.presentation-shop-screen .custom-catalog,
+.shop-screen .custom-catalog {
+  grid-template-rows: 80px minmax(0, 1fr) !important;
+}
+
+.presentation-shop-screen .custom-catalog > nav,
+.shop-screen .custom-catalog > nav,
+.supply-shop-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-auto-rows: 32px;
+  gap: 5px !important;
+  min-height: 76px !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+}
+
+.presentation-wallets {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.presentation-wallets strong {
+  padding: 6px 8px;
+  border: 1px solid rgba(116, 224, 255, .55);
+  border-radius: 15px;
+  color: #e7faff;
+  background: rgba(6, 18, 48, .86);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.presentation-wallets i,
+.purchase-confirm-cost.cash i {
+  margin-right: 3px;
+  color: #9bf1ff;
+  font-style: normal;
+}
+
+.presentation-preview-stage {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #07132d center / cover no-repeat;
+}
+
+.presentation-preview-stage.background-preview {
+  background-image: linear-gradient(rgba(2, 7, 23, .1), rgba(2, 7, 23, .2)), var(--presentation-background);
+}
+
+.presentation-avatar {
+  position: absolute;
+  inset: 5% 12% 11%;
+}
+
+.presentation-preview-nameplate {
+  position: absolute;
+  z-index: 3;
+  bottom: 17%;
+  display: grid;
+  width: 72%;
+  min-height: 38px;
+  padding: 7px 28px;
+  place-items: center;
+  color: #fff;
+  background: transparent center / 100% 100% no-repeat;
+  background-image: var(--presentation-nameplate);
+  filter: drop-shadow(0 5px 7px rgba(0, 0, 0, .72));
+  font: 900 13px/1 var(--game-arcade-font);
+  text-shadow: 0 2px 3px #000;
+}
+
+.presentation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.presentation-card {
+  display: flex;
+  min-width: 0;
+  min-height: 230px;
+  flex-direction: column;
+  padding: 7px;
+  border: 2px solid #31558d;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #172c59, #0c1737);
+}
+
+.presentation-card.previewing { border-color: #7beeff; box-shadow: 0 0 14px rgba(82, 220, 255, .35); }
+.presentation-card-art { display:grid; height:112px; place-items:center; overflow:hidden; border-radius:12px; background:#07132c; }
+.presentation-card-art img { display:block; width:100%; height:100%; object-fit:cover; }
+.presentation-card-art.nameplate img { height:auto; object-fit:contain; }
+.presentation-card-copy { display:grid; gap:3px; padding:7px 2px; text-align:center; }
+.presentation-card-copy strong { font-size:11px; }
+.presentation-card-copy small { min-height:27px; color:#9fb4cf; font-size:8px; line-height:1.35; }
+.presentation-card > button,
+.random-box-claim,
+.supply-target-button { min-height:34px; margin-top:auto; border:1px solid #fff0a0; border-radius:11px; color:#3b2700; background:linear-gradient(#ffe974,#ffbe26); font:900 10px var(--game-arcade-font); box-shadow:inset 0 -3px #d98507; }
+.presentation-card > button:disabled { color:#7f91ad; border-color:#354970; background:#18294e; box-shadow:none; }
+
+.random-box-shop-card { border-color:#ffe47a; box-shadow:0 0 16px rgba(255, 202, 46, .2); }
+.random-box-refill-note { margin:4px 0 8px; color:#86eaff; font-size:10px; font-weight:900; text-align:center; }
+.supply-build-card { display:flex !important; min-height:190px; flex-direction:column; }
+.supply-build-card .supply-target-button { display:block; width:100%; color:#243006 !important; }
+
+button:not(:disabled),
+[role="button"] { touch-action: manipulation; transition: filter .1s ease, scale .1s ease; }
+button:not(:disabled):active,
+[role="button"]:active { filter: brightness(1.14); scale: .96; }
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled), [role="button"] { transition: none; }
+}
+
+/* 2026-08-07 unified shop / locker information architecture */
+.catalog-primary-tabs,
+.catalog-sub-tabs {
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  gap: 5px;
+}
+
+.catalog-primary-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.catalog-primary-tabs .custom-tab {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 4px !important;
+  border: 1px solid rgba(92, 116, 185, .72) !important;
+  border-radius: 9px !important;
+  color: #b8c5e9 !important;
+  background: linear-gradient(180deg, #26345f, #182448) !important;
+  box-shadow: 0 2px 0 #0a1232 !important;
+  font: 900 10px/1 var(--game-arcade-font, inherit);
+}
+
+.catalog-primary-tabs .custom-tab.active {
+  color: #513108 !important;
+  border-color: #fff0a0 !important;
+  background: linear-gradient(180deg, #ffe86a, #ffc42c) !important;
+  box-shadow: 0 3px 0 #aa630b, inset 0 1px rgba(255, 255, 255, .58) !important;
+}
+
+.catalog-sub-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+}
+
+.catalog-sub-tabs button {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #3a73a9;
+  border-radius: 10px;
+  color: #c9efff;
+  background: linear-gradient(180deg, #17305c, #0d1d41);
+  box-shadow: inset 0 -2px 0 rgba(3, 10, 30, .7);
+  font: 900 10px/1 var(--game-arcade-font, inherit);
+}
+
+.catalog-sub-tabs button.active {
+  color: #3b2700;
+  border-color: #fff0a0;
+  background: linear-gradient(#ffe974, #ffbe26);
+  box-shadow: inset 0 -3px #d98507;
+}
+
+.presentation-shop-screen .custom-catalog > nav,
+.shop-screen .custom-catalog > nav,
+.custom-catalog > nav,
+.custom-catalog nav.locker-nav,
+.supply-shop-tabs {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: 34px !important;
+  box-sizing: border-box;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  gap: 0 !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+}
+
+.catalog-primary-tabs .custom-tab,
+.catalog-sub-tabs button {
+  width: 100%;
+}
+
+.custom-catalog.has-catalog-subtabs > nav,
+.custom-catalog.has-locker-subtabs nav.locker-nav {
+  grid-template-rows: 34px 34px !important;
+  min-height: 84px !important;
+  max-height: 84px !important;
+  gap: 6px !important;
+}
+
+.shop-screen .custom-catalog,
+.custom-catalog.locker-catalog {
+  grid-template-rows: 46px minmax(0, 1fr) !important;
+}
+
+.shop-screen .custom-catalog.has-catalog-subtabs,
+.custom-catalog.locker-catalog.has-locker-subtabs {
+  grid-template-rows: 84px minmax(0, 1fr) !important;
+}
+
+.supply-shop-tabs {
+  margin: 0 16px;
+}
+
+/* The same authored sitting/yawn sheet is shared by home and both previews. */
+.home-pose-avatar {
+  box-sizing: border-box;
+  background-image: var(--home-pose-atlas);
+  background-repeat: no-repeat;
+  background-size: calc(var(--home-pose-columns, 6) * 100%) 500%;
+  background-position: 0 calc(var(--home-pose-row, 0) * 25%);
+  animation: home-character-yawn 5s steps(1, end) infinite;
+  will-change: background-position;
+}
+
+.home-presentation-stage {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 190px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    linear-gradient(rgba(3, 7, 25, .12), rgba(3, 7, 25, .28)),
+    var(--preview-home-background) center / cover no-repeat;
+}
+
+[data-presentation-preview-host],
+[data-effect-preview-host] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 100%;
+}
+
+.home-presentation-avatar {
+  position: absolute;
+  inset: 7% 10% 15%;
+  display: grid;
+  place-items: center;
+}
+
+.home-presentation-avatar .preview-home-pose {
+  display: block;
+  width: auto;
+  height: min(92%, 220px);
+  aspect-ratio: var(--home-pose-aspect, 1);
+  filter: drop-shadow(0 8px 8px rgba(0, 3, 20, .46));
+}
+
+/* One nameplate surface is used by home, shop and locker so previews cannot drift. */
+.game-nameplate {
+  display: grid;
+  box-sizing: border-box;
+  width: clamp(180px, 76%, 270px);
+  min-height: 48px;
+  padding: 10px 34px;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: #fff;
+  background: transparent center / 100% 100% no-repeat;
+  background-image: var(--game-nameplate-image);
+  filter: drop-shadow(0 4px 6px rgba(0, 2, 14, .65));
+  font: 900 12px/1 var(--game-arcade-font, inherit);
+  text-shadow: 0 2px 3px #000;
+  white-space: nowrap;
+}
+
+.home-presentation-stage .game-nameplate {
+  position: absolute;
+  z-index: 4;
+  bottom: 7%;
+}
+
+.game-home .home-character-nameplate.game-nameplate {
+  background-image: var(--game-nameplate-image);
+}
+
+.game-nameplate.nameplate-basic {
+  border: 2px solid rgba(119, 235, 255, .78);
+  border-radius: 13px;
+  background-image: linear-gradient(90deg, #07162b, #16476c, #07162b);
+}
+
+.game-nameplate.nameplate-moonlit-phantom {
+  border: 0;
+  border-radius: 0;
+  color: #d6fbff;
+  background-image: var(--game-nameplate-image);
+  box-shadow: none;
+}
+
+.game-nameplate.nameplate-starlit-cloud {
+  border: 0;
+  border-radius: 0;
+  color: #fff4c7;
+  background-image: var(--game-nameplate-image);
+  box-shadow: none;
+}
+
+.game-nameplate.nameplate-abyssal-knight {
+  border: 0;
+  border-radius: 0;
+  color: #ffd2c1;
+  background-image: var(--game-nameplate-image);
+  box-shadow: none;
+}
+
+.effect-locker-card.previewing {
+  border-color: #7beeff;
+  box-shadow: 0 0 14px rgba(82, 220, 255, .35);
+}
+
+.point-currency-button {
+  color: #3b2700 !important;
+  border-color: #fff0a0 !important;
+  background: linear-gradient(#ffe974, #ffbe26) !important;
+  box-shadow: inset 0 -3px #d98507 !important;
+}
+
+.cash-currency-button {
+  color: #031c35 !important;
+  border-color: #a8f6ff !important;
+  background: linear-gradient(180deg, #9cf5ff, #48cfea) !important;
+  box-shadow: inset 0 -3px #1885b2, 0 0 10px rgba(79, 224, 255, .25) !important;
+}
+
+.item-locker-screen {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.locker-items-shell {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: 46px auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 16px 18px;
+}
+
+.locker-items-shell > header {
+  padding: 12px 14px;
+  border: 1px solid #34558f;
+  border-radius: 15px;
+  background: linear-gradient(160deg, #18305e, #0b1736);
+}
+
+.locker-items-shell > header span,
+.locker-item-card span {
+  color: #7cecff;
+  font: 900 8px/1 var(--game-arcade-font, inherit);
+  letter-spacing: .12em;
+}
+
+.locker-items-shell > header h3 { margin: 5px 0; }
+.locker-items-shell > header p { margin: 0; color: #9fb4cf; font-size: 10px; }
+
+.locker-items-list {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.locker-item-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #36588f;
+  border-radius: 15px;
+  background: linear-gradient(160deg, #152952, #0a1634);
+}
+
+.locker-item-art {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #07142d;
+}
+
+.locker-item-art img { width: 90%; height: 90%; object-fit: contain; }
+.locker-item-card > div:nth-child(2) { display: grid; min-width: 0; gap: 4px; }
+.locker-item-card strong { font-size: 12px; }
+.locker-item-card small { color: #9fb4cf; font-size: 9px; line-height: 1.35; }
+.locker-item-card > b { min-width: 48px; color: #ffe276; font: 900 13px/1 var(--game-arcade-font, inherit); text-align: right; }
+.random-box-owned-card { border-color: #d5b95b; box-shadow: inset 3px 0 #ffd85b; }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-presentation-avatar .preview-home-pose { animation: none; }
+}
+
+/* 2026-08-07 item catalog and nameplate consistency repair */
+.catalog-sub-tabs button.active,
+.custom-catalog.has-locker-subtabs .catalog-sub-tabs button.active {
+  color: #062338 !important;
+  border-color: #8cf2ff !important;
+  background: linear-gradient(180deg, #9bf4ff, #55cfe9) !important;
+  box-shadow: inset 0 -3px 0 #2389ad, 0 0 12px rgba(79, 224, 255, .28) !important;
+}
+
+.presentation-card-art.nameplate,
+.effect-locker-card.nameplate-effect-card > img,
+.orb-accessory-card.nameplate-accessory-card > img {
+  background: transparent !important;
+  box-shadow: none !important;
+  object-fit: contain !important;
+}
+
+.presentation-card-art.nameplate {
+  padding: 9px 2px;
+}
+
+.presentation-card-art.nameplate img {
+  width: 100%;
+  height: 100%;
+}
+
+.effect-locker-card.nameplate-effect-card > img,
+.orb-accessory-card.nameplate-accessory-card > img {
+  box-sizing: border-box;
+  padding: 2px 0;
+}
+
+/* The SVG is the entire nameplate: do not draw a second panel behind it. */
+.game-home .home-character-nameplate.game-nameplate,
+.home-presentation-stage .game-nameplate {
+  width: clamp(180px, 76%, 270px);
+  min-height: 48px;
+  padding: 10px 34px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.game-home .home-character-nameplate.game-nameplate:not(.nameplate-basic),
+.home-presentation-stage .game-nameplate:not(.nameplate-basic) {
+  background-image: var(--game-nameplate-image);
+}
+
+.presentation-card-art.nameplate {
+  padding: 2px 0;
+}
+
+.locker-items-empty {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  place-self: stretch;
+}
+
+.catalog-item-screen {
+  display: grid !important;
+  grid-template-rows: 54px minmax(0, 1fr) !important;
+  overflow: hidden !important;
+}
+
+.catalog-item-screen > .custom-header {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.catalog-item-shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  box-sizing: border-box;
+  width: min(1060px, 100%);
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 46px minmax(0, 1fr) !important;
+  gap: 10px;
+  margin: 8px auto 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.catalog-item-navigation,
+.supply-shop-tabs.catalog-item-navigation {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box !important;
+  display: grid !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: 34px !important;
+  gap: 0 !important;
+  margin: 0 !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+}
+
+.catalog-item-scroll {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+}
+
+.locker-item-scroll {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 0 0 calc(18px + env(safe-area-inset-bottom));
+}
+
+.locker-items-heading {
+  padding: 12px 14px;
+  border: 1px solid #34558f;
+  border-radius: 15px;
+  background: linear-gradient(160deg, #18305e, #0b1736);
+}
+
+.locker-items-heading span {
+  color: #7cecff;
+  font: 900 8px/1 var(--game-arcade-font, inherit);
+  letter-spacing: .12em;
+}
+
+.locker-items-heading h3 { margin: 5px 0; }
+.locker-items-heading p { margin: 0; color: #9fb4cf; font-size: 10px; }
+
+.locker-items-list {
+  overflow: visible;
+  padding-bottom: 2px;
+}
+
+.supply-item-scroll {
+  padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+}
+
+.supply-item-scroll .supply-brief,
+.supply-item-scroll .supply-grid {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+}
+
+.supply-item-scroll .supply-brief {
+  margin-top: 0;
+}
+
+.random-box-claim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.random-box-ad-icon {
+  display: inline-grid;
+  box-sizing: border-box;
+  width: 18px;
+  height: 14px;
+  padding-left: 1px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 7px;
+  line-height: 1;
+}
+
+@media (max-width: 480px) {
+  .catalog-item-shell {
+    margin-top: 6px;
+  }
+
+  .catalog-item-scroll {
+    padding-right: 1px;
+  }
 }

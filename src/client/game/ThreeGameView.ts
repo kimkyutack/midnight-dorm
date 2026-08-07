@@ -17,7 +17,8 @@ import {
   SURFER_WATER_TURRET_SKIN_ID,
   tileSkinTextureUrl,
 } from '../../shared/customization';
-import { ABYSSAL_KNIGHT_GORILLA_TILE_ID, STARLIT_CLOUD_RABBIT_TILE_ID } from '../../shared/prestige';
+import { ABYSSAL_KNIGHT_GORILLA_TILE_ID, prestigeAccessoryById, STARLIT_CLOUD_RABBIT_TILE_ID } from '../../shared/prestige';
+import { presentationById, type NameplatePalette } from '../../shared/presentation';
 import { doorVisualForLevel } from '../../shared/doorVisuals';
 import { stageThemeFor, type StageTheme } from '../../shared/stageThemes';
 import { tutorialGuidedBuildTile } from '../../shared/tutorial';
@@ -95,18 +96,40 @@ export function limitLocalPredictionLead(
   current: Vec2,
   predicted: Vec2,
   authoritative: Vec2,
-  _input: Vec2,
+  input: Vec2,
   maximumLead = LOCAL_MAX_PREDICTION_LEAD,
-  _localInputSequence?: number,
-  _authoritativeInputSequence?: number,
+  localInputSequence?: number,
+  authoritativeInputSequence?: number,
 ): Vec2 {
   const offsetX = authoritative.x - predicted.x;
   const offsetY = authoritative.y - predicted.y;
   const predictedError = Math.hypot(offsetX, offsetY);
-  // Trailing 10 Hz snapshots are expected, but the prediction leash remains
-  // absolute. Otherwise one missed start packet lets the sprite cross a room
-  // doorway while the server (and its interaction scan) stays behind.
   if (predictedError <= maximumLead) return predicted;
+
+  const inputLength = Math.hypot(input.x, input.y);
+  const acknowledgedCurrentInput =
+    inputLength > 0.001 &&
+    Number.isSafeInteger(localInputSequence) &&
+    (authoritativeInputSequence ?? -1) >= (localInputSequence ?? 0);
+  if (acknowledgedCurrentInput) {
+    const normalizedInputX = input.x / inputLength;
+    const normalizedInputY = input.y / inputLength;
+    const predictionLeadX = predicted.x - authoritative.x;
+    const predictionLeadY = predicted.y - authoritative.y;
+    const forwardLead =
+      predictionLeadX * normalizedInputX +
+      predictionLeadY * normalizedInputY;
+    const lateralLead = Math.abs(
+      predictionLeadX * -normalizedInputY +
+      predictionLeadY * normalizedInputX,
+    );
+    // Once the server has acknowledged the exact held input, a trailing 10 Hz
+    // snapshot is not a collision. Both sides use moveInWalkableArea, so keep
+    // predicting forward while retaining the leash for lateral divergence.
+    // The old absolute cap stopped the actor every ~200 ms on an otherwise
+    // empty corridor whenever mobile snapshots arrived in a short burst.
+    if (forwardLead >= -0.025 && lateralLead <= maximumLead) return predicted;
+  }
 
   const currentError = Math.hypot(
     authoritative.x - current.x,
@@ -816,12 +839,52 @@ function updateProfileBadge(sprite: THREE.Sprite, player: PlayerState): string {
   return display.badgeKey;
 }
 
-type InGameNameplateTheme = 'moonlit' | 'starlit' | 'abyssal' | null;
+type InGameNameplateTheme = string | null;
+
+interface InGameNameplateAsset {
+  image: HTMLImageElement;
+  loaded: boolean;
+  failed: boolean;
+}
+
+const inGameNameplateAssets = new Map<string, InGameNameplateAsset>();
+let inGameNameplateAssetRevision = 0;
+
+function inGameNameplateAssetUrl(nameplateId: string): string | null {
+  const regular = presentationById(nameplateId);
+  if (regular?.category === 'nameplate') return regular.imageUrl;
+  const prestige = prestigeAccessoryById(nameplateId);
+  return prestige?.category === 'nameplate' ? prestige.imageUrl : null;
+}
+
+function inGameNameplateImage(nameplateId: string): HTMLImageElement | null {
+  const assetUrl = inGameNameplateAssetUrl(nameplateId);
+  if (!assetUrl) return null;
+  let cached = inGameNameplateAssets.get(assetUrl);
+  if (!cached) {
+    const image = new Image();
+    cached = { image, loaded: false, failed: false };
+    inGameNameplateAssets.set(assetUrl, cached);
+    image.decoding = 'async';
+    image.addEventListener('load', () => {
+      cached!.loaded = true;
+      inGameNameplateAssetRevision += 1;
+    }, { once: true });
+    image.addEventListener('error', () => {
+      cached!.failed = true;
+      inGameNameplateAssetRevision += 1;
+    }, { once: true });
+    image.src = `${assetUrl}${assetUrl.includes('?') ? '&' : '?'}v=2026.08.07.2`;
+  }
+  return cached.loaded && !cached.failed ? cached.image : null;
+}
 
 function inGameNameplateTheme(nameplateId?: string | null): InGameNameplateTheme {
-  if (nameplateId === 'nameplate-moonlit-phantom') return 'moonlit';
-  if (nameplateId === 'nameplate-starlit-cloud') return 'starlit';
-  if (nameplateId === 'nameplate-abyssal-knight') return 'abyssal';
+  if (!nameplateId) return null;
+  const prestige = prestigeAccessoryById(nameplateId);
+  if (prestige?.category === 'nameplate') return prestige.id;
+  const presentation = presentationById(nameplateId);
+  if (presentation?.category === 'nameplate') return presentation.id;
   return null;
 }
 
@@ -831,12 +894,22 @@ function drawPrestigeNameplate(
   height: number,
   theme: Exclude<InGameNameplateTheme, null>,
 ): void {
-  const palettes = {
-    moonlit: ['#06152f', '#143d79', '#75eaff', '#d8f8ff'],
-    starlit: ['#172351', '#4966ba', '#ffe7a4', '#f7fbff'],
-    abyssal: ['#170919', '#491333', '#ff704c', '#f1b4ff'],
+  const authoredImage = inGameNameplateImage(theme);
+  if (authoredImage) {
+    context.drawImage(authoredImage, 0, 0, width, height);
+    return;
+  }
+  const prestigePalettes = {
+    'nameplate-moonlit-phantom': { colors: ['#06152f', '#143d79', '#75eaff', '#d8f8ff'], motif: 'crescent' },
+    'nameplate-starlit-cloud': { colors: ['#172351', '#4966ba', '#ffe7a4', '#f7fbff'], motif: 'star' },
+    'nameplate-abyssal-knight': { colors: ['#170919', '#491333', '#ff704c', '#f1b4ff'], motif: 'crown' },
   } as const;
-  const [deep, mid, accent, shine] = palettes[theme];
+  const regular = presentationById(theme);
+  const resolved = regular?.category === 'nameplate' && regular.nameplate
+    ? { colors: [regular.nameplate.fill, regular.nameplate.center, regular.nameplate.edge, regular.nameplate.text] as const, motif: regular.nameplate.motif }
+    : prestigePalettes[theme as keyof typeof prestigePalettes] ?? prestigePalettes['nameplate-moonlit-phantom'];
+  const [deep, mid, accent, shine] = resolved.colors;
+  const motif: NameplatePalette['motif'] | 'crescent' | 'crown' = resolved.motif;
   const body = context.createLinearGradient(0, 0, width, height);
   body.addColorStop(0, deep);
   body.addColorStop(0.5, mid);
@@ -858,14 +931,14 @@ function drawPrestigeNameplate(
   context.fillStyle = accent;
   context.shadowColor = accent;
   context.shadowBlur = 13;
-  if (theme === 'moonlit') {
+  if (motif === 'crescent') {
     for (const x of [35, width - 35]) {
       context.beginPath();
       context.arc(x, height / 2, 18, 0.45 * Math.PI, 1.55 * Math.PI);
       context.arc(x + (x < width / 2 ? 8 : -8), height / 2, 14, 1.55 * Math.PI, 0.45 * Math.PI, true);
       context.fill();
     }
-  } else if (theme === 'starlit') {
+  } else if (motif === 'star') {
     for (const x of [36, width - 36]) {
       context.beginPath();
       context.moveTo(x, height / 2 - 19);
@@ -4557,7 +4630,7 @@ export class ThreeGameView {
       }
       updateTextBillboard(
         view.label,
-        `${profileDisplay.badgeKey}:${profileDisplay.label}:${player.nickname}:${player.nameplateId ?? 'basic'}`,
+        `${profileDisplay.badgeKey}:${profileDisplay.label}:${player.nickname}:${player.nameplateId ?? 'basic'}:${inGameNameplateAssetRevision}`,
         `${profileDisplay.label} · ${player.nickname}`,
         elite ? '#ecc9ff' : '#ffffff',
         'rgba(5,8,17,.78)',
@@ -5257,7 +5330,14 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (view.prestigeTheme) {
+      if (lying && view.prestigeTrail.length > 0) {
+        for (const trail of view.prestigeTrail) {
+          this.scene.remove(trail.effect);
+          disposeTransientObject(trail.effect);
+        }
+        view.prestigeTrail.length = 0;
+      }
+      if (view.prestigeTheme && !lying) {
         const tile = {
           x: Math.round(view.root.position.x),
           y: Math.round(view.root.position.z),

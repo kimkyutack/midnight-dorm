@@ -22,6 +22,9 @@ const MAX_RECONNECT_ATTEMPTS = 30;
 const RECONNECT_DELAY_CAP_MS = 5_000;
 const MAX_CLIENT_MOVE_BUFFER_BYTES = 64 * 1_024;
 const MOVE_BACKPRESSURE_RECOVERY_MS = 800;
+const HIGH_LATENCY_RECOVERY_THRESHOLD_MS = 1_800;
+const HIGH_LATENCY_RECOVERY_SAMPLES = 3;
+const HIGH_LATENCY_RECOVERY_COOLDOWN_MS = 30_000;
 
 type ParserWorkerResponse =
   | { id: number; generation: number; ok: true; message: ServerMessage }
@@ -86,7 +89,14 @@ export class GameNetwork {
   private pingTimer: number | null = null;
   private lastBuildSentAt = -Infinity;
   private lastSnapshot: GameSnapshot | null = null;
+  private pendingSnapshotEmission: {
+    snapshot: GameSnapshot;
+    events: GameEvent[];
+  } | null = null;
+  private snapshotEmissionFrame: number | null = null;
   private moveBackpressureStartedAt: number | null = null;
+  private highLatencyHeartbeats = 0;
+  private lastHighLatencyRecoveryAt = -Infinity;
   private parserWorker: Worker | null = null;
   private parserRequestId = 0;
   private readonly pendingParserRequests = new Map<
@@ -153,6 +163,7 @@ export class GameNetwork {
       opened = true;
       this.reconnectAttempts = 0;
       this.moveBackpressureStartedAt = null;
+      this.highLatencyHeartbeats = 0;
       this.emit('connection', { state: 'connected', attempt: 0 });
       this.startHeartbeat();
       if (this.leavePending) this.flushPendingLeave();
@@ -239,6 +250,7 @@ export class GameNetwork {
     this.parserWorker?.terminate();
     this.parserWorker = null;
     this.pendingParserRequests.clear();
+    this.clearPendingSnapshotEmission();
   }
 
   send(message: ClientIntent): boolean {
@@ -400,19 +412,70 @@ export class GameNetwork {
     this.emit('error', { message: '화면 동기화를 다시 맞추고 있습니다.' });
   }
 
+  private scheduleSnapshotEmission(
+    snapshot: GameSnapshot,
+    events: GameEvent[],
+  ): void {
+    const existingEvents = this.pendingSnapshotEmission?.events ?? [];
+    this.pendingSnapshotEmission = {
+      snapshot,
+      // A resumed mobile WebView can deliver several replaceable snapshots in
+      // one task. Render only the newest state, while retaining the event
+      // stream that belongs to the skipped frames.
+      events: [...existingEvents, ...events].slice(-160),
+    };
+    if (this.snapshotEmissionFrame !== null) return;
+    this.snapshotEmissionFrame = window.requestAnimationFrame(() => {
+      this.snapshotEmissionFrame = null;
+      const pending = this.pendingSnapshotEmission;
+      this.pendingSnapshotEmission = null;
+      if (pending) this.emit('snapshot', pending);
+    });
+  }
+
+  private clearPendingSnapshotEmission(): void {
+    if (this.snapshotEmissionFrame !== null)
+      window.cancelAnimationFrame(this.snapshotEmissionFrame);
+    this.snapshotEmissionFrame = null;
+    this.pendingSnapshotEmission = null;
+  }
+
+  private receivePong(clientTime: number): void {
+    const milliseconds = Math.max(0, Date.now() - clientTime);
+    this.emit('ping', { milliseconds });
+    if (milliseconds < HIGH_LATENCY_RECOVERY_THRESHOLD_MS) {
+      this.highLatencyHeartbeats = 0;
+      return;
+    }
+    this.highLatencyHeartbeats += 1;
+    const now = performance.now();
+    if (
+      this.highLatencyHeartbeats < HIGH_LATENCY_RECOVERY_SAMPLES ||
+      document.visibilityState !== 'visible' ||
+      now - this.lastHighLatencyRecoveryAt < HIGH_LATENCY_RECOVERY_COOLDOWN_MS
+    ) return;
+    this.highLatencyHeartbeats = 0;
+    this.lastHighLatencyRecoveryAt = now;
+    // Other apps remaining responsive while only this socket has a sustained
+    // multi-second RTT usually means a half-stalled mobile WebSocket route.
+    // Reconnect with the room token instead of keeping the degraded route.
+    window.setTimeout(() => this.wakeAfterSuspension(), 0);
+  }
+
   private receive(message: ServerMessage): void {
     if ((message.type === 'snapshot' || message.type === 'snapshot-frame') && message.sequence < this.lastServerSequence) return;
     if (message.type === 'welcome' || message.type === 'snapshot' || message.type === 'snapshot-frame') {
       this.lastServerSequence = message.sequence;
     }
     if (message.type === 'welcome') {
+      this.clearPendingSnapshotEmission();
       this.playerId = message.playerId;
       this.reconnectToken = message.reconnectToken;
       this.lastSnapshot = message.snapshot;
       this.emit('welcome', { playerId: message.playerId, map: message.map, snapshot: message.snapshot });
     } else if (message.type === 'snapshot') {
       this.lastSnapshot = message.snapshot;
-      this.emit('snapshot', { snapshot: message.snapshot, events: message.events });
+      this.scheduleSnapshotEmission(message.snapshot, message.events);
     } else if (message.type === 'snapshot-frame') {
       const snapshot = mergeSnapshotFrame(this.lastSnapshot, message.snapshot, message.buildings);
       if (!snapshot) {
@@ -420,10 +483,10 @@ export class GameNetwork {
         return;
       }
       this.lastSnapshot = snapshot;
-      this.emit('snapshot', { snapshot, events: message.events });
+      this.scheduleSnapshotEmission(snapshot, message.events);
     }
     else if (message.type === 'error') this.emit('error', { message: message.message });
-    else if (message.type === 'pong') this.emit('ping', { milliseconds: Math.max(0, Date.now() - message.clientTime) });
+    else if (message.type === 'pong') this.receivePong(message.clientTime);
     else if (message.type === 'quick-chat') this.emit('quickChat', { playerId: message.playerId, phrase: message.phrase });
     else if (message.type === 'game-chat') this.emit('gameChat', { playerId: message.playerId, message: message.message });
     else if (message.type === 'game-emote') this.emit('gameEmote', { playerId: message.playerId, emoteId: message.emoteId });

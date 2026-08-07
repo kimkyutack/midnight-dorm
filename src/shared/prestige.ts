@@ -101,7 +101,7 @@ export const PRESTIGE_PACKAGES: readonly PrestigePackageDefinition[] = [
   { id: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID, title: '심연 기사단장 콩', available: true, profileImageId: ABYSSAL_KNIGHT_PROFILE_IMAGE_ID, profileFrameId: ABYSSAL_KNIGHT_PROFILE_FRAME_ID, cosmeticIds: ABYSSAL_KNIGHT_PACKAGE_REWARDS.cosmeticIds, emotes: ABYSSAL_KNIGHT_EMOTES },
 ] as const;
 
-export type PrestigeAccessoryCategory = 'profile' | 'frame' | 'nameplate' | 'aura' | 'emote';
+export type PrestigeAccessoryCategory = 'profile' | 'frame' | 'nameplate' | 'background' | 'emote';
 
 export interface PrestigeAccessoryDefinition {
   id: string;
@@ -119,22 +119,25 @@ const packageAccessories = (
   profileImageId: string,
   profileFrameId: string,
   nameplateId: string,
-  homeAuraId: string,
+  homeBackgroundId: string,
+  homeBackgroundUrl: string,
   emotes: readonly PrestigeEmoteDefinition[],
-  imageUrl: string,
+  profileImageUrl: string,
+  profileFrameUrl: string,
+  nameplateImageUrl: string,
   title: string,
 ): PrestigeAccessoryDefinition[] => [
-  { id: profileImageId, packageId, category: 'profile', label: `${title} 프로필`, detail: '프로필 이미지', orbCost: 2, imageUrl },
-  { id: profileFrameId, packageId, category: 'frame', label: `${title} 테두리`, detail: '프로필 테두리', orbCost: 1, imageUrl },
-  { id: nameplateId, packageId, category: 'nameplate', label: `${title} 명찰`, detail: '인게임 닉네임 명찰', orbCost: 1, imageUrl },
-  { id: homeAuraId, packageId, category: 'aura', label: `${title} 홈 오라`, detail: '홈 캐릭터 연출', orbCost: 2, imageUrl },
+  { id: profileImageId, packageId, category: 'profile', label: `${title} 프로필`, detail: '프로필 이미지', orbCost: 2, imageUrl: profileImageUrl },
+  { id: profileFrameId, packageId, category: 'frame', label: `${title} 테두리`, detail: '프로필 테두리', orbCost: 1, imageUrl: profileFrameUrl },
+  { id: nameplateId, packageId, category: 'nameplate', label: `${title} 명찰`, detail: '인게임 닉네임 명찰', orbCost: 1, imageUrl: nameplateImageUrl },
+  { id: homeBackgroundId, packageId, category: 'background', label: `${title} 홈 배경`, detail: '프레스티지 홈 화면 테마', orbCost: 2, imageUrl: homeBackgroundUrl },
   ...emotes.map((emote) => ({ id: emote.id, packageId, category: 'emote' as const, label: emote.label, detail: '인게임 이모티콘', orbCost: 1, imageUrl: emote.assetUrl })),
 ];
 
 export const PRESTIGE_ACCESSORIES: readonly PrestigeAccessoryDefinition[] = [
-  ...packageAccessories(MOONLIT_PHANTOM_PACKAGE_ID, MOONLIT_PROFILE_IMAGE_ID, MOONLIT_PROFILE_FRAME_ID, 'nameplate-moonlit-phantom', 'home-aura-moonlit-phantom', MOONLIT_EMOTES, '/assets/prestige/moonlit-phantom-fox/featured-package.webp', '월령 환영 여우'),
-  ...packageAccessories(STARLIT_CLOUD_RABBIT_PACKAGE_ID, STARLIT_CLOUD_PROFILE_IMAGE_ID, STARLIT_CLOUD_PROFILE_FRAME_ID, 'nameplate-starlit-cloud', 'home-aura-starlit-cloud', STARLIT_CLOUD_EMOTES, '/assets/prestige/starlit-cloud-rabbit/featured-package.png', '성운 구름무희 모모'),
-  ...packageAccessories(ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID, ABYSSAL_KNIGHT_PROFILE_IMAGE_ID, ABYSSAL_KNIGHT_PROFILE_FRAME_ID, 'nameplate-abyssal-knight', 'home-aura-abyssal-knight', ABYSSAL_KNIGHT_EMOTES, '/assets/prestige/abyssal-knight-gorilla/featured-package.webp', '심연 기사단장 콩'),
+  ...packageAccessories(MOONLIT_PHANTOM_PACKAGE_ID, MOONLIT_PROFILE_IMAGE_ID, MOONLIT_PROFILE_FRAME_ID, 'nameplate-moonlit-phantom', 'home-background-moonlit-phantom', '/assets/prestige/moonlit-phantom-fox/home-background.webp', MOONLIT_EMOTES, '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2', '/assets/profile-images/moonlit-phantom-frame.png', '/assets/ui/nameplates/nameplate-moonlit-phantom.svg', '월령 환영 여우'),
+  ...packageAccessories(STARLIT_CLOUD_RABBIT_PACKAGE_ID, STARLIT_CLOUD_PROFILE_IMAGE_ID, STARLIT_CLOUD_PROFILE_FRAME_ID, 'nameplate-starlit-cloud', 'home-background-starlit-cloud', '/assets/prestige/starlit-cloud-rabbit/home-background.webp', STARLIT_CLOUD_EMOTES, '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2', '/assets/profile-images/starlit-cloud-frame.webp?v=prestige-v2', '/assets/ui/nameplates/nameplate-starlit-cloud.svg', '성운 구름무희 모모'),
+  ...packageAccessories(ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID, ABYSSAL_KNIGHT_PROFILE_IMAGE_ID, ABYSSAL_KNIGHT_PROFILE_FRAME_ID, 'nameplate-abyssal-knight', 'home-background-abyssal-knight', '/assets/prestige/abyssal-knight-gorilla/home-background.webp', ABYSSAL_KNIGHT_EMOTES, '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2', '/assets/ui/nameplates/nameplate-abyssal-knight.svg', '심연 기사단장 콩'),
 ];
 
 export function prestigeAccessoryById(id: string) {
@@ -158,11 +161,10 @@ export const GHOST_ORB_DRAW_TABLE = [
   // Weights are direct percentages and deliberately total 100. Point rewards
   // dominate, while cosmetics stay sparse enough that a prestige ceiling does
   // not also clear the full point-shop collection.
-  { kind: 'points', amount: 100, weight: 70 },
-  { kind: 'points', amount: 200, weight: 19 },
-  { kind: 'points', amount: 300, weight: 5 },
-  { kind: 'points', amount: 500, weight: 1.75 },
-  { kind: 'points', amount: 1_000, weight: 0.35 },
+  { kind: 'points', amount: 50, weight: 70 },
+  { kind: 'points', amount: 100, weight: 19 },
+  { kind: 'points', amount: 200, weight: 6 },
+  { kind: 'points', amount: 300, weight: 1.1 },
   { kind: 'cosmetic', slot: 'character', weight: 1.8 },
   { kind: 'cosmetic', slot: 'skin', weight: 1 },
   { kind: 'cosmetic', slot: 'tile', weight: 0.45 },

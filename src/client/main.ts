@@ -39,6 +39,12 @@ import {
   prestigeEmoteById,
 } from "../shared/prestige";
 import { CASH_STORE_PRODUCTS, cashGrantAmount, firstCashPurchaseBonus, type StoreProductId } from "../shared/storeProducts";
+import {
+  PRESENTATION_CATALOG,
+  presentationById,
+  presentationsForCategory,
+  type PresentationCategory,
+} from "../shared/presentation";
 import { isPlayerUnderGhostAttack } from "../shared/combatPresentation";
 import {
   characterAvailable,
@@ -131,6 +137,8 @@ import {
   purchaseAdFree,
   purchaseCosmetic,
   purchaseConsumable,
+  purchasePresentation,
+  claimRandomBoxRefill,
   registerAccount,
   setProfileAvatar,
   setPrestigeLoadout,
@@ -165,6 +173,7 @@ import { initializeNativeRuntime, isNativeApp } from "./native";
 import { loadStoreProducts, purchaseStoreProduct } from "./native/purchases";
 import {
   prepareStageClearReward,
+  showRandomBoxReward,
   showStageClearReward,
 } from "./native/admob";
 import { nativeApiResourceUrl, nativeWebSocketUrlSync } from "./native/runtime";
@@ -218,6 +227,19 @@ let openingMinimapMapKey = "";
 let previousGameStatus: GameStatus | null = null;
 let countdownWarningTimer = 0;
 let account: AccountProfile | null = null;
+
+function syncAccountRandomBoxes(next: GameSnapshot, localPlayerId: string): void {
+  if (!account || !localPlayerId) return;
+  const remaining = next.players.find((player) => player.id === localPlayerId)?.randomBoxesRemaining;
+  if (!Number.isFinite(remaining) || account.randomBoxes.remaining === remaining) return;
+  account = {
+    ...account,
+    randomBoxes: {
+      ...account.randomBoxes,
+      remaining: Math.max(0, Math.floor(remaining ?? 0)),
+    },
+  };
+}
 interface MailboxMessage {
   id: string;
   scope: "global" | "personal" | "reward";
@@ -315,6 +337,7 @@ let updatePromptOpen = false;
 // Prediction runs locally; a 12.5Hz intent stream is enough for the server
 // and avoids flooding an unstable mobile network with pointer-move packets.
 const MOVEMENT_SEND_INTERVAL_MS = 80;
+const MOVEMENT_KEEPALIVE_INTERVAL_MS = 500;
 const ACTION_DEBOUNCE_MS = 650;
 const BUILD_PANEL_OPEN_GUARD_MS = 420;
 const BUILD_POINTER_ARM_WINDOW_MS = 1_600;
@@ -952,6 +975,15 @@ function openingTeaser(complete: () => void): void {
   app.querySelector("[data-teaser-skip]")?.addEventListener("click", finish);
 }
 
+function homePoseMarkup(
+  appearance: AvatarAppearance,
+  className = 'home-pose-avatar',
+  label = '앉아서 쉬다가 하품하는 내 캐릭터',
+): string {
+  const pose = homePoseAsset(appearance);
+  return `<span class="${className}" role="img" aria-label="${escapeHtml(label)}" data-home-pose-skin="${homePoseKey(appearance)}" style="--home-pose-atlas:url('${pose.atlasUrl}');--home-pose-row:${pose.row};--home-pose-aspect:${pose.cellAspectRatio};--home-pose-columns:${pose.frameColumns}"></span>`;
+}
+
 function homeScreen(): void {
   if (!account) {
     authScreen();
@@ -986,11 +1018,21 @@ function homeScreen(): void {
       ? `${currentAccount.ranked.seasonId} 시즌 계약`
       : stage.label;
   const perk = `${benefits.speedMultiplier > 1 ? `이동 +${Math.round((benefits.speedMultiplier - 1) * 100)}%` : "기본 이동"} · 문 Lv.15 · 포탑 Lv.15`;
+  const homeBackground = presentationById(currentAccount.prestige.homeBackgroundId)
+    ?? PRESTIGE_ACCESSORIES.find((item) => item.id === currentAccount.prestige.homeBackgroundId && item.category === 'background');
+  const homeBackgroundStyle = homeBackground
+    ? ` style="--home-background-image:url('${escapeHtml('backgroundUrl' in homeBackground && homeBackground.backgroundUrl ? homeBackground.backgroundUrl : homeBackground.imageUrl)}')"`
+    : '';
+  const equippedNameplate = presentationById(currentAccount.prestige.nameplateId)
+    ?? PRESTIGE_ACCESSORIES.find((item) => item.id === currentAccount.prestige.nameplateId && item.category === 'nameplate');
+  const homeNameplateStyle = equippedNameplate?.imageUrl
+    ? ` style="--game-nameplate-image:url('${escapeHtml(releaseVersionedAsset(equippedNameplate.imageUrl))}')"`
+    : '';
   const eventClaimable = (eventMissionOverviewCache?.claimableCount ?? 0) > 0;
   const eventNeedsStart = eventMissionOverviewCache !== null && !eventMissionOverviewCache.hasProgress;
   setContent(
     "home",
-    `<main class="game-home">
+    `<main class="game-home ${homeBackground ? 'has-equipped-home-background' : ''}"${homeBackgroundStyle}>
       <div class="home-atmosphere"></div>
       <header class="home-topbar">
         <button class="home-account in-game-label ${profileDisplay.className} ${currentAccount.prestige.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-profile-display-picker aria-haspopup="dialog" aria-label="프로필 설정">
@@ -1020,7 +1062,7 @@ function homeScreen(): void {
         <button class="home-guide" data-page-guide data-guide-topic="battle" aria-label="생존 가이드 도움말">${gameMenuIcon("guide")}<span>가이드</span></button>
         <button class="home-event-missions" data-event-missions aria-label="미션">${gameMenuIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button>
       </nav>
-      <section class="home-avatar-showcase ${currentAccount.prestige.homeAuraId ?? ''}" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><i class="home-prestige-aura" aria-hidden="true"></i><div class="home-avatar-model" data-home-avatar></div></section>
+      <section class="home-avatar-showcase" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><div class="home-avatar-model" data-home-avatar></div><strong class="home-character-nameplate game-nameplate ${currentAccount.prestige.nameplateId ?? 'nameplate-basic'}"${homeNameplateStyle}>${escapeHtml(currentAccount.nickname)}</strong></section>
       <footer class="home-actions">
         <div class="home-launch"><button class="home-mode-select ${hideSeekLaunchGuideStep === "home-mode" ? "launch-guide-target" : ""}" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
         <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-mailbox-tab" data-mailbox aria-label="우편함">${homeFooterIcon("mail")}<span>우편함</span><b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
@@ -1029,8 +1071,7 @@ function homeScreen(): void {
   );
   const avatarHost = app.querySelector<HTMLElement>("[data-home-avatar]");
   if (avatarHost) {
-    const pose = homePoseAsset(currentAccount.appearance);
-    avatarHost.innerHTML = `<span class="home-pose-avatar" role="img" aria-label="앉아서 쉬다가 하품하는 내 캐릭터" data-home-pose-skin="${homePoseKey(currentAccount.appearance)}" style="--home-pose-atlas:url('${pose.atlasUrl}');--home-pose-row:${pose.row};--home-pose-aspect:${pose.cellAspectRatio};--home-pose-columns:${pose.frameColumns}"></span>`;
+    avatarHost.innerHTML = homePoseMarkup(currentAccount.appearance);
   }
   app.querySelector("[data-stage-start]")?.addEventListener("click", () => {
     audio.play("button");
@@ -1791,7 +1832,7 @@ function ghostOrbShopScreen(): void {
   const orbCount = currentAccount.prestige.ghostOrbs;
   setContent('orb-shop', `<main class="orb-shop-screen">
     <div class="orb-shop-atmosphere" aria-hidden="true"></div>
-    <header class="orb-shop-header"><button type="button" data-orb-shop-back aria-label="홈으로">‹</button><div><small>SPIRIT ORB SHOP</small><h2>구슬 상점</h2></div><div class="orb-shop-header-actions"><button type="button" data-orb-exchange-page>구슬 교환</button><strong><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/>${orbCount.toLocaleString()}</strong></div></header>
+    <header class="orb-shop-header"><button type="button" data-orb-shop-back aria-label="홈으로">‹</button><div><small>SPIRIT ORB SHOP</small><h2>구슬 상점</h2></div><div class="orb-shop-header-actions"><button type="button" data-orb-exchange-page style="min-width: 60px; font-weight: 1000;">구슬 교환</button><strong><img src="/assets/ui/orb-shop/menu-icon.webp?v=${APP_RELEASE_VERSION}" alt=""/>${orbCount.toLocaleString()}</strong></div></header>
     <section class="orb-shop-scroll gacha-only">
       <section class="orb-summon-panel primary">
         <div class="orb-summon-title"><span>GHOST ORB DRAW</span><h3>귀신구슬 소환</h3><p>프리미엄·프레스티지 스킨은 등장하지 않습니다.</p><button type="button" data-orb-odds aria-label="확률 및 중복 보상 안내" style="min-width: 30px; min-height: 30px;">i</button></div>
@@ -1904,7 +1945,7 @@ function ghostOrbAccessoryExchangeScreen(activeCategory: PrestigeAccessoryCatego
   const orbCount = currentAccount.prestige.ghostOrbs;
   const owned = new Set(currentAccount.prestige.ownedAccessoryIds);
   const categories: readonly [PrestigeAccessoryCategory, string][] = [
-    ['profile', '프로필'], ['frame', '테두리'], ['nameplate', '명찰'], ['aura', '홈 오라'], ['emote', '이모티콘'],
+    ['profile', '프로필'], ['frame', '테두리'], ['nameplate', '명찰'], ['background', '배경'], ['emote', '이모티콘'],
   ];
   const cards = PRESTIGE_ACCESSORIES
     .filter((item) => item.category === activeCategory)
@@ -1912,8 +1953,11 @@ function ghostOrbAccessoryExchangeScreen(activeCategory: PrestigeAccessoryCatego
       const isOwned = owned.has(item.id);
       const insufficient = orbCount < item.orbCost;
       const action = isOwned ? '보유 중' : `귀신구슬 ${item.orbCost}개 교환`;
-      return `<article class="orb-accessory-card ${isOwned ? 'owned' : ''}">
-        <img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/>
+      const art = item.category === 'frame'
+        ? `<span class="orb-frame-preview"><img src="${escapeHtml(DEFAULT_PROFILE_AVATAR)}" alt=""/><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/></span>`
+        : `<img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/>`;
+      return `<article class="orb-accessory-card ${item.category}-accessory-card ${isOwned ? 'owned' : ''}">
+        ${art}
         <div><small>${escapeHtml(item.detail)}</small><strong>${escapeHtml(item.label)}</strong></div>
         <button type="button" data-orb-accessory-exchange="${item.id}" ${isOwned || insufficient ? 'disabled' : ''}>${action}</button>
       </article>`;
@@ -3196,8 +3240,9 @@ function showRankingProfile(accountId: string): void {
 }
 
 type LockerSlot = CosmeticSlot | 'emote';
-type LockerSection = 'character' | 'skin' | 'room' | 'effects';
-type ShopCatalogSlot = CosmeticSlot | "item";
+type LockerSection = 'character' | 'skin' | 'decorate' | 'item';
+type ShopCatalogSlot = CosmeticSlot | "item" | PresentationCategory;
+type CatalogPrimarySection = 'character' | 'skin' | 'decorate' | 'item';
 
 const CUSTOM_SLOT_LABELS: Record<LockerSlot, string> = {
   character: "캐릭터",
@@ -3213,7 +3258,59 @@ const SHOP_SLOT_LABELS: Record<ShopCatalogSlot, string> = {
   tile: CUSTOM_SLOT_LABELS.tile,
   turret: CUSTOM_SLOT_LABELS.turret,
   item: "아이템",
+  nameplate: "명찰",
+  background: "배경",
 };
+
+const CATALOG_PRIMARY_SECTIONS: readonly [CatalogPrimarySection, string][] = [
+  ['character', '캐릭터'],
+  ['skin', '스킨'],
+  ['decorate', '꾸미기'],
+  ['item', '아이템'],
+];
+
+const SKIN_SUBSECTIONS: readonly [Extract<CosmeticSlot, 'skin' | 'tile' | 'turret'>, string][] = [
+  ['skin', '캐릭터'],
+  ['tile', '타일'],
+  ['turret', '포탑'],
+];
+
+const DECORATE_SUBSECTIONS: readonly [PresentationCategory, string][] = [
+  ['nameplate', '명찰'],
+  ['background', '배경'],
+];
+
+function primarySectionForSlot(slot: ShopCatalogSlot): CatalogPrimarySection {
+  if (slot === 'skin' || slot === 'tile' || slot === 'turret') return 'skin';
+  if (slot === 'nameplate' || slot === 'background') return 'decorate';
+  return slot;
+}
+
+function catalogPrimaryTabs(
+  active: CatalogPrimarySection,
+  target: 'shop' | 'locker',
+): string {
+  const attribute = target === 'shop' ? 'data-shop-primary' : 'data-locker-section';
+  return `<div class="catalog-primary-tabs" role="tablist">${CATALOG_PRIMARY_SECTIONS.map(([section, label]) => `<button type="button" class="custom-tab ${section === active ? 'active' : ''}" ${attribute}="${section}">${label}</button>`).join('')}</div>`;
+}
+
+function catalogSubTabs(slot: ShopCatalogSlot, target: 'shop' | 'locker'): string {
+  const primary = primarySectionForSlot(slot);
+  if (primary === 'skin') {
+    const attribute = target === 'shop' ? 'data-shop-slot' : 'data-locker-skin-slot';
+    return `<div class="catalog-sub-tabs" role="tablist">${SKIN_SUBSECTIONS.map(([section, label]) => `<button type="button" class="${section === slot ? 'active' : ''}" ${attribute}="${section}">${label}</button>`).join('')}</div>`;
+  }
+  if (primary === 'decorate') {
+    const attribute = target === 'shop' ? 'data-shop-slot' : 'data-effect-category';
+    return `<div class="catalog-sub-tabs" role="tablist">${DECORATE_SUBSECTIONS.map(([section, label]) => `<button type="button" class="${section === slot ? 'active' : ''}" ${attribute}="${section}">${label}</button>`).join('')}</div>`;
+  }
+  return '';
+}
+
+function catalogNavigation(slot: ShopCatalogSlot, target: 'shop' | 'locker'): string {
+  const primary = primarySectionForSlot(slot);
+  return `${catalogPrimaryTabs(primary, target)}${catalogSubTabs(slot, target)}`;
+}
 
 function tilePreviewUrl(tileSkinId: string | undefined): string {
   return (
@@ -3271,59 +3368,144 @@ function cosmeticEntitled(
   );
 }
 
-function customizationScreen(activeSlot: LockerSection | LockerSlot = "character"): void {
-  if (activeSlot === 'effects') {
-    effectsLockerScreen();
+type LockerRoute = LockerSection | LockerSlot | PresentationCategory;
+
+function customizationScreen(activeSlot: LockerRoute = "character"): void {
+  if (activeSlot === 'decorate' || activeSlot === 'nameplate' || activeSlot === 'background') {
+    effectsLockerScreen(activeSlot === 'background' ? 'background' : 'nameplate');
+    return;
+  }
+  if (activeSlot === 'item') {
+    itemLockerScreen();
     return;
   }
   if (activeSlot === 'emote') {
     emoteLockerScreen();
     return;
   }
-  if (activeSlot === 'room' || activeSlot === 'tile' || activeSlot === 'turret') {
-    cosmeticCollectionScreen("customize", activeSlot === 'turret' ? 'turret' : 'tile', undefined, 'room');
+  if (activeSlot === 'tile' || activeSlot === 'turret') {
+    cosmeticCollectionScreen("customize", activeSlot, undefined, 'skin');
     return;
   }
   cosmeticCollectionScreen("customize", activeSlot === 'skin' ? 'skin' : 'character', undefined, activeSlot === 'skin' ? 'skin' : 'character');
+}
+
+function itemLockerScreen(): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const randomBoxes = currentAccount.randomBoxes;
+  const randomBoxCard = randomBoxes.remaining > 0
+    ? `<article class="locker-item-card random-box-owned-card"><div class="locker-item-art"><img src="${releaseVersionedAsset('/assets/items/rewards/candle-coin-chest.png')}" alt="심야 랜덤 상자"/></div><div><span>DAILY DRAW</span><strong>심야 랜덤 상자</strong><small>오늘 게임에서 열 수 있는 남은 횟수</small></div><b>${randomBoxes.remaining}회</b></article>`
+    : '';
+  const supplyCards = SHOP_CONSUMABLES.flatMap((item) => {
+    const quantity = currentAccount.consumables.find((owned) => owned.itemId === item.id)?.quantity ?? 0;
+    return quantity > 0
+      ? [`<article class="locker-item-card"><div class="locker-item-art"><img data-supply-art="${item.id}" alt="${escapeHtml(item.label)} 이미지"/></div><div><span>TACTICAL SUPPLY</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div><b>${quantity}개</b></article>`]
+      : [];
+  }).join('');
+  const ownedCards = `${randomBoxCard}${supplyCards}`;
+  setContent('customize', `<main class="custom-screen owned-custom-screen item-locker-screen catalog-item-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="홈으로">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="catalog-item-shell locker-items-shell"><nav class="catalog-item-navigation locker-nav">${catalogPrimaryTabs('item', 'locker')}</nav><div class="catalog-item-scroll locker-item-scroll"><header class="locker-items-heading"><span>OWNED ITEMS</span><h3>내 아이템</h3><p>현재 보유한 랜덤 상자와 전술 보급 수량입니다.</p></header><div class="locker-items-list">${ownedCards || '<p class="empty-collection locker-items-empty">보유한 아이템이 없습니다.<br/>상점에서 랜덤 상자와 전술 보급을 획득할 수 있습니다.</p>'}</div></div></section></main>`);
+  hydrateCatalogArt(app, {
+    appearance: currentAccount.appearance,
+    turretSkins: currentAccount.turretSkins,
+  });
+  app.querySelector('[data-custom-back]')?.addEventListener('click', homeScreen);
+  bindLockerPrimaryNavigation();
+}
+
+function bindLockerPrimaryNavigation(): void {
+  app.querySelectorAll<HTMLButtonElement>('[data-locker-section]').forEach((button) => {
+    button.addEventListener('click', () => customizationScreen(button.dataset.lockerSection as LockerSection));
+  });
+}
+
+function presentationBackgroundUrl(id: string | null | undefined): string {
+  const regular = presentationById(id);
+  if (regular?.category === 'background') return regular.backgroundUrl ?? regular.imageUrl;
+  const prestige = PRESTIGE_ACCESSORIES.find((item) => item.id === id && item.category === 'background');
+  return prestige?.imageUrl ?? '/assets/cinematic/cute-haunted-hospital-lobby-v1.webp';
+}
+
+function nameplateInlineStyle(id: string | null | undefined): string {
+  const nameplate = presentationById(id)
+    ?? PRESTIGE_ACCESSORIES.find((item) => item.id === id && item.category === 'nameplate');
+  return nameplate?.category === 'nameplate'
+    ? ` style="--game-nameplate-image:url('${escapeHtml(releaseVersionedAsset(nameplate.imageUrl))}')"`
+    : '';
+}
+
+function homePresentationPreviewMarkup(
+  currentAccount: AccountProfile,
+  backgroundId: string | null | undefined,
+  nameplateId: string | null | undefined,
+  stageClass: string,
+): string {
+  const backgroundUrl = presentationBackgroundUrl(backgroundId);
+  const resolvedNameplateId = nameplateId ?? 'nameplate-basic';
+  return `<div class="${stageClass} home-presentation-stage" style="--preview-home-background:url('${escapeHtml(backgroundUrl)}')"><div class="home-presentation-avatar">${homePoseMarkup(currentAccount.appearance, 'home-pose-avatar preview-home-pose')}</div><strong class="game-nameplate ${resolvedNameplateId}"${nameplateInlineStyle(nameplateId)}>${escapeHtml(currentAccount.nickname)}</strong></div>`;
 }
 
 function emoteLockerScreen(): void {
   effectsLockerScreen('emote');
 }
 
-function effectsLockerScreen(activeCategory: 'nameplate' | 'aura' | 'emote' = 'nameplate'): void {
+type LockerEffectCategory = 'nameplate' | 'background' | 'emote';
+
+function effectsLockerScreen(activeCategory: LockerEffectCategory = 'nameplate'): void {
   if (!account) return authScreen();
   const currentAccount = account;
   const owned = new Set(currentAccount.prestige.ownedAccessoryIds);
-  const categories: readonly ['nameplate' | 'aura' | 'emote', string][] = [
-    ['nameplate', '명찰'], ['aura', '홈 오라'], ['emote', '이모티콘'],
-  ];
-  const items = PRESTIGE_ACCESSORIES.filter((item) => item.category === activeCategory && owned.has(item.id));
+  const items = [...PRESTIGE_ACCESSORIES, ...PRESENTATION_CATALOG]
+    .filter((item) => item.category === activeCategory && owned.has(item.id));
   const equippedEmotes = new Set(currentAccount.prestige.equippedEmoteIds);
   const cards = items.map((item) => {
     const selected = item.category === 'nameplate'
       ? currentAccount.prestige.nameplateId === item.id
-      : item.category === 'aura'
-        ? currentAccount.prestige.homeAuraId === item.id
+      : item.category === 'background'
+        ? currentAccount.prestige.homeBackgroundId === item.id
         : equippedEmotes.has(item.id);
     const action = item.category === 'emote' ? (selected ? '장착 해제' : '장착') : (selected ? '장착 중' : '장착');
-    return `<article class="effect-locker-card ${selected ? 'selected' : ''}"><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/><div><small>${escapeHtml(item.detail)}</small><strong>${escapeHtml(item.label)}</strong></div><button type="button" data-effect-equip="${item.id}" ${selected && item.category !== 'emote' ? 'disabled' : ''}>${action}</button></article>`;
+    const detail = 'detail' in item ? item.detail : item.description;
+    return `<article class="effect-locker-card ${selected ? 'selected previewing' : ''} ${item.category === 'nameplate' ? 'nameplate-effect-card' : ''}" data-effect-preview="${item.id}" tabindex="0"><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/><div><small>${escapeHtml(detail)}</small><strong>${escapeHtml(item.label)}</strong></div><button type="button" data-effect-equip="${item.id}" ${selected && item.category !== 'emote' ? 'disabled' : ''}>${action}</button></article>`;
   }).join('');
-  const nameplate = PRESTIGE_ACCESSORIES.find((item) => item.id === currentAccount.prestige.nameplateId);
-  const nameplateClass = currentAccount.prestige.nameplateId ?? 'nameplate-basic';
-  const auraClass = currentAccount.prestige.homeAuraId ? ` ${currentAccount.prestige.homeAuraId}` : '';
-  setContent('customize', `<main class="custom-screen owned-custom-screen effect-locker-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="custom-layout"><aside class="custom-preview effect-preview"><div class="effect-preview-stage"><i class="effect-preview-aura${auraClass}" aria-hidden="true"></i><div class="effect-preview-avatar" data-effect-avatar></div><strong class="effect-preview-nameplate ${nameplateClass}">${escapeHtml(currentAccount.nickname)}</strong><small>${nameplate ? '인게임 명찰 장착 중' : '기본 인게임 명찰'}</small></div><p>인게임 플레이어 명찰 · 홈 오라 미리보기</p></aside><section class="custom-catalog locker-catalog has-locker-subtabs"><nav class="locker-nav"><div class="locker-top-tabs" role="tablist">${([['character', '캐릭터'], ['skin', '스킨'], ['room', '방 꾸미기'], ['effects', '연출']] as const).map(([section, label]) => `<button type="button" class="custom-tab ${section === 'effects' ? 'active' : ''}" data-locker-section="${section}">${label}</button>`).join('')}</div><div class="locker-sub-tabs">${categories.map(([category, label]) => `<button type="button" class="${category === activeCategory ? 'active' : ''}" data-effect-category="${category}">${label}</button>`).join('')}</div></nav><div class="effect-locker-grid">${cards || '<p class="empty-collection">보유한 연출이 없습니다.<br/>구슬 교환의 소품 교환에서 획득할 수 있습니다.</p>'}</div></section></section></main>`);
-  const avatarHost = app.querySelector<HTMLElement>('[data-effect-avatar]');
-  if (avatarHost) {
-    customAvatarPreview?.destroy();
-    customAvatarPreview = new AvatarPreview2D(avatarHost, currentAccount.appearance, currentAccount.displayRank);
-  }
+  const equippedPreviewId = activeCategory === 'nameplate'
+    ? currentAccount.prestige.nameplateId
+    : activeCategory === 'background'
+      ? currentAccount.prestige.homeBackgroundId
+      : currentAccount.prestige.equippedEmoteIds[0];
+  const initialPreview = items.find((item) => item.id === equippedPreviewId) ?? items[0];
+  const initialBackgroundId = activeCategory === 'background' ? initialPreview?.id : currentAccount.prestige.homeBackgroundId;
+  const initialNameplateId = activeCategory === 'nameplate' ? initialPreview?.id : currentAccount.prestige.nameplateId;
+  setContent('customize', `<main class="custom-screen owned-custom-screen effect-locker-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="custom-layout"><aside class="custom-preview effect-preview"><div data-effect-preview-host>${homePresentationPreviewMarkup(currentAccount, initialBackgroundId, initialNameplateId, 'effect-preview-stage')}</div><div><strong data-effect-preview-title>${escapeHtml(initialPreview?.label ?? '기본 연출')}</strong><small data-effect-preview-copy>${escapeHtml(initialPreview ? ('detail' in initialPreview ? initialPreview.detail : initialPreview.description) : '홈 화면과 인게임에 표시되는 모습을 확인하세요.')}</small></div></aside><section class="custom-catalog locker-catalog has-locker-subtabs"><nav class="locker-nav">${catalogNavigation(activeCategory === 'emote' ? 'nameplate' : activeCategory, 'locker')}</nav><div class="effect-locker-grid">${cards || '<p class="empty-collection">보유한 꾸미기 상품이 없습니다.<br/>상점 또는 구슬 교환에서 획득할 수 있습니다.</p>'}</div></section></section></main>`);
   app.querySelector('[data-custom-back]')?.addEventListener('click', homeScreen);
-  app.querySelectorAll<HTMLButtonElement>('[data-locker-section]').forEach((button) => button.addEventListener('click', () => customizationScreen(button.dataset.lockerSection as LockerSection)));
-  app.querySelectorAll<HTMLButtonElement>('[data-effect-category]').forEach((button) => button.addEventListener('click', () => effectsLockerScreen(button.dataset.effectCategory as 'nameplate' | 'aura' | 'emote')));
+  bindLockerPrimaryNavigation();
+  app.querySelectorAll<HTMLButtonElement>('[data-effect-category]').forEach((button) => button.addEventListener('click', () => effectsLockerScreen(button.dataset.effectCategory as LockerEffectCategory)));
+  const showEffectPreview = (id: string): void => {
+    const item = items.find((entry) => entry.id === id);
+    const host = app.querySelector<HTMLElement>('[data-effect-preview-host]');
+    if (!item || !host) return;
+    const backgroundId = activeCategory === 'background' ? item.id : currentAccount.prestige.homeBackgroundId;
+    const nameplateId = activeCategory === 'nameplate' ? item.id : currentAccount.prestige.nameplateId;
+    host.innerHTML = homePresentationPreviewMarkup(currentAccount, backgroundId, nameplateId, 'effect-preview-stage');
+    setText('[data-effect-preview-title]', item.label);
+    setText('[data-effect-preview-copy]', 'detail' in item ? item.detail : item.description);
+    app.querySelectorAll<HTMLElement>('[data-effect-preview]').forEach((card) => card.classList.toggle('previewing', card.dataset.effectPreview === id));
+  };
+  app.querySelectorAll<HTMLElement>('[data-effect-preview]').forEach((card) => {
+    const select = (): void => showEffectPreview(card.dataset.effectPreview ?? '');
+    card.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('[data-effect-equip]')) return;
+      select();
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      select();
+    });
+  });
   app.querySelectorAll<HTMLButtonElement>('[data-effect-equip]').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.effectEquip ?? '';
-    const item = PRESTIGE_ACCESSORIES.find((entry) => entry.id === id);
+    const item = [...PRESTIGE_ACCESSORIES, ...PRESENTATION_CATALOG].find((entry) => entry.id === id);
     if (!item) return;
     const next = item.category === 'emote'
       ? (equippedEmotes.has(id) ? currentAccount.prestige.equippedEmoteIds.filter((entry) => entry !== id) : [...currentAccount.prestige.equippedEmoteIds, id].slice(-4))
@@ -3331,7 +3513,7 @@ function effectsLockerScreen(activeCategory: 'nameplate' | 'aura' | 'emote' = 'n
     button.disabled = true;
     void withGlobalActionLoading('연출 장착 변경 중', () => setPrestigeLoadout({
       ...(item.category === 'nameplate' ? { nameplateId: id } : {}),
-      ...(item.category === 'aura' ? { homeAuraId: id } : {}),
+      ...(item.category === 'background' ? { homeBackgroundId: id } : {}),
       ...(item.category === 'emote' ? { emoteIds: next } : {}),
     })).then((updated) => {
       account = updated;
@@ -3352,7 +3534,112 @@ function shopScreen(
     supplyShopScreen();
     return;
   }
+  if (activeSlot === 'nameplate' || activeSlot === 'background') {
+    presentationShopScreen(activeSlot, previewItemId);
+    return;
+  }
   cosmeticCollectionScreen("shop", activeSlot, previewItemId);
+}
+
+function bindShopPrimaryNavigation(): void {
+  app.querySelectorAll<HTMLButtonElement>('[data-shop-primary]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const section = button.dataset.shopPrimary as CatalogPrimarySection;
+      if (section === 'skin') shopScreen('skin');
+      else if (section === 'decorate') shopScreen('nameplate');
+      else shopScreen(section);
+    });
+  });
+}
+
+function showCashRequired(message: string): void {
+  const modal = dismissibleModal(
+    `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true" aria-labelledby="cash-required-title"><span class="eyebrow">CASH REQUIRED</span><h2 id="cash-required-title">캐시가 부족합니다</h2><p class="subtitle">${escapeHtml(message)}</p><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn gold" data-open-cash-shop>캐시 충전</button></div></section>`,
+    'purchase-confirm-modal',
+  );
+  modal.querySelector('[data-open-cash-shop]')?.addEventListener('click', () => {
+    modal.remove();
+    cashShopScreen();
+  });
+}
+
+function presentationShopScreen(
+  activeCategory: PresentationCategory,
+  previewItemId?: string,
+): void {
+  if (!account) return authScreen();
+  const currentAccount = account;
+  const items = presentationsForCategory(activeCategory);
+  const selected = items.find((item) => item.id === previewItemId) ?? items[0];
+  const owned = new Set(currentAccount.prestige.ownedAccessoryIds);
+  const cards = items.map((item) => {
+    const isOwned = owned.has(item.id);
+    const priceLabel = item.currency === 'cash'
+      ? `${item.price.toLocaleString()} C`
+      : `${item.price.toLocaleString()} P`;
+    return `<article class="presentation-card catalog-card ${selected?.id === item.id ? 'previewing' : ''} ${isOwned ? 'owned' : ''}" data-presentation-preview="${item.id}" tabindex="0">
+      <div class="presentation-card-art ${item.category}"><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${item.category === 'nameplate' ? `${escapeHtml(item.label)} 빈 명찰 디자인` : `${escapeHtml(item.label)} 배경`}" loading="lazy" decoding="async"/></div>
+      <div class="presentation-card-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.description)}</small></div>
+      <button type="button" class="${isOwned ? '' : item.currency === 'cash' ? 'cash-currency-button' : 'point-currency-button'}" data-presentation-buy="${item.id}" ${isOwned ? 'disabled' : ''}>${isOwned ? '보유 중' : priceLabel}</button>
+    </article>`;
+  }).join('');
+  const selectedBackground = selected?.category === 'background' ? selected : undefined;
+  const selectedNameplate = selected?.category === 'nameplate' ? selected : undefined;
+  const initialBackgroundId = selectedBackground?.id ?? currentAccount.prestige.homeBackgroundId;
+  const initialNameplateId = selectedNameplate?.id ?? currentAccount.prestige.nameplateId;
+  setContent('shop', `<main class="custom-screen shop-screen presentation-shop-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-presentation-back aria-label="홈으로">‹</button><div><span>SHOP</span><h2>외형 상점</h2></div><div class="presentation-wallets"><strong><i>C</i>${currentAccount.cash.toLocaleString()}</strong><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview presentation-preview"><div data-presentation-preview-host>${homePresentationPreviewMarkup(currentAccount, initialBackgroundId, initialNameplateId, 'presentation-preview-stage')}</div><div><strong data-presentation-preview-title>${escapeHtml(selected?.label ?? '')}</strong><small data-presentation-preview-copy>${escapeHtml(selected?.description ?? '')}</small></div></aside><section class="custom-catalog has-catalog-subtabs"><nav>${catalogNavigation(activeCategory, 'shop')}</nav><div class="presentation-grid">${cards}</div></section></section></main>`);
+  app.querySelector('[data-presentation-back]')?.addEventListener('click', homeScreen);
+  bindShopPrimaryNavigation();
+  app.querySelectorAll<HTMLButtonElement>('[data-shop-slot]').forEach((button) => button.addEventListener('click', () => {
+    shopScreen(button.dataset.shopSlot as ShopCatalogSlot);
+  }));
+  const showPresentationPreview = (id: string): void => {
+    const item = items.find((entry) => entry.id === id);
+    const host = app.querySelector<HTMLElement>('[data-presentation-preview-host]');
+    if (!item || !host) return;
+    host.innerHTML = homePresentationPreviewMarkup(
+      currentAccount,
+      item.category === 'background' ? item.id : currentAccount.prestige.homeBackgroundId,
+      item.category === 'nameplate' ? item.id : currentAccount.prestige.nameplateId,
+      'presentation-preview-stage',
+    );
+    setText('[data-presentation-preview-title]', item.label);
+    setText('[data-presentation-preview-copy]', item.description);
+    app.querySelectorAll<HTMLElement>('[data-presentation-preview]').forEach((card) => card.classList.toggle('previewing', card.dataset.presentationPreview === id));
+  };
+  app.querySelectorAll<HTMLElement>('[data-presentation-preview]').forEach((card) => {
+    const open = (): void => showPresentationPreview(card.dataset.presentationPreview ?? '');
+    card.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('[data-presentation-buy]')) return;
+      open();
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    });
+  });
+  app.querySelectorAll<HTMLButtonElement>('[data-presentation-buy]').forEach((button) => button.addEventListener('click', () => {
+    const item = presentationById(button.dataset.presentationBuy);
+    if (!item) return;
+    if (item.currency === 'cash' && currentAccount.cash < item.price) {
+      showCashRequired(`보유 ${currentAccount.cash.toLocaleString()} C · ${item.price.toLocaleString()} C가 필요합니다.`);
+      return;
+    }
+    const purchase = (): void => {
+      void withGlobalActionLoading(`${item.label} 구매 중`, () => purchasePresentation(item.id)).then((updated) => {
+        account = updated;
+        presentationShopScreen(activeCategory, item.id);
+        toast(`${item.label}을(를) 구매했습니다.`);
+      }).catch((error) => toast(error instanceof Error ? error.message : '연출 상품을 구매하지 못했습니다.'));
+    };
+    if (item.currency === 'points') {
+      confirmPointPurchase({ label: item.label, pointCost: item.price, onConfirm: purchase });
+      return;
+    }
+    const modal = dismissibleModal(`<section class="panel compact purchase-confirm" role="dialog" aria-modal="true"><span class="eyebrow">CASH PURCHASE</span><h2>구매하시겠습니까?</h2><p class="subtitle"><strong>${escapeHtml(item.label)}</strong>을(를) 구매합니다.</p><div class="purchase-confirm-cost cash"><i>C</i> ${item.price.toLocaleString()}</div><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn cash-currency-button" data-presentation-confirm>구매하기</button></div></section>`, 'purchase-confirm-modal');
+    modal.querySelector('[data-presentation-confirm]')?.addEventListener('click', () => { modal.remove(); purchase(); });
+  }));
 }
 
 function openLobbySupplyShop(): void {
@@ -3366,7 +3653,14 @@ function supplyShopScreen(): void {
     return;
   }
   const currentAccount = account;
-  const cards = SHOP_CONSUMABLES.map((item) => {
+  const randomBox = currentAccount.randomBoxes;
+  const randomBoxClaimLabel = randomBox.refillsClaimed >= randomBox.maxRefills
+    ? '오늘 수령 완료'
+    : currentAccount.adFree.active
+      ? '즉시 수령'
+      : '<span class="random-box-ad-icon" aria-hidden="true">▶</span><span>광고 시청하고 수령</span>';
+  const randomBoxCard = `<article class="supply-card catalog-card random-box-shop-card"><div class="catalog-art supply-art"><img class="ready" src="${releaseVersionedAsset('/assets/items/rewards/candle-coin-chest.png')}" alt="심야 랜덤 상자"/></div><div class="supply-copy"><span>DAILY DRAW</span><strong>심야 랜덤 상자</strong><p>오늘 무료 ${randomBox.remaining}회 보유 · 광고 1회당 ${randomBox.refillAmount}회 보충</p></div><div class="supply-actions"><small>오늘 추가 수령 ${randomBox.refillsClaimed}/${randomBox.maxRefills}</small><button type="button" class="random-box-claim" data-random-box-claim ${randomBox.refillsClaimed >= randomBox.maxRefills ? 'disabled' : ''}>${randomBoxClaimLabel}</button></div></article>`;
+  const supplyCards = SHOP_CONSUMABLES.map((item) => {
     const quantity =
       currentAccount.consumables.find((owned) => owned.itemId === item.id)
         ?.quantity ?? 0;
@@ -3378,9 +3672,10 @@ function supplyShopScreen(): void {
           : "포탑 강화";
     return `<article class="supply-card catalog-card supply-${item.category}"><div class="catalog-art supply-art"><img data-supply-art="${item.id}" alt="${escapeHtml(item.label)} 3D 상품 이미지" /></div><div class="supply-copy"><span>${categoryLabel}</span><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.description)}</p></div><div class="supply-actions"><small>보유 ${quantity}개</small><div><button data-supply-buy="${item.id}" data-supply-quantity="1">${item.price.toLocaleString()} P</button><button data-supply-buy="${item.id}" data-supply-quantity="5">5개</button></div></div></article>`;
   }).join("");
+  const cards = randomBoxCard + supplyCards;
   setContent(
     "shop",
-    `<main class="custom-screen shop-screen supply-shop-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-supply-back aria-label="스토어에서 나가기">‹</button><div><span>SHOP</span><h2>외형 상점</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><nav class="supply-shop-tabs">${(Object.keys(SHOP_SLOT_LABELS) as ShopCatalogSlot[]).map((slot) => `<button class="custom-tab ${slot === "item" ? "active" : ""}" data-shop-slot="${slot}">${SHOP_SLOT_LABELS[slot]}</button>`).join("")}</nav><section class="supply-brief"><div><span class="eyebrow">TACTICAL SUPPLY</span><h3>전술 보급 아이템</h3><p>구매한 수량만큼 보관되며, 실제 전투에서 사용할 때만 차감됩니다.</p></div></section><section class="supply-grid">${cards}</section></main>`,
+    `<main class="custom-screen shop-screen supply-shop-screen catalog-item-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-supply-back aria-label="스토어에서 나가기">‹</button><div><span>SHOP</span><h2>외형 상점</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="catalog-item-shell supply-items-shell"><nav class="catalog-item-navigation supply-shop-tabs">${catalogPrimaryTabs('item', 'shop')}</nav><div class="catalog-item-scroll supply-item-scroll"><section class="supply-brief"><div><span class="eyebrow">TACTICAL SUPPLY</span><h3>전술 보급 아이템</h3><p>구매한 수량만큼 보관되며, 실제 전투에서 사용할 때만 차감됩니다.</p></div></section><section class="supply-grid">${cards}</section></div></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance: currentAccount.appearance,
@@ -3397,11 +3692,26 @@ function supplyShopScreen(): void {
       supplyShopReturnView = "home";
       shopScreen();
     });
-  app.querySelectorAll<HTMLElement>("[data-shop-slot]").forEach((button) =>
-    button.addEventListener("click", () =>
-      shopScreen((button.dataset.shopSlot ?? "character") as ShopCatalogSlot),
-    ),
-  );
+  bindShopPrimaryNavigation();
+  app.querySelector<HTMLButtonElement>('[data-random-box-claim]')?.addEventListener('click', (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    void (async () => {
+      try {
+        const rewardedAdCompleted = currentAccount.adFree.active
+          ? false
+          : devMode
+            ? true
+            : await showRandomBoxReward(currentAccount.id).then(() => true);
+        account = await withGlobalActionLoading('랜덤 상자 수령 중', () => claimRandomBoxRefill(rewardedAdCompleted));
+        supplyShopScreen();
+        toast(`랜덤 상자 ${randomBox.refillAmount}회를 받았습니다.`);
+      } catch (error) {
+        button.disabled = false;
+        toast(error instanceof Error ? error.message : '랜덤 상자를 받지 못했습니다.');
+      }
+    })();
+  });
   app
     .querySelectorAll<HTMLButtonElement>("[data-supply-buy]")
     .forEach((button) =>
@@ -3454,12 +3764,11 @@ function cosmeticCollectionScreen(
   const currentAccount = account;
   const appearance = currentAccount.appearance;
   const shopping = screen === "shop";
-  const visibleSlots = shopping ? (Object.keys(SHOP_SLOT_LABELS) as ShopCatalogSlot[]) : [];
-  const resolvedLockerSection: LockerSection = lockerSection ?? (selectedSlot === 'skin' ? 'skin' : selectedSlot === 'character' ? 'character' : 'room');
-  const lockerHasSubtabs = !shopping && resolvedLockerSection === 'room';
+  const resolvedLockerSection: LockerSection = lockerSection ?? (selectedSlot === 'character' ? 'character' : 'skin');
+  const lockerHasSubtabs = !shopping && resolvedLockerSection === 'skin';
   const tabs = shopping
-    ? visibleSlots.map((slot) => `<button class="custom-tab ${slot === selectedSlot ? "active" : ""}" data-custom-slot="${slot}">${SHOP_SLOT_LABELS[slot]}</button>`).join("")
-    : `<div class="locker-top-tabs" role="tablist">${([['character', '캐릭터'], ['skin', '스킨'], ['room', '방 꾸미기'], ['effects', '연출']] as const).map(([section, label]) => `<button type="button" class="custom-tab ${section === resolvedLockerSection ? 'active' : ''}" data-locker-section="${section}">${label}</button>`).join('')}</div>${resolvedLockerSection === 'room' ? `<div class="locker-sub-tabs"><button type="button" class="${selectedSlot === 'tile' ? 'active' : ''}" data-locker-room-slot="tile">타일</button><button type="button" class="${selectedSlot === 'turret' ? 'active' : ''}" data-locker-room-slot="turret">포탑</button></div>` : ''}`;
+    ? catalogNavigation(selectedSlot, 'shop')
+    : catalogNavigation(selectedSlot, 'locker');
   const catalog = cosmeticsForSlot(selectedSlot).filter(
     (item) =>
       (shopping || cosmeticEntitled(item, currentAccount)) &&
@@ -3600,6 +3909,9 @@ function cosmeticCollectionScreen(
       } else if (shopping && item.unlock.kind === "points" && !owned) {
         action = "purchase";
         status = `${item.unlock.price.toLocaleString()} P`;
+      } else if (shopping && item.unlock.kind === "cash" && !owned) {
+        action = "purchase";
+        status = `${item.unlock.price.toLocaleString()} C`;
       } else if (shopping && item.unlock.kind === "rank" && !entitled) {
         status = `${rankLabel(item.unlock.rank)} 해금`;
         locked = true;
@@ -3625,8 +3937,13 @@ function cosmeticCollectionScreen(
           status = "착용 중";
         }
       }
+      const purchaseCurrencyClass = action === 'purchase' && item.unlock.kind === 'cash'
+        ? 'cash-currency-button'
+        : action === 'purchase' && item.unlock.kind === 'points'
+          ? 'point-currency-button'
+          : '';
       const actionButton = action
-        ? `<button data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
+        ? `<button class="${purchaseCurrencyClass}" data-cosmetic-action="${action}" data-cosmetic-id="${item.id}">${status}</button>`
         : `<button disabled>${status}</button>`;
       const characterTraitInfo =
         item.slot === "character" ? characterTrait(item.id) : null;
@@ -3694,9 +4011,9 @@ function cosmeticCollectionScreen(
                         ? `<div class="catalog-art cosmetic-art standard-skin-card-art" style="--swatch:${item.swatch}"><span class="standard-skin-card-sprite" style="${authoredStandardSkinStyle}" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
       const premiumBadge = prestigeSkin
-        ? '<span class="cosmetic-new-badge prestige-badge" aria-label="프레스티지 스킨">PRESTIGE</span>'
+        ? '<span class="prestige-badge" aria-label="프레스티지 스킨">PRESTIGE</span>'
         : premiumSkin
-          ? '<span class="cosmetic-new-badge" aria-label="신규 프리미엄 스킨">NEW</span>'
+          ? '<span class="cosmetic-new-badge" aria-label="신규 스킨">NEW</span>'
           : "";
       return `<article class="cosmetic-card catalog-card ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${initiallyPreviewed ? "previewing" : ""} ${premiumSkin ? "premium-skin-card" : ""} ${prestigeSkin ? "prestige-package-card" : ""} ${premiumSurfer ? "surfer-mong-card" : ""} ${premiumLifeguard ? "lifeguard-raon-card" : ""} ${premiumNeonLulu ? "neon-rider-lulu-card" : ""} ${premiumCyberKong ? "cyber-driver-kong-card" : ""} ${premiumPoliceCroco ? "police-enforcer-croco-card" : ""} ${premiumSecretMonkey ? "secret-agent-monkey-card" : ""}" data-cosmetic-preview="${item.id}" tabindex="0">${premiumBadge}${art}<div class="cosmetic-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(traitDescription)}</small></div><div class="cosmetic-card-action">${actionButton}</div></article>`;
     })
@@ -3754,7 +4071,7 @@ function cosmeticCollectionScreen(
       : "";
   setContent(
     screen,
-    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog ${shopping ? "" : "locker-catalog"} ${lockerHasSubtabs ? "has-locker-subtabs" : ""} ${rankedCosmeticNotice ? "has-ranked-notice" : ""}"><nav${shopping ? "" : ' class="locker-nav"'}>${tabs}</nav>${rankedCosmeticNotice}<div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
+    `<main class="custom-screen ${shopping ? "shop-screen" : "owned-custom-screen"}"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>${shopping ? "SHOP" : "MY LOCKER"}</span><h2>${shopping ? "외형 상점" : "내 보관함"}</h2></div><div class="custom-wallet"><small>보유 포인트</small><strong>✦ ${currentAccount.customPoints.toLocaleString()} P</strong></div></header><section class="custom-layout"><aside class="custom-preview">${modelPreviewHtml(turretMode, tileMode ? initialPreviewItem?.id : undefined, turretMode ? initialTurret?.id : undefined, tileMode)}<div><strong data-custom-preview-title>${tileMode && !initialPreviewItem ? "기본 타일 사용 중" : turretMode ? escapeHtml(initialTurret?.label ?? "수호포 · 병동형") : escapeHtml(initialPreviewItem?.label ?? activeSkin?.label ?? character?.label ?? currentAccount.nickname)}</strong><small data-custom-preview-copy>${tileMode && !initialPreviewItem ? "타일 스킨을 보유하면 이곳에서 장착할 수 있습니다." : turretMode ? escapeHtml(initialTurretTrait?.description ?? "기본 수호 포탑 Lv.1 외형입니다.") : escapeHtml(initialPreviewItem?.description ?? activeSkin?.description ?? initialTrait.description)}</small></div></aside><section class="custom-catalog ${shopping ? "" : "locker-catalog"} ${shopping && primarySectionForSlot(selectedSlot) === 'skin' ? 'has-catalog-subtabs' : ''} ${lockerHasSubtabs ? "has-locker-subtabs" : ""} ${rankedCosmeticNotice ? "has-ranked-notice" : ""}"><nav${shopping ? "" : ' class="locker-nav"'}>${tabs}</nav>${rankedCosmeticNotice}<div class="cosmetic-grid ${cards ? "" : "is-empty"}">${cards || `<p class="empty-collection">${selectedSlot === "turret" ? "보유한 포탑 스킨이 없습니다." : selectedSlot === "tile" ? "보유한 타일 스킨이 없습니다." : "보유한 캐릭터의<br/>완성형 스킨은 여기에 표시됩니다."}</p>`}</div></section></section></main>`,
   );
   hydrateCatalogArt(app, {
     appearance,
@@ -3912,21 +4229,17 @@ function cosmeticCollectionScreen(
     }
     else homeScreen();
   });
-  app
-    .querySelectorAll<HTMLElement>("[data-custom-slot]")
-    .forEach((button) =>
-      button.addEventListener("click", () =>
-        screen === "shop"
-          ? shopScreen(button.dataset.customSlot as ShopCatalogSlot)
-          : customizationScreen(button.dataset.customSlot as LockerSlot),
-      ),
-    );
-  app.querySelectorAll<HTMLButtonElement>('[data-locker-section]').forEach((button) => button.addEventListener('click', () => {
-    customizationScreen(button.dataset.lockerSection as LockerSection);
-  }));
-  app.querySelectorAll<HTMLButtonElement>('[data-locker-room-slot]').forEach((button) => button.addEventListener('click', () => {
-    customizationScreen(button.dataset.lockerRoomSlot as 'tile' | 'turret');
-  }));
+  if (shopping) {
+    bindShopPrimaryNavigation();
+    app.querySelectorAll<HTMLButtonElement>('[data-shop-slot]').forEach((button) => {
+      button.addEventListener('click', () => shopScreen(button.dataset.shopSlot as ShopCatalogSlot));
+    });
+  } else {
+    bindLockerPrimaryNavigation();
+    app.querySelectorAll<HTMLButtonElement>('[data-locker-skin-slot]').forEach((button) => {
+      button.addEventListener('click', () => customizationScreen(button.dataset.lockerSkinSlot as 'skin' | 'tile' | 'turret'));
+    });
+  }
   app
     .querySelectorAll<HTMLButtonElement>("[data-cosmetic-action]")
     .forEach((button) =>
@@ -3958,6 +4271,25 @@ function cosmeticCollectionScreen(
                 }
               })();
             },
+          });
+          return;
+        }
+        if (action === "purchase" && item.unlock.kind === "cash") {
+          if (currentAccount.cash < item.unlock.price) {
+            showCashRequired(`보유 ${currentAccount.cash.toLocaleString()} C · ${item.unlock.price.toLocaleString()} C가 필요합니다.`);
+            return;
+          }
+          const modal = dismissibleModal(
+            `<section class="panel compact purchase-confirm" role="dialog" aria-modal="true"><span class="eyebrow">PREMIUM SKIN</span><h2>구매하시겠습니까?</h2><p class="subtitle"><strong>${escapeHtml(item.label)}</strong>을(를) 구매합니다.</p><div class="purchase-confirm-cost cash"><i>C</i> ${item.unlock.price.toLocaleString()}</div><div class="purchase-confirm-actions"><button class="btn ghost" data-modal-close>취소</button><button class="btn cash-currency-button" data-premium-confirm>구매하기</button></div></section>`,
+            'purchase-confirm-modal',
+          );
+          modal.querySelector('[data-premium-confirm]')?.addEventListener('click', () => {
+            modal.remove();
+            void withGlobalActionLoading(`${item.label} 구매 중`, () => purchaseCosmetic(itemId)).then((updated) => {
+              account = updated;
+              shopScreen(selectedSlot, itemId);
+              toast('프리미엄 스킨을 구매했습니다.');
+            }).catch((error) => toast(error instanceof Error ? error.message : '프리미엄 스킨을 구매하지 못했습니다.'));
           });
           return;
         }
@@ -4458,6 +4790,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     playerId = id;
     mapData = map;
     snapshot = initial;
+    syncAccountRandomBoxes(initial, id);
     inputSequence = reconcileMovementInputSequence(
       inputSequence,
       initial,
@@ -4521,6 +4854,7 @@ function connectToRoom(code: string, addSoloBots: boolean): void {
     if (network !== roomNetwork) return;
     const previous = snapshot;
     snapshot = next;
+    syncAccountRandomBoxes(next, playerId);
     inputSequence = reconcileMovementInputSequence(
       inputSequence,
       next,
@@ -4712,7 +5046,7 @@ function updateLobby(state: GameSnapshot): void {
           player.id !== playerId && !player.isBot && player.accountId
             ? `<button class="lobby-friend-add" data-lobby-friend-add="${escapeHtml(player.accountId)}" aria-label="${escapeHtml(player.nickname)}에게 친구 요청" title="친구 추가">＋</button>`
             : "";
-        return `<article class="player-card ${profileDisplay.className} ${player.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-player-id="${player.id}">${playerPortraitHtml(player)}<div class="player-copy"><div class="player-name-row"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong>${friendAction}</div><span>${player.isBot ? "대기열 보충 봇" : player.connected ? (state.ranked ? "랭크 매치 배정 참가자" : profileDisplay.labelText) : "재접속 대기"}</span></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
+        return `<article class="player-card ${profileDisplay.className} ${player.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-player-id="${player.id}">${playerPortraitHtml(player)}<div class="player-copy"><div class="player-name-row"><strong>${profileBadgeHtml(profileDisplay, "rank-badge-xs")} <span class="player-name">${escapeHtml(player.nickname)}${state.hostId === player.id ? " ★" : ""}</span></strong>${friendAction}</div></div><div class="member-controls"><b class="ready-badge">${state.ranked ? "MATCHED" : player.ready || player.id === state.hostId ? "READY" : "WAIT"}</b>${hostAction}</div></article>`;
       })
       .join("") +
     (state.players.length < 4
@@ -6066,7 +6400,7 @@ function renderBuildPanel(tile: Tile): void {
                 ? "방에 사용"
                 : "즉시 사용";
         const unavailable = used || quantity <= 0;
-        return `<button class="build-card catalog-card supply-build-card${unavailable ? " resource-insufficient" : ""}" type="button" data-use-build-consumable="${supply.id}"${unavailable ? ' disabled aria-disabled="true"' : ""}><span class="catalog-art build-art"><img data-supply-art="${supply.id}" alt="${escapeHtml(supply.label)}" /></span><span class="build-card-copy"><strong>${escapeHtml(supply.label)} ×${quantity}</strong><small>${escapeHtml(supply.description)}</small></span><span class="build-card-cost">${used ? "이번 판 사용 완료" : targetLabel}</span></button>`;
+        return `<article class="build-card catalog-card supply-build-card${unavailable ? " resource-insufficient" : ""}"><span class="catalog-art build-art"><img data-supply-art="${supply.id}" alt="${escapeHtml(supply.label)}" /></span><span class="build-card-copy"><strong>${escapeHtml(supply.label)} ×${quantity}</strong><small>${escapeHtml(supply.description)}</small></span><button class="build-card-cost supply-target-button" type="button" data-use-build-consumable="${supply.id}"${unavailable ? ' disabled aria-disabled="true"' : ""}>${used ? "이번 판 사용 완료" : targetLabel}</button></article>`;
       })
       .join("") ||
     '<p class="empty-build-tab">장착한 전투 보급이 없습니다. 대기실에서 최대 3종을 장착하세요.</p>';
@@ -6368,9 +6702,13 @@ function renderTargetPanel(selection: SceneSelection): void {
         )
         .join(" · ") || "아직 획득한 아이템이 없습니다.";
     const canAffordDraw = Boolean(
-      cost && canAffordResources(me, cost.gold, cost.power),
+      cost && me.randomBoxesRemaining > 0 && canAffordResources(me, cost.gold, cost.power),
     );
-    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / ${drawLimit}회</strong></div><small>${owned}</small></div>${cost ? `<button class="upgrade-cta draw-cta${canAffordDraw ? "" : " resource-insufficient"}" type="button" data-draw data-cost-gold="${cost.gold}" data-cost-power="${cost.power}" ${canAffordDraw ? "" : 'disabled aria-disabled="true"'}><span data-cost-action-label data-ready-label="${me.drawCount + 1}번째 랜덤 뽑기">${me.drawCount + 1}번째 랜덤 뽑기${canAffordDraw ? "" : " · 재화 부족"}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>이번 판 ${drawLimit}회 완료</button>`}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
+    const refillAvailable = Boolean(account && account.randomBoxes.refillsClaimed < account.randomBoxes.maxRefills);
+    const stockNotice = me.randomBoxesRemaining <= 0 && refillAvailable
+      ? '<p class="random-box-refill-note">상점 &gt; 아이템 탭에서 보충하세요.</p>'
+      : '';
+    panel.innerHTML = `${panelHeadingMarkup("DRAW", `${buildingIconMarkup(kind)} ${definition.label}`)}<p class="panel-description">${definition.description}</p><div class="target-card"><div class="target-card-title"><span>이번 판 사용 횟수</span><strong>${me.drawCount} / ${drawLimit}회</strong></div><small>오늘 남은 랜덤 상자 ${me.randomBoxesRemaining}회</small><small>${owned}</small></div>${stockNotice}${cost ? `<button class="upgrade-cta draw-cta${canAffordDraw ? "" : " resource-insufficient"}" type="button" data-draw data-cost-gold="${cost.gold}" data-cost-power="${cost.power}"${me.randomBoxesRemaining <= 0 ? ' data-build-limit="true"' : ''} ${canAffordDraw ? "" : 'disabled aria-disabled="true"'}><span data-cost-action-label data-ready-label="${me.drawCount + 1}번째 랜덤 뽑기">${me.randomBoxesRemaining <= 0 ? '랜덤 상자 횟수 부족' : `${me.drawCount + 1}번째 랜덤 뽑기${canAffordDraw ? "" : " · 재화 부족"}`}</span><strong>${resourceCostMarkup(cost)}</strong></button>` : `<button class="btn ghost panel-disabled" disabled>이번 판 ${drawLimit}회 완료</button>`}<small class="odds-note">신화·전설 아이템은 매우 낮은 확률이며, 꽝 장식품은 단 두 종류만 등장합니다.</small>${removalMarkup}`;
     panel.classList.remove("hidden");
     refreshOpenPanelAffordability();
     wireBuildPanelClose(panel);
@@ -6760,7 +7098,7 @@ function syncMovementKeepalive(): void {
     if (pendingMovementTimer) window.clearTimeout(pendingMovementTimer);
     pendingMovementTimer = 0;
     flushMovement();
-  }, MOVEMENT_SEND_INTERVAL_MS);
+  }, MOVEMENT_KEEPALIVE_INTERVAL_MS);
 }
 
 function sendMovement(

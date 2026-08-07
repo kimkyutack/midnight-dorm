@@ -760,6 +760,7 @@ export class GameEngine {
       player.rankedContribution.diedAt ??= null;
       player.rankedContribution.abandonedAt ??= null;
       player.drawCount ??= 0;
+      player.randomBoxesRemaining ??= 0;
       player.carriedLootId ??= null;
       player.firstGuardianBuilt ??= false;
       player.items ??= [];
@@ -954,9 +955,13 @@ export class GameEngine {
         player.profileRankedTier = normalizeProfileRankedTier(identity.profileRankedTier);
         player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
         player.profileAvatarUrl = identity.profileAvatarUrl ?? null;
-        player.profileFrameId = identity.profileFrameId ?? null;
+      player.profileFrameId = identity.profileFrameId ?? null;
         player.nameplateId = identity.nameplateId ?? null;
         player.equippedEmoteIds = [...new Set(identity.equippedEmoteIds ?? [])].slice(0, 4);
+        player.randomBoxesRemaining = Math.max(
+          0,
+          Math.floor(identity.randomBoxesRemaining ?? player.randomBoxesRemaining ?? 0),
+        );
         player.appearance = normalizeAppearance(
           identity.appearance ?? player.appearance,
         );
@@ -1002,6 +1007,7 @@ export class GameEngine {
       identity.profileFrameId,
       identity.nameplateId,
       identity.equippedEmoteIds,
+      identity.randomBoxesRemaining,
     );
     this.state.players.push(player);
     if (this.state.tutorial?.active && !player.isBot && !this.state.tutorial.reservedRoomId) {
@@ -2309,6 +2315,13 @@ export class GameEngine {
     player.rankedContribution.goldSpent += cost.gold;
     player.rankedContribution.powerSpent += cost.power;
     building.level += 1;
+    // Starter room generators and player-built generators must render from
+    // the same upgraded level.  `effectiveLevel` is only dynamic for turret
+    // adjacency; leaving a restored generator's value behind made identical
+    // levels use different meshes.
+    building.effectiveLevel = building.level;
+    if (building.kind === 'basic-turret' || building.kind === 'turret-enhancer')
+      this.syncDynamicTurretLevels(this.createBuildingTickIndex());
     this.addBuildingInvestment(building, playerId, cost);
     if (discounted) {
       player.upgradeDiscountTargetId = null;
@@ -2488,6 +2501,52 @@ export class GameEngine {
   }
 
   drawItem(playerId: string, machineId: string): ActionResult {
+    const validation = this.validateDrawItem(playerId, machineId);
+    if (!validation.ok) return validation;
+    const player = this.state.players.find((candidate) => candidate.id === playerId) as PlayerState;
+    const machine = this.state.buildings.find((candidate) => candidate.id === machineId) as BuildingState;
+    const cost = DRAW_COSTS[player.drawCount] as { gold: number; power: number };
+    const item = randomItemForRoll(
+      this.rng.next(),
+      characterTraitForMatch(
+        player.appearance,
+        Boolean(this.state.ranked),
+      ).highRarityChanceBonus,
+      [...this.revealedRandomItemIds],
+    );
+    if (!item)
+      return { ok: false, error: "이번 판의 랜덤 아이템을 모두 확인했습니다." };
+    player.gold -= cost.gold;
+    player.power -= cost.power;
+    player.drawCount += 1;
+    player.randomBoxesRemaining = Math.max(0, player.randomBoxesRemaining - 1);
+    this.revealedRandomItemIds.add(item.id);
+    // A draw is no longer an invisible bag bonus.  The machine itself turns
+    // into a removable reward object, so every buff has an obvious physical
+    // source in the claimed room.
+    const rewardKind = this.rewardBuildingKind(item.id);
+    machine.kind = rewardKind;
+    machine.itemId = item.id;
+    machine.skinId = '';
+    machine.level = rewardKind === 'gem-core' ? this.rollMoonGemLevel() : 1;
+    machine.cooldown = 0;
+    machine.hp = 100;
+    machine.investedGold = 0;
+    machine.investedPower = 0;
+    machine.investmentByPlayer = {};
+    if (rewardKind === 'random-item') this.activateRandomItem(player, item.id, machine.roomId);
+    this.pendingEvents.push({
+      kind: "item-draw",
+      playerId,
+      itemId: item.id,
+      label: item.label,
+      rarity: item.rarity,
+      position: machine.tile,
+    });
+    return { ok: true };
+  }
+
+  validateDrawItem(playerId: string, machineId: string): ActionResult {
     if (this.state.tutorial?.active)
       return { ok: false, error: "훈련 중에는 랜덤 상자를 사용할 수 없습니다." };
     const player = this.state.players.find(
@@ -2517,47 +2576,16 @@ export class GameEngine {
         ok: false,
         error: `이번 판의 랜덤 뽑기 ${drawLimit}회를 모두 사용했습니다.`,
       };
+    if (player.randomBoxesRemaining <= 0)
+      return {
+        ok: false,
+        error: "오늘 사용할 랜덤 상자가 없습니다. 상점 > 아이템 탭에서 보충하세요.",
+      };
     if (player.gold < cost.gold || player.power < cost.power)
       return {
         ok: false,
         error: `뽑기 비용이 부족합니다. 골드 ${cost.gold}, 전력 ${cost.power}`,
       };
-    const item = randomItemForRoll(
-      this.rng.next(),
-      characterTraitForMatch(
-        player.appearance,
-        Boolean(this.state.ranked),
-      ).highRarityChanceBonus,
-      [...this.revealedRandomItemIds],
-    );
-    if (!item)
-      return { ok: false, error: "이번 판의 랜덤 아이템을 모두 확인했습니다." };
-    player.gold -= cost.gold;
-    player.power -= cost.power;
-    player.drawCount += 1;
-    this.revealedRandomItemIds.add(item.id);
-    // A draw is no longer an invisible bag bonus.  The machine itself turns
-    // into a removable reward object, so every buff has an obvious physical
-    // source in the claimed room.
-    const rewardKind = this.rewardBuildingKind(item.id);
-    machine.kind = rewardKind;
-    machine.itemId = item.id;
-    machine.skinId = '';
-    machine.level = rewardKind === 'gem-core' ? this.rollMoonGemLevel() : 1;
-    machine.cooldown = 0;
-    machine.hp = 100;
-    machine.investedGold = 0;
-    machine.investedPower = 0;
-    machine.investmentByPlayer = {};
-    if (rewardKind === 'random-item') this.activateRandomItem(player, item.id, machine.roomId);
-    this.pendingEvents.push({
-      kind: "item-draw",
-      playerId,
-      itemId: item.id,
-      label: item.label,
-      rarity: item.rarity,
-      position: machine.tile,
-    });
     return { ok: true };
   }
 
@@ -2618,15 +2646,12 @@ export class GameEngine {
       // power producers account for most drops, while combat utility remains
       // possible but uncommon.
       const availableItems = RANDOM_ITEMS.filter(
-        (item) => !this.revealedRandomItemIds.has(item.id),
+        (item) =>
+          !this.revealedRandomItemIds.has(item.id) &&
+          (item.rarity === 'common' || item.rarity === 'uncommon'),
       );
       if (availableItems.length === 0) break;
-      const countdownPool = availableItems.filter((item) =>
-        item.effect.goldPerSecond || item.effect.powerPerSecond || item.effect.moonGem
-          ? true
-          : this.rng.next() < 0.18,
-      );
-      const pool = countdownPool.length > 0 ? countdownPool : availableItems;
+      const pool = availableItems;
       const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
       let roll = this.rng.next() * totalWeight;
       const item = pool.find((candidate) => (roll -= candidate.weight) <= 0) ?? pool[pool.length - 1];
@@ -5910,6 +5935,7 @@ export class GameEngine {
         player.profileFrameId,
         player.nameplateId,
         player.equippedEmoteIds,
+        player.randomBoxesRemaining,
       );
       next.consumableLoadout = [...player.consumableLoadout];
       return { ...next, connected: player.connected, ready: player.isBot };
@@ -5998,6 +6024,7 @@ export class GameEngine {
     profileFrameId: string | null = null,
     nameplateId: string | null = null,
     equippedEmoteIds: string[] = [],
+    randomBoxesRemaining = 10,
   ): PlayerState {
     const benefits = rankBenefits(
       this.playMode === "solo" ? soloRank : multiplayerRank,
@@ -6053,6 +6080,7 @@ export class GameEngine {
         abandonedAt: null,
       },
       drawCount: 0,
+      randomBoxesRemaining: Math.max(0, Math.floor(randomBoxesRemaining)),
       carriedLootId: null,
       firstGuardianBuilt: false,
       items: [],

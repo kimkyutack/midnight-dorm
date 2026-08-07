@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180" role="img" aria-labelledby="title">
+  <title id="title">성운 구름무희 모모 프레스티지 명찰</title>
+  <defs>
+    <linearGradient id="shell" x1="0" x2="1"><stop stop-color="#19235b"/><stop offset=".26" stop-color="#3d5fc0"/><stop offset=".5" stop-color="#688ee3"/><stop offset=".74" stop-color="#3d5fc0"/><stop offset="1" stop-color="#19235b"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#7fe9ff"/><stop offset=".3" stop-color="#fff"/><stop offset=".52" stop-color="#ffe69a"/><stop offset=".72" stop-color="#e8c7ff"/><stop offset="1" stop-color="#83e8ff"/></linearGradient>
+    <radialGradient id="star"><stop stop-color="#fff"/><stop offset=".35" stop-color="#fff0a0"/><stop offset="1" stop-color="#88cfff"/></radialGradient>
+    <filter id="glow" x="-30%" y="-90%" width="160%" height="280%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M82 35h476l55 55-55 55H82L27 90z" fill="url(#shell)" stroke="url(#rim)" stroke-width="6"/>
+    <path d="M107 48h426l38 42-38 42H107L69 90z" fill="none" stroke="#eafaff" stroke-opacity=".72" stroke-width="2"/>
+    <path d="M28 90c27-8 46-25 57-50 11 17 25 27 44 30-14 9-20 22-18 39-17-5-32 0-45 16-5-16-18-28-38-35z" fill="#354a9c" stroke="#b8f5ff" stroke-width="4"/>
+    <path d="M612 90c-27-8-46-25-57-50-11 17-25 27-44 30 14 9 20 22 18 39 17-5 32 0 45 16 5-16 18-28 38-35z" fill="#354a9c" stroke="#b8f5ff" stroke-width="4"/>
+    <path d="M92 48l10 27 27 10-27 10-10 27-10-27-27-10 27-10zM548 48l10 27 27 10-27 10-10 27-10-27-27-10 27-10z" fill="url(#star)" stroke="#fff" stroke-width="2"/>
+    <path d="M301 24l19-20 19 20-19 20zM301 156l19-20 19 20-19 20z" fill="url(#star)" stroke="#e8ffff" stroke-width="2"/>
+    <path d="M130 125c22 14 49 12 63-6 13 10 29 11 45 2M510 125c-22 14-49 12-63-6-13 10-29 11-45 2" fill="none" stroke="#f4f4ff" stroke-linecap="round" stroke-width="5"/>
+    <g fill="url(#star)"><path d="M170 34l5 11 11 5-11 5-5 11-5-11-11-5 11-5z"/><path d="M470 34l5 11 11 5-11 5-5 11-5-11-11-5 11-5z"/><circle cx="222" cy="37" r="4"/><circle cx="418" cy="143" r="4"/></g>
+  </g>
+</svg>

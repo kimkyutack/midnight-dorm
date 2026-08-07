@@ -8,6 +8,7 @@ import { hideSeekVictoryPoints, type HideSeekResultReason, type HideSeekRole } f
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { BASIC_PROFILE_FRAME_ID, duplicatePointRefund, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PACKAGE_COST, GHOST_ORB_PITY_DRAWS, ghostOrbEligibleCosmetics, MOONLIT_PHANTOM_SKIN_ID, PRESTIGE_PACKAGES, prestigeAccessoryById, prestigeAccessoryIdsForPackages, prestigeEmoteById, prestigePackageById } from '../shared/prestige';
 import { CASH_PRODUCT_BY_ID, cashGrantAmount, firstCashPurchaseBonus } from '../shared/storeProducts';
+import { presentationById } from '../shared/presentation';
 
 const SESSION_COOKIE = 'midnight_session';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -50,6 +51,13 @@ const STOREFRONT_THEMES = [
 ] as const;
 const AD_FREE_ENTITLEMENT_ID = 'ad-removal';
 const AD_FREE_MONTH_MS = 30 * 24 * 60 * 60 * 1_000;
+const RANDOM_BOX_DAILY_FREE = 10;
+const RANDOM_BOX_REFILL_AMOUNT = 5;
+const RANDOM_BOX_MAX_REFILLS = 2;
+
+function kstDayKey(now = Date.now()): string {
+  return new Date(now + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 const publicPrestigeProfileImageUrl = (profileImageId: string | null | undefined): string | null => {
   if (profileImageId === 'profile-image-moonlit-phantom-fox')
@@ -154,6 +162,11 @@ interface PrestigeLoadoutRow {
 interface PrestigeEffectLoadoutRow {
   nameplate_id: string | null;
   home_aura_id: string | null;
+}
+
+interface RandomBoxDailyRow {
+  remaining_count: number;
+  refills_claimed: number;
 }
 
 async function ensureLegacyAuthColumns(db: D1Database): Promise<void> {
@@ -291,6 +304,14 @@ export async function ensureAuthSchema(db: D1Database): Promise<void> {
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, profile_image_id TEXT, profile_frame_id TEXT, emote_ids TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_effect_loadouts (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, nameplate_id TEXT, home_aura_id TEXT, updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_prestige_accessories (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, accessory_id TEXT NOT NULL, acquired_at INTEGER NOT NULL, PRIMARY KEY (account_id, accessory_id))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS account_random_box_daily (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      period_key TEXT NOT NULL,
+      remaining_count INTEGER NOT NULL DEFAULT 10 CHECK (remaining_count >= 0),
+      refills_claimed INTEGER NOT NULL DEFAULT 0 CHECK (refills_claimed BETWEEN 0 AND 2),
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, period_key)
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_consumables (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0), updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, item_id))`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_account_consumables_account ON account_consumables(account_id, updated_at DESC)'),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_promotion_dismissals (
@@ -449,6 +470,8 @@ function profileFromRow(
   prestigeEffectLoadout: PrestigeEffectLoadoutRow | null,
   cashWallet: CashWalletRow | null,
   cashFirstPurchaseProductIds: string[],
+  randomBoxDaily: RandomBoxDailyRow | null,
+  randomBoxPeriodKey: string,
 ): AccountProfile {
   const soloRank = rankFromXp(row.solo_xp);
   const multiplayerRank = rankFromXp(row.multiplayer_xp);
@@ -456,7 +479,7 @@ function profileFromRow(
   const ownedPrestigePackages = PRESTIGE_PACKAGES.filter((entry) => prestigePackages.includes(entry.id));
   const ownedPrestigeAccessoryIds = [...new Set([
     ...prestigeAccessoryIdsForPackages(prestigePackages),
-    ...purchasedPrestigeAccessoryIds.filter((id) => Boolean(prestigeAccessoryById(id))),
+    ...purchasedPrestigeAccessoryIds.filter((id) => Boolean(prestigeAccessoryById(id) || presentationById(id))),
   ])];
   const ownedCosmetics = [...new Set([
     ...STARTER_COSMETICS,
@@ -508,9 +531,9 @@ function profileFromRow(
   const nameplateId = requestedNameplateId && ownedPrestigeAccessoryIds.includes(requestedNameplateId)
     ? requestedNameplateId
     : null;
-  const requestedHomeAuraId = prestigeEffectLoadout?.home_aura_id ?? null;
-  const homeAuraId = requestedHomeAuraId && ownedPrestigeAccessoryIds.includes(requestedHomeAuraId)
-    ? requestedHomeAuraId
+  const requestedHomeBackgroundId = prestigeEffectLoadout?.home_aura_id ?? null;
+  const homeBackgroundId = requestedHomeBackgroundId && ownedPrestigeAccessoryIds.includes(requestedHomeBackgroundId)
+    ? requestedHomeBackgroundId
     : null;
   let equippedEmoteIds: string[] = [];
   try {
@@ -565,7 +588,7 @@ function profileFromRow(
       profileImageId,
       profileFrameId,
       nameplateId,
-      homeAuraId,
+      homeBackgroundId,
       ownedAccessoryIds: ownedPrestigeAccessoryIds,
       ownedEmoteIds: ownedPrestigeAccessoryIds.filter((id) => Boolean(prestigeEmoteById(id))),
       equippedEmoteIds,
@@ -602,6 +625,13 @@ function profileFromRow(
     appearance,
     turretSkins: parseTurretSkins(turretLoadout?.skins),
     consumables: normalizedConsumables,
+    randomBoxes: {
+      remaining: Math.max(0, randomBoxDaily?.remaining_count ?? RANDOM_BOX_DAILY_FREE),
+      refillsClaimed: Math.max(0, randomBoxDaily?.refills_claimed ?? 0),
+      maxRefills: RANDOM_BOX_MAX_REFILLS,
+      refillAmount: RANDOM_BOX_REFILL_AMOUNT,
+      periodKey: randomBoxPeriodKey,
+    },
     dismissedPromotionIds: [...new Set(dismissedPromotionIds.filter((promotionId) => PROMOTION_IDS.has(promotionId)))],
     promotionCampaigns,
     storefrontThemes,
@@ -646,6 +676,11 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
   // These reads form one coherent profile and are used together by login,
   // room admission, the shop and the event screens. A D1 batch keeps the
   // database work identical while collapsing ten binding round trips into one.
+  const randomBoxPeriodKey = kstDayKey();
+  await db.prepare(`INSERT OR IGNORE INTO account_random_box_daily
+      (account_id, period_key, remaining_count, refills_claimed, updated_at)
+    VALUES (?, ?, ?, 0, ?)`)
+    .bind(row.id, randomBoxPeriodKey, RANDOM_BOX_DAILY_FREE, Date.now()).run();
   const profileResults = await db.batch([
     db.prepare('SELECT custom_points, appearance FROM account_customization WHERE account_id = ?')
       .bind(row.id),
@@ -699,6 +734,8 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
       .bind(row.id),
     db.prepare('SELECT product_id FROM account_cash_first_purchase_rewards WHERE account_id = ?')
       .bind(row.id),
+    db.prepare(`SELECT remaining_count, refills_claimed FROM account_random_box_daily
+      WHERE account_id = ? AND period_key = ?`).bind(row.id, randomBoxPeriodKey),
   ]);
   const customizationResult = profileResults[0]!;
   const cosmetics = profileResults[1]!;
@@ -717,6 +754,7 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
   const prestigeEffectLoadoutResult = profileResults[14]!;
   const cashWalletResult = profileResults[15]!;
   const cashFirstPurchaseResult = profileResults[16]!;
+  const randomBoxDailyResult = profileResults[17]!;
   const customization = (customizationResult.results?.[0] as CustomizationRow | undefined) ?? null;
   const cashWallet = (cashWalletResult.results?.[0] as CashWalletRow | undefined) ?? null;
   const cashFirstPurchaseProductIds = (cashFirstPurchaseResult.results ?? [])
@@ -784,6 +822,8 @@ async function profileForRow(db: D1Database, row: AccountRow): Promise<AccountPr
     (prestigeEffectLoadoutResult.results?.[0] as PrestigeEffectLoadoutRow | undefined) ?? null,
     cashWallet,
     cashFirstPurchaseProductIds,
+    (randomBoxDailyResult.results?.[0] as RandomBoxDailyRow | undefined) ?? null,
+    randomBoxPeriodKey,
   );
   profile.ranked.bestContractScores = (rankedScores.results ?? []).map((result) => (result as { score: number }).score);
   return profile;
@@ -1371,7 +1411,7 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
   const profile = await profileForRow(db, row);
 
   if (action === 'purchase') {
-    if (item.unlock.kind !== 'points') return Response.json({ error: '이 아이템은 구매 대상이 아닙니다.' }, { status: 400 });
+    if (item.unlock.kind !== 'points' && item.unlock.kind !== 'cash') return Response.json({ error: '이 아이템은 구매 대상이 아닙니다.' }, { status: 400 });
     const hiddenTheme = profile.storefrontThemes.find(
       (theme) => !theme.isStoreVisible && theme.cosmeticIds.includes(item.id),
     );
@@ -1380,15 +1420,25 @@ async function customize(request: Request, db: D1Database, action: 'purchase' | 
       return Response.json({ error: '먼저 이 스킨의 캐릭터를 보유해야 합니다.' }, { status: 403 });
     }
     if (profile.ownedCosmetics.includes(item.id)) return Response.json({ error: '이미 보유한 아이템입니다.' }, { status: 409 });
-    if (profile.customPoints < item.unlock.price) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
-    const debit = await db.prepare('UPDATE account_customization SET custom_points = custom_points - ?, updated_at = ? WHERE account_id = ? AND custom_points >= ?')
-      .bind(item.unlock.price, now, row.id, item.unlock.price).run();
-    if ((debit.meta.changes ?? 0) === 0) return Response.json({ error: '커스텀 포인트가 부족합니다.' }, { status: 409 });
+    const cashPurchase = item.unlock.kind === 'cash';
+    if (cashPurchase) {
+      await db.prepare(`INSERT OR IGNORE INTO account_cash_wallets
+        (account_id, cash_balance, updated_at) VALUES (?, 0, ?)`).bind(row.id, now).run();
+    }
+    const debit = cashPurchase
+      ? await db.prepare('UPDATE account_cash_wallets SET cash_balance = cash_balance - ?, updated_at = ? WHERE account_id = ? AND cash_balance >= ?')
+        .bind(item.unlock.price, now, row.id, item.unlock.price).run()
+      : await db.prepare('UPDATE account_customization SET custom_points = custom_points - ?, updated_at = ? WHERE account_id = ? AND custom_points >= ?')
+        .bind(item.unlock.price, now, row.id, item.unlock.price).run();
+    if ((debit.meta.changes ?? 0) === 0)
+      return Response.json({ error: cashPurchase ? '캐시가 부족합니다.' : '커스텀 포인트가 부족합니다.' }, { status: 409 });
     try {
       await db.prepare('INSERT INTO account_cosmetics (account_id, item_id, purchased_at) VALUES (?, ?, ?)')
         .bind(row.id, item.id, now).run();
     } catch (error) {
-      await db.prepare('UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
+      await db.prepare(cashPurchase
+        ? 'UPDATE account_cash_wallets SET cash_balance = cash_balance + ?, updated_at = ? WHERE account_id = ?'
+        : 'UPDATE account_customization SET custom_points = custom_points + ?, updated_at = ? WHERE account_id = ?')
         .bind(item.unlock.price, now, row.id).run();
       const message = error instanceof Error ? error.message : String(error);
       if (/UNIQUE constraint failed/i.test(message)) return Response.json({ error: '이미 보유한 아이템입니다.' }, { status: 409 });
@@ -1429,7 +1479,7 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
   if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   const row = await authenticatedRowFromReadySchema(request, db);
   if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
-  let body: { profileImageId?: string | null; profileFrameId?: string | null; nameplateId?: string | null; homeAuraId?: string | null; emoteIds?: string[] };
+  let body: { profileImageId?: string | null; profileFrameId?: string | null; nameplateId?: string | null; homeBackgroundId?: string | null; emoteIds?: string[] };
   try { body = await request.json(); } catch { return Response.json({ error: '프레스티지 장착 정보를 확인해주세요.' }, { status: 400 }); }
   const packageRows = await db.prepare(`SELECT package_id FROM account_prestige_packages WHERE account_id = ?`)
     .bind(row.id).all<{ package_id: string }>();
@@ -1442,7 +1492,7 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
   ]);
   const ownsAccessory = (id: string | null | undefined, category?: string): boolean => {
     if (!id) return true;
-    const accessory = prestigeAccessoryById(id);
+    const accessory = prestigeAccessoryById(id) ?? presentationById(id);
     return Boolean(accessory && (!category || accessory.category === category) && ownedAccessoryIds.has(id));
   };
   if (body.profileImageId !== undefined && body.profileImageId !== null && !ownsAccessory(body.profileImageId, 'profile'))
@@ -1451,8 +1501,8 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
     return Response.json({ error: '선택할 수 없는 프로필 테두리입니다.' }, { status: 400 });
   if (body.nameplateId !== undefined && !ownsAccessory(body.nameplateId, 'nameplate'))
     return Response.json({ error: '선택할 수 없는 명찰입니다.' }, { status: 400 });
-  if (body.homeAuraId !== undefined && !ownsAccessory(body.homeAuraId, 'aura'))
-    return Response.json({ error: '선택할 수 없는 홈 오라입니다.' }, { status: 400 });
+  if (body.homeBackgroundId !== undefined && !ownsAccessory(body.homeBackgroundId, 'background'))
+    return Response.json({ error: '선택할 수 없는 홈 배경입니다.' }, { status: 400 });
   const emoteIds = [...new Set(body.emoteIds ?? [])];
   if (emoteIds.length > 4 || emoteIds.some((id) => {
     const emote = prestigeEmoteById(id);
@@ -1498,7 +1548,7 @@ async function updatePrestigeLoadout(request: Request, db: D1Database): Promise<
     .bind(
       row.id,
       body.nameplateId === undefined ? currentEffects?.nameplate_id ?? null : body.nameplateId,
-      body.homeAuraId === undefined ? currentEffects?.home_aura_id ?? null : body.homeAuraId,
+      body.homeBackgroundId === undefined ? currentEffects?.home_aura_id ?? null : body.homeBackgroundId,
       now,
     ).run();
   return Response.json({ profile: await profileForRow(db, row) });
@@ -1810,6 +1860,111 @@ async function purchaseConsumable(request: Request, db: D1Database): Promise<Res
   return Response.json({ profile: await profileForRow(db, row) });
 }
 
+async function purchasePresentation(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { itemId?: string };
+  try { body = await request.json(); } catch { return Response.json({ error: '연출 상품을 확인해주세요.' }, { status: 400 }); }
+  const item = presentationById(body.itemId);
+  if (!item) return Response.json({ error: '판매 중인 연출 상품이 아닙니다.' }, { status: 404 });
+  const alreadyOwned = await db.prepare(`SELECT 1 AS owned FROM account_prestige_accessories
+    WHERE account_id = ? AND accessory_id = ?`).bind(row.id, item.id).first<{ owned: number }>();
+  if (alreadyOwned) return Response.json({ error: '이미 보유한 상품입니다.' }, { status: 409 });
+  const now = Date.now();
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO account_customization
+      (account_id, custom_points, appearance, updated_at) VALUES (?, 0, ?, ?)`)
+      .bind(row.id, JSON.stringify(DEFAULT_APPEARANCE), now),
+    db.prepare(`INSERT OR IGNORE INTO account_cash_wallets
+      (account_id, cash_balance, updated_at) VALUES (?, 0, ?)`)
+      .bind(row.id, now),
+  ]);
+  const wallet = item.currency === 'cash' ? 'account_cash_wallets' : 'account_customization';
+  const column = item.currency === 'cash' ? 'cash_balance' : 'custom_points';
+  try {
+    const [debit, grant] = await db.batch([
+      db.prepare(`UPDATE ${wallet} SET ${column} = ${column} - ?, updated_at = ?
+        WHERE account_id = ?`).bind(item.price, now, row.id),
+      db.prepare(`INSERT INTO account_prestige_accessories (account_id, accessory_id, acquired_at)
+        VALUES (?, ?, ?)`).bind(row.id, item.id, now),
+    ]);
+    if ((debit?.meta.changes ?? 0) !== 1 || (grant?.meta.changes ?? 0) !== 1)
+      return Response.json({ error: item.currency === 'cash' ? '캐시가 부족합니다.' : '커스텀 포인트가 부족합니다.' }, { status: 409 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint failed/i.test(message)) return Response.json({ error: '이미 보유한 상품입니다.' }, { status: 409 });
+    if (/CHECK constraint failed|constraint/i.test(message))
+      return Response.json({ error: item.currency === 'cash' ? '캐시가 부족합니다.' : '커스텀 포인트가 부족합니다.' }, { status: 409 });
+    throw error;
+  }
+  return Response.json({ profile: await profileForRow(db, row) }, { headers: { 'cache-control': 'no-store' } });
+}
+
+async function claimRandomBoxRefill(request: Request, db: D1Database): Promise<Response> {
+  if (!checkOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
+  const row = await authenticatedRowFromReadySchema(request, db);
+  if (!row) return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  let body: { rewardedAdCompleted?: boolean };
+  try { body = await request.json(); } catch { return Response.json({ error: '랜덤 상자 수령 요청을 확인해주세요.' }, { status: 400 }); }
+  const now = Date.now();
+  const periodKey = kstDayKey(now);
+  const entitlement = await db.prepare(`SELECT plan, expires_at FROM account_entitlements
+    WHERE account_id = ? AND entitlement_id = ?`).bind(row.id, AD_FREE_ENTITLEMENT_ID).first<AdFreeEntitlementRow>();
+  const adFree = entitlement?.plan === 'permanent'
+    || (entitlement?.plan === 'monthly' && (entitlement.expires_at ?? 0) > now);
+  if (!adFree && body.rewardedAdCompleted !== true)
+    return Response.json({ error: '보상형 광고를 끝까지 시청해야 랜덤 상자를 받을 수 있습니다.' }, { status: 409 });
+  await db.prepare(`INSERT OR IGNORE INTO account_random_box_daily
+      (account_id, period_key, remaining_count, refills_claimed, updated_at)
+    VALUES (?, ?, ?, 0, ?)`)
+    .bind(row.id, periodKey, RANDOM_BOX_DAILY_FREE, now).run();
+  const claimed = await db.prepare(`UPDATE account_random_box_daily
+    SET remaining_count = remaining_count + ?, refills_claimed = refills_claimed + 1, updated_at = ?
+    WHERE account_id = ? AND period_key = ? AND refills_claimed < ?`)
+    .bind(RANDOM_BOX_REFILL_AMOUNT, now, row.id, periodKey, RANDOM_BOX_MAX_REFILLS).run();
+  if ((claimed.meta.changes ?? 0) !== 1)
+    return Response.json({ error: '오늘 받을 수 있는 랜덤 상자를 모두 수령했습니다.' }, { status: 409 });
+  return Response.json({ profile: await profileForRow(db, row) }, { headers: { 'cache-control': 'no-store' } });
+}
+
+export async function consumeRandomBox(
+  db: D1Database,
+  accountId: string,
+  bootstrapSchema = false,
+): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const now = Date.now();
+  const periodKey = kstDayKey(now);
+  await db.prepare(`INSERT OR IGNORE INTO account_random_box_daily
+      (account_id, period_key, remaining_count, refills_claimed, updated_at)
+    VALUES (?, ?, ?, 0, ?)`)
+    .bind(accountId, periodKey, RANDOM_BOX_DAILY_FREE, now).run();
+  const used = await db.prepare(`UPDATE account_random_box_daily
+    SET remaining_count = remaining_count - 1, updated_at = ?
+    WHERE account_id = ? AND period_key = ? AND remaining_count > 0`)
+    .bind(now, accountId, periodKey).run();
+  if ((used.meta.changes ?? 0) !== 1)
+    return { ok: false, error: '남은 랜덤 상자가 없습니다. 상점 > 아이템 탭에서 보충하세요.' };
+  const current = await db.prepare(`SELECT remaining_count FROM account_random_box_daily
+    WHERE account_id = ? AND period_key = ?`).bind(accountId, periodKey).first<{ remaining_count: number }>();
+  return { ok: true, remaining: Math.max(0, current?.remaining_count ?? 0) };
+}
+
+export async function refundRandomBox(
+  db: D1Database,
+  accountId: string,
+  bootstrapSchema = false,
+): Promise<void> {
+  if (bootstrapSchema) await ensureAuthSchema(db);
+  const now = Date.now();
+  const periodKey = kstDayKey(now);
+  await db.prepare(`UPDATE account_random_box_daily
+    SET remaining_count = remaining_count + 1, updated_at = ?
+    WHERE account_id = ? AND period_key = ?`)
+    .bind(now, accountId, periodKey).run();
+}
+
 /**
  * 게임 방에서 실제 사용에 성공할 때만 한 판 1회 기록과 계정 재고 차감을
  * 같은 D1 batch로 처리한다. 같은 match/account/item 재전송은 새 UUID가
@@ -2043,12 +2198,14 @@ export async function routeAuth(
     if (url.pathname === '/api/auth/promotion-dismissals' && request.method === 'POST') return dismissPromotion(request, db);
     if (url.pathname === '/api/customize/purchase' && request.method === 'POST') return customize(request, db, 'purchase');
     if (url.pathname === '/api/customize/equip' && request.method === 'POST') return customize(request, db, 'equip');
+    if (url.pathname === '/api/customize/presentation/purchase' && request.method === 'POST') return purchasePresentation(request, db);
     if (url.pathname === '/api/auth/prestige-loadout' && request.method === 'POST') return updatePrestigeLoadout(request, db);
     if (url.pathname === '/api/auth/prestige-package/exchange' && request.method === 'POST') return exchangePrestigePackage(request, db);
     if (url.pathname === '/api/auth/prestige-accessory/exchange' && request.method === 'POST') return exchangePrestigeAccessory(request, db);
     if (url.pathname === '/api/auth/ghost-orb/draw' && request.method === 'POST') return drawGhostOrbs(request, db);
     if (bootstrapSchema && url.pathname === '/api/auth/cash/dev-grant' && request.method === 'POST') return grantDevelopmentCash(request, db);
     if (url.pathname === '/api/shop/consumables/purchase' && request.method === 'POST') return purchaseConsumable(request, db);
+    if (url.pathname === '/api/shop/random-box/claim' && request.method === 'POST') return claimRandomBoxRefill(request, db);
     if (url.pathname === '/api/rewards/match/claim' && request.method === 'POST') return claimMatchReward(request, db);
     if (url.pathname === '/api/events/missions' && request.method === 'GET') {
       const profile = await authenticatedProfileFromReadySchema(request, db);

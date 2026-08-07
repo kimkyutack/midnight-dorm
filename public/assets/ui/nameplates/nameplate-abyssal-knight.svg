@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180" role="img" aria-labelledby="title">
+  <title id="title">심연 기사단장 콩 프레스티지 명찰</title>
+  <defs>
+    <linearGradient id="shell" x1="0" x2="1"><stop stop-color="#100611"/><stop offset=".26" stop-color="#32102e"/><stop offset=".5" stop-color="#5b1b48"/><stop offset=".74" stop-color="#32102e"/><stop offset="1" stop-color="#100611"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#ff492d"/><stop offset=".26" stop-color="#ff9b51"/><stop offset=".52" stop-color="#d865ff"/><stop offset=".76" stop-color="#ff4b2e"/><stop offset="1" stop-color="#6d1bb2"/></linearGradient>
+    <radialGradient id="gem"><stop stop-color="#ffd2ff"/><stop offset=".3" stop-color="#ca50ff"/><stop offset="1" stop-color="#671087"/></radialGradient>
+    <filter id="glow" x="-30%" y="-100%" width="160%" height="300%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M77 31h486l52 59-52 59H77L25 90z" fill="url(#shell)" stroke="url(#rim)" stroke-width="7"/>
+    <path d="M103 47h434l34 43-34 43H103L69 90z" fill="none" stroke="#ff7960" stroke-opacity=".64" stroke-width="2"/>
+    <path d="M31 91L8 59l34 7L28 22l43 28 12-35 21 47-18 28 18 28-21 47-12-35-43 28 14-44-34 7z" fill="#1a0b1d" stroke="url(#rim)" stroke-width="4"/>
+    <path d="M609 91l23-32-34 7 14-44-43 28-12-35-21 47 18 28-18 28 21 47 12-35 43 28-14-44 34 7z" fill="#1a0b1d" stroke="url(#rim)" stroke-width="4"/>
+    <path d="M77 60l22-27 19 29-11 28 11 28-19 29-22-27 10-30zM563 60l-22-27-19 29 11 28-11 28 19 29 22-27-10-30z" fill="#351138" stroke="#ff6945" stroke-width="3"/>
+    <path d="M301 22L320 1l19 21-8 25h-22zM301 158l19 21 19-21-8-25h-22z" fill="url(#gem)" stroke="#ffb25e" stroke-width="2"/>
+    <path d="M139 51l25-19 21 22-8 22-28 4zM501 51l-25-19-21 22 8 22 28 4z" fill="#28102f" stroke="#c95cff" stroke-width="3"/>
+    <path d="M139 129l25 19 21-22-8-22-28-4zM501 129l-25 19-21-22 8-22 28-4z" fill="#28102f" stroke="#ff5a36" stroke-width="3"/>
+    <circle cx="132" cy="90" r="8" fill="url(#gem)"/><circle cx="508" cy="90" r="8" fill="url(#gem)"/>
+    <path d="M198 48l14 11-10 13M442 48l-14 11 10 13M198 132l14-11-10-13M442 132l-14-11 10-13" fill="none" stroke="#ff8853" stroke-linecap="round" stroke-width="4"/>
+  </g>
+</svg>

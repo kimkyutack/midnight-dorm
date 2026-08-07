@@ -40,6 +40,23 @@ import { routeAuth } from '../src/server/auth';
 import { ghostFootstepGain, ghostFootstepIntervalMs } from '../src/client/audio';
 import { ABYSSAL_KNIGHT_GORILLA_SKIN_ID, duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS, STARLIT_CLOUD_RABBIT_SKIN_ID } from '../src/shared/prestige';
 import { CASH_PRODUCT_BY_ID, CASH_STORE_PRODUCTS, STORE_PRODUCT_IDS, cashGrantAmount, firstCashPurchaseBonus } from '../src/shared/storeProducts';
+import { HOME_BACKGROUND_CATALOG, NAMEPLATE_CATALOG, PRESENTATION_CATALOG } from '../src/shared/presentation';
+
+describe('presentation shop catalog', () => {
+  it('ships ten standalone nameplates and ten home backgrounds without prestige products', () => {
+    expect(NAMEPLATE_CATALOG).toHaveLength(10);
+    expect(HOME_BACKGROUND_CATALOG).toHaveLength(10);
+    expect(PRESENTATION_CATALOG).toHaveLength(20);
+    expect(new Set(PRESENTATION_CATALOG.map((item) => item.id)).size).toBe(20);
+    expect(PRESENTATION_CATALOG.some((item) => /moonlit-phantom|starlit-cloud|abyssal-knight/.test(item.id))).toBe(false);
+    expect(NAMEPLATE_CATALOG.every((item) => item.imageUrl.endsWith('.svg') && item.nameplate)).toBe(true);
+    expect(HOME_BACKGROUND_CATALOG.every((item) => item.backgroundUrl?.endsWith('.webp'))).toBe(true);
+    expect(NAMEPLATE_CATALOG.some((item) => item.currency === 'points')).toBe(true);
+    expect(NAMEPLATE_CATALOG.some((item) => item.currency === 'cash')).toBe(true);
+    expect(HOME_BACKGROUND_CATALOG.some((item) => item.currency === 'points')).toBe(true);
+    expect(HOME_BACKGROUND_CATALOG.some((item) => item.currency === 'cash')).toBe(true);
+  });
+});
 
 describe('cash store products', () => {
   it('keeps native SKUs, server grants, and the displayed catalog on one canonical list', () => {
@@ -74,10 +91,11 @@ describe('moonlit phantom prestige rules', () => {
     expect(GHOST_ORB_CASH_COST).toBe(135);
   });
 
-  it('refunds duplicate cosmetics at the exact current point-shop price', () => {
+  it('refunds duplicate point cosmetics at the exact current point-shop price', () => {
     const cat = cosmeticById('character-cat');
     expect(duplicatePointRefund('character-cat')).toBe(cat?.unlock.kind === 'points' ? cat.unlock.price : 0);
-    expect(duplicatePointRefund('skin-look-cat-neon-rider')).toBe(5_000);
+    // Premium cash skins never enter the orb pool and therefore have no point refund.
+    expect(duplicatePointRefund('skin-look-cat-neon-rider')).toBe(0);
     expect(duplicatePointRefund(MOONLIT_PHANTOM_SKIN_ID)).toBe(0);
   });
 
@@ -86,10 +104,12 @@ describe('moonlit phantom prestige rules', () => {
     const pointWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'points').reduce((sum, reward) => sum + reward.weight, 0);
     const cosmeticWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'cosmetic').reduce((sum, reward) => sum + reward.weight, 0);
     const naturalOrbWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'orbs').reduce((sum, reward) => sum + reward.weight, 0);
+    const directPointRewards = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'points');
     expect(totalWeight).toBeCloseTo(100, 6);
     expect(pointWeight / totalWeight).toBeGreaterThan(0.95);
     expect(cosmeticWeight / totalWeight).toBeLessThan(0.04);
     expect(naturalOrbWeight / totalWeight).toBeLessThan(0.005);
+    expect(Math.max(...directPointRewards.map((reward) => reward.amount))).toBe(300);
   });
 
   it('defines the authored prestige combat package without leaking into ranked matches', () => {
@@ -297,7 +317,7 @@ describe('mobile viewport compatibility', () => {
 describe('app update versioning', () => {
   it('only prompts when D1 reports a newer deployed release', () => {
     expect(isUpdateAvailable(APP_RELEASE_VERSION, APP_RELEASE_VERSION)).toBe(false);
-    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.06.2')).toBe(true);
+    expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.07.2')).toBe(true);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, '2026.08.04.7')).toBe(false);
     expect(isUpdateAvailable(APP_RELEASE_VERSION, null)).toBe(false);
     expect(compareAppVersions('2026.07.28.10', '2026.07.28.9')).toBeGreaterThan(0);
@@ -713,7 +733,7 @@ describe('deterministic shared world', () => {
     expect(rendered.x).toBeCloseTo(7.6);
   });
 
-  it('keeps an acknowledged trailing frame inside the authority leash', () => {
+  it('keeps moving forward after the current held input is acknowledged', () => {
     const authoritative = { x: 5, y: 5 };
     const input = { x: 1, y: 0 };
     const rendered = { x: 7.55, y: 5 };
@@ -726,7 +746,21 @@ describe('deterministic shared world', () => {
       8,
       8,
     );
-    expect(next.x).toBeCloseTo(7.6);
+    expect(next.x).toBeCloseTo(7.65);
+  });
+
+  it('still limits lateral prediction drift after input acknowledgement', () => {
+    const next = limitLocalPredictionLead(
+      { x: 7.55, y: 7.65 },
+      { x: 7.65, y: 7.65 },
+      { x: 5, y: 5 },
+      { x: 1, y: 0 },
+      2.6,
+      8,
+      8,
+    );
+    expect(next.x).toBeCloseTo(7.55);
+    expect(next.y).toBeCloseTo(7.65);
   });
 
   it('keeps normal-game prediction inside the server release correction range', () => {
@@ -1468,7 +1502,7 @@ describe('survivor customization rules', () => {
     );
   });
 
-  it('keeps each complete premium theme at exactly 10,000 points', () => {
+  it('prices each premium theme as a 2,500-cash skin plus 5,000 points of room cosmetics', () => {
     const themedSets = [
       ['skin-look-puppy-surfer', WAVE_TILE_SKIN_ID, SURFER_WATER_TURRET_SKIN_ID],
       ['skin-look-tiger-lifeguard', BEACH_SAND_TILE_SKIN_ID, LIFEGUARD_PARASOL_TURRET_SKIN_ID],
@@ -1477,11 +1511,12 @@ describe('survivor customization rules', () => {
     ];
 
     for (const itemIds of themedSets) {
-      const total = itemIds.reduce((sum, itemId) => {
+      const pointTotal = itemIds.reduce((sum, itemId) => {
         const unlock = cosmeticById(itemId)?.unlock;
         return sum + (unlock?.kind === 'points' ? unlock.price : 0);
       }, 0);
-      expect(total).toBe(10_000);
+      expect(pointTotal).toBe(5_000);
+      expect(cosmeticById(itemIds[0] as string)?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     }
   });
 
@@ -1549,26 +1584,20 @@ describe('survivor customization rules', () => {
     const explorerSkin = cosmeticById('skin-look-bunny-ward');
     expect(explorerSkin?.unlock).toEqual({ kind: 'points', price: 500 });
     const surferSkin = cosmeticById('skin-look-puppy-surfer');
-    expect(surferSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(surferSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     const lifeguardSkin = cosmeticById('skin-look-tiger-lifeguard');
-    expect(lifeguardSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(lifeguardSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     const neonLuluSkin = cosmeticById('skin-look-cat-neon-rider');
-    expect(neonLuluSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(neonLuluSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     const cyberKongSkin = cosmeticById('skin-look-hamster-cyber-driver');
-    expect(cyberKongSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(cyberKongSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     const policeCrocoSkin = cosmeticById('skin-look-crocodile-police-enforcer');
-    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(policeCrocoSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     const secretAgentSkin = cosmeticById('skin-look-monkey-secret-agent');
-    expect(secretAgentSkin?.unlock).toEqual({ kind: 'points', price: 5_000 });
+    expect(secretAgentSkin?.unlock).toEqual({ kind: 'cash', price: 2_500 });
     expect(COSMETIC_CATALOG.filter((item) => item.slot === 'skin').every(
-      (item) => item.unlock.kind === 'reward' || (item.unlock.kind === 'points' && (
+      (item) => item.unlock.kind === 'reward' || item.unlock.kind === 'cash' || (item.unlock.kind === 'points' && (
         item.id === 'skin-look-bunny-ward'
-        || item.id === 'skin-look-puppy-surfer'
-        || item.id === 'skin-look-tiger-lifeguard'
-        || item.id === 'skin-look-cat-neon-rider'
-        || item.id === 'skin-look-hamster-cyber-driver'
-        || item.id === 'skin-look-crocodile-police-enforcer'
-        || item.id === 'skin-look-monkey-secret-agent'
         || item.unlock.price === 2_500
       )),
     )).toBe(true);
@@ -3445,6 +3474,19 @@ describe('authoritative game rules', () => {
     expect(engine.interact(playerId).ok).toBe(true);
     expect(engine.snapshot().buildings.find((building) => building.roomId === room.id)?.ownerId).toBe(playerId);
     expect(engine.snapshot().buildings.filter((building) => building.roomId !== room.id).every((building) => !building.ownerId)).toBe(true);
+
+    const claimedStarter = engine.snapshot().buildings.find((building) => building.roomId === room.id);
+    if (claimedStarter?.kind === 'generator') {
+      const funded = engine.serialize();
+      const owner = funded.snapshot.players.find((candidate) => candidate.id === playerId);
+      if (!owner) throw new Error('missing starter generator owner');
+      owner.gold = 10_000;
+      owner.power = 10_000;
+      engine.restore(funded);
+      expect(engine.upgrade(playerId, claimedStarter.id).ok).toBe(true);
+      expect(engine.snapshot().buildings.find((building) => building.id === claimedStarter.id))
+        .toMatchObject({ level: 2, effectiveLevel: 2 });
+    }
   });
 
   it('rejects construction inside another player room', () => {
@@ -5756,6 +5798,7 @@ describe('requested progression and event rules', () => {
     const machineId = engine.snapshot().buildings.find((building) => building.kind === 'lucky-machine')?.id as string;
     expect(engine.drawItem(playerId, machineId).ok).toBe(true);
     expect(engine.snapshot().players[0]?.drawCount).toBe(1);
+    expect(engine.snapshot().players[0]?.randomBoxesRemaining).toBe(9);
     expect(engine.snapshot().players[0]?.gold).toBe(960);
     expect(engine.snapshot().players[0]?.power).toBe(1_000);
     expect(engine.snapshot().buildings.find((building) => building.id === machineId)?.kind).toBe('random-item');
@@ -5843,6 +5886,10 @@ describe('requested progression and event rules', () => {
       expect(firstDrop).toBeDefined();
       const openingItemIds = engine.snapshot().lootDrops.map((drop) => drop.itemId);
       expect(new Set(openingItemIds).size).toBe(openingItemIds.length);
+      expect(openingItemIds.every((itemId) => {
+        const rarity = RANDOM_ITEMS.find((item) => item.id === itemId)?.rarity;
+        return rarity === 'common' || rarity === 'uncommon';
+      })).toBe(true);
       expect(engine.serialize().revealedRandomItemIds).toEqual(
         expect.arrayContaining(openingItemIds),
       );

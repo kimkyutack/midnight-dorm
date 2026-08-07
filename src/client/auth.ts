@@ -48,7 +48,7 @@ export const setPrestigeLoadout = (loadout: {
   profileImageId?: string | null;
   profileFrameId?: string | null;
   nameplateId?: string | null;
-  homeAuraId?: string | null;
+  homeBackgroundId?: string | null;
   emoteIds?: string[];
 }): Promise<AccountProfile> => authRequest('/api/auth/prestige-loadout', {
   method: 'POST', body: JSON.stringify(loadout),
@@ -64,6 +64,18 @@ export const exchangePrestigeAccessory = (accessoryId: string): Promise<AccountP
   authRequest('/api/auth/prestige-accessory/exchange', {
     method: 'POST',
     body: JSON.stringify({ accessoryId }),
+  });
+
+export const purchasePresentation = (itemId: string): Promise<AccountProfile> =>
+  authRequest('/api/customize/presentation/purchase', {
+    method: 'POST',
+    body: JSON.stringify({ itemId }),
+  });
+
+export const claimRandomBoxRefill = (rewardedAdCompleted: boolean): Promise<AccountProfile> =>
+  authRequest('/api/shop/random-box/claim', {
+    method: 'POST',
+    body: JSON.stringify({ rewardedAdCompleted }),
   });
 
 export const exchangeMoonlitPrestigePackage = (): Promise<AccountProfile> =>

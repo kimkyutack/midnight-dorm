@@ -52,3 +52,23 @@ export async function showStageClearReward(accountId: string, matchId: string): 
   await AdMob.showRewardVideoAd();
   preparedKey = '';
 }
+
+export async function showRandomBoxReward(accountId: string): Promise<void> {
+  await initializeAdMob();
+  const adId = rewardedAdId();
+  if (!isNativeApp || !adId) throw new Error('보상형 광고는 Android·iOS 앱에서 이용할 수 있습니다.');
+  const key = `${accountId}:daily-random-box`;
+  if (preparedKey !== key) {
+    await AdMob.prepareRewardVideoAd({
+      adId,
+      isTesting: testMode,
+      ssv: {
+        userId: accountId,
+        customData: JSON.stringify({ type: 'daily-random-box' }),
+      },
+    });
+    preparedKey = key;
+  }
+  await AdMob.showRewardVideoAd();
+  preparedKey = '';
+}

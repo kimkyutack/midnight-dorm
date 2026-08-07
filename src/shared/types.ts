@@ -222,6 +222,8 @@ export interface PlayerState {
     abandonedAt: number | null;
   };
   drawCount: number;
+  /** Account-wide daily random-box stock, consumed once for each successful draw. */
+  randomBoxesRemaining: number;
   /** One countdown loot reward can be carried until the survivor claims a bed. */
   carriedLootId: string | null;
   /** The hamster passive applies only to the first guardian turret this player builds. */
@@ -487,7 +489,7 @@ export interface AccountProfile {
     profileImageId: string | null;
     profileFrameId: string | null;
     nameplateId: string | null;
-    homeAuraId: string | null;
+    homeBackgroundId: string | null;
     ownedAccessoryIds: string[];
     ownedEmoteIds: string[];
     equippedEmoteIds: string[];
@@ -509,6 +511,13 @@ export interface AccountProfile {
   appearance: AvatarAppearance;
   turretSkins: TurretSkinLoadout;
   consumables: OwnedConsumable[];
+  randomBoxes: {
+    remaining: number;
+    refillsClaimed: number;
+    maxRefills: number;
+    refillAmount: number;
+    periodKey: string;
+  };
   /** Launch campaigns the current account chose not to see again. */
   dismissedPromotionIds: string[];
   /** Server-managed launch popup visibility and display order. */
@@ -722,4 +731,5 @@ export interface JoinIdentity {
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
   consumables?: OwnedConsumable[];
+  randomBoxesRemaining?: number;
 }

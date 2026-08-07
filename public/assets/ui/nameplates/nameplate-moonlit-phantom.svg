@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180" role="img" aria-labelledby="title">
+  <title id="title">월령 환영 여우 프레스티지 명찰</title>
+  <defs>
+    <linearGradient id="shell" x1="0" x2="1">
+      <stop stop-color="#07132f"/><stop offset=".24" stop-color="#182b66"/><stop offset=".5" stop-color="#31569a"/><stop offset=".76" stop-color="#182b66"/><stop offset="1" stop-color="#07132f"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#38dfff"/><stop offset=".32" stop-color="#dffcff"/><stop offset=".52" stop-color="#f6dd92"/><stop offset=".76" stop-color="#8c6cff"/><stop offset="1" stop-color="#38dfff"/>
+    </linearGradient>
+    <radialGradient id="gem"><stop stop-color="#e8ffff"/><stop offset=".35" stop-color="#54eaff"/><stop offset="1" stop-color="#3052c7"/></radialGradient>
+    <filter id="glow" x="-30%" y="-80%" width="160%" height="260%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M85 28h470l60 62-60 62H85L25 90z" fill="url(#shell)" stroke="url(#rim)" stroke-width="6"/>
+    <path d="M104 43h432l42 47-42 47H104L62 90z" fill="none" stroke="#78ecff" stroke-opacity=".65" stroke-width="2"/>
+    <path d="M38 90c28-12 39-37 46-64 12 24 31 31 55 29-15 14-19 27-12 41-18-8-33-3-45 15-8-12-22-19-44-21z" fill="#152655" stroke="#84efff" stroke-width="4"/>
+    <path d="M602 90c-28-12-39-37-46-64-12 24-31 31-55 29 15 14 19 27 12 41 18-8 33-3 45 15 8-12 22-19 44-21z" fill="#152655" stroke="#84efff" stroke-width="4"/>
+    <path d="M91 90a31 31 0 1 0 0-1 22 22 0 1 1 0 1z" fill="#eefeff" stroke="#9b79ff" stroke-width="3"/>
+    <path d="M549 90a31 31 0 1 1 0-1 22 22 0 1 0 0 1z" fill="#eefeff" stroke="#9b79ff" stroke-width="3"/>
+    <path d="M306 25l14-17 14 17-14 17zM306 155l14-17 14 17-14 17z" fill="url(#gem)" stroke="#efffff" stroke-width="2"/>
+    <circle cx="142" cy="90" r="8" fill="url(#gem)"/><circle cx="498" cy="90" r="8" fill="url(#gem)"/>
+    <path d="M151 59c22-12 45-18 69-20M151 121c22 12 45 18 69 20M489 59c-22-12-45-18-69-20M489 121c-22 12-45 18-69 20" fill="none" stroke="#a0f5ff" stroke-linecap="round" stroke-width="3"/>
+    <g fill="#63ecff"><circle cx="180" cy="32" r="3"/><circle cx="203" cy="148" r="3"/><circle cx="460" cy="32" r="3"/><circle cx="437" cy="148" r="3"/></g>
+  </g>
+</svg>
