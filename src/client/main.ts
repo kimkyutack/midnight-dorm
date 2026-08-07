@@ -1654,10 +1654,11 @@ function showGhostOrbSummonAnimation(
     message: string,
   ): void => {
     if (!resultHost) return;
-    resultHost.innerHTML = `<section class="orb-draw-result-sheet"><header><small>SUMMON RESULT</small><strong>${visibleRewards.length}개 보상 획득</strong></header><div class="orb-reward-shop-list">${ghostOrbRewardCardsMarkup(visibleRewards)}</div><p>${escapeHtml(message)}</p><footer><button type="button" class="orb-gacha-confirm" data-orb-gacha-close>확인</button>${drawAgainCount ? `<button type="button" class="orb-gacha-draw-again" data-orb-draw-again>${drawAgainCount}회 더 뽑기</button>` : ''}</footer></section>`;
+    resultHost.innerHTML = `<section class="orb-draw-result-sheet" data-orb-draw-result-sheet><header><small>SUMMON RESULT</small><strong>${visibleRewards.length}개 보상 획득</strong></header><div class="orb-reward-shop-list">${ghostOrbRewardCardsMarkup(visibleRewards)}</div><p>${escapeHtml(message)}</p><footer><button type="button" class="orb-gacha-confirm" data-orb-gacha-close>확인</button>${drawAgainCount ? `<button type="button" class="orb-gacha-draw-again" data-orb-draw-again>${drawAgainCount}회 더 뽑기</button>` : ''}</footer><div class="orb-draw-result-loading" data-orb-draw-loading hidden><span></span><strong>보상 확인 중</strong></div></section>`;
     resultHost.querySelector('[data-orb-gacha-close]')?.addEventListener('click', close);
+    let drawAgainPending = false;
     resultHost.querySelector<HTMLButtonElement>('[data-orb-draw-again]')?.addEventListener('click', (event) => {
-      if (!drawAgainCount) return;
+      if (!drawAgainCount || drawAgainPending) return;
       const button = event.currentTarget as HTMLButtonElement;
       const cashCost = GHOST_ORB_CASH_COST * drawAgainCount;
       // Re-draw keeps its no-animation fast path when the wallet can pay, but
@@ -1667,8 +1668,14 @@ function showGhostOrbSummonAnimation(
         showGhostOrbPurchaseConfirm(drawAgainCount, { onOpenCashShop: close, host: overlay });
         return;
       }
+      const sheet = resultHost.querySelector<HTMLElement>('[data-orb-draw-result-sheet]');
+      const loading = resultHost.querySelector<HTMLElement>('[data-orb-draw-loading]');
+      drawAgainPending = true;
       button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
       button.textContent = `${drawAgainCount}회 보상 확인 중…`;
+      sheet?.classList.add('is-loading');
+      loading?.removeAttribute('hidden');
       resultHost.setAttribute('aria-busy', 'true');
       void drawGhostOrbs(drawAgainCount).then((result) => {
         account = result.profile;
@@ -1681,8 +1688,12 @@ function showGhostOrbSummonAnimation(
         );
         audio.play('item-draw');
       }).catch((error) => {
+        drawAgainPending = false;
         resultHost.removeAttribute('aria-busy');
+        sheet?.classList.remove('is-loading');
+        loading?.setAttribute('hidden', '');
         button.disabled = false;
+        button.removeAttribute('aria-busy');
         button.textContent = `${drawAgainCount}회 더 뽑기`;
         // A second device can spend cash after this screen was opened. Refresh
         // the wallet and present the same insufficient-cash purchase sheet

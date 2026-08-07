@@ -5890,6 +5890,41 @@ img[src$="/assets/ranks/absolute.png"] { --rank-art-scale: 0.9521; --rank-art-sh
   text-align: center;
 }
 
+.orb-draw-result-sheet {
+  position: relative;
+}
+
+.orb-draw-result-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  border-radius: inherit;
+  background: rgba(5, 11, 31, .78);
+  color: #ffffff;
+  text-align: center;
+}
+
+.orb-draw-result-loading[hidden] {
+  display: none;
+}
+
+.orb-draw-result-loading > span {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto;
+  border: 3px solid rgba(116, 227, 255, .28);
+  border-top-color: #74e3ff;
+  border-radius: 999px;
+  animation: orb-result-loading-spin .72s linear infinite;
+}
+
+.orb-draw-result-loading > strong {
+  font: 950 12px var(--game-arcade-font);
+}
+
 .orb-draw-result-sheet > footer {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5916,6 +5951,12 @@ img[src$="/assets/ranks/absolute.png"] { --rank-art-scale: 0.9521; --rank-art-sh
 
 .orb-draw-result-sheet > footer > :only-child {
   grid-column: 1 / -1;
+}
+
+@keyframes orb-result-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes orb-result-shop-reveal {
