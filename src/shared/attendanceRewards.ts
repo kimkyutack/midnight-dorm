@@ -56,7 +56,7 @@ export const ATTENDANCE_REWARDS: readonly AttendanceRewardDefinition[] = Array.f
         kind: 'cosmetic',
         itemId: 'character-puppy',
         label: '구름강아지 몽',
-        imageUrl: '/assets/sprites/survivors/character-puppy/concept.png',
+        imageUrl: '/assets/sprites/survivors/character-puppy/concept.webp',
         special: true,
         duplicatePoints: 600,
       };

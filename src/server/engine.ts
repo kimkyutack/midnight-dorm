@@ -768,9 +768,15 @@ export class GameEngine {
       player.consumables ??= [];
       player.consumableLoadout ??= [];
       player.usedConsumables ??= [];
-      player.matchMissions ??= player.isBot || this.state.tutorial?.active
-        ? []
-        : createMatchMissions(this.state.matchId, player.id);
+      if (player.isBot || this.state.tutorial?.active || this.ranked) {
+        player.matchMissions = [];
+      } else {
+        player.matchMissions ??= createMatchMissions(
+          this.state.matchId,
+          player.id,
+          this.stage.index,
+        );
+      }
       player.speedBoostUntil ??= 0;
       player.stealthUntil ??= 0;
       player.bedrollUntil ??= 0;
@@ -6107,9 +6113,9 @@ export class GameEngine {
         .map((item) => ({ itemId: item.itemId, quantity: item.quantity })),
       consumableLoadout: [],
       usedConsumables: [],
-      matchMissions: isBot || this.stage.id === 'tutorial-1'
+      matchMissions: isBot || this.stage.id === 'tutorial-1' || Boolean(this.ranked)
         ? []
-        : createMatchMissions(this.state.matchId, id),
+        : createMatchMissions(this.state.matchId, id, this.stage.index),
       speedBoostUntil: 0,
       stealthUntil: 0,
       bedrollUntil: 0,

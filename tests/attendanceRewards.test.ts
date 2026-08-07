@@ -12,7 +12,11 @@ describe('attendance rewards', () => {
   it('uses the requested weekly milestone cosmetics and point bands', () => {
     expect(attendanceRewardForDay(1)).toMatchObject({ kind: 'points', amount: 100 });
     expect(attendanceRewardForDay(6)).toMatchObject({ kind: 'points', amount: 100 });
-    expect(attendanceRewardForDay(7)).toMatchObject({ itemId: 'character-puppy', special: true });
+    expect(attendanceRewardForDay(7)).toMatchObject({
+      itemId: 'character-puppy',
+      imageUrl: '/assets/sprites/survivors/character-puppy/concept.webp',
+      special: true,
+    });
     expect(attendanceRewardForDay(8)).toMatchObject({ kind: 'points', amount: 150 });
     expect(attendanceRewardForDay(14)).toMatchObject({ itemId: 'tile-wave-surfer', special: true });
     expect(attendanceRewardForDay(15)).toMatchObject({ kind: 'points', amount: 200 });

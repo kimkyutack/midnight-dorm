@@ -1706,6 +1706,13 @@ describe('shop consumable rules', () => {
 });
 
 describe('authoritative game rules', () => {
+  it('does not issue per-match point missions in ranked matches', () => {
+    const { engine, ids } = setup(1, true, { ranked: RANKED_OPENING });
+    expect(
+      engine.snapshot().players.find((player) => player.id === ids[0])?.matchMissions,
+    ).toEqual([]);
+  });
+
   it('transfers lobby ownership on leave and destroys a room with no humans left', () => {
     const { engine, ids } = setup(2);
     const formerHost = ids[0] as string;

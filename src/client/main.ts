@@ -631,6 +631,7 @@ function backgroundTrackForView(view: string): BackgroundTrack | null {
     view === "lobby" ||
     view === "ranked-queue" ||
     view === "events" ||
+    view === "missions" ||
     view === "result"
   ) {
     return "main";
@@ -1134,7 +1135,8 @@ function homeScreen(): void {
   });
   app.querySelectorAll<HTMLElement>("[data-event-missions]").forEach((button) => button.addEventListener("click", () => {
     audio.play("button");
-    void eventMissionScreen(button.dataset.eventSection === 'attendance' ? 'attendance' : 'daily');
+    if (button.dataset.eventSection === 'attendance') void attendanceEventScreen();
+    else void missionScreen('daily');
   }));
   app.querySelector("[data-mailbox]")?.addEventListener("click", () => {
     audio.play("button");
@@ -2058,8 +2060,6 @@ function eventMissionCardMarkup(mission: EventMissionProgress): string {
   </article>`;
 }
 
-type EventCenterSection = 'attendance' | EventMissionPeriod;
-
 function attendanceRewardCardMarkup(reward: AttendanceRewardProgress): string {
   const stateLabel = reward.claimed
     ? '수령 완료'
@@ -2112,7 +2112,7 @@ function showAttendancePremiumChoice(overview: EventMissionOverview): void {
           modal.remove();
           audio.play('item-pickup');
           toast('선택한 프리미엄 스킨을 수령했습니다.');
-          if (eventMissionOverviewCache) renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+          if (eventMissionOverviewCache) renderAttendanceEventScreen(eventMissionOverviewCache);
         })
         .catch((error) => {
           button.disabled = false;
@@ -2122,39 +2122,14 @@ function showAttendancePremiumChoice(overview: EventMissionOverview): void {
   });
 }
 
-function renderEventMissionScreen(
-  overview: EventMissionOverview,
-  activeSection: EventCenterSection,
-): void {
-  const activePeriod = activeSection === 'attendance' ? null : activeSection;
-  const period = activePeriod ? overview.periods[activePeriod] : null;
-  const content = activeSection === 'attendance'
-    ? attendanceSectionMarkup(overview)
-    : `<section class="event-mission-section"><header><div><small>${activePeriod === "daily" ? "TODAY" : "THIS WEEK"}</small><strong>${activePeriod === "daily" ? "오늘의 생존 지령" : "주간 생존 작전"}</strong></div><span>${eventMissionResetLabel(activePeriod as EventMissionPeriod, period?.resetsAt ?? 0)}</span></header><div class="event-mission-list">${period?.missions.map(eventMissionCardMarkup).join("") ?? ''}</div></section>`;
-  setContent(
-    "events",
-    `<main class="event-screen">
-      <div class="event-screen-backdrop"></div>
-      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>EVENT CENTER</span><h1>이벤트</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
-      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="미션 이벤트"/><div><small>MIDNIGHT ORDERS</small><h2>생존 보급 작전</h2><p>출석하고 임무를 달성해 매일 새로운 보상을 받으세요.</p></div></section>
-      <nav class="event-tabs event-center-tabs" aria-label="이벤트 종류"><button class="attendance-tab ${activeSection === 'attendance' ? 'active' : ''}" data-event-section="attendance">출석보상</button><button class="${activeSection === "daily" ? "active" : ""}" data-event-section="daily">일일 미션</button><button class="${activeSection === "weekly" ? "active" : ""}" data-event-section="weekly">주간 미션</button></nav>
-      ${content}
-      ${activeSection === 'attendance' ? '' : `<footer class="event-claim-footer"><span>${overview.claimableCount > 0 ? `수령 가능한 미션 보상 ${overview.claimableCount}개` : "수령 가능한 미션 보상이 없습니다"}</span><button data-claim-all ${overview.claimableCount > 0 ? "" : "disabled"}>보상 일괄수령</button></footer>`}
-    </main>`,
-  );
+function bindEventBackButton(): void {
   app.querySelector("[data-event-back]")?.addEventListener("click", () => {
     audio.play("button");
     homeScreen();
   });
-  app
-    .querySelectorAll<HTMLButtonElement>("[data-event-section]")
-    .forEach((button) =>
-      button.addEventListener("click", () => {
-        audio.play("button");
-        const section = button.dataset.eventSection;
-        renderEventMissionScreen(overview, section === 'attendance' ? 'attendance' : section === 'weekly' ? 'weekly' : 'daily');
-      }),
-    );
+}
+
+function bindAttendanceRewardButtons(): void {
   app.querySelectorAll<HTMLButtonElement>('[data-attendance-day]').forEach((button) => {
     button.addEventListener('click', () => {
       const day = Number(button.dataset.attendanceDay);
@@ -2163,21 +2138,62 @@ function renderEventMissionScreen(
       void claimAttendanceRewardForDay(day);
     });
   });
+}
+
+function renderAttendanceEventScreen(overview: EventMissionOverview): void {
+  setContent(
+    "events",
+    `<main class="event-screen">
+      <div class="event-screen-backdrop"></div>
+      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>EVENT CENTER</span><h1>이벤트</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
+      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="출석 보상 이벤트"/><div><small>30-DAY CHECK-IN</small><h2>누적 출석 보상</h2><p>접속한 횟수에 따라 특별한 생존 보급품을 받으세요.</p></div></section>
+      ${attendanceSectionMarkup(overview)}
+    </main>`,
+  );
+  bindEventBackButton();
+  bindAttendanceRewardButtons();
+  if (overview.attendance.premiumChoice?.pending) {
+    window.setTimeout(() => showAttendancePremiumChoice(overview), 0);
+  }
+}
+
+function renderMissionScreen(
+  overview: EventMissionOverview,
+  activePeriod: EventMissionPeriod,
+): void {
+  const period = overview.periods[activePeriod];
+  setContent(
+    "missions",
+    `<main class="event-screen mission-screen">
+      <div class="event-screen-backdrop"></div>
+      <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>MISSION</span><h1>미션</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
+      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="생존 미션"/><div><small>MIDNIGHT ORDERS</small><h2>생존 보급 작전</h2><p>매일과 매주 갱신되는 임무를 달성하고 포인트를 받으세요.</p></div></section>
+      <nav class="event-tabs" aria-label="미션 종류"><button class="${activePeriod === "daily" ? "active" : ""}" data-mission-period="daily">일일 미션</button><button class="${activePeriod === "weekly" ? "active" : ""}" data-mission-period="weekly">주간 미션</button></nav>
+      <section class="event-mission-section"><header><div><small>${activePeriod === "daily" ? "TODAY" : "THIS WEEK"}</small><strong>${activePeriod === "daily" ? "오늘의 생존 지령" : "주간 생존 작전"}</strong></div><span>${eventMissionResetLabel(activePeriod, period.resetsAt)}</span></header><div class="event-mission-list">${period.missions.map(eventMissionCardMarkup).join("")}</div></section>
+      <footer class="event-claim-footer"><span>${overview.claimableCount > 0 ? `수령 가능한 미션 보상 ${overview.claimableCount}개` : "수령 가능한 미션 보상이 없습니다"}</span><button data-claim-all ${overview.claimableCount > 0 ? "" : "disabled"}>보상 일괄수령</button></footer>
+    </main>`,
+  );
+  bindEventBackButton();
+  app
+    .querySelectorAll<HTMLButtonElement>("[data-mission-period]")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        audio.play("button");
+        renderMissionScreen(overview, button.dataset.missionPeriod === 'weekly' ? 'weekly' : 'daily');
+      }),
+    );
   app
     .querySelectorAll<HTMLButtonElement>("[data-claim-mission]")
     .forEach((button) =>
       button.addEventListener("click", () => {
         const missionId = button.dataset.claimMission;
         if (!missionId) return;
-        void claimMissionRewards([missionId], activePeriod ?? 'daily');
+        void claimMissionRewards([missionId], activePeriod);
       }),
     );
   app.querySelector<HTMLButtonElement>("[data-claim-all]")?.addEventListener("click", () => {
-    void claimMissionRewards([], activePeriod ?? 'daily');
+    void claimMissionRewards([], activePeriod);
   });
-  if (activeSection === 'attendance' && overview.attendance.premiumChoice?.pending) {
-    window.setTimeout(() => showAttendancePremiumChoice(overview), 0);
-  }
 }
 
 async function claimAttendanceRewardForDay(day: number): Promise<void> {
@@ -2190,13 +2206,13 @@ async function claimAttendanceRewardForDay(day: number): Promise<void> {
       customPoints: account.customPoints,
       attendance: result.overview,
     };
-    renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+    renderAttendanceEventScreen(eventMissionOverviewCache);
     audio.play('item-pickup');
     if (result.premiumChoiceRequired) toast('프리미엄 스킨 선택권을 받았습니다.');
     else if (result.awardedPoints > 0) toast(`${result.awardedPoints.toLocaleString()}P를 받았습니다.`);
     else toast('출석 특별 보상을 받았습니다.');
   } catch (error) {
-    if (eventMissionOverviewCache) renderEventMissionScreen(eventMissionOverviewCache, 'attendance');
+    if (eventMissionOverviewCache) renderAttendanceEventScreen(eventMissionOverviewCache);
     toast(error instanceof Error ? error.message : '출석 보상을 수령하지 못했습니다.');
   }
 }
@@ -2217,7 +2233,7 @@ async function claimMissionRewards(
     );
     eventMissionOverviewCache = result.overview;
     if (account) account.customPoints = result.overview.customPoints;
-    renderEventMissionScreen(result.overview, activePeriod);
+    renderMissionScreen(result.overview, activePeriod);
     if (result.awardedPoints > 0) {
       audio.play("item-pickup");
       toast(`미션 보상 ${result.awardedPoints.toLocaleString()}P를 받았습니다.`);
@@ -2226,27 +2242,47 @@ async function claimMissionRewards(
     }
   } catch (error) {
     if (eventMissionOverviewCache) {
-      renderEventMissionScreen(eventMissionOverviewCache, activePeriod);
+      renderMissionScreen(eventMissionOverviewCache, activePeriod);
     }
     toast(error instanceof Error ? error.message : "미션 보상을 수령하지 못했습니다.");
   }
 }
 
-async function eventMissionScreen(initialSection: EventCenterSection = 'attendance'): Promise<void> {
+async function attendanceEventScreen(): Promise<void> {
   setContent(
     "events",
-    loadingMarkup("이벤트를 불러오는 중", "오늘의 생존 지령을 확인하고 있습니다."),
+    loadingMarkup("이벤트를 불러오는 중", "누적 출석 보상을 확인하고 있습니다."),
   );
   try {
     eventMissionOverviewCache = await getEventMissions();
     if (account) account.customPoints = eventMissionOverviewCache.customPoints;
     if (currentView !== "events") return;
-    renderEventMissionScreen(eventMissionOverviewCache, initialSection);
+    renderAttendanceEventScreen(eventMissionOverviewCache);
   } catch (error) {
     if (currentView !== "events") return;
     setContent(
       "events",
       `<main class="screen"><section class="panel compact"><span class="eyebrow">EVENT CENTER</span><h2>이벤트를 열지 못했습니다</h2><p class="subtitle">${escapeHtml(error instanceof Error ? error.message : "잠시 후 다시 시도해주세요.")}</p><button class="btn primary" data-event-back>홈으로</button></section></main>`,
+    );
+    app.querySelector("[data-event-back]")?.addEventListener("click", homeScreen);
+  }
+}
+
+async function missionScreen(initialPeriod: EventMissionPeriod = 'daily'): Promise<void> {
+  setContent(
+    "missions",
+    loadingMarkup("미션을 불러오는 중", "오늘의 생존 지령을 확인하고 있습니다."),
+  );
+  try {
+    eventMissionOverviewCache = await getEventMissions();
+    if (account) account.customPoints = eventMissionOverviewCache.customPoints;
+    if (currentView !== "missions") return;
+    renderMissionScreen(eventMissionOverviewCache, initialPeriod);
+  } catch (error) {
+    if (currentView !== "missions") return;
+    setContent(
+      "missions",
+      `<main class="screen"><section class="panel compact"><span class="eyebrow">MISSION</span><h2>미션을 열지 못했습니다</h2><p class="subtitle">${escapeHtml(error instanceof Error ? error.message : "잠시 후 다시 시도해주세요.")}</p><button class="btn primary" data-event-back>홈으로</button></section></main>`,
     );
     app.querySelector("[data-event-back]")?.addEventListener("click", homeScreen);
   }
@@ -5944,7 +5980,8 @@ function updateMatchMissionPanel(): void {
   const local = snapshot.players.find((player) => player.id === playerId);
   const missions = local?.matchMissions ?? [];
   const visible = Boolean(
-    local?.alive &&
+    !snapshot.ranked &&
+      local?.alive &&
       local.roomId &&
       missions.length > 0 &&
       (snapshot.status === 'COUNTDOWN' ||

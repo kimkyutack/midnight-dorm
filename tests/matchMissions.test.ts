@@ -5,6 +5,7 @@ import {
   advanceMatchMissions,
   completedMatchMissionPoints,
   createMatchMissions,
+  matchMissionDifficultyBand,
 } from '../src/shared/matchMissions';
 
 describe('match missions', () => {
@@ -21,6 +22,31 @@ describe('match missions', () => {
     expect(first.length).toBeLessThanOrEqual(3);
     expect(first.at(-1)?.metric).toBe('clear');
     expect(first.at(-1)?.title).toBe('클리어');
+  });
+
+  it('raises optional mission requirements and rewards with stage difficulty', () => {
+    const inferno = createMatchMissions('match-difficulty', 'player-1', 40);
+    const apocalypse = createMatchMissions('match-difficulty', 'player-1', 300);
+
+    const scalableMetrics = ['build-count', 'upgrade-count', 'reach-level', 'spend-gold', 'spend-power'];
+    inferno.slice(0, -1).forEach((mission) => {
+      const base = MATCH_MISSION_POOL.find((candidate) => candidate.id === mission.id);
+      expect(scalableMetrics).toContain(mission.metric);
+      expect(mission.target).toBeGreaterThan(base?.target ?? 0);
+      expect(mission.rewardPoints).toBeGreaterThanOrEqual(base?.rewardPoints ?? 0);
+    });
+    apocalypse.slice(0, -1).forEach((mission) => {
+      const base = MATCH_MISSION_POOL.find((candidate) => candidate.id === mission.id);
+      expect(scalableMetrics).toContain(mission.metric);
+      expect(mission.target).toBeGreaterThan(base?.target ?? 0);
+      expect(mission.rewardPoints).toBeLessThanOrEqual(50);
+      if (mission.targetKind === 'bed' || mission.targetKind === 'generator') {
+        expect(mission.target).toBeLessThanOrEqual(10);
+      }
+    });
+    expect(matchMissionDifficultyBand(10)).toBe(0);
+    expect(matchMissionDifficultyBand(11)).toBe(1);
+    expect(matchMissionDifficultyBand(300)).toBe(4);
   });
 
   it('marks progress server-side and sums only completed rewards', () => {

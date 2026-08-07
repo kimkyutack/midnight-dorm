@@ -102,10 +102,107 @@ export const CLEAR_MATCH_MISSION: MatchMissionDefinition = {
   rewardPoints: 50,
 };
 
-export function createMatchMissions(matchId: string, playerId: string): MatchMissionProgress[] {
+/**
+ * Match orders grow with the selected stage instead of drawing the same
+ * tutorial-sized requirement throughout the entire progression ladder.
+ */
+export function matchMissionDifficultyBand(stageIndex: number): number {
+  if (stageIndex <= 10) return 0;
+  if (stageIndex <= 20) return 1;
+  if (stageIndex <= 45) return 2;
+  if (stageIndex <= 120) return 3;
+  return 4;
+}
+
+function roundedMissionTarget(value: number): number {
+  return Math.max(10, Math.round(value / 10) * 10);
+}
+
+const SCALABLE_MISSION_METRICS = new Set<MatchMissionMetric>([
+  'build-count',
+  'upgrade-count',
+  'reach-level',
+  'spend-gold',
+  'spend-power',
+]);
+
+const MISSION_BUILDING_MAX_LEVEL: Partial<Record<BuildingKind, number>> = {
+  bed: 10,
+  generator: 10,
+  'basic-turret': 15,
+  'reinforced-door': 15,
+};
+
+function scaleMissionForStage(
+  mission: MatchMissionDefinition,
+  stageIndex: number,
+): MatchMissionDefinition {
+  const band = matchMissionDifficultyBand(stageIndex);
+  if (band === 0 || mission.metric === 'clear') return { ...mission };
+
+  let target = mission.target;
+  switch (mission.metric) {
+    case 'build-count':
+    case 'upgrade-count':
+      target += band * 2;
+      break;
+    case 'reach-level': {
+      const maximum = mission.targetKind
+        ? (MISSION_BUILDING_MAX_LEVEL[mission.targetKind] ?? mission.target)
+        : mission.target;
+      target = Math.min(maximum, target + band * 2);
+      break;
+    }
+    case 'spend-gold':
+    case 'spend-power':
+      target = roundedMissionTarget(target * (1 + band * 0.4));
+      break;
+    default:
+      break;
+  }
+
+  const baseTitle = mission.title.replace(/ Lv\.\d+$/, '');
+  const title = mission.metric === 'reach-level'
+    ? `${baseTitle} Lv.${target}`
+    : mission.title;
+  let description = mission.description;
+  switch (mission.metric) {
+    case 'build': description = `${mission.title} 설비를 ${target}개 설치하세요.`; break;
+    case 'build-count': description = `설비를 ${target}개 설치하세요.`; break;
+    case 'upgrade-count': description = `설비를 총 ${target}회 업그레이드하세요.`; break;
+    case 'reach-level': description = `${baseTitle}를 ${target}레벨까지 업그레이드하세요.`; break;
+    case 'spend-gold': description = `골드 ${target}을 설비에 사용하세요.`; break;
+    case 'spend-power': description = `전력 ${target}을 설비에 사용하세요.`; break;
+    case 'draw-item': description = `랜덤 상자를 ${target}회 여세요.`; break;
+    case 'use-consumable': description = `장착한 보급품을 ${target}회 사용하세요.`; break;
+    case 'free-repair': description = `무료 수리 스킬을 ${target}회 사용하세요.`; break;
+    case 'soul-vial-use': description = `영혼 저장병을 ${target}회 사용하세요.`; break;
+  }
+
+  return {
+    ...mission,
+    title,
+    description,
+    target,
+    rewardPoints: Math.min(50, mission.rewardPoints + band * 5),
+  };
+}
+
+export function createMatchMissions(
+  matchId: string,
+  playerId: string,
+  stageIndex = 0,
+): MatchMissionProgress[] {
   const random = new SeededRandom(hashString(`${matchId}:${playerId}:match-missions`));
   const optionalCount = random.next() < 0.5 ? 1 : 2;
-  const selected = random.shuffle(MATCH_MISSION_POOL).slice(0, optionalCount);
+  const band = matchMissionDifficultyBand(stageIndex);
+  const missionPool = band === 0
+    ? MATCH_MISSION_POOL
+    : MATCH_MISSION_POOL.filter((mission) => SCALABLE_MISSION_METRICS.has(mission.metric));
+  const selected = random
+    .shuffle(missionPool)
+    .slice(0, optionalCount)
+    .map((mission) => scaleMissionForStage(mission, stageIndex));
   return [...selected, CLEAR_MATCH_MISSION].map((mission) => ({
     ...mission,
     progress: 0,
