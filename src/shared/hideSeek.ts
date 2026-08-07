@@ -112,6 +112,8 @@ export interface HideSeekPlayer {
   previousPosition: Tile;
   direction: Tile;
   movement: Tile;
+  /** Latest movement input applied by the authoritative room. */
+  lastInputSeq: number;
   alive: boolean;
   escaped: boolean;
   hiddenIn: string | null;
@@ -211,6 +213,35 @@ export function resolveHideSeekMovement(
   const yOnly = { x: position.x, y: position.y + delta.y };
   if (canOccupy(yOnly)) return yOnly;
   return { ...position };
+}
+
+/**
+ * Network snapshots naturally trail the locally predicted player. Treat that
+ * as latency, not drift, while the acknowledged server movement still points
+ * in the same direction. Real direction changes and lateral errors continue
+ * to reconcile immediately.
+ */
+export function shouldReconcileHideSeekMovement(
+  rendered: Tile,
+  authoritative: Tile,
+  heldInput: Tile,
+  acknowledgedInput: Tile,
+  softDistance = 0.8,
+): boolean {
+  const lead = { x: rendered.x - authoritative.x, y: rendered.y - authoritative.y };
+  if (Math.hypot(lead.x, lead.y) <= softDistance) return false;
+  const heldLength = Math.hypot(heldInput.x, heldInput.y);
+  const acknowledgedLength = Math.hypot(acknowledgedInput.x, acknowledgedInput.y);
+  if (heldLength <= 0.001 || acknowledgedLength <= 0.001) return true;
+  const held = { x: heldInput.x / heldLength, y: heldInput.y / heldLength };
+  const acknowledged = {
+    x: acknowledgedInput.x / acknowledgedLength,
+    y: acknowledgedInput.y / acknowledgedLength,
+  };
+  const alignment = held.x * acknowledged.x + held.y * acknowledged.y;
+  const forwardLead = lead.x * held.x + lead.y * held.y;
+  const lateralLead = Math.abs(lead.x * -held.y + lead.y * held.x);
+  return alignment < 0.94 || forwardLead < 0 || lateralLead > softDistance;
 }
 
 const tileKey = (tile: Tile): string => `${tile.x},${tile.y}`;

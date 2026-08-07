@@ -100,6 +100,7 @@ export function limitLocalPredictionLead(
   maximumLead = LOCAL_MAX_PREDICTION_LEAD,
   localInputSequence?: number,
   authoritativeInputSequence?: number,
+  acknowledgedInput?: Vec2,
 ): Vec2 {
   const offsetX = authoritative.x - predicted.x;
   const offsetY = authoritative.y - predicted.y;
@@ -107,10 +108,23 @@ export function limitLocalPredictionLead(
   if (predictedError <= maximumLead) return predicted;
 
   const inputLength = Math.hypot(input.x, input.y);
-  const acknowledgedCurrentInput =
-    inputLength > 0.001 &&
-    Number.isSafeInteger(localInputSequence) &&
-    (authoritativeInputSequence ?? -1) >= (localInputSequence ?? 0);
+  const acknowledgedInputLength = Math.hypot(
+    acknowledgedInput?.x ?? 0,
+    acknowledgedInput?.y ?? 0,
+  );
+  const acknowledgedInputAlignment =
+    inputLength > 0.001 && acknowledgedInputLength > 0.001
+      ? (
+          input.x * (acknowledgedInput?.x ?? 0) +
+          input.y * (acknowledgedInput?.y ?? 0)
+        ) / (inputLength * acknowledgedInputLength)
+      : -1;
+  const acknowledgedCurrentInput = inputLength > 0.001 && (
+    (
+      Number.isSafeInteger(localInputSequence) &&
+      (authoritativeInputSequence ?? -1) >= (localInputSequence ?? 0)
+    ) || acknowledgedInputAlignment >= 0.94
+  );
   if (acknowledgedCurrentInput) {
     const normalizedInputX = input.x / inputLength;
     const normalizedInputY = input.y / inputLength;
@@ -123,11 +137,12 @@ export function limitLocalPredictionLead(
       predictionLeadX * -normalizedInputY +
       predictionLeadY * normalizedInputX,
     );
-    // Once the server has acknowledged the exact held input, a trailing 10 Hz
-    // snapshot is not a collision. Both sides use moveInWalkableArea, so keep
-    // predicting forward while retaining the leash for lateral divergence.
-    // The old absolute cap stopped the actor every ~200 ms on an otherwise
-    // empty corridor whenever mobile snapshots arrived in a short burst.
+    // Pointer drags and keepalives issue newer sequence numbers continuously.
+    // A snapshot that acknowledged an earlier, still-aligned input proves that
+    // the server is already moving in this direction; requiring the very
+    // latest sequence made prediction stop every time network latency grew.
+    // Both sides use moveInWalkableArea, so keep predicting forward while
+    // retaining the leash for lateral divergence.
     if (forwardLead >= -0.025 && lateralLead <= maximumLead) return predicted;
   }
 
@@ -2524,6 +2539,7 @@ export class ThreeGameView {
   private readonly pointerPositions = new Map<number, { x: number; y: number }>();
   private localInput: Vec2 = { x: 0, y: 0 };
   private localInputSequence = 0;
+  private readonly localInputHistory = new Map<number, Vec2>();
   private lastNonZeroLocalInput: Vec2 = { x: 0, y: 0 };
   private localInputReleaseSequence: number | null = null;
   private localInputReleaseAckTimeoutAt = 0;
@@ -2805,6 +2821,12 @@ export class ThreeGameView {
         this.localInputSequence,
         inputSequence,
       );
+      this.localInputHistory.set(inputSequence, { ...input });
+      while (this.localInputHistory.size > 64) {
+        const oldest = this.localInputHistory.keys().next().value;
+        if (oldest === undefined) break;
+        this.localInputHistory.delete(oldest);
+      }
       // sendMovement() updates the visual input once before assigning the
       // packet sequence, so always record the sequenced zero as the release.
       if (!isMoving) {
@@ -5263,6 +5285,7 @@ export class ThreeGameView {
         ? this.roomExitBlockTilesFor(player.lockedRoomId)
         : undefined;
       if (hasLocalInput) {
+        const acknowledgedInput = this.acknowledgedLocalInput(player.lastInputSeq);
         const currentPosition = {
           x: view.root.position.x,
           y: view.root.position.z,
@@ -5279,6 +5302,7 @@ export class ThreeGameView {
           LOCAL_MAX_PREDICTION_LEAD,
           this.localInputSequence,
           player.lastInputSeq,
+          acknowledgedInput,
         );
         view.root.position.set(predicted.x, FLOOR_Y, predicted.y);
         const targetOffsetX = view.target.x - predicted.x;
@@ -5408,6 +5432,25 @@ export class ThreeGameView {
       ));
       view.lastPosition.copy(view.root.position);
     }
+  }
+
+  private acknowledgedLocalInput(sequence: number | undefined): Vec2 | undefined {
+    if (!Number.isSafeInteger(sequence)) return undefined;
+    let acknowledgedSequence = -1;
+    let acknowledged: Vec2 | undefined;
+    for (const [candidateSequence, input] of this.localInputHistory) {
+      if (candidateSequence <= (sequence ?? -1) && candidateSequence > acknowledgedSequence) {
+        acknowledgedSequence = candidateSequence;
+        acknowledged = input;
+      }
+    }
+    if (acknowledgedSequence >= 0) {
+      for (const candidateSequence of this.localInputHistory.keys()) {
+        if (candidateSequence < acknowledgedSequence - 4)
+          this.localInputHistory.delete(candidateSequence);
+      }
+    }
+    return acknowledged;
   }
 
   private reconcilePlayerPosition(

@@ -2,6 +2,7 @@ import {
   HIDE_SEEK_RULES,
   hideSeekRegionAt,
   resolveHideSeekMovement,
+  shouldReconcileHideSeekMovement,
   type HideSeekClientMessage,
   type HideSeekKeyState,
   type HideSeekMap,
@@ -237,6 +238,8 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       this.ghostRoomInteriorTiles = new Set(message.map.ghostRoom.interior.map(tileKey));
       this.ghostRoomRestrictedTiles = new Set([...message.map.ghostRoom.interior, message.map.ghostRoom.door].map(tileKey));
       this.snapshot = this.withExploration(message.snapshot, message.exploredBits);
+      const localPlayer = this.snapshot.players.find((player) => player.id === this.playerId);
+      this.inputSequence = Math.max(this.inputSequence, localPlayer?.lastInputSeq ?? 0);
       this.snapshotReceivedAt = performance.now();
       this.options.onReconnectToken(message.reconnectToken);
       this.renderForSnapshot(true);
@@ -1122,7 +1125,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
         // Correct only meaningful drift while moving; following every small
         // network offset makes the camera repeatedly step backwards.
         const error = pointDistance(render, player.position);
-        if (error > .8) {
+        if (shouldReconcileHideSeekMovement(render, player.position, input, player.movement)) {
           const response = error > 2.5 ? 8 : 2.4;
           const alpha = 1 - Math.exp(-response * frameDelta);
           render.x += (player.position.x - render.x) * alpha;

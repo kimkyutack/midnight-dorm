@@ -390,6 +390,78 @@
   display: none;
 }
 
+/* Optional in-match concealment. These controls are intentionally scoped to
+   the mission panel so the existing gameplay layout remains untouched. */
+.match-mission-panel .match-mission-header {
+  padding-right: 34px;
+}
+
+.match-mission-hide {
+  position: absolute;
+  top: 8px;
+  right: 7px;
+  z-index: 2;
+  width: 25px;
+  min-width: 25px;
+  height: 25px;
+  min-height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0 0 2px;
+  border: 1px solid rgba(143, 235, 255, 0.36);
+  border-radius: 8px;
+  color: #dffaff;
+  background: rgba(3, 12, 29, 0.72);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.match-mission-hide:active {
+  transform: scale(0.9);
+  background: rgba(54, 111, 147, 0.84);
+}
+
+.match-mission-restore {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  padding: 0;
+  border: 1px solid rgba(121, 232, 255, 0.72);
+  border-radius: 15px;
+  color: #eaffff;
+  background: linear-gradient(145deg, rgba(23, 77, 117, 0.94), rgba(8, 29, 63, 0.96));
+  box-shadow:
+    0 9px 24px rgba(0, 0, 0, 0.36),
+    inset 0 1px rgba(255, 255, 255, 0.2),
+    0 0 13px rgba(70, 218, 242, 0.16);
+  font-weight: 950;
+  touch-action: manipulation;
+}
+
+.match-mission-restore > span {
+  color: #75f0b0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.match-mission-restore > small {
+  font-size: 8px;
+  line-height: 1;
+}
+
+.match-mission-restore:active {
+  transform: scale(0.9);
+  filter: brightness(1.15);
+}
+
 @keyframes attendanceRewardPulse {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-2px); }

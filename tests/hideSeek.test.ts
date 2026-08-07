@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HIDE_SEEK_RULES, generateHideSeekMap, hideSeekGhostLightSees, hideSeekLanternSees, hideSeekVictoryPoints, parseHideSeekClientMessage, resolveHideSeekMovement } from '../src/shared/hideSeek';
+import { HIDE_SEEK_RULES, generateHideSeekMap, hideSeekGhostLightSees, hideSeekLanternSees, hideSeekVictoryPoints, parseHideSeekClientMessage, resolveHideSeekMovement, shouldReconcileHideSeekMovement } from '../src/shared/hideSeek';
 import { HideSeekEngine } from '../src/server/hideSeekEngine';
 
 function joinedEngine(players = 3): { engine: HideSeekEngine; ids: string[] } {
@@ -24,6 +24,24 @@ function advanceToHunt(engine: HideSeekEngine, hostId: string): void {
 }
 
 describe('hide-and-seek map', () => {
+  it('does not pull an aligned local prediction back to a trailing snapshot', () => {
+    expect(shouldReconcileHideSeekMovement(
+      { x: 12, y: 8 },
+      { x: 10.5, y: 8 },
+      { x: 1, y: 0 },
+      { x: 1, y: 0 },
+    )).toBe(false);
+  });
+
+  it('reconciles after the player changes direction ahead of the server', () => {
+    expect(shouldReconcileHideSeekMovement(
+      { x: 12, y: 8 },
+      { x: 10.5, y: 8 },
+      { x: 0, y: 1 },
+      { x: 1, y: 0 },
+    )).toBe(true);
+  });
+
   it('slides along a wall instead of freezing diagonal movement', () => {
     const blocked = new Set(['2,1']);
     const canOccupy = (tile: { x: number; y: number }): boolean => !blocked.has(`${Math.round(tile.x)},${Math.round(tile.y)}`);

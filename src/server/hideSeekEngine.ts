@@ -249,6 +249,7 @@ export class HideSeekEngine {
       player.abandoned ??= false;
       player.proximityAlert ??= false;
       player.ghostFootstepLevel ??= 0;
+      player.lastInputSeq ??= 0;
       if (player.interactionTarget?.startsWith('exit:')) {
         if (!player.alive || player.escaped || exitInteractionClaimed) {
           player.interactionTarget = null;
@@ -317,6 +318,7 @@ export class HideSeekEngine {
       previousPosition: { ...this.map.survivorSpawns[this.state.players.length % this.map.survivorSpawns.length] as Tile },
       direction: { x: 0, y: 1 },
       movement: { x: 0, y: 0 },
+      lastInputSeq: 0,
       alive: true,
       escaped: false,
       hiddenIn: null,
@@ -391,6 +393,7 @@ export class HideSeekEngine {
       previousPosition: { ...spawn },
       direction: { x: 0, y: 1 },
       movement: { x: 0, y: 0 },
+      lastInputSeq: 0,
       alive: true,
       escaped: false,
       hiddenIn: null,
@@ -450,12 +453,16 @@ export class HideSeekEngine {
     return { ok: true };
   }
 
-  setMovement(playerId: string, dx: number, dy: number): HideSeekActionResult {
+  setMovement(playerId: string, dx: number, dy: number, inputSequence?: number): HideSeekActionResult {
     const player = this.player(playerId);
     if (!player || !player.alive || player.escaped) return { ok: false, error: '이동할 수 없습니다.' };
     if (this.state.phase === 'ROLE_LOCK' || this.state.phase === 'LOBBY' || this.state.phase === 'RESULT') return { ok: false, error: '지금은 이동할 수 없습니다.' };
+    const nextInputSequence = inputSequence ?? player.lastInputSeq + 1;
+    if (!Number.isSafeInteger(nextInputSequence) || nextInputSequence < 0) return { ok: false, error: '올바르지 않은 이동 입력입니다.' };
+    if (nextInputSequence <= player.lastInputSeq) return { ok: true };
     const length = Math.hypot(dx, dy);
     player.movement = length > 1 ? { x: dx / length, y: dy / length } : { x: dx, y: dy };
+    player.lastInputSeq = nextInputSequence;
     if (Math.hypot(player.movement.x, player.movement.y) > 0.05) {
       player.direction = { ...player.movement };
       player.hiddenIn = null;

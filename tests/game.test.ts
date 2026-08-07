@@ -749,6 +749,34 @@ describe('deterministic shared world', () => {
     expect(next.x).toBeCloseTo(7.65);
   });
 
+  it('keeps moving when an earlier server-acknowledged drag still matches the held direction', () => {
+    const next = limitLocalPredictionLead(
+      { x: 7.55, y: 5 },
+      { x: 7.65, y: 5 },
+      { x: 5, y: 5 },
+      { x: 1, y: 0 },
+      2.6,
+      12,
+      9,
+      { x: 0.98, y: 0.04 },
+    );
+    expect(next.x).toBeCloseTo(7.65);
+  });
+
+  it('waits for a fresh acknowledgement after a sharp direction change', () => {
+    const next = limitLocalPredictionLead(
+      { x: 5, y: 7.55 },
+      { x: 5, y: 7.65 },
+      { x: 5, y: 5 },
+      { x: 0, y: 1 },
+      2.6,
+      12,
+      9,
+      { x: 1, y: 0 },
+    );
+    expect(next.y).toBeCloseTo(7.6, 2);
+  });
+
   it('still limits lateral prediction drift after input acknowledgement', () => {
     const next = limitLocalPredictionLead(
       { x: 7.55, y: 7.65 },

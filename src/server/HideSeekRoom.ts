@@ -186,7 +186,7 @@ export class HideSeekRoom extends DurableObject<Env> {
       if (message.inputSequence <= attachment.lastInputSequence) return;
       attachment.lastInputSequence = message.inputSequence;
       socket.serializeAttachment(attachment);
-      const result = engine.setMovement(attachment.playerId, message.dx, message.dy);
+      const result = engine.setMovement(attachment.playerId, message.dx, message.dy, message.inputSequence);
       if (!result.ok) this.send(socket, { type: 'error', message: result.error ?? '이동할 수 없습니다.' });
       return;
     }

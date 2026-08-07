@@ -181,6 +181,7 @@ import {
 } from "./native/admob";
 import { nativeApiResourceUrl, nativeWebSocketUrlSync } from "./native/runtime";
 import type { HideSeekExperienceHandle } from "./hideSeek";
+import { matchMissionPanelVisibility } from "./matchMissionPanel";
 import "./styles.css";
 import "./arcade-polish.css";
 import "./hide-seek-entry.css";
@@ -261,6 +262,7 @@ let announcementUnread = false;
 let socialUnreadCount = 0;
 let eventMissionOverviewCache: EventMissionOverview | null = null;
 let matchMissionsCollapsed = false;
+let matchMissionsHidden = false;
 let matchMissionRenderKey = "";
 let socialSocket: WebSocket | null = null;
 let socialReconnectTimer = 0;
@@ -5328,9 +5330,10 @@ function gameScreen(state: GameSnapshot): void {
     : "";
   setContent(
     "game",
-    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus ${me.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="match-mission-panel hidden" data-match-missions aria-label="이번 판 미션"><button type="button" class="match-mission-header" data-match-mission-toggle aria-expanded="true"><span><small>MATCH ORDERS</small><strong>이번 판 미션</strong></span><b data-match-mission-total>0P</b><i data-match-mission-arrow>⌃</i></button><ol data-match-mission-list></ol></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
+    `<main id="game-shell"${initialGameShellClass}><div id="game-root"></div><div class="render-mode">TOP-DOWN 2.5D · ${stageThemeFor(state.stageId).label}</div>${me ? `<button class="player-focus ${me.profileFrameId === 'profile-frame-moonlit-phantom-fox' ? 'moonlit-profile-card' : ''}" data-focus-player aria-label="내 캐릭터 위치로 카메라 이동">${playerPortraitHtml(me)}<small>ME</small></button>` : ""}<div class="hud"><div class="stage-chip">${stageBadge}<div class="stage-copy"><span>${state.ranked ? `랭크전 · ${state.ranked.contractId}` : state.playMode === "solo" ? "혼자하기" : "친구랑하기"} · ${state.stageLabel}</span><strong>${stageRankLabel}</strong></div></div><div class="hud-group primary-stats"><div class="stat" data-gold-stat><i>◆</i><span>골드</span><strong data-gold>0</strong></div><div class="stat"><i>⚡</i><span>전력</span><strong data-power>0</strong></div><div class="stat"><i>▣</i><span>문</span><strong data-door>—</strong></div></div><div class="hud-player-list hidden" data-hud-players aria-label="다른 생존자 위치"></div><div class="hud-group battle-stats"><div class="stat"><i>☾</i><span>귀신</span><strong data-ghost>Lv.1</strong></div><div class="stat"><i>🎁</i><span>뽑기</span><strong data-draw>0/${me ? drawLimitForMatch(me.appearance, Boolean(state.ranked)) : 4}</strong></div><div class="stat"><i>◷</i><span>시간</span><strong data-time>00:00</strong></div></div><div class="network-pill" data-network data-testid="network">연결됨 · 0ms</div></div><aside class="opening-minimap hidden" data-opening-minimap aria-label="초반 병동 미니맵"><canvas data-opening-minimap-canvas></canvas><div><span class="self">내 위치</span><span class="team">팀원</span><span class="loot">아이템</span></div></aside><aside class="match-mission-panel hidden" data-match-missions aria-label="이번 판 미션"><button type="button" class="match-mission-hide" data-match-mission-hide aria-label="미션 창 숨기기">×</button><button type="button" class="match-mission-header" data-match-mission-toggle aria-expanded="true"><span><small>MATCH ORDERS</small><strong>이번 판 미션</strong></span><b data-match-mission-total>0P</b><i data-match-mission-arrow>⌃</i></button><ol data-match-mission-list></ol></aside><aside class="ghost-threat-poster hidden" data-ghost-intro aria-live="polite"></aside><div class="countdown-start-notice hidden" data-countdown-warning role="status" aria-live="assertive">귀신이 움직입니다. 시간 안에 귀신을 피해 방에 숨어야 합니다.</div><div class="phase-banner" data-phase>준비 시간</div><aside class="gold-lock-notice hidden" data-gold-lock-notice role="status" aria-live="assertive"><i aria-hidden="true">⛓</i><div><span>GOLD SEALED</span><strong>골드 획득 봉인</strong><small data-gold-lock-time></small></div></aside><aside class="first-match-guide hidden" data-first-match-guide aria-live="polite"></aside><div class="time-attack-clock hidden" data-time-attack></div><div class="time-attack-expired-notice hidden" data-time-attack-expired role="status" aria-live="assertive"></div><div class="camera-controls" aria-label="카메라 조작"><button data-camera="rotate-left" aria-label="카메라 축소">−</button><output data-camera-zoom>1.0×</output><button data-camera="zoom-in" aria-label="카메라 확대">＋</button></div><div class="controls"><div class="joystick" data-joystick><div class="joystick-knob"></div></div><div class="portrait-drag-hint"><i>↗</i><span>캐릭터를 누른 채<br>움직일 방향으로 드래그</span></div><div class="action-stack"><button type="button" class="match-mission-restore hidden" data-match-mission-restore aria-label="이번 판 미션 다시 표시"><span>✓</span><small>미션</small></button><button class="round-btn secondary" data-quick-chat aria-label="팀 채팅">💬</button><button class="round-btn repair-action hidden" data-free-repair aria-label="무료 문 수리">${gameActionIcon("repair")}<small data-free-repair-time>수리</small></button><button class="round-btn" data-interact data-testid="interact" aria-label="침대 점유">${gameActionIcon("bed")}</button></div></div><aside class="build-panel hidden" data-build-panel></aside><div class="connection-overlay hidden" data-connection><div class="connection-card"><div class="spinner"></div><strong>연결을 복구하는 중</strong><p class="subtitle" data-reconnect-copy>30초 안에 기존 생존자로 돌아갑니다.</p></div></div></main>`,
   );
   matchMissionsCollapsed = false;
+  matchMissionsHidden = false;
   matchMissionRenderKey = "";
   app.querySelector<HTMLButtonElement>('[data-match-mission-toggle]')?.addEventListener('click', () => {
     const panel = app.querySelector<HTMLElement>('[data-match-missions]');
@@ -5341,6 +5344,16 @@ function gameScreen(state: GameSnapshot): void {
     panel.classList.toggle('collapsed', matchMissionsCollapsed);
     button.setAttribute('aria-expanded', String(!matchMissionsCollapsed));
     arrow.textContent = matchMissionsCollapsed ? '⌄' : '⌃';
+    audio.play('button');
+  });
+  app.querySelector<HTMLButtonElement>('[data-match-mission-hide]')?.addEventListener('click', () => {
+    matchMissionsHidden = true;
+    updateMatchMissionPanel();
+    audio.play('button');
+  });
+  app.querySelector<HTMLButtonElement>('[data-match-mission-restore]')?.addEventListener('click', () => {
+    matchMissionsHidden = false;
+    updateMatchMissionPanel();
     audio.play('button');
   });
   const cameraZoomOut = app.querySelector<HTMLButtonElement>(
@@ -5978,9 +5991,10 @@ function updateOpeningMinimap(): void {
 
 function updateMatchMissionPanel(): void {
   const panel = app.querySelector<HTMLElement>('[data-match-missions]');
+  const restore = app.querySelector<HTMLButtonElement>('[data-match-mission-restore]');
   const list = app.querySelector<HTMLOListElement>('[data-match-mission-list]');
   const total = app.querySelector<HTMLElement>('[data-match-mission-total]');
-  if (!panel || !list || !total || !snapshot) return;
+  if (!panel || !restore || !list || !total || !snapshot) return;
   const local = snapshot.players.find((player) => player.id === playerId);
   const missions = local?.matchMissions ?? [];
   const visible = Boolean(
@@ -5992,7 +6006,9 @@ function updateMatchMissionPanel(): void {
         snapshot.status === 'PLAYING' ||
         snapshot.status === 'OVERTIME'),
   );
-  panel.classList.toggle('hidden', !visible);
+  const visibility = matchMissionPanelVisibility(visible, matchMissionsHidden);
+  panel.classList.toggle('hidden', !visibility.panelVisible);
+  restore.classList.toggle('hidden', !visibility.restoreVisible);
   if (!visible) {
     matchMissionRenderKey = '';
     return;
