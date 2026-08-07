@@ -395,8 +395,9 @@ interface PlayerView {
   target: THREE.Vector3;
   lastPosition: THREE.Vector3;
   seed: number;
-  foxfireWisps: THREE.Mesh[];
-  foxfireTrail: Array<{ mesh: THREE.Mesh; tileKey: string }>;
+  prestigeTheme: PrestigeMotionTheme | null;
+  prestigeWisps: THREE.Mesh[];
+  prestigeTrail: Array<{ effect: THREE.Group; tileKey: string }>;
 }
 
 interface GhostView {
@@ -617,13 +618,22 @@ function effectMesh(
   return result;
 }
 
-function makeFoxfire(size = 0.24): THREE.Mesh {
+type PrestigeMotionTheme = 'moonlit' | 'starlit' | 'abyssal';
+
+function prestigeMotionTheme(skinId: string): PrestigeMotionTheme | null {
+  if (skinId === 'skin-look-fox-moonlit-phantom') return 'moonlit';
+  if (skinId === 'skin-look-bunny-starlit-cloud') return 'starlit';
+  if (skinId === 'skin-look-gorilla-abyssal-knight') return 'abyssal';
+  return null;
+}
+
+function makeFoxfire(size = 0.24, color = 0x54efff, opacity = 0.82): THREE.Mesh {
   const fire = effectMesh(
     new THREE.CircleGeometry(size, 16),
     new THREE.MeshBasicMaterial({
-      color: 0x54efff,
+      color,
       transparent: true,
-      opacity: 0.82,
+      opacity,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -632,6 +642,53 @@ function makeFoxfire(size = 0.24): THREE.Mesh {
   fire.rotation.x = -Math.PI / 2;
   fire.renderOrder = 8_580;
   return fire;
+}
+
+function makePrestigeTrailEffect(theme: PrestigeMotionTheme): THREE.Group {
+  const root = new THREE.Group();
+  root.renderOrder = 8_580;
+  const colors = theme === 'moonlit'
+    ? [0x25dcff, 0x628cff, 0xb9f8ff]
+    : theme === 'abyssal'
+      ? [0x8b2cff, 0xe13dff, 0xff684b]
+      : [0x8cecff, 0xffefad, 0xb08cff];
+  const materialList: THREE.MeshBasicMaterial[] = [];
+  const addGlow = (x: number, z: number, size: number, color: number, opacity: number): void => {
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(size, theme === 'starlit' ? 5 : 14), material);
+    glow.rotation.x = -Math.PI / 2;
+    glow.rotation.z = theme === 'starlit' ? Math.PI / 4 : 0;
+    glow.position.set(x, 0, z);
+    glow.renderOrder = 8_580;
+    root.add(glow);
+    materialList.push(material);
+  };
+  if (theme === 'starlit') {
+    addGlow(-0.22, -0.12, 0.22, colors[0]!, 0.92);
+    addGlow(0.18, 0.08, 0.14, colors[1]!, 0.86);
+    addGlow(0.02, 0.25, 0.1, colors[2]!, 0.75);
+  } else {
+    addGlow(-0.2, 0.05, 0.32, colors[0]!, 0.86);
+    addGlow(0.18, -0.05, 0.28, colors[1]!, 0.78);
+    addGlow(0.02, 0.18, 0.2, colors[2]!, 0.66);
+  }
+  root.userData.prestigeTrailMaterials = materialList;
+  root.position.y = 0.058;
+  return root;
+}
+
+function setPrestigeTrailOpacity(effect: THREE.Group, opacity: number): void {
+  const materials = effect.userData.prestigeTrailMaterials as THREE.MeshBasicMaterial[] | undefined;
+  materials?.forEach((material, index) => {
+    material.opacity = opacity * (1 - index * 0.12);
+  });
 }
 
 function makeBillboard(width = 512, height = 128): THREE.Sprite {
@@ -1963,15 +2020,10 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
     // bottom of the tile. Its circular base lets this pivot visibly track a
     // target while the tile anchor and HUD remain fixed.
     const artPivot = new THREE.Group();
-    // Prestige turret illustrations are authored isometrically with their
-    // muzzle facing the upper-left of the source square.  Record that authored
-    // heading instead of treating every raster as if it pointed down; aiming
-    // then rotates the visible barrel toward the same target as the projectile.
-    artPivot.userData.aimOffset = building.skinId && (
-      building.skinId.includes('moonlit-foxfire')
-      || building.skinId.includes('starlit-cloud')
-      || building.skinId.includes('abyssal-knight')
-    ) ? Math.PI * 0.75 : 0;
+    // Every authored turret follows the shared image rule: one muzzle, facing
+    // straight down in the source square. Runtime aiming therefore shares one
+    // zero offset across normal and prestige skins.
+    artPivot.userData.aimOffset = 0;
     art.rotation.x = -Math.PI / 2;
     art.renderOrder = 5;
     artPivot.add(art);
@@ -2880,7 +2932,7 @@ export class ThreeGameView {
     this.unbindInput();
     for (const view of this.playerViews.values()) {
       view.actor.dispose();
-      for (const trail of view.foxfireTrail) disposeTransientObject(trail.mesh);
+      for (const trail of view.prestigeTrail) disposeTransientObject(trail.effect);
     }
     for (const view of this.ghostViews.values()) view.actor.dispose();
     this.playerViews.clear();
@@ -3325,11 +3377,11 @@ export class ThreeGameView {
       settledFloor.instanceMatrix.needsUpdate = true;
       root.add(settledFloor);
       const prestigeRoomTheme = room.tileSkinId === MOONLIT_PHANTOM_TILE_SKIN_ID
-        ? { key: 'moonfire', wall: '/assets/prestige/moonlit-phantom-fox/room-theme/moonfire-wall.webp', bracket: 0x192a64, colors: [0x46eaff, 0x7b65ff] as const }
+        ? { key: 'moonfire', wall: '/assets/prestige/moonlit-phantom-fox/room-theme/moonfire-wall.webp', ornament: '/assets/prestige/moonlit-phantom-fox/room-theme/moonfire-ornament.webp' }
         : room.tileSkinId === STARLIT_CLOUD_RABBIT_TILE_ID
-          ? { key: 'starlit', wall: '/assets/prestige/starlit-cloud-rabbit/room-theme/starlit-wall.webp', bracket: 0x254767, colors: [0xa5edff, 0xffe9a7] as const }
+          ? { key: 'starlit', wall: '/assets/prestige/starlit-cloud-rabbit/room-theme/starlit-wall.webp', ornament: '/assets/prestige/starlit-cloud-rabbit/room-theme/starlit-ornament.webp' }
           : room.tileSkinId === ABYSSAL_KNIGHT_GORILLA_TILE_ID
-            ? { key: 'abyssal', wall: '/assets/prestige/abyssal-knight-gorilla/room-theme/abyssal-wall.webp', bracket: 0x28142e, colors: [0xff5b52, 0xa45cff] as const }
+            ? { key: 'abyssal', wall: '/assets/prestige/abyssal-knight-gorilla/room-theme/abyssal-wall.webp', ornament: '/assets/prestige/abyssal-knight-gorilla/room-theme/abyssal-ornament.webp' }
             : null;
       let themedWalls: THREE.InstancedMesh | undefined;
       let wallDecorations: THREE.Group | undefined;
@@ -3369,37 +3421,33 @@ export class ThreeGameView {
           themedWalls.instanceMatrix.needsUpdate = true;
           root.add(themedWalls);
 
-          // Four lightweight procedural sconces replace the normal wall
-          // trinkets.  They use no extra textures and are capped per room.
+          // Authored ornament images replace the old procedural cones.  Four
+          // capped planes keep the premium room readable without adding a
+          // particle system or per-frame texture allocation.
           wallDecorations = new THREE.Group();
           wallDecorations.name = `room-${prestigeRoomTheme.key}-decorations:${room.id}`;
+          const ornamentTexture = this.loadEnvironmentTexture(prestigeRoomTheme.ornament);
           const stride = Math.max(1, Math.floor(themedWallTiles.length / 4));
           themedWallTiles
             .filter((_, index) => index % stride === 0)
             .slice(0, 4)
             .forEach((wall, index) => {
-              const sconce = new THREE.Group();
-              const bracket = new THREE.Mesh(
-                new THREE.BoxGeometry(0.32, 0.08, 0.12),
-                new THREE.MeshBasicMaterial({ color: prestigeRoomTheme.bracket }),
-              );
-              bracket.position.y = 0.66;
-              const flame = new THREE.Mesh(
-                new THREE.ConeGeometry(0.11, 0.38, 5),
+              const ornament = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.72, 0.72),
                 new THREE.MeshBasicMaterial({
-                  color: prestigeRoomTheme.colors[index % 2]!,
+                  map: ornamentTexture,
                   transparent: true,
-                  opacity: 0.9,
-                  blending: THREE.AdditiveBlending,
+                  alphaTest: 0.035,
                   depthWrite: false,
+                  side: THREE.DoubleSide,
                 }),
               );
-              flame.name = 'prestige-wall-flame';
-              flame.position.y = 0.88;
-              flame.rotation.y = index * 0.76;
-              sconce.add(bracket, flame);
-              sconce.position.set(wall.x, 0, wall.y);
-              wallDecorations?.add(sconce);
+              ornament.name = 'prestige-wall-ornament';
+              ornament.rotation.x = -Math.PI / 2;
+              ornament.rotation.z = index % 2 === 0 ? 0 : Math.PI;
+              ornament.position.set(wall.x, 0.625, wall.y);
+              ornament.renderOrder = 7;
+              wallDecorations?.add(ornament);
             });
           root.add(wallDecorations);
         }
@@ -3771,14 +3819,11 @@ export class ThreeGameView {
 
   private animateRoomTileSkins(time: number): void {
     for (const view of this.roomTileSkinViews.values()) {
-      // Tiny shader-free movement keeps the moonfire sconces alive without
-      // allocating particles or updating any instance buffers per frame.
+      // A tiny pulse keeps the authored ornament alive without particles.
       if (view.wallDecorations) {
-        view.wallDecorations.children.forEach((sconce, index) => {
-          const flame = sconce.getObjectByName('prestige-wall-flame');
-          if (!(flame instanceof THREE.Mesh)) return;
+        view.wallDecorations.children.forEach((ornament, index) => {
           const pulse = 0.9 + Math.sin(time * 0.006 + index * 1.7) * 0.1;
-          flame.scale.set(pulse * 0.88, pulse * 1.08, pulse * 0.88);
+          ornament.scale.setScalar(pulse);
         });
       }
       if (view.complete) continue;
@@ -4284,9 +4329,9 @@ export class ThreeGameView {
       const appearanceKey = [player.appearance.character, player.appearance.skin].join('|');
       if (view && view.appearanceKey !== appearanceKey) {
         this.scene.remove(view.root);
-        for (const trail of view.foxfireTrail) {
-          this.scene.remove(trail.mesh);
-          disposeTransientObject(trail.mesh);
+        for (const trail of view.prestigeTrail) {
+          this.scene.remove(trail.effect);
+          disposeTransientObject(trail.effect);
         }
         view.actor.dispose();
         disposeBillboards(view.root);
@@ -4300,10 +4345,14 @@ export class ThreeGameView {
         root.userData.appearance = { ...player.appearance };
         const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
-        const foxfireWisps = player.appearance.skin === 'skin-look-fox-moonlit-phantom'
-          ? [makeFoxfire(0.12), makeFoxfire(0.09)]
+        const prestigeTheme = prestigeMotionTheme(player.appearance.skin);
+        const prestigeWisps = prestigeTheme
+          ? [
+              makeFoxfire(0.12, prestigeTheme === 'abyssal' ? 0xca45ff : prestigeTheme === 'starlit' ? 0xffefac : 0x54efff),
+              makeFoxfire(0.09, prestigeTheme === 'abyssal' ? 0x7d36ff : prestigeTheme === 'starlit' ? 0x8cecff : 0x788cff),
+            ]
           : [];
-        foxfireWisps.forEach((wisp) => root.add(wisp));
+        prestigeWisps.forEach((wisp) => root.add(wisp));
         const label = makeBillboard();
         label.scale.set(2.48, 0.66, 1);
         label.position.set(0.1, PLAYER_HEIGHT + 0.42, -0.72);
@@ -4323,8 +4372,9 @@ export class ThreeGameView {
           target: worldPoint(player.position),
           lastPosition: worldPoint(player.position),
           seed: player.id.length * 0.71,
-          foxfireWisps,
-          foxfireTrail: [],
+          prestigeTheme,
+          prestigeWisps,
+          prestigeTrail: [],
         };
         this.playerViews.set(player.id, view);
       }
@@ -4365,9 +4415,9 @@ export class ThreeGameView {
     for (const [id, view] of this.playerViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
-      for (const trail of view.foxfireTrail) {
-        this.scene.remove(trail.mesh);
-        disposeTransientObject(trail.mesh);
+      for (const trail of view.prestigeTrail) {
+        this.scene.remove(trail.effect);
+        disposeTransientObject(trail.effect);
       }
       view.actor.dispose();
       disposeBillboards(view.root);
@@ -5045,33 +5095,36 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (player.appearance.skin === 'skin-look-fox-moonlit-phantom') {
-        view.foxfireWisps.forEach((wisp, index) => {
+      if (view.prestigeTheme) {
+        view.prestigeWisps.forEach((wisp, index) => {
           const phase = time * 0.0045 + view.seed + index * Math.PI;
           wisp.position.set(Math.cos(phase) * (0.42 + index * 0.08), 0.24 + Math.sin(phase * 1.4) * 0.12, Math.sin(phase) * 0.32);
           wisp.scale.setScalar(moving ? 1 + Math.sin(phase * 2) * 0.2 : 0.72);
         });
         if (moving) {
           const tileKey = `${Math.round(view.root.position.x)},${Math.round(view.root.position.z)}`;
-          const last = view.foxfireTrail[view.foxfireTrail.length - 1];
+          const last = view.prestigeTrail[view.prestigeTrail.length - 1];
           if (last?.tileKey !== tileKey) {
-            const flame = makeFoxfire(0.28);
-            flame.position.set(Math.round(view.root.position.x), 0.055, Math.round(view.root.position.z));
-            this.scene.add(flame);
-            view.foxfireTrail.push({ mesh: flame, tileKey });
-            while (view.foxfireTrail.length > 6) {
-              const expired = view.foxfireTrail.shift();
+            const effect = makePrestigeTrailEffect(view.prestigeTheme);
+            effect.position.x = Math.round(view.root.position.x);
+            effect.position.z = Math.round(view.root.position.z);
+            this.scene.add(effect);
+            view.prestigeTrail.push({ effect, tileKey });
+            const trailLimit = view.prestigeTheme === 'moonlit' ? 4 : view.prestigeTheme === 'abyssal' ? 5 : 6;
+            while (view.prestigeTrail.length > trailLimit) {
+              const expired = view.prestigeTrail.shift();
               if (expired) {
-                this.scene.remove(expired.mesh);
-                disposeTransientObject(expired.mesh);
+                this.scene.remove(expired.effect);
+                disposeTransientObject(expired.effect);
               }
             }
           }
         }
-        view.foxfireTrail.forEach((trail, index) => {
-          const progress = (index + 1) / Math.max(1, view.foxfireTrail.length);
-          trail.mesh.scale.setScalar(0.55 + progress * 0.65 + Math.sin(time * 0.006 + index) * 0.08);
-          (trail.mesh.material as THREE.MeshBasicMaterial).opacity = 0.12 + progress * 0.58;
+        view.prestigeTrail.forEach((trail, index) => {
+          const progress = (index + 1) / Math.max(1, view.prestigeTrail.length);
+          trail.effect.scale.setScalar(0.72 + progress * 0.48 + Math.sin(time * 0.006 + index) * 0.07);
+          trail.effect.rotation.y = Math.sin(time * 0.002 + index) * 0.12;
+          setPrestigeTrailOpacity(trail.effect, 0.2 + progress * 0.72);
         });
       }
       const bedIndex = player.bedIndex ?? 0;

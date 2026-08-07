@@ -1287,7 +1287,7 @@ const ABYSSAL_KNIGHT_PRESTIGE_THEME = {
     '문 업그레이드 비용 -50%',
   ],
   iconUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2',
-  heroUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.png',
+  heroUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.webp',
   contents: [
     { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', imageFit: 'cover' },
     { id: 'frame', label: '프로필 테두리', detail: '흑염 군단 테두리', imageUrl: '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2' },
@@ -1340,8 +1340,8 @@ const GHOST_ORB_SUMMON_VIDEO_URL = '/assets/ui/orb-shop/summon/open-capsule.mp4'
 const GHOST_ORB_SUMMON_WEBM_URL = '/assets/ui/orb-shop/summon/open-capsule.webm';
 // Keep this revision in the URL so an already-installed PWA cannot reuse the
 // previous landscape/HEVC trailer from its media cache.
-const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=3';
-const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=3';
+const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=4';
+const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=4';
 const STARLIT_CLOUD_PRESTIGE_VIDEO_URL = '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-awakening.mp4?revision=1';
 const ABYSSAL_KNIGHT_PRESTIGE_VIDEO_URL = '/assets/prestige/abyssal-knight-gorilla/cinematic/abyssal-awakening.mp4?revision=1';
 const PRESTIGE_CINEMATICS: Readonly<Record<string, {
@@ -1378,12 +1378,12 @@ const PRESTIGE_CINEMATICS: Readonly<Record<string, {
 const PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN: Readonly<Record<string, string>> = {
   [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=2',
   [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait.mp4?revision=1',
-  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=1',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=2',
 };
 const PRESTIGE_LOCKER_PREVIEW_POSTER_BY_SKIN: Readonly<Record<string, string>> = {
   [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait-poster.png?revision=1',
   [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait-poster.png?revision=1',
-  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait-poster.jpg?revision=1',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait-poster.jpg?revision=2',
 };
 const PRESTIGE_LOCKER_PREVIEW_LABEL_BY_SKIN: Readonly<Record<string, string>> = {
   [MOONLIT_PHANTOM_SKIN_ID]: '월령 환영 여우',
@@ -3540,7 +3540,7 @@ function cosmeticCollectionScreen(
           : item.id === STARLIT_CLOUD_RABBIT_SKIN_ID
             ? '/assets/prestige/starlit-cloud-rabbit/featured-package.png'
             : item.id === ABYSSAL_KNIGHT_GORILLA_SKIN_ID
-              ? '/assets/prestige/abyssal-knight-gorilla/featured-package.png'
+              ? '/assets/prestige/abyssal-knight-gorilla/featured-package.webp'
               : undefined;
       const prestigeSkin = Boolean(prestigePackageImage);
       const premiumSkin =
@@ -3637,6 +3637,21 @@ function cosmeticCollectionScreen(
         item.description;
       const authoredTurretArt =
         item.slot === "turret" ? turretSkinAssetUrl(item.id, 1) : undefined;
+      const authoredStandardSkinPose =
+        item.slot === "skin" && item.characterId && !item.assetDirectory
+          ? homePoseAsset({
+              character: item.characterId,
+              skin: item.id,
+              tileSkin: appearance.tileSkin,
+            })
+          : undefined;
+      const authoredStandardSkinStyle = authoredStandardSkinPose
+        ? [
+            `background-image:url('${authoredStandardSkinPose.atlasUrl}')`,
+            `background-size:${authoredStandardSkinPose.frameColumns * 100}% 500%`,
+            `background-position:0% ${authoredStandardSkinPose.row * 25}%`,
+          ].join(";")
+        : "";
       const art =
         item.slot === "tile"
           ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
@@ -3656,6 +3671,8 @@ function cosmeticCollectionScreen(
                       ? `<div class="catalog-art cosmetic-art police-enforcer-croco-card-art" style="--swatch:${item.swatch}"><span class="police-enforcer-croco-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                       : premiumSecretMonkey
                         ? `<div class="catalog-art cosmetic-art secret-agent-monkey-card-art" style="--swatch:${item.swatch}"><span class="secret-agent-monkey-card-sprite" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+                      : authoredStandardSkinPose
+                        ? `<div class="catalog-art cosmetic-art standard-skin-card-art" style="--swatch:${item.swatch}"><span class="standard-skin-card-sprite" style="${authoredStandardSkinStyle}" role="img" aria-label="${escapeHtml(item.label)} 대표 이미지"></span>${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
                 : `<div class="catalog-art cosmetic-art" style="--swatch:${item.swatch}"><img data-cosmetic-art="${item.id}" alt="${escapeHtml(item.label)} 인게임 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`;
       const premiumBadge = prestigeSkin
         ? '<span class="cosmetic-new-badge prestige-badge" aria-label="프레스티지 스킨">PRESTIGE</span>'

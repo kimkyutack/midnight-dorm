@@ -49,9 +49,9 @@ const HOME_POSE_ASSETS: Readonly<Record<string, HomePoseAsset>> = {
   'skin-look-hamster-cyber-driver': atlas(6, 2),
   'skin-look-crocodile-police-enforcer': atlas(6, 3),
   'skin-look-monkey-secret-agent': atlas(6, 4),
-  'skin-look-fox-moonlit-phantom': atlas(7, 0, '2026.08.07.1'),
-  'skin-look-bunny-starlit-cloud': atlas(7, 1, '2026.08.07.1'),
-  'skin-look-gorilla-abyssal-knight': atlas(7, 2, '2026.08.07.1'),
+  'skin-look-fox-moonlit-phantom': atlas(7, 0, '2026.08.07.3'),
+  'skin-look-bunny-starlit-cloud': atlas(7, 1, '2026.08.07.3'),
+  'skin-look-gorilla-abyssal-knight': atlas(7, 2, '2026.08.07.3'),
 };
 
 /** Selects the authored seated/yawn frames for the currently equipped full appearance. */

@@ -134,7 +134,7 @@ const packageAccessories = (
 export const PRESTIGE_ACCESSORIES: readonly PrestigeAccessoryDefinition[] = [
   ...packageAccessories(MOONLIT_PHANTOM_PACKAGE_ID, MOONLIT_PROFILE_IMAGE_ID, MOONLIT_PROFILE_FRAME_ID, 'nameplate-moonlit-phantom', 'home-aura-moonlit-phantom', MOONLIT_EMOTES, '/assets/prestige/moonlit-phantom-fox/featured-package.webp', '월령 환영 여우'),
   ...packageAccessories(STARLIT_CLOUD_RABBIT_PACKAGE_ID, STARLIT_CLOUD_PROFILE_IMAGE_ID, STARLIT_CLOUD_PROFILE_FRAME_ID, 'nameplate-starlit-cloud', 'home-aura-starlit-cloud', STARLIT_CLOUD_EMOTES, '/assets/prestige/starlit-cloud-rabbit/featured-package.png', '성운 구름무희 모모'),
-  ...packageAccessories(ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID, ABYSSAL_KNIGHT_PROFILE_IMAGE_ID, ABYSSAL_KNIGHT_PROFILE_FRAME_ID, 'nameplate-abyssal-knight', 'home-aura-abyssal-knight', ABYSSAL_KNIGHT_EMOTES, '/assets/prestige/abyssal-knight-gorilla/featured-package.png', '심연 기사단장 콩'),
+  ...packageAccessories(ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID, ABYSSAL_KNIGHT_PROFILE_IMAGE_ID, ABYSSAL_KNIGHT_PROFILE_FRAME_ID, 'nameplate-abyssal-knight', 'home-aura-abyssal-knight', ABYSSAL_KNIGHT_EMOTES, '/assets/prestige/abyssal-knight-gorilla/featured-package.webp', '심연 기사단장 콩'),
 ];
 
 export function prestigeAccessoryById(id: string) {

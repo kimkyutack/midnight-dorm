@@ -6,9 +6,9 @@ export const SKIN_CELL_SIZE = 362;
 const SKIN_ASSET_VERSIONS = new Map<string, string>([
   ['skin-look-crocodile-police-enforcer', 'special-ops-v7'],
   ['skin-look-monkey-secret-agent', 'special-ops-v5'],
-  ['skin-look-fox-moonlit-phantom', 'moonlit-prestige-v8'],
-  ['skin-look-bunny-starlit-cloud', 'starlit-prestige-v5'],
-  ['skin-look-gorilla-abyssal-knight', 'abyssal-prestige-v5'],
+  ['skin-look-fox-moonlit-phantom', 'moonlit-prestige-v10'],
+  ['skin-look-bunny-starlit-cloud', 'starlit-prestige-v7'],
+  ['skin-look-gorilla-abyssal-knight', 'abyssal-prestige-v7'],
 ]);
 
 // These prestige atlases are WebP on web and native. Unlike legacy PNG skin
