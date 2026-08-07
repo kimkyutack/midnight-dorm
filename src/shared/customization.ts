@@ -498,8 +498,10 @@ export function turretSkinAssetUrl(
   // Every prestige level has authored art. This deliberately keeps all 17
   // stages visible instead of collapsing growth into milestone textures.
   const authoredLevel = safeLevel;
-  const extension = item.prestige ? 'webp' : 'png';
-  return `/assets/turret-skins/${item.assetDirectory}/level-${String(authoredLevel).padStart(2, '0')}.${extension}`;
+  // The production optimizer removes PNG copies after emitting WebP. Keep the
+  // runtime URL identical in Vite, Capacitor, and the deployed Worker so a
+  // dynamically assembled path can never point at a pruned PNG asset.
+  return `/assets/turret-skins/${item.assetDirectory}/level-${String(authoredLevel).padStart(2, '0')}.webp`;
 }
 
 export function normalizeTurretSkins(value: unknown): TurretSkinLoadout {

@@ -33,6 +33,9 @@ export const DRAW_COSTS = [
   { gold: 300, power: 0 },
   // 달원숭이의 고유 특성으로만 열리는 여섯 번째 뽑기 비용.
   { gold: 420, power: 0 },
+  // 월령 환영 여우의 프레스티지 특성으로 열리는 추가 뽑기 비용.
+  { gold: 580, power: 0 },
+  { gold: 760, power: 0 },
 ] as const;
 
 export const RANDOM_ITEMS: readonly RandomItemDefinition[] = [

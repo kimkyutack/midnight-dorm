@@ -38,7 +38,7 @@ import { rankedSeasonRules } from '../src/shared/rankedRules';
 import { rankedRatingDelta } from '../src/server/rankedScoring';
 import { routeAuth } from '../src/server/auth';
 import { ghostFootstepGain, ghostFootstepIntervalMs } from '../src/client/audio';
-import { ABYSSAL_KNIGHT_GORILLA_SKIN_ID, duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS, STARLIT_CLOUD_RABBIT_SKIN_ID } from '../src/shared/prestige';
+import { ABYSSAL_KNIGHT_GORILLA_SKIN_ID, duplicatePointRefund, ghostOrbEligibleCosmetics, GHOST_ORB_CASH_COST, GHOST_ORB_DRAW_TABLE, GHOST_ORB_PITY_DRAWS, MOONLIT_FOXFIRE_TURRET_ID, MOONLIT_PHANTOM_SKIN_ID, MOONLIT_PHANTOM_TILE_ID, PREMIUM_SKIN_IDS, STARLIT_CLOUD_RABBIT_SKIN_ID } from '../src/shared/prestige';
 import { CASH_PRODUCT_BY_ID, CASH_STORE_PRODUCTS, STORE_PRODUCT_IDS, cashGrantAmount, firstCashPurchaseBonus } from '../src/shared/storeProducts';
 
 describe('cash store products', () => {
@@ -79,6 +79,16 @@ describe('moonlit phantom prestige rules', () => {
     expect(duplicatePointRefund('character-cat')).toBe(cat?.unlock.kind === 'points' ? cat.unlock.price : 0);
     expect(duplicatePointRefund('skin-look-cat-neon-rider')).toBe(5_000);
     expect(duplicatePointRefund(MOONLIT_PHANTOM_SKIN_ID)).toBe(0);
+  });
+
+  it('keeps orb draws point-heavy without flooding the collection', () => {
+    const totalWeight = GHOST_ORB_DRAW_TABLE.reduce((sum, reward) => sum + reward.weight, 0);
+    const pointWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'points').reduce((sum, reward) => sum + reward.weight, 0);
+    const cosmeticWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'cosmetic').reduce((sum, reward) => sum + reward.weight, 0);
+    const naturalOrbWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'orbs').reduce((sum, reward) => sum + reward.weight, 0);
+    expect(pointWeight / totalWeight).toBeGreaterThan(0.95);
+    expect(cosmeticWeight / totalWeight).toBeLessThan(0.04);
+    expect(naturalOrbWeight / totalWeight).toBeLessThan(0.005);
   });
 
   it('defines the authored prestige combat package without leaking into ranked matches', () => {
@@ -154,7 +164,7 @@ describe('moonlit phantom prestige rules', () => {
       character: 'character-fox',
       skin: MOONLIT_PHANTOM_SKIN_ID,
     });
-    expect(skinMovementSheetUrl(appearance)).toContain('/skin-moonlit-phantom-fox/movement-sheet.png');
+    expect(skinMovementSheetUrl(appearance)).toContain('/skin-moonlit-phantom-fox/movement-sheet.webp');
     expect(homePoseAsset(appearance).atlasUrl).toContain('home-pose-atlas-7.webp');
     expect(homePoseKey(appearance)).toBe(MOONLIT_PHANTOM_SKIN_ID);
   });
@@ -992,10 +1002,10 @@ describe('generated mobile game art', () => {
     expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
     expect(new Set(assets).size).toBe(15);
     expect(turretSkinAssetUrl(SURFER_WATER_TURRET_SKIN_ID, 1)).toBe(
-      '/assets/turret-skins/skin-surfer-water-blaster/level-01.png',
+      '/assets/turret-skins/skin-surfer-water-blaster/level-01.webp',
     );
     expect(turretSkinAssetUrl(SURFER_WATER_TURRET_SKIN_ID, 99)).toBe(
-      '/assets/turret-skins/skin-surfer-water-blaster/level-15.png',
+      '/assets/turret-skins/skin-surfer-water-blaster/level-15.webp',
     );
   });
 
@@ -1011,10 +1021,10 @@ describe('generated mobile game art', () => {
     expect(assets.every((asset): asset is string => Boolean(asset))).toBe(true);
     expect(new Set(assets).size).toBe(15);
     expect(turretSkinAssetUrl(LIFEGUARD_PARASOL_TURRET_SKIN_ID, 1)).toBe(
-      '/assets/turret-skins/skin-lifeguard-parasol/level-01.png',
+      '/assets/turret-skins/skin-lifeguard-parasol/level-01.webp',
     );
     expect(turretSkinAssetUrl(LIFEGUARD_PARASOL_TURRET_SKIN_ID, 15)).toBe(
-      '/assets/turret-skins/skin-lifeguard-parasol/level-15.png',
+      '/assets/turret-skins/skin-lifeguard-parasol/level-15.webp',
     );
   });
 
@@ -1027,7 +1037,7 @@ describe('generated mobile game art', () => {
         'arc-turret': 'turret-arc-storm',
       }),
     ).toContain(
-      '/assets/turret-skins/skin-lifeguard-parasol/level-01.png',
+      '/assets/turret-skins/skin-lifeguard-parasol/level-01.webp',
     );
   });
 
@@ -1148,8 +1158,9 @@ describe('survivor customization rules', () => {
   it('uses anchored footstep frames and three attack frames without invalid indices', () => {
     expect(movementFrameAt(0, false)).toBe(0);
     expect(movementFrameAt(0, true)).toBe(0);
-    expect(movementFrameAt(260, true)).toBe(1);
-    expect(movementFrameAt(780, true)).toBe(3);
+    expect(movementFrameAt(150, true)).toBe(1);
+    expect(movementFrameAt(300, true)).toBe(2);
+    expect(movementFrameAt(450, true)).toBe(3);
     expect(attackFrameAt(0, 480)).toBe(0);
     expect(attackFrameAt(240, 480)).toBe(1);
     expect(attackFrameAt(480, 480)).toBe(2);
@@ -1281,6 +1292,13 @@ describe('survivor customization rules', () => {
     expect(ghostSpriteDefinition('wallpaper').skillCastUrl)
       .toBe('/assets/sprites/ghosts/wallpaper/skill-cast-sheet.png?v=ghost-atlas-v5');
     expect(survivorSpriteDefinition(DEFAULT_APPEARANCE).sleepUrl).toBe('/assets/paperdoll/bases/character-bunny/sleep.png');
+  });
+
+  it('keeps prestige survivor side rows facing their movement direction', () => {
+    const base = { character: 'character-fox', skin: 'skin-none', tile: 'tile-none', turret: 'turret-none' };
+    expect(survivorSpriteDefinition({ ...base, skin: 'skin-look-fox-moonlit-phantom' }).movementSideFacesLeft).toBe(false);
+    expect(survivorSpriteDefinition({ ...base, character: 'character-bunny', skin: 'skin-look-bunny-starlit-cloud' }).movementSideFacesLeft).toBe(true);
+    expect(survivorSpriteDefinition({ ...base, character: 'character-gorilla', skin: 'skin-look-gorilla-abyssal-knight' }).movementSideFacesLeft).toBe(true);
   });
 
   it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
@@ -1421,10 +1439,10 @@ describe('survivor customization rules', () => {
       frostSlowStrengthMultiplier: 1,
     });
     expect(turretSkinAssetUrl(CYBERPUNK_LASER_TURRET_SKIN_ID, 1)).toBe(
-      '/assets/turret-skins/skin-cyberpunk-laser/level-01.png',
+      '/assets/turret-skins/skin-cyberpunk-laser/level-01.webp',
     );
     expect(turretSkinAssetUrl(CYBERPUNK_LASER_TURRET_SKIN_ID, 15)).toBe(
-      '/assets/turret-skins/skin-cyberpunk-laser/level-15.png',
+      '/assets/turret-skins/skin-cyberpunk-laser/level-15.webp',
     );
   });
 
@@ -1442,10 +1460,10 @@ describe('survivor customization rules', () => {
       frostSlowStrengthMultiplier: 1,
     });
     expect(turretSkinAssetUrl(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, 1)).toBe(
-      '/assets/turret-skins/skin-special-ops-tracker/level-01.png',
+      '/assets/turret-skins/skin-special-ops-tracker/level-01.webp',
     );
     expect(turretSkinAssetUrl(SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, 15)).toBe(
-      '/assets/turret-skins/skin-special-ops-tracker/level-15.png',
+      '/assets/turret-skins/skin-special-ops-tracker/level-15.webp',
     );
   });
 
@@ -5688,7 +5706,7 @@ describe('requested progression and event rules', () => {
     expect(RANDOM_ITEMS.find((item) => item.id === 'turret-overhaul-kit')?.effect.turretLevelIncrease).toBe(1);
     expect(RANDOM_ITEMS.some((item) => item.id === 'runner-shoes' || item.id === 'escape-scarf')).toBe(false);
     expect(RANDOM_ITEMS.find((item) => item.id === 'mythic-ark')?.weight).toBeLessThan(RANDOM_ITEMS.find((item) => item.id === 'cracked-mirror')?.weight ?? 0);
-    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 0 }, { gold: 120, power: 0 }, { gold: 200, power: 0 }, { gold: 300, power: 0 }, { gold: 420, power: 0 }]);
+    expect(DRAW_COSTS).toEqual([{ gold: 40, power: 0 }, { gold: 60, power: 0 }, { gold: 120, power: 0 }, { gold: 200, power: 0 }, { gold: 300, power: 0 }, { gold: 420, power: 0 }, { gold: 580, power: 0 }, { gold: 760, power: 0 }]);
     const firstWeightedReward = randomItemForRoll(0.42);
     expect(firstWeightedReward).toBeDefined();
     expect(

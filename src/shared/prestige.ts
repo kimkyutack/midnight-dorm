@@ -154,18 +154,23 @@ export const GHOST_ORB_PACKAGE_COST = 10;
 export const GHOST_ORB_PITY_DRAWS = 33;
 
 export const GHOST_ORB_DRAW_TABLE = [
-  { kind: 'points', amount: 100, weight: 24 },
-  { kind: 'points', amount: 200, weight: 18 },
-  { kind: 'points', amount: 300, weight: 14 },
-  { kind: 'points', amount: 500, weight: 8 },
-  { kind: 'points', amount: 1_000, weight: 3 },
-  { kind: 'cosmetic', slot: 'character', weight: 12 },
-  { kind: 'cosmetic', slot: 'skin', weight: 10 },
-  { kind: 'cosmetic', slot: 'tile', weight: 5 },
-  { kind: 'cosmetic', slot: 'turret', weight: 3 },
-  { kind: 'orbs', amount: 1, weight: 2.4 },
-  { kind: 'orbs', amount: 5, weight: 0.5 },
-  { kind: 'orbs', amount: 10, weight: 0.1 },
+  // Point rewards remain the common result, but high-value point jackpots and
+  // full-price duplicate refunds must not let a few hundred draws clear the
+  // entire shop.  Cosmetics are intentionally ordered character > skin >
+  // tile/turret, while natural orb drops stay rarer than every cosmetic pool;
+  // the 33-draw pity remains the reliable path to the 500,000-won ceiling.
+  { kind: 'points', amount: 100, weight: 60 },
+  { kind: 'points', amount: 200, weight: 24 },
+  { kind: 'points', amount: 300, weight: 7 },
+  { kind: 'points', amount: 500, weight: 1.5 },
+  { kind: 'points', amount: 1_000, weight: 0.2 },
+  { kind: 'cosmetic', slot: 'character', weight: 2 },
+  { kind: 'cosmetic', slot: 'skin', weight: 1 },
+  { kind: 'cosmetic', slot: 'tile', weight: 0.3 },
+  { kind: 'cosmetic', slot: 'turret', weight: 0.25 },
+  { kind: 'orbs', amount: 1, weight: 0.4 },
+  { kind: 'orbs', amount: 5, weight: 0.01 },
+  { kind: 'orbs', amount: 10, weight: 0.001 },
 ] as const;
 
 export function ghostOrbEligibleCosmetics(): CosmeticDefinition[] {

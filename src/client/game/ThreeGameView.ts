@@ -1963,6 +1963,15 @@ export function createBuildingModel(building: BuildingState): { root: THREE.Grou
     // bottom of the tile. Its circular base lets this pivot visibly track a
     // target while the tile anchor and HUD remain fixed.
     const artPivot = new THREE.Group();
+    // Prestige turret illustrations are authored isometrically with their
+    // muzzle facing the upper-left of the source square.  Record that authored
+    // heading instead of treating every raster as if it pointed down; aiming
+    // then rotates the visible barrel toward the same target as the projectile.
+    artPivot.userData.aimOffset = building.skinId && (
+      building.skinId.includes('moonlit-foxfire')
+      || building.skinId.includes('starlit-cloud')
+      || building.skinId.includes('abyssal-knight')
+    ) ? Math.PI * 0.75 : 0;
     art.rotation.x = -Math.PI / 2;
     art.renderOrder = 5;
     artPivot.add(art);
@@ -5250,7 +5259,8 @@ export class ThreeGameView {
       }
       const target = nearest?.position ?? door;
       if (!target) continue;
-      const desired = Math.atan2(target.x - building.tile.x, target.y - building.tile.y);
+      const desired = Math.atan2(target.x - building.tile.x, target.y - building.tile.y)
+        + Number(view.barrel.userData.aimOffset ?? 0);
       view.barrel.rotation.y = dampAngle(view.barrel.rotation.y, desired, 15, dt);
       view.recoil = damp(view.recoil, 0, 18, dt);
       view.barrel.position.z = view.barrelRestZ + view.recoil * 0.11;

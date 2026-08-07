@@ -51,6 +51,16 @@ const STOREFRONT_THEMES = [
 const AD_FREE_ENTITLEMENT_ID = 'ad-removal';
 const AD_FREE_MONTH_MS = 30 * 24 * 60 * 60 * 1_000;
 
+const publicPrestigeProfileImageUrl = (profileImageId: string | null | undefined): string | null => {
+  if (profileImageId === 'profile-image-moonlit-phantom-fox')
+    return '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2';
+  if (profileImageId === 'profile-image-starlit-cloud-rabbit')
+    return '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2';
+  if (profileImageId === 'profile-image-abyssal-knight-gorilla')
+    return '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2';
+  return null;
+};
+
 /** Four-week seasons begin at Monday 00:00 KST. */
 export function rankedSeasonId(now = Date.now()): string {
   const index = Math.max(1, Math.floor((now - RANKED_SEASON_ZERO_KST) / RANKED_SEASON_MS) + 1);
@@ -2295,6 +2305,7 @@ export async function recordRankedMatchResult(
 export interface RankedLeaderboardEntry {
   accountId: string;
   avatarUrl: string | null;
+  profileFrameId: string | null;
   nickname: string;
   rank: number;
   rating: number;
@@ -2322,8 +2333,10 @@ export async function rankedLeaderboard(
       GROUP BY account_id
     )
     SELECT a.id AS account_id, a.nickname AS nickname, a.profile_avatar AS profile_avatar,
-      a.profile_avatar_updated_at AS profile_avatar_updated_at, a.ranked_rating AS ranked_rating
+      a.profile_avatar_updated_at AS profile_avatar_updated_at, a.ranked_rating AS ranked_rating,
+      pl.profile_image_id AS profile_image_id, pl.profile_frame_id AS profile_frame_id
     FROM totals JOIN accounts a ON a.id = totals.account_id
+    LEFT JOIN account_prestige_loadouts pl ON pl.account_id = a.id
     ORDER BY totals.score DESC, totals.attained_at ASC
     LIMIT 50`).bind(seasonId).all<{
       account_id: string;
@@ -2331,6 +2344,8 @@ export async function rankedLeaderboard(
       profile_avatar: string;
       profile_avatar_updated_at: number;
       ranked_rating: number;
+      profile_image_id: string | null;
+      profile_frame_id: string | null;
     }>();
   return (rows.results ?? []).map((row, index) => {
     const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
@@ -2338,9 +2353,10 @@ export async function rankedLeaderboard(
     const rating = Math.max(0, row.ranked_rating ?? 800);
     return {
       accountId: row.account_id,
-      avatarUrl: hasAvatar
+      avatarUrl: publicPrestigeProfileImageUrl(row.profile_image_id) ?? (hasAvatar
         ? `/api/profile-avatar/${encodeURIComponent(row.account_id)}?v=${avatarUpdatedAt}`
-        : null,
+        : null),
+      profileFrameId: row.profile_frame_id ?? BASIC_PROFILE_FRAME_ID,
       nickname: row.nickname,
       rank: index + 1,
       rating,
@@ -2354,6 +2370,7 @@ export type ProgressionLeaderboardMode = 'solo' | 'multiplayer';
 export interface ProgressionLeaderboardEntry {
   accountId: string;
   avatarUrl: string | null;
+  profileFrameId: string | null;
   nickname: string;
   rank: number;
   xp: number;
@@ -2368,9 +2385,10 @@ export async function progressionLeaderboard(
 ): Promise<ProgressionLeaderboardEntry[]> {
   const xpColumn = mode === 'solo' ? 'solo_xp' : 'multiplayer_xp';
   const stageColumn = mode === 'solo' ? 'solo_stage_index' : 'multiplayer_stage_index';
-  const rows = await db.prepare(`SELECT id, nickname, profile_avatar, profile_avatar_updated_at,
+  const rows = await db.prepare(`SELECT a.id AS id, a.nickname AS nickname, a.profile_avatar AS profile_avatar, a.profile_avatar_updated_at AS profile_avatar_updated_at,
+      pl.profile_image_id AS profile_image_id, pl.profile_frame_id AS profile_frame_id,
       ${xpColumn} AS xp, ${stageColumn} AS stage_index
-    FROM accounts
+    FROM accounts a LEFT JOIN account_prestige_loadouts pl ON pl.account_id = a.id
     WHERE ${xpColumn} > 0 OR ${stageColumn} > 0
     ORDER BY ${xpColumn} DESC, ${stageColumn} DESC, victories DESC, created_at ASC
     LIMIT 50`).all<{
@@ -2378,6 +2396,8 @@ export async function progressionLeaderboard(
       nickname: string;
       profile_avatar: string;
       profile_avatar_updated_at: number;
+      profile_image_id: string | null;
+      profile_frame_id: string | null;
       xp: number;
       stage_index: number;
     }>();
@@ -2385,9 +2405,10 @@ export async function progressionLeaderboard(
     const avatarUpdatedAt = Math.max(0, Math.floor(row.profile_avatar_updated_at ?? 0));
     return {
       accountId: row.id,
-      avatarUrl: row.profile_avatar && avatarUpdatedAt > 0
+      avatarUrl: publicPrestigeProfileImageUrl(row.profile_image_id) ?? (row.profile_avatar && avatarUpdatedAt > 0
         ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
-        : null,
+        : null),
+      profileFrameId: row.profile_frame_id ?? BASIC_PROFILE_FRAME_ID,
       nickname: row.nickname,
       rank: index + 1,
       xp: Math.max(0, row.xp ?? 0),
@@ -2400,6 +2421,7 @@ export async function progressionLeaderboard(
 export interface PublicRankingProfile {
   accountId: string;
   avatarUrl: string | null;
+  profileFrameId: string | null;
   nickname: string;
   solo: { xp: number; tier: ReturnType<typeof rankFromXp>; stageIndex: number };
   multiplayer: { xp: number; tier: ReturnType<typeof rankFromXp>; stageIndex: number };
@@ -2412,14 +2434,18 @@ export async function publicRankingProfile(
   db: D1Database,
   accountId: string,
 ): Promise<PublicRankingProfile | null> {
-  const row = await db.prepare(`SELECT id, nickname, profile_avatar, profile_avatar_updated_at,
+  const row = await db.prepare(`SELECT a.id AS id, a.nickname AS nickname, a.profile_avatar AS profile_avatar, a.profile_avatar_updated_at AS profile_avatar_updated_at,
+      pl.profile_image_id AS profile_image_id, pl.profile_frame_id AS profile_frame_id,
       solo_xp, multiplayer_xp, solo_stage_index, multiplayer_stage_index, victories,
       ranked_rating, ranked_season_id, ranked_contracts_played
-    FROM accounts WHERE id = ?`).bind(accountId).first<{
+    FROM accounts a LEFT JOIN account_prestige_loadouts pl ON pl.account_id = a.id
+    WHERE a.id = ?`).bind(accountId).first<{
       id: string;
       nickname: string;
       profile_avatar: string;
       profile_avatar_updated_at: number;
+      profile_image_id: string | null;
+      profile_frame_id: string | null;
       solo_xp: number;
       multiplayer_xp: number;
       solo_stage_index: number;
@@ -2437,9 +2463,10 @@ export async function publicRankingProfile(
   const rankedRating = rankedCurrent ? Math.max(0, row.ranked_rating ?? 800) : 800;
   return {
     accountId: row.id,
-    avatarUrl: row.profile_avatar && avatarUpdatedAt > 0
+    avatarUrl: publicPrestigeProfileImageUrl(row.profile_image_id) ?? (row.profile_avatar && avatarUpdatedAt > 0
       ? `/api/profile-avatar/${encodeURIComponent(row.id)}?v=${avatarUpdatedAt}`
-      : null,
+      : null),
+    profileFrameId: row.profile_frame_id ?? BASIC_PROFILE_FRAME_ID,
     nickname: row.nickname,
     solo: { xp: soloXp, tier: rankFromXp(soloXp), stageIndex: Math.max(0, row.solo_stage_index ?? 0) },
     multiplayer: { xp: multiplayerXp, tier: rankFromXp(multiplayerXp), stageIndex: Math.max(0, row.multiplayer_stage_index ?? 0) },

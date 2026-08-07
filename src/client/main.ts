@@ -1228,7 +1228,7 @@ const MOONLIT_PRESTIGE_CONTENTS: readonly PrestigeExchangeContent[] = [
   { id: 'profile', label: '프로필 이미지', detail: '월령 환영 여우', imageUrl: '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2', imageFit: 'cover' },
   { id: 'frame', label: '프로필 테두리', detail: '월령 여우불 테두리', imageUrl: '/assets/profile-images/moonlit-phantom-frame.png' },
   { id: 'emotes', label: '이모티콘 4종', detail: '월령 감정 표현 세트', imageUrl: '/assets/emotes/moonlit-phantom-fox/smug.webp', imageFit: 'cover' },
-  { id: 'skin', label: '프레스티지 스킨', detail: '월령 환영 여우', imageUrl: '/assets/sprites/skins/skin-moonlit-phantom-fox/concept.png?v=moonlit-prestige-v5', imageFit: 'contain' },
+  { id: 'skin', label: '프레스티지 스킨', detail: '월령 환영 여우', imageUrl: '/assets/sprites/skins/skin-moonlit-phantom-fox/concept.webp?v=moonlit-prestige-v8', imageFit: 'contain' },
   { id: 'tile', label: '타일 스킨', detail: '월령 여우불 타일', imageUrl: '/assets/tiles/skin-moonlit-phantom/moonfire-tile.webp', imageFit: 'cover' },
   { id: 'turret', label: '포탑 스킨', detail: '월령 천호포', imageUrl: '/assets/turret-skins/skin-moonlit-foxfire/level-17.webp' },
 ] as const;
@@ -2052,9 +2052,12 @@ async function claimMissionRewards(
     .querySelectorAll<HTMLButtonElement>("[data-claim-mission], [data-claim-all]")
     .forEach((button) => {
       button.disabled = true;
-    });
+  });
   try {
-    const result = await claimEventMissions(missionIds);
+    const result = await withGlobalActionLoading(
+      missionIds.length > 1 ? "미션 보상 일괄 수령 중" : "미션 보상 수령 중",
+      () => claimEventMissions(missionIds),
+    );
     eventMissionOverviewCache = result.overview;
     if (account) account.customPoints = result.overview.customPoints;
     renderEventMissionScreen(result.overview, activePeriod);
@@ -2460,9 +2463,14 @@ async function withGlobalActionLoading<T>(
   overlay.setAttribute("aria-busy", "true");
   overlay.innerHTML = `<div class="global-action-loading-card"><div class="spinner" aria-hidden="true"></div><strong>${escapeHtml(message)}</strong><small>잠시만 기다려주세요.</small></div>`;
   app.appendChild(overlay);
+  const shownAt = performance.now();
   try {
     return await action();
   } finally {
+    // Fast local responses otherwise remove the overlay before the browser has
+    // painted a frame, which looks like an ignored tap on mobile.
+    const remaining = 240 - (performance.now() - shownAt);
+    if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining));
     overlay.remove();
   }
 }
@@ -2889,7 +2897,7 @@ function showProfileDisplayPicker(): void {
       button.addEventListener("click", () => {
         const next = button.dataset.profileDisplayMode as ProfileDisplayMode;
         button.disabled = true;
-        void setProfileDisplayMode(next)
+        void withGlobalActionLoading('인게임 라벨 변경 중', () => setProfileDisplayMode(next))
           .then((updated) => {
             account = updated;
             modal.remove();
@@ -2913,7 +2921,7 @@ function showProfileDisplayPicker(): void {
       const profileImageId = button.dataset.prestigeProfileImage === 'moonlit'
         ? 'profile-image-moonlit-phantom-fox'
         : null;
-      void setPrestigeLoadout({ profileImageId }).then((updated) => {
+      void withGlobalActionLoading('프로필 이미지 변경 중', () => setPrestigeLoadout({ profileImageId })).then((updated) => {
         account = updated;
         modal.remove();
         homeScreen();
@@ -2929,7 +2937,7 @@ function showProfileDisplayPicker(): void {
       const profileFrameId = button.dataset.prestigeProfileFrame === 'moonlit'
         ? 'profile-frame-moonlit-phantom-fox'
         : null;
-      void setPrestigeLoadout({ profileFrameId }).then((updated) => {
+      void withGlobalActionLoading('프로필 테두리 변경 중', () => setPrestigeLoadout({ profileFrameId })).then((updated) => {
         account = updated;
         modal.remove();
         homeScreen();
@@ -2947,8 +2955,8 @@ function showProfileDisplayPicker(): void {
       const file = input.files?.[0];
       if (!file) return;
       input.disabled = true;
-      void compactProfileAvatar(file)
-        .then((avatarData) => setPrestigeLoadout({ profileImageId: null }).then(() => setProfileAvatar(avatarData)))
+      void withGlobalActionLoading('프로필 사진 저장 중', () => compactProfileAvatar(file)
+        .then((avatarData) => setPrestigeLoadout({ profileImageId: null }).then(() => setProfileAvatar(avatarData))))
         .then((updated) => {
           account = updated;
           modal.remove();
@@ -2970,8 +2978,8 @@ function showProfileDisplayPicker(): void {
     ?.addEventListener("click", (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       button.disabled = true;
-      void setPrestigeLoadout({ profileImageId: null })
-        .then(() => setProfileAvatar(null))
+      void withGlobalActionLoading('기본 프로필 이미지 적용 중', () => setPrestigeLoadout({ profileImageId: null })
+        .then(() => setProfileAvatar(null)))
         .then((updated) => {
           account = updated;
           modal.remove();
@@ -3030,17 +3038,18 @@ function showProfileAssetPicker(parentModal?: HTMLElement): void {
     const choice = button.dataset.profilePickerImage;
     button.disabled = true;
     const selectImage = choice === 'basic' || choice === 'photo' ? null : choice;
-    const update = choice === 'basic'
+    void withGlobalActionLoading('프로필 이미지 변경 중', () => choice === 'basic'
       ? setProfileAvatar(null).then(() => setPrestigeLoadout({ profileImageId: null }))
-      : setPrestigeLoadout({ profileImageId: selectImage });
-    void update.then(reopen).catch((error) => {
+      : setPrestigeLoadout({ profileImageId: selectImage })).then(reopen).catch((error) => {
       button.disabled = false;
       toast(error instanceof Error ? error.message : '프로필 이미지를 변경하지 못했습니다.');
     });
   }));
   modal.querySelectorAll<HTMLButtonElement>('[data-profile-picker-frame]').forEach((button) => button.addEventListener('click', () => {
     button.disabled = true;
-    void setPrestigeLoadout({ profileFrameId: button.dataset.profilePickerFrame ?? 'profile-frame-basic' }).then(reopen).catch((error) => {
+    void withGlobalActionLoading('프로필 테두리 변경 중', () =>
+      setPrestigeLoadout({ profileFrameId: button.dataset.profilePickerFrame ?? 'profile-frame-basic' }),
+    ).then(reopen).catch((error) => {
       button.disabled = false;
       toast(error instanceof Error ? error.message : '프로필 테두리를 변경하지 못했습니다.');
     });
@@ -3050,9 +3059,9 @@ function showProfileAssetPicker(parentModal?: HTMLElement): void {
     const file = input.files?.[0];
     if (!file) return;
     input.disabled = true;
-    void compactProfileAvatar(file)
+    void withGlobalActionLoading('프로필 사진 저장 중', () => compactProfileAvatar(file)
       .then(setProfileAvatar)
-      .then(() => setPrestigeLoadout({ profileImageId: null }))
+      .then(() => setPrestigeLoadout({ profileImageId: null })))
       .then(reopen)
       .catch((error) => {
       input.disabled = false;
@@ -3119,7 +3128,7 @@ function showRankingPreview(): void {
       const hasPlayed = currentAccount.ranked.contractsPlayed > 0;
       const tier = hasPlayed ? currentAccount.ranked.tier : "bronze";
       const label = hasPlayed ? RANKED_TIER_LABEL[tier] : "배치 전";
-      myRecord.innerHTML = `<span><img src="${hasPlayed ? rankedBadgeImage(tier) : rankBadgeImage("beginner")}" alt="${label}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${label}${hasPlayed ? ` · ${currentAccount.ranked.rating.toLocaleString()} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div>`;
+      myRecord.innerHTML = `${profileAvatarHtml(currentAccount.profileAvatarUrl, "ranking-my-avatar profile-avatar", currentAccount.prestige.profileFrameId)}<span class="ranking-my-tier"><img src="${hasPlayed ? rankedBadgeImage(tier) : rankBadgeImage("beginner")}" alt="${label}"/></span><div><small>내 랭크전 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${label}${hasPlayed ? ` · ${currentAccount.ranked.rating.toLocaleString()} RP` : ""} · 배치 ${Math.min(5, currentAccount.ranked.placementCompleted)}/5</p></div>`;
       notice.textContent = "4주 시즌 · 48시간 계약 14개 · 최고 8개 점수 반영 · 첫 5판 배치전";
       rewards.hidden = false;
       return;
@@ -3128,7 +3137,7 @@ function showRankingPreview(): void {
     const xp = isSolo ? currentAccount.soloXp : currentAccount.multiplayerXp;
     const rank = isSolo ? currentAccount.soloRank : currentAccount.multiplayerRank;
     const stageIndex = isSolo ? currentAccount.soloStageIndex : currentAccount.multiplayerStageIndex;
-    myRecord.innerHTML = `<span><img src="${rankBadgeImage(rank)}" alt="${rankLabel(rank)}"/></span><div><small>내 ${isSolo ? "혼자하기" : "친구랑하기"} 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${rankLabel(rank)} · ${xp.toLocaleString()} XP · 최고 ${getStage(stagesThrough(stageIndex).at(-1)?.id ?? "easy-1").label}</p></div>`;
+    myRecord.innerHTML = `${profileAvatarHtml(currentAccount.profileAvatarUrl, "ranking-my-avatar profile-avatar", currentAccount.prestige.profileFrameId)}<span class="ranking-my-tier"><img src="${rankBadgeImage(rank)}" alt="${rankLabel(rank)}"/></span><div><small>내 ${isSolo ? "혼자하기" : "친구랑하기"} 등급</small><strong>${escapeHtml(currentAccount.nickname)}</strong><p>${rankLabel(rank)} · ${xp.toLocaleString()} XP · 최고 ${getStage(stagesThrough(stageIndex).at(-1)?.id ?? "easy-1").label}</p></div>`;
     notice.textContent = `${isSolo ? "혼자하기" : "친구랑하기"} 누적 XP 순위 · 최고 스테이지와 승리 기록을 함께 반영합니다.`;
     rewards.hidden = true;
   };
@@ -3142,7 +3151,7 @@ function showRankingPreview(): void {
     board.innerHTML = "<li>순위를 불러오는 중…</li>";
     const endpoint = mode === "ranked" ? "/api/ranked/season" : `/api/rankings/${mode}`;
     void fetch(endpoint)
-      .then(async (response) => response.ok ? response.json() as Promise<{ leaderboard?: Array<{ accountId: string; avatarUrl: string | null; rank: number; nickname: string; rating?: number; xp?: number; tier: RankId | keyof typeof RANKED_TIER_LABEL; stageIndex?: number; }> }> : Promise.reject(new Error("랭킹 조회 실패")))
+      .then(async (response) => response.ok ? response.json() as Promise<{ leaderboard?: Array<{ accountId: string; avatarUrl: string | null; profileFrameId?: string | null; rank: number; nickname: string; rating?: number; xp?: number; tier: RankId | keyof typeof RANKED_TIER_LABEL; stageIndex?: number; }> }> : Promise.reject(new Error("랭킹 조회 실패")))
       .then((data) => {
         if (!board || activeMode !== mode) return;
         board.innerHTML = data.leaderboard?.length
@@ -3153,7 +3162,7 @@ function showRankingPreview(): void {
             const tierName = isRanked ? RANKED_TIER_LABEL[entry.tier as keyof typeof RANKED_TIER_LABEL] : rankLabel(entry.tier as RankId);
             const badge = isRanked ? rankedBadgeImage(entry.tier as keyof typeof RANKED_TIER_LABEL) : rankBadgeImage(entry.tier as RankId);
             const score = isRanked ? `${Math.max(0, entry.rating ?? 0).toLocaleString()} RP` : `${Math.max(0, entry.xp ?? 0).toLocaleString()} XP`;
-            return `<li><button type="button" data-ranking-profile="${escapeHtml(entry.accountId)}" aria-label="${escapeHtml(entry.nickname)} 프로필 보기"><div class="leader-first"><b class="leader-place">${entry.rank}</b>${profileAvatarHtml(entry.avatarUrl, "leader-avatar profile-avatar")}<span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><span class="leader-tier"><img src="${badge}" alt="${escapeHtml(tierName)}"/><strong>${score}</strong></span></button></li>`;
+            return `<li><button type="button" data-ranking-profile="${escapeHtml(entry.accountId)}" aria-label="${escapeHtml(entry.nickname)} 프로필 보기"><div class="leader-first"><b class="leader-place">${entry.rank}</b>${profileAvatarHtml(entry.avatarUrl, "leader-avatar profile-avatar", entry.profileFrameId)}<span class="leader-name">${escapeHtml(entry.nickname)}${crownImage}</span></div><span class="leader-tier"><img src="${badge}" alt="${escapeHtml(tierName)}"/><strong>${score}</strong></span></button></li>`;
           }).join("")
           : `<li>${mode === "ranked" ? "아직 기록된 시즌 계약이 없습니다." : "아직 기록된 플레이어가 없습니다."}</li>`;
         board.querySelectorAll<HTMLButtonElement>("[data-ranking-profile]").forEach((button) => button.addEventListener("click", () => showRankingProfile(button.dataset.rankingProfile ?? "")));
@@ -3174,11 +3183,11 @@ function showRankingProfile(accountId: string): void {
   );
   const content = modal.querySelector<HTMLElement>("[data-ranking-profile-content]");
   void fetch(`/api/rankings/profile/${encodeURIComponent(accountId)}`)
-    .then(async (response) => response.ok ? response.json() as Promise<{ profile: { avatarUrl: string | null; nickname: string; victories: number; solo: { xp: number; tier: RankId; stageIndex: number }; multiplayer: { xp: number; tier: RankId; stageIndex: number }; ranked: { rating: number; tier: keyof typeof RANKED_TIER_LABEL; contractsPlayed: number } } }> : Promise.reject(new Error("프로필 조회 실패")))
+    .then(async (response) => response.ok ? response.json() as Promise<{ profile: { avatarUrl: string | null; profileFrameId?: string | null; nickname: string; victories: number; solo: { xp: number; tier: RankId; stageIndex: number }; multiplayer: { xp: number; tier: RankId; stageIndex: number }; ranked: { rating: number; tier: keyof typeof RANKED_TIER_LABEL; contractsPlayed: number } } }> : Promise.reject(new Error("프로필 조회 실패")))
     .then(({ profile }) => {
       if (!content) return;
       const stageLabel = (index: number) => getStage(stagesThrough(index).at(-1)?.id ?? "easy-1").label;
-      content.innerHTML = `<div class="ranking-profile-identity">${profileAvatarHtml(profile.avatarUrl, "ranking-profile-avatar profile-avatar")}<div><strong>${escapeHtml(profile.nickname)}</strong><small>총 승리 ${profile.victories.toLocaleString()}회</small></div></div><div class="ranking-profile-stats"><article><img src="${rankBadgeImage(profile.solo.tier)}" alt="${rankLabel(profile.solo.tier)}"/><div><small>혼자하기</small><strong>${rankLabel(profile.solo.tier)}</strong><span>${profile.solo.xp.toLocaleString()} XP · ${stageLabel(profile.solo.stageIndex)}</span></div></article><article><img src="${rankBadgeImage(profile.multiplayer.tier)}" alt="${rankLabel(profile.multiplayer.tier)}"/><div><small>친구랑하기</small><strong>${rankLabel(profile.multiplayer.tier)}</strong><span>${profile.multiplayer.xp.toLocaleString()} XP · ${stageLabel(profile.multiplayer.stageIndex)}</span></div></article><article><img src="${rankedBadgeImage(profile.ranked.tier)}" alt="${RANKED_TIER_LABEL[profile.ranked.tier]}"/><div><small>랭크전</small><strong>${profile.ranked.contractsPlayed ? RANKED_TIER_LABEL[profile.ranked.tier] : "배치 전"}</strong><span>${profile.ranked.contractsPlayed ? `${profile.ranked.rating.toLocaleString()} RP` : "시즌 기록 없음"}</span></div></article></div>`;
+      content.innerHTML = `<div class="ranking-profile-identity">${profileAvatarHtml(profile.avatarUrl, "ranking-profile-avatar profile-avatar", profile.profileFrameId)}<div><strong>${escapeHtml(profile.nickname)}</strong><small>총 승리 ${profile.victories.toLocaleString()}회</small></div></div><div class="ranking-profile-stats"><article><img src="${rankBadgeImage(profile.solo.tier)}" alt="${rankLabel(profile.solo.tier)}"/><div><small>혼자하기</small><strong>${rankLabel(profile.solo.tier)}</strong><span>${profile.solo.xp.toLocaleString()} XP · ${stageLabel(profile.solo.stageIndex)}</span></div></article><article><img src="${rankBadgeImage(profile.multiplayer.tier)}" alt="${rankLabel(profile.multiplayer.tier)}"/><div><small>친구랑하기</small><strong>${rankLabel(profile.multiplayer.tier)}</strong><span>${profile.multiplayer.xp.toLocaleString()} XP · ${stageLabel(profile.multiplayer.stageIndex)}</span></div></article><article><img src="${rankedBadgeImage(profile.ranked.tier)}" alt="${RANKED_TIER_LABEL[profile.ranked.tier]}"/><div><small>랭크전</small><strong>${profile.ranked.contractsPlayed ? RANKED_TIER_LABEL[profile.ranked.tier] : "배치 전"}</strong><span>${profile.ranked.contractsPlayed ? `${profile.ranked.rating.toLocaleString()} RP` : "시즌 기록 없음"}</span></div></article></div>`;
     })
     .catch(() => {
       if (content) content.innerHTML = "<p>프로필을 불러오지 못했습니다.</p>";
@@ -3301,11 +3310,11 @@ function effectsLockerScreen(activeCategory: 'nameplate' | 'aura' | 'emote' = 'n
       ? (equippedEmotes.has(id) ? currentAccount.prestige.equippedEmoteIds.filter((entry) => entry !== id) : [...currentAccount.prestige.equippedEmoteIds, id].slice(-4))
       : undefined;
     button.disabled = true;
-    void setPrestigeLoadout({
+    void withGlobalActionLoading('연출 장착 변경 중', () => setPrestigeLoadout({
       ...(item.category === 'nameplate' ? { nameplateId: id } : {}),
       ...(item.category === 'aura' ? { homeAuraId: id } : {}),
       ...(item.category === 'emote' ? { emoteIds: next } : {}),
-    }).then((updated) => {
+    })).then((updated) => {
       account = updated;
       effectsLockerScreen(activeCategory);
     }).catch((error) => {
@@ -3735,12 +3744,10 @@ function cosmeticCollectionScreen(
     if (!previewHost) return;
     customAvatarPreview?.destroy();
     customAvatarPreview = null;
-    const prestigeVideoUrl = shopping
-      ? null
-      : prestigeLockerPreviewVideoUrl(previewAppearance.skin);
-    const prestigePosterUrl = shopping
-      ? null
-      : prestigeLockerPreviewPosterUrl(previewAppearance.skin);
+    // An equipped prestige skin remains the active preview when entering the
+    // point shop, even though prestige products themselves are not sold there.
+    const prestigeVideoUrl = prestigeLockerPreviewVideoUrl(previewAppearance.skin);
+    const prestigePosterUrl = prestigeLockerPreviewPosterUrl(previewAppearance.skin);
     const prestigeLabel =
       PRESTIGE_LOCKER_PREVIEW_LABEL_BY_SKIN[previewAppearance.skin] ?? "프레스티지 스킨";
     previewHost.classList.toggle("prestige-locker-video-stage", Boolean(prestigeVideoUrl));

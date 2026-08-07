@@ -147,8 +147,9 @@ export const rankedCrownImage = (tier: 'bronze' | 'silver' | 'gold'): string => 
 
 /**
  * Alpha-content measurements for the rank artwork canvases. PNG badges are
- * normalized to a centered 460px artwork box by scripts/normalize-rank-badges.mjs;
- * the three SVG ranks retain their authored 128px viewBox. DOM and Three.js
+ * normalized to a centered 460px artwork box by scripts/normalize-rank-badges.mjs.
+ * The three elite-vector originals are rasterized to 512px PNGs as well, so
+ * DOM, iOS WebView, and Three.js use the same dependable texture format.
  * renderers share these measurements so every badge has one visual anchor.
  */
 export interface BadgeArtworkLayout {
@@ -176,9 +177,9 @@ const RANK_BADGE_ARTWORK: Readonly<Record<RankId, BadgeArtworkLayout>> = {
   master: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
   veteran: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
   legend: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 460.8 },
-  transcendent: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 119 },
-  immortal: { canvasSize: 128, centerX: 64, centerY: 64, visualExtent: 118 },
-  absolute: { canvasSize: 128, centerX: 64, centerY: 64.5, visualExtent: 121 },
+  transcendent: { canvasSize: 512, centerX: 256, centerY: 258, visualExtent: 476 },
+  immortal: { canvasSize: 512, centerX: 256, centerY: 256, visualExtent: 472 },
+  absolute: { canvasSize: 512, centerX: 256, centerY: 258, visualExtent: 484 },
 };
 
 const RANKED_BADGE_ARTWORK: Readonly<Record<RankedTier, BadgeArtworkLayout>> = {
@@ -296,8 +297,7 @@ const BENEFITS: Record<RankId, RankBenefits> = {
 export const rankIndex = (rank: RankId): number => Math.max(0, RANKS.findIndex((candidate) => candidate.id === rank));
 export const rankLabel = (rank: RankId): string => RANKS[rankIndex(rank)]?.label ?? '하수';
 export const rankBadgeSymbol = (rank: RankId): string => RANK_VISUALS[rank].badgeSymbol;
-export const rankBadgeImage = (rank: RankId): string =>
-  `/assets/ranks/${rank}.${rank === 'transcendent' || rank === 'immortal' || rank === 'absolute' ? 'svg' : 'png'}`;
+export const rankBadgeImage = (rank: RankId): string => `/assets/ranks/${rank}.png`;
 export const rankLabelGradient = (rank: RankId): readonly [string, string, string] | null => {
   if (rank === 'master') return ['#b18bff', '#f2d6ff', '#8eeeff'];
   if (rank === 'veteran') return ['#ff8d67', '#ffe48b', '#fff2d0'];

@@ -270,10 +270,10 @@ export function spriteFacingFromDelta(
 
 export function movementFrameAt(time: number, moving: boolean, seed = 0): number {
   if (!moving) return 0;
-  // Keep the torso anchored: idle frames between the two footfalls avoid the
-  // side-to-side, running-like sway that a 1→2→3 loop produced.
-  const phase = Math.floor((time + seed * 137) / 260) % 4;
-  return phase === 1 ? 1 : phase === 3 ? 3 : 0;
+  // Use every authored stride frame at a mobile-friendly cadence. The former
+  // 0→1→0→3 loop only changed about four times per second and made otherwise
+  // smooth local prediction look as if the character were teleporting.
+  return Math.floor((time + seed * 137) / 150) % 4;
 }
 
 export interface CrocoStompState {
@@ -332,6 +332,10 @@ export function survivorSpriteId(characterId: string): string {
 }
 
 export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpriteDefinition {
+  const authoredSideFacesLeft =
+    appearance.character === 'character-puppy' ||
+    appearance.skin === 'skin-look-bunny-starlit-cloud' ||
+    appearance.skin === 'skin-look-gorilla-abyssal-knight';
   return {
     movementUrl: skinMovementSheetUrl(appearance),
     sleepUrl: skinSleepUrl(appearance),
@@ -341,8 +345,9 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
     // Every current paperdoll sheet follows front/back/side row order.
     // The old puppy-only swap made 몽 visibly walk backwards.
     frontBackSwapped: false,
-    // 몽's source side artwork faces left, unlike the other survivor sheets.
-    movementSideFacesLeft: appearance.character === 'character-puppy',
+    // 몽과 토끼/고릴라 프레스티지 원본은 측면 행이 왼쪽을 향한다.
+    // 원본 방향을 명시하지 않으면 이동 입력과 반대로 걷는 것처럼 보인다.
+    movementSideFacesLeft: authoredSideFacesLeft,
   };
 }
 
