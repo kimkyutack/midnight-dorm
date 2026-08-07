@@ -231,6 +231,8 @@ let mapData: MapDefinition | null = null;
 let playerId = "";
 const openingMinimapTrails = new Map<string, Vec2[]>();
 let openingMinimapMapKey = "";
+let openingMinimapStaticLayer: HTMLCanvasElement | null = null;
+let openingMinimapStaticLayerKey = "";
 let previousGameStatus: GameStatus | null = null;
 let countdownWarningTimer = 0;
 let account: AccountProfile | null = null;
@@ -5942,11 +5944,6 @@ function updateOpeningMinimap(): void {
   }
   const context = canvas.getContext("2d");
   if (!context) return;
-  context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  context.clearRect(0, 0, cssWidth, cssHeight);
-  context.fillStyle = "#06111a";
-  context.fillRect(0, 0, cssWidth, cssHeight);
-
   const padding = 5;
   const scale = Math.min(
     (cssWidth - padding * 2) / Math.max(1, mapData.width),
@@ -5954,6 +5951,37 @@ function updateOpeningMinimap(): void {
   );
   const offsetX = (cssWidth - mapData.width * scale) / 2;
   const offsetY = (cssHeight - mapData.height * scale) / 2;
+  const staticLayerKey = `${mapKey}:${pixelWidth}x${pixelHeight}`;
+  if (!openingMinimapStaticLayer || openingMinimapStaticLayerKey !== staticLayerKey) {
+    const layer = document.createElement("canvas");
+    layer.width = pixelWidth;
+    layer.height = pixelHeight;
+    const layerContext = layer.getContext("2d");
+    if (!layerContext) return;
+    layerContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+    layerContext.fillStyle = "#06111a";
+    layerContext.fillRect(0, 0, cssWidth, cssHeight);
+    const staticTileRect = (tile: Vec2, color: string, inset = 0): void => {
+      layerContext.fillStyle = color;
+      layerContext.fillRect(
+        offsetX + tile.x * scale + inset,
+        offsetY + tile.y * scale + inset,
+        Math.max(0.7, scale - inset * 2),
+        Math.max(0.7, scale - inset * 2),
+      );
+    };
+    for (const tile of mapData.corridorTiles) staticTileRect(tile, "#173f50");
+    for (const room of mapData.rooms)
+      for (const tile of room.floorTiles) staticTileRect(tile, "#54435e");
+    for (const wall of mapData.walls)
+      staticTileRect(wall, "#101a25", scale * 0.08);
+    openingMinimapStaticLayer = layer;
+    openingMinimapStaticLayerKey = staticLayerKey;
+  }
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, pixelWidth, pixelHeight);
+  context.drawImage(openingMinimapStaticLayer, 0, 0);
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
   const tileRect = (tile: Vec2, color: string, inset = 0): void => {
     context.fillStyle = color;
     context.fillRect(
@@ -5964,10 +5992,6 @@ function updateOpeningMinimap(): void {
     );
   };
 
-  for (const tile of mapData.corridorTiles) tileRect(tile, "#173f50");
-  for (const room of mapData.rooms)
-    for (const tile of room.floorTiles) tileRect(tile, "#54435e");
-  for (const wall of mapData.walls) tileRect(wall, "#101a25", scale * 0.08);
   for (const drop of snapshot.lootDrops) {
     if (drop.carriedBy) continue;
     tileRect(drop.tile, "#ffd55c", Math.max(0.35, scale * 0.2));
@@ -8829,7 +8853,7 @@ function showDeathNotice(deadPlayerId: string): void {
 
 function setText(selector: string, value: string): void {
   const element = app.querySelector<HTMLElement>(selector);
-  if (element) element.textContent = value;
+  if (element && element.textContent !== value) element.textContent = value;
 }
 
 function destroyGame(): void {
@@ -8864,6 +8888,8 @@ function destroyGame(): void {
   previousGameStatus = null;
   openingMinimapMapKey = "";
   openingMinimapTrails.clear();
+  openingMinimapStaticLayer = null;
+  openingMinimapStaticLayerKey = "";
   inputVector = { x: 0, y: 0 };
   lastSentMovementActive = false;
   consumableTurretTargetingId = null;

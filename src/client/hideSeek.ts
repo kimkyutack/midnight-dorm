@@ -103,8 +103,10 @@ class HideSeekExperience implements HideSeekExperienceHandle {
   private snapshotReceivedAt = performance.now();
   private lastRenderAt = performance.now();
   private walkableTiles = new Set<string>();
+  private wallTiles = new Set<string>();
   private ghostRoomRestrictedTiles = new Set<string>();
   private ghostRoomInteriorTiles = new Set<string>();
+  private nextMinimapDrawAt = 0;
   private initialNoticeShown = false;
   private spectatorTargetId: string | null = null;
   private preparedRewardMatchId: string | null = null;
@@ -236,6 +238,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       this.spectatorTargetId = null;
       this.map = message.map;
       this.walkableTiles = new Set(message.map.walkable.map(tileKey));
+      this.wallTiles = new Set(message.map.walls.map(tileKey));
       this.ghostRoomInteriorTiles = new Set(message.map.ghostRoom.interior.map(tileKey));
       this.ghostRoomRestrictedTiles = new Set([...message.map.ghostRoom.interior, message.map.ghostRoom.door].map(tileKey));
       this.snapshot = this.withExploration(message.snapshot, message.exploredBits);
@@ -527,6 +530,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       canvas.width = Math.max(1, Math.round(rect.width * ratio));
       canvas.height = Math.max(1, Math.round(rect.height * ratio));
     }
+    this.nextMinimapDrawAt = 0;
   }
 
   private updatePointerMovement(event: PointerEvent): void {
@@ -561,7 +565,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       return;
     }
     const now = performance.now();
-    if (!force && now - this.lastMoveSentAt < 45) return;
+    if (!force && now - this.lastMoveSentAt < 80) return;
     this.lastMoveSentAt = now;
     this.inputSequence += 1;
     this.send({ type: 'move', dx: this.movement.x, dy: this.movement.y, inputSequence: this.inputSequence });
@@ -857,7 +861,13 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, width, height);
       this.drawWorld(context, width, height, time, map, snapshot, me);
-      this.drawMinimap(map, snapshot, me);
+      // The minimap contains the whole 84×60 exploration history. Rebuilding
+      // it at display refresh rate competes with world movement on mobile;
+      // 10 Hz is visually immediate and matches authoritative snapshots.
+      if (time >= this.nextMinimapDrawAt) {
+        this.nextMinimapDrawAt = time + 100;
+        this.drawMinimap(map, snapshot, me);
+      }
     }
     this.frame = requestAnimationFrame((next) => this.draw(next));
   }
@@ -887,7 +897,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     const maxX = Math.min(map.width - 1, Math.ceil(target.x + width / tileSize / 2) + 2);
     const minY = Math.max(0, Math.floor(target.y - height / tileSize / 2) - 2);
     const maxY = Math.min(map.height - 1, Math.ceil(target.y + height / tileSize / 2) + 2);
-    const walls = new Set(map.walls.map(tileKey));
+    const walls = this.wallTiles;
     const floorTexture = this.loadImage(FLOOR_TEXTURE);
     const wallTexture = this.loadImage(WALL_TEXTURE);
     const hideoutAtlas = this.loadImage(HIDEOUT_ATLAS);

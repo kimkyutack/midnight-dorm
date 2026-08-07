@@ -1798,7 +1798,51 @@ export class GameEngine {
     );
     if (unclaimed.length === 0) return;
     const selected = unclaimed[this.rng.int(0, unclaimed.length - 1)];
-    if (selected) selected.ownerId = player.id;
+    if (selected) this.assignStarterBuilding(player, selected);
+  }
+
+  /**
+   * Dormant room structures become the occupant's real buildings at claim
+   * time. Apply the same turret loadout and starting-level rules used by a
+   * newly constructed turret so pre-installed guardians do not remain a
+   * level-one/default-skin exception.
+   */
+  private assignStarterBuilding(
+    player: PlayerState,
+    building: BuildingState,
+  ): void {
+    building.ownerId = player.id;
+    const isLevelledTurret =
+      building.kind === 'basic-turret'
+      || building.kind === 'rapid-turret'
+      || building.kind === 'arc-turret'
+      || building.kind === 'golden-turret';
+    if (!isLevelledTurret) return;
+
+    const trait = this.characterTraitForPlayer(player);
+    const isFirstGuardian =
+      building.kind === 'basic-turret' && !player.firstGuardianBuilt;
+    const claimedLevel = Math.min(
+      this.maxBuildingLevelForPlayer(building.kind, player),
+      Math.max(
+        building.level,
+        trait.turretStartingLevel,
+        isFirstGuardian ? 1 + trait.firstGuardianLevelBonus : 1,
+      ),
+    );
+    building.level = claimedLevel;
+    building.effectiveLevel = claimedLevel;
+
+    if (
+      building.kind === 'basic-turret'
+      || building.kind === 'rapid-turret'
+      || building.kind === 'arc-turret'
+    ) {
+      building.skinId = player.turretSkins[building.kind]
+        ?? DEFAULT_TURRET_SKINS[building.kind];
+    }
+    if (isFirstGuardian) player.firstGuardianBuilt = true;
+    this.syncDynamicTurretLevels(this.createBuildingTickIndex());
   }
 
   build(
@@ -3227,7 +3271,7 @@ export class GameEngine {
           !building.ownerId,
       );
       if (unclaimed.length === 0) continue;
-      for (const building of unclaimed) building.ownerId = owner.id;
+      for (const building of unclaimed) this.assignStarterBuilding(owner, building);
       this.pendingEvents.push({
         kind: 'starter-allocation',
         playerId: owner.id,

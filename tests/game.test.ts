@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BALANCE, buildingStats, goldenTurretGoldPerShot, maxBuildingLevel, upgradeCost } from '../src/shared/balance';
-import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, characterAvailable, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, cosmeticVisibleInPointShop, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
+import { appearanceAfterCosmeticEquip, BEACH_SAND_TILE_SKIN_ID, characterAvailable, COSMETIC_CATALOG, cosmeticAvailable, cosmeticById, cosmeticVisibleInPointShop, customizationReward, CYBERPUNK_LASER_TURRET_SKIN_ID, CYBERPUNK_NEON_TILE_SKIN_ID, DEFAULT_APPEARANCE, DEFAULT_TILE_SKIN_ID, defaultSkinForCharacter, LIFEGUARD_PARASOL_TURRET_SKIN_ID, normalizeAppearance, normalizeTurretSkins, SPECIAL_OPS_HEADQUARTERS_TILE_SKIN_ID, SPECIAL_OPS_TRACKER_TURRET_SKIN_ID, STARTER_COSMETICS, SURFER_WATER_TURRET_SKIN_ID, tileSkinTextureUrl, turretSkinAssetUrl, WAVE_TILE_SKIN_ID } from '../src/shared/customization';
 import { bedGoldProductionForAppearance, bedGoldProductionForMatch, CHARACTER_TRAITS, characterTrait, characterTraitForAppearance, characterTraitForMatch, drawLimitForCharacter, drawLimitForMatch, upgradeCostForTrait } from '../src/shared/characterTraits';
 import { TURRET_SKIN_TRAITS, turretSkinTrait } from '../src/shared/turretSkinTraits';
 import { connectedWalkableCount, generateMap, isAreaOnRoomFloor, isBuildTile, isPositionOnRoomFloor, isWalkable, isWalkableArea, moveInWalkableArea, validateMap } from '../src/shared/map';
@@ -3711,6 +3711,46 @@ describe('authoritative game rules', () => {
       expect(engine.snapshot().buildings.find((building) => building.id === claimedStarter.id))
         .toMatchObject({ level: 2, effectiveLevel: 2 });
     }
+  });
+
+  it('applies the occupant starting level and turret skin to a pre-installed room turret', () => {
+    const { engine, ids } = setup(1, false);
+    const playerId = ids[0] as string;
+    const starter = engine.snapshot().buildings.find(
+      (building) => building.kind === 'basic-turret',
+    );
+    const room = starter
+      ? engine.map.rooms.find((candidate) => candidate.id === starter.roomId)
+      : undefined;
+    if (!starter || !room) throw new Error('missing starter turret fixture');
+
+    const prepared = engine.serialize();
+    const player = prepared.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error('missing starter turret claimant');
+    player.appearance = {
+      character: 'character-hamster',
+      skin: 'skin-look-hamster-cyber-driver',
+    };
+    player.turretSkins = normalizeTurretSkins({
+      'basic-turret': SURFER_WATER_TURRET_SKIN_ID,
+    });
+    engine.restore(prepared);
+
+    expect(engine.start(playerId).ok).toBe(true);
+    advanceFrozenIntros(engine);
+    const atBed = engine.serialize();
+    const claimant = atBed.snapshot.players.find((candidate) => candidate.id === playerId);
+    if (!claimant) throw new Error('missing prepared starter claimant');
+    claimant.position = { ...room.bed };
+    engine.restore(atBed);
+    expect(engine.interact(playerId).ok).toBe(true);
+
+    expect(engine.snapshot().buildings.find((building) => building.id === starter.id)).toMatchObject({
+      ownerId: playerId,
+      level: 5,
+      effectiveLevel: 5,
+      skinId: SURFER_WATER_TURRET_SKIN_ID,
+    });
   });
 
   it('places two starter structures in each live two-bed room and splits them by claim order', () => {

@@ -2589,21 +2589,25 @@ export class ThreeGameView {
     this.scene.fog = new THREE.Fog(this.theme.fog, this.theme.fogNear, this.theme.fogFar);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    const touchDevice =
+      navigator.maxTouchPoints > 0 ||
+      window.matchMedia?.('(pointer: coarse)').matches === true;
     // 1.2x was being upscaled heavily on high-DPR Android screens, turning
     // tile textures and the building PNGs into a soft, low-resolution image.
     this.maxRenderPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    // Never lower the render resolution during combat. Temporary effects and
-    // network work are bounded instead, so authored tile/building art remains
-    // at the same physical resolution from match start to finish.
-    this.minRenderPixelRatio = this.maxRenderPixelRatio;
+    // A 2× WebGL surface on a narrow high-DPR phone can render several million
+    // pixels every frame. Allow a bounded resolution step-down only on touch
+    // devices when sustained frame timings show that the GPU cannot keep up.
+    // The 1.25 floor keeps authored sprites readable while avoiding the
+    // stop/start camera cadence caused by a permanently saturated renderer.
+    this.minRenderPixelRatio = touchDevice
+      ? Math.min(this.maxRenderPixelRatio, 1.25)
+      : this.maxRenderPixelRatio;
     this.renderPixelRatio = this.maxRenderPixelRatio;
     this.renderer.setPixelRatio(this.renderPixelRatio);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.16;
-    const touchDevice =
-      navigator.maxTouchPoints > 0 ||
-      window.matchMedia?.('(pointer: coarse)').matches === true;
     // The game is a flat top-down scene with baked lighting in its authored
     // textures. A second shadow render pass costs heavily on mobile while
     // adding almost no readable depth.
@@ -3220,9 +3224,14 @@ export class ThreeGameView {
     this.renderer.domElement.dataset.drawCalls = String(this.renderer.info.render.calls);
     this.renderer.domElement.dataset.effects = String(this.effects.length);
 
+    let nextPixelRatio = this.renderPixelRatio;
     if (this.frameTimeEma > 25) {
       this.effectQuality = 'low';
       this.effectHeadroomSamples = 0;
+      nextPixelRatio = Math.max(
+        this.minRenderPixelRatio,
+        Math.round((this.renderPixelRatio - 0.25) * 4) / 4,
+      );
     } else if (this.frameTimeEma > 18.5) {
       this.effectQuality = 'balanced';
       this.effectHeadroomSamples = 0;
@@ -3230,10 +3239,20 @@ export class ThreeGameView {
       this.effectHeadroomSamples += 1;
       if (this.effectHeadroomSamples >= 3) {
         this.effectQuality = 'high';
+        nextPixelRatio = Math.min(
+          this.maxRenderPixelRatio,
+          Math.round((this.renderPixelRatio + 0.25) * 4) / 4,
+        );
         this.effectHeadroomSamples = 0;
       }
     } else {
       this.effectHeadroomSamples = 0;
+    }
+    if (Math.abs(nextPixelRatio - this.renderPixelRatio) >= 0.01) {
+      this.renderPixelRatio = nextPixelRatio;
+      this.renderer.setPixelRatio(this.renderPixelRatio);
+      this.renderer.domElement.dataset.pixelRatio = this.renderPixelRatio.toFixed(2);
+      this.resize();
     }
     this.renderer.domElement.dataset.effectQuality = this.effectQuality;
   }

@@ -43,7 +43,10 @@ const RANKED_LOANED_SUPPLIES: readonly ConsumableId[] = [
   'toolbelt-voucher',
 ];
 const MAX_SNAPSHOT_BUFFER_BYTES = 192 * 1_024;
-const ACTIVE_STATE_PERSIST_INTERVAL_SECONDS = 2;
+// Explicit player actions keep their normal persistence paths. Batch the
+// continuously changing movement snapshot less aggressively so repeated
+// serialization cannot create a periodic hitch in active production rooms.
+const ACTIVE_STATE_PERSIST_INTERVAL_SECONDS = 5;
 const SLOW_PERSIST_THRESHOLD_MS = 250;
 const SLOW_SERIALIZE_THRESHOLD_MS = 50;
 
