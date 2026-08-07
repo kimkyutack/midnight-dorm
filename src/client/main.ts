@@ -185,6 +185,7 @@ import "./styles.css";
 import "./arcade-polish.css";
 import "./hide-seek-entry.css";
 import "./attendance-and-match-missions.css";
+import "./prestige-preview-fixes.css";
 
 initializeNativeRuntime();
 setupMobileViewportCompatibility();
@@ -1461,12 +1462,14 @@ function prestigeLockerPreviewVideoMarkup(videoUrl: string, posterUrl: string | 
   const fallback = posterUrl
     ? `<img class="prestige-locker-preview-poster" src="${escapeHtml(posterUrl)}" alt="${escapeHtml(label)}" />`
     : '';
-  return `${fallback}<video class="prestige-locker-preview-video" data-prestige-locker-video aria-label="${escapeHtml(label)} 대기 모션" autoplay loop playsinline preload="auto" disablepictureinpicture${poster}><source src="${escapeHtml(videoUrl)}" type="video/mp4" /></video>`;
+  return `${fallback}<video class="prestige-locker-preview-video" data-prestige-locker-video aria-label="${escapeHtml(label)} 대기 모션" autoplay loop muted playsinline preload="auto" disablepictureinpicture${poster}><source src="${escapeHtml(videoUrl)}" type="video/mp4" /></video>`;
 }
 
 function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
-  video.muted = false;
-  video.defaultMuted = false;
+  // Shop and locker previews are passive UI, not cinematics. Keeping them
+  // muted also lets iOS/Android WebViews autoplay the idle loop reliably.
+  video.muted = true;
+  video.defaultMuted = true;
   video.loop = true;
 
   const tryPlay = (): void => {
@@ -3430,6 +3433,19 @@ function tilePreviewUrl(tileSkinId: string | undefined): string {
 
 const TURRET_ART_VERSION = 'prestige-evolution-v2-20260807';
 
+const PRESTIGE_TURRET_HQ_PREVIEW_BY_ID: Readonly<Record<string, string>> = {
+  'turret-basic-moonlit-foxfire': '/assets/turret-skins/skin-moonlit-foxfire/preview-hq.webp',
+  'turret-basic-starlit-cloud': '/assets/turret-skins/skin-starlit-cloud/preview-hq.webp',
+  'turret-basic-abyssal-knight': '/assets/turret-skins/skin-abyssal-knight/preview-hq.webp',
+};
+
+function turretPreviewAssetUrl(turretSkinId: string | undefined): string {
+  if (!turretSkinId) return '/assets/buildings/cute-basic-turret-1.png';
+  return PRESTIGE_TURRET_HQ_PREVIEW_BY_ID[turretSkinId]
+    ?? turretSkinAssetUrl(turretSkinId, 1)
+    ?? '/assets/buildings/cute-basic-turret-1.png';
+}
+
 function modelPreviewHtml(
   turretMode = false,
   tileSkinId?: string,
@@ -3443,9 +3459,7 @@ function modelPreviewHtml(
     return `<div class="custom-avatar-stage tile-skin-preview-stage" data-avatar-preview><div class="tile-skin-preview-room" data-tile-preview-room><img data-tile-preview src="${tilePreviewUrl(tileSkinId)}?v=${APP_RELEASE_VERSION}" alt="선택한 타일 스킨 미리보기"/></div></div>`;
   }
   if (turretMode) {
-    const previewUrl =
-      turretSkinAssetUrl(turretSkinId, 1) ??
-      "/assets/buildings/cute-basic-turret-1.png";
+    const previewUrl = turretPreviewAssetUrl(turretSkinId);
     return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><button type="button" class="turret-level-preview-trigger" data-turret-levels-open data-turret-skin-id="${escapeHtml(turretSkinId ?? '')}">레벨별 외형 보기</button><img data-turret-preview src="${previewUrl}?v=${TURRET_ART_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>레벨별 외형 적용</span></div>`;
   }
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview>${characterViewSwitchMarkup()}</div>`;
@@ -4253,10 +4267,7 @@ function cosmeticCollectionScreen(
         "[data-turret-preview]",
       );
       if (turretPreview) {
-        turretPreview.src = `${
-          turretSkinAssetUrl(item.id, 1) ??
-          "/assets/buildings/cute-basic-turret-1.png"
-        }?v=${TURRET_ART_VERSION}`;
+        turretPreview.src = `${turretPreviewAssetUrl(item.id)}?v=${TURRET_ART_VERSION}`;
         turretPreview.alt = `${item.label} Lv.1 미리보기`;
       }
       const galleryButton = app.querySelector<HTMLButtonElement>('[data-turret-levels-open]');

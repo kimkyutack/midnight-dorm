@@ -1,0 +1,36 @@
+/* Targeted prestige preview fixes.
+ * Kept separate so the existing authored theme styles remain untouched. */
+
+/* The skin catalog has two navigation rows plus the ranked-mode notice. */
+.shop-screen .custom-catalog.has-catalog-subtabs.has-ranked-notice {
+  grid-template-rows: 84px auto minmax(0, 1fr) !important;
+}
+
+.shop-screen .custom-catalog.has-ranked-notice .ranked-cosmetic-notice {
+  position: relative;
+  z-index: 2;
+  min-height: 0;
+  margin: 5px 2px 7px;
+}
+
+.shop-screen .custom-catalog.has-ranked-notice .cosmetic-grid {
+  min-height: 0;
+}
+
+/* The fox source artwork nearly fills its square cell. A slightly smaller
+ * home-only presentation preserves the entire seated silhouette on short
+ * phones while keeping previews and in-game sprites unchanged. */
+.game-home .home-pose-avatar[data-home-pose-skin="skin-look-fox-moonlit-phantom"] {
+  height: min(66%, 204px);
+}
+
+/* HQ preview files are intentionally used only in this enlarged stage. */
+.turret-skin-preview-stage > img[data-turret-preview] {
+  image-rendering: auto;
+}
+
+@media (orientation: portrait) and (max-height: 720px) {
+  .game-home .home-pose-avatar[data-home-pose-skin="skin-look-fox-moonlit-phantom"] {
+    height: min(64%, 190px);
+  }
+}
