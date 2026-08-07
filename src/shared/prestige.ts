@@ -148,29 +148,28 @@ export function prestigeAccessoryIdsForPackages(packageIds: readonly string[]): 
 
 export type PrestigePackageId = string;
 
-export const GHOST_ORB_CASH_COST = 100;
+/** ₩1,500 per draw at the 10,800-cash / ₩120,000 top-up rate. */
+export const GHOST_ORB_CASH_COST = 135;
 export const GHOST_ORB_PACKAGE_COST = 10;
 /** One orb is guaranteed no later than the 33rd draw; ten orbs cap at 330 draws. */
 export const GHOST_ORB_PITY_DRAWS = 33;
 
 export const GHOST_ORB_DRAW_TABLE = [
-  // Point rewards remain the common result, but high-value point jackpots and
-  // full-price duplicate refunds must not let a few hundred draws clear the
-  // entire shop.  Cosmetics are intentionally ordered character > skin >
-  // tile/turret, while natural orb drops stay rarer than every cosmetic pool;
-  // the 33-draw pity remains the reliable path to the 500,000-won ceiling.
-  { kind: 'points', amount: 100, weight: 60 },
-  { kind: 'points', amount: 200, weight: 24 },
-  { kind: 'points', amount: 300, weight: 7 },
-  { kind: 'points', amount: 500, weight: 1.5 },
-  { kind: 'points', amount: 1_000, weight: 0.2 },
-  { kind: 'cosmetic', slot: 'character', weight: 2 },
+  // Weights are direct percentages and deliberately total 100. Point rewards
+  // dominate, while cosmetics stay sparse enough that a prestige ceiling does
+  // not also clear the full point-shop collection.
+  { kind: 'points', amount: 100, weight: 70 },
+  { kind: 'points', amount: 200, weight: 19 },
+  { kind: 'points', amount: 300, weight: 5 },
+  { kind: 'points', amount: 500, weight: 1.75 },
+  { kind: 'points', amount: 1_000, weight: 0.35 },
+  { kind: 'cosmetic', slot: 'character', weight: 1.8 },
   { kind: 'cosmetic', slot: 'skin', weight: 1 },
-  { kind: 'cosmetic', slot: 'tile', weight: 0.3 },
+  { kind: 'cosmetic', slot: 'tile', weight: 0.45 },
   { kind: 'cosmetic', slot: 'turret', weight: 0.25 },
-  { kind: 'orbs', amount: 1, weight: 0.4 },
-  { kind: 'orbs', amount: 5, weight: 0.01 },
-  { kind: 'orbs', amount: 10, weight: 0.001 },
+  { kind: 'orbs', amount: 1, weight: 0.32 },
+  { kind: 'orbs', amount: 5, weight: 0.06 },
+  { kind: 'orbs', amount: 10, weight: 0.02 },
 ] as const;
 
 export function ghostOrbEligibleCosmetics(): CosmeticDefinition[] {

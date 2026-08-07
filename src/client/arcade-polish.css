@@ -111,7 +111,13 @@
 .effect-preview-aura.home-aura-moonlit-phantom { background:radial-gradient(circle,rgba(86,218,255,.62),rgba(85,79,255,.24) 48%,transparent 72%); }
 .effect-preview-aura.home-aura-starlit-cloud { background:radial-gradient(circle,rgba(255,247,202,.66),rgba(133,202,255,.28) 48%,transparent 72%); }
 .effect-preview-aura.home-aura-abyssal-knight { background:radial-gradient(circle,rgba(255,87,63,.6),rgba(137,48,255,.28) 48%,transparent 72%); }
-.effect-preview-nameplate { position:absolute; z-index:3; bottom:25px; max-width:82%; padding:6px 13px; overflow:hidden; border:1px solid #8df1ff; border-radius:999px; color:#fff; background:rgba(7,15,39,.86); font:900 12px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+.effect-preview-nameplate { position:absolute; z-index:3; bottom:25px; max-width:82%; padding:7px 28px; overflow:hidden; border:2px solid #8df1ff; border-radius:12px; color:#fff; background:linear-gradient(90deg,#09152f,#1f3f75,#09152f); box-shadow:0 5px 12px rgba(0,0,0,.42),inset 0 0 12px rgba(139,241,255,.14); font:900 12px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
+.effect-preview-nameplate::before,.effect-preview-nameplate::after { position:absolute; top:50%; width:12px; height:12px; content:""; transform:translateY(-50%) rotate(45deg); border:2px solid currentColor; background:#152a53; box-shadow:0 0 8px currentColor; }
+.effect-preview-nameplate::before { left:8px; }
+.effect-preview-nameplate::after { right:8px; }
+.effect-preview-nameplate.nameplate-moonlit-phantom { color:#bff8ff; border-color:#66e7ff; background:linear-gradient(90deg,#06142d,#184b88,#06142d); box-shadow:0 0 14px rgba(76,222,255,.45),inset 0 0 13px rgba(117,234,255,.2); }
+.effect-preview-nameplate.nameplate-starlit-cloud { color:#fff0b6; border-color:#ffe29a; background:linear-gradient(90deg,#17204c,#4c67b2,#17204c); box-shadow:0 0 14px rgba(171,214,255,.5),inset 0 0 13px rgba(255,241,177,.2); }
+.effect-preview-nameplate.nameplate-abyssal-knight { color:#ff9d76; border-color:#ff6649; background:linear-gradient(90deg,#160818,#4a1539,#160818); box-shadow:0 0 14px rgba(255,67,46,.48),inset 0 0 13px rgba(195,83,255,.2); }
 .effect-preview-stage > small { position:absolute; z-index:3; bottom:8px; color:#9fcdf5; font:800 9px var(--game-arcade-font); }
 .effect-preview > p { margin:9px 0 0; color:#a9bde9; font-size:11px; }
 .effect-locker-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
@@ -147,7 +153,6 @@
 .home-avatar-showcase.home-aura-moonlit-phantom .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(85,223,255,.5),rgba(94,74,255,.18) 48%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
 .home-avatar-showcase.home-aura-starlit-cloud .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,251,204,.58),rgba(135,206,255,.2) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
 .home-avatar-showcase.home-aura-abyssal-knight .home-prestige-aura { opacity:1; background:radial-gradient(circle,rgba(255,81,56,.53),rgba(129,35,255,.22) 49%,transparent 73%); animation:effect-aura-pulse 2.7s ease-in-out infinite; }
-.home-prestige-nameplate { position:absolute; z-index:3; left:50%; bottom:6%; max-width:76%; padding:6px 14px; overflow:hidden; transform:translateX(-50%); border:1px solid #8beeff; border-radius:999px; color:#fff; background:rgba(4,10,31,.82); box-shadow:0 4px 14px rgba(0,0,0,.3); font:900 11px var(--game-arcade-font); text-overflow:ellipsis; white-space:nowrap; }
 
 /* Cash and points share a bounded resource rail. The account card owns a
    non-shrinking column, while wallet values compact before they can push the

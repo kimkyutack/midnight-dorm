@@ -26,6 +26,7 @@ import {
   GHOST_ORB_DRAW_TABLE,
   GHOST_ORB_CASH_COST,
   GHOST_ORB_PACKAGE_COST,
+  GHOST_ORB_PITY_DRAWS,
   ghostOrbEligibleCosmetics,
   MOONLIT_PHANTOM_PACKAGE_ID,
   MOONLIT_PHANTOM_SKIN_ID,
@@ -1019,7 +1020,7 @@ function homeScreen(): void {
         <button class="home-guide" data-page-guide data-guide-topic="battle" aria-label="생존 가이드 도움말">${gameMenuIcon("guide")}<span>가이드</span></button>
         <button class="home-event-missions" data-event-missions aria-label="미션">${gameMenuIcon("event")}<span>미션</span><b class="home-event-alert ${eventClaimable ? "visible" : ""}" data-event-alert aria-hidden="true"></b><em class="home-event-nudge ${eventNeedsStart ? "visible" : ""}" data-event-nudge>미션을 진행해보세요</em></button>
       </nav>
-      <section class="home-avatar-showcase ${currentAccount.prestige.homeAuraId ?? ''}" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><i class="home-prestige-aura" aria-hidden="true"></i><div class="home-avatar-model" data-home-avatar></div>${currentAccount.prestige.nameplateId ? `<strong class="home-prestige-nameplate">${escapeHtml(PRESTIGE_ACCESSORIES.find((item) => item.id === currentAccount.prestige.nameplateId)?.label ?? currentAccount.nickname)}</strong>` : ''}</section>
+      <section class="home-avatar-showcase ${currentAccount.prestige.homeAuraId ?? ''}" aria-label="병원 복도에 앉아 쉬는 내 캐릭터"><i class="home-prestige-aura" aria-hidden="true"></i><div class="home-avatar-model" data-home-avatar></div></section>
       <footer class="home-actions">
         <div class="home-launch"><button class="home-mode-select ${hideSeekLaunchGuideStep === "home-mode" ? "launch-guide-target" : ""}" data-home-mode-picker aria-haspopup="dialog" aria-label="플레이 방식 ${modeLabel}"><span>${homePlayMode === "solo" ? "☾" : homePlayMode === "multiplayer" ? "◎" : "♛"}</span><div><small>플레이 방식</small><strong>${modeLabel}</strong></div><i>⌄</i></button><button class="game-start" data-stage-start data-testid="home-stage-start"><i>⚔</i><span>${homePlayMode === "ranked" ? "계약 시작" : "스테이지 시작"}</span></button></div>
         <nav class="home-footer-nav" aria-label="게임 메뉴"><button data-shop aria-label="상점">${homeFooterIcon("shop")}<span>상점</span></button><button class="home-social-tab" data-social aria-label="친구와 채팅">${homeFooterIcon("social")}<span>친구</span><b class="home-social-unread ${socialUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button class="active" data-stage-menu aria-label="홈">${homeFooterIcon("stage")}<span>홈</span></button><button class="home-mailbox-tab" data-mailbox aria-label="우편함">${homeFooterIcon("mail")}<span>우편함</span><b class="home-mail-unread ${mailboxUnreadCount > 0 ? "visible" : ""}" aria-hidden="true"></b></button><button data-customize aria-label="커스텀 · 내 보관함">${homeFooterIcon("custom")}<span>보관함</span></button></nav>
@@ -1340,8 +1341,8 @@ const GHOST_ORB_SUMMON_VIDEO_URL = '/assets/ui/orb-shop/summon/open-capsule.mp4'
 const GHOST_ORB_SUMMON_WEBM_URL = '/assets/ui/orb-shop/summon/open-capsule.webm';
 // Keep this revision in the URL so an already-installed PWA cannot reuse the
 // previous landscape/HEVC trailer from its media cache.
-const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?portrait=4';
-const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?portrait=4';
+const MOONLIT_PRESTIGE_VIDEO_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.mp4?landscape=5';
+const MOONLIT_PRESTIGE_WEBM_URL = '/assets/prestige/moonlit-phantom-fox/cinematic/moonlit-awakening.webm?landscape=5';
 const STARLIT_CLOUD_PRESTIGE_VIDEO_URL = '/assets/prestige/starlit-cloud-rabbit/cinematic/starlit-cloud-awakening.mp4?revision=1';
 const ABYSSAL_KNIGHT_PRESTIGE_VIDEO_URL = '/assets/prestige/abyssal-knight-gorilla/cinematic/abyssal-awakening.mp4?revision=1';
 const PRESTIGE_CINEMATICS: Readonly<Record<string, {
@@ -1738,7 +1739,7 @@ function ghostOrbOddsMarkup(): string {
 
 function showGhostOrbOddsModal(): void {
   dismissibleModal(
-    `<section class="orb-odds-sheet" role="dialog" aria-modal="true" aria-labelledby="orb-odds-title"><header><div><small>DRAW INFORMATION</small><h2 id="orb-odds-title">확률 및 중복 보상</h2></div><button type="button" data-modal-close aria-label="닫기">×</button></header><ul>${ghostOrbOddsMarkup()}</ul><div><strong>33회 천장</strong><p>33회 안에 귀신구슬 1개를 보장하며, 구슬을 획득하면 천장 횟수가 초기화됩니다.</p></div><div><strong>중복 보상</strong><p>이미 보유한 캐릭터·스킨·타일·포탑 스킨은 현재 포인트 상점 판매가만큼 포인트로 전환됩니다.</p></div></section>`,
+    `<section class="orb-odds-sheet" role="dialog" aria-modal="true" aria-labelledby="orb-odds-title"><header><div><small>DRAW INFORMATION</small><h2 id="orb-odds-title">확률 및 중복 보상</h2></div><button type="button" data-modal-close aria-label="닫기">×</button></header><ul>${ghostOrbOddsMarkup()}</ul><div><strong>33회 천장</strong><p>33회 안에 귀신구슬 1개를 보장하며, 구슬을 획득하면 천장 횟수가 초기화됩니다. 프레스티지 10구슬의 최악 기준은 330회 · ${(GHOST_ORB_PITY_DRAWS * 10 * GHOST_ORB_CASH_COST).toLocaleString()} C · 약 ₩495,000입니다.</p></div><div><strong>중복 보상</strong><p>이미 보유한 캐릭터·스킨·타일·포탑 스킨은 현재 포인트 상점 판매가만큼 포인트로 전환됩니다.</p></div></section>`,
     'orb-odds-modal',
   );
 }
@@ -3221,6 +3222,8 @@ function tilePreviewUrl(tileSkinId: string | undefined): string {
   );
 }
 
+const TURRET_ART_VERSION = 'prestige-evolution-v2-20260807';
+
 function modelPreviewHtml(
   turretMode = false,
   tileSkinId?: string,
@@ -3237,9 +3240,24 @@ function modelPreviewHtml(
     const previewUrl =
       turretSkinAssetUrl(turretSkinId, 1) ??
       "/assets/buildings/cute-basic-turret-1.png";
-    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><img data-turret-preview src="${previewUrl}?v=${APP_RELEASE_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>레벨별 외형 적용</span></div>`;
+    return `<div class="custom-avatar-stage turret-skin-preview-stage" data-avatar-preview><button type="button" class="turret-level-preview-trigger" data-turret-levels-open data-turret-skin-id="${escapeHtml(turretSkinId ?? '')}">레벨별 외형 보기</button><img data-turret-preview src="${previewUrl}?v=${TURRET_ART_VERSION}" alt="선택한 포탑 스킨 Lv.1 미리보기"/><span>레벨별 외형 적용</span></div>`;
   }
   return `<div class="custom-avatar-stage ${turretMode ? "turret-stage" : ""}" data-avatar-preview>${characterViewSwitchMarkup()}</div>`;
+}
+
+function showTurretLevelGallery(turretSkinId: string): void {
+  const item = cosmeticById(turretSkinId);
+  if (!item || item.slot !== 'turret') return;
+  const maxLevel = item.prestige ? 17 : 15;
+  const cards = Array.from({ length: maxLevel }, (_, index) => {
+    const level = index + 1;
+    const imageUrl = turretSkinAssetUrl(item.id, level) ?? '/assets/buildings/cute-basic-turret-1.png';
+    return `<article class="turret-level-gallery-card"><div><img src="${imageUrl}?v=${TURRET_ART_VERSION}" alt="${escapeHtml(item.label)} Lv.${level} 외형" loading="lazy" decoding="async"/></div><strong>Lv.${level}</strong></article>`;
+  }).join('');
+  dismissibleModal(
+    `<section class="turret-level-gallery-sheet" role="dialog" aria-modal="true" aria-labelledby="turret-level-gallery-title"><header><div><small>TURRET EVOLUTION</small><h2 id="turret-level-gallery-title">${escapeHtml(item.label)}</h2><p>레벨마다 달라지는 포탑 외형을 확인하세요.</p></div><button type="button" data-modal-close aria-label="닫기">×</button></header><div class="turret-level-gallery-grid">${cards}</div></section>`,
+    'turret-level-gallery-modal',
+  );
 }
 
 function cosmeticEntitled(
@@ -3292,8 +3310,9 @@ function effectsLockerScreen(activeCategory: 'nameplate' | 'aura' | 'emote' = 'n
     return `<article class="effect-locker-card ${selected ? 'selected' : ''}"><img src="${escapeHtml(releaseVersionedAsset(item.imageUrl))}" alt="${escapeHtml(item.label)}"/><div><small>${escapeHtml(item.detail)}</small><strong>${escapeHtml(item.label)}</strong></div><button type="button" data-effect-equip="${item.id}" ${selected && item.category !== 'emote' ? 'disabled' : ''}>${action}</button></article>`;
   }).join('');
   const nameplate = PRESTIGE_ACCESSORIES.find((item) => item.id === currentAccount.prestige.nameplateId);
+  const nameplateClass = currentAccount.prestige.nameplateId ?? 'nameplate-basic';
   const auraClass = currentAccount.prestige.homeAuraId ? ` ${currentAccount.prestige.homeAuraId}` : '';
-  setContent('customize', `<main class="custom-screen owned-custom-screen effect-locker-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="custom-layout"><aside class="custom-preview effect-preview"><div class="effect-preview-stage"><i class="effect-preview-aura${auraClass}" aria-hidden="true"></i><div class="effect-preview-avatar" data-effect-avatar></div><strong class="effect-preview-nameplate">${escapeHtml(nameplate?.label ?? currentAccount.nickname)}</strong><small>${escapeHtml(currentAccount.nickname)}</small></div><p>홈 캐릭터 · 닉네임 명찰 · 오라 미리보기</p></aside><section class="custom-catalog locker-catalog has-locker-subtabs"><nav class="locker-nav"><div class="locker-top-tabs" role="tablist">${([['character', '캐릭터'], ['skin', '스킨'], ['room', '방 꾸미기'], ['effects', '연출']] as const).map(([section, label]) => `<button type="button" class="custom-tab ${section === 'effects' ? 'active' : ''}" data-locker-section="${section}">${label}</button>`).join('')}</div><div class="locker-sub-tabs">${categories.map(([category, label]) => `<button type="button" class="${category === activeCategory ? 'active' : ''}" data-effect-category="${category}">${label}</button>`).join('')}</div></nav><div class="effect-locker-grid">${cards || '<p class="empty-collection">보유한 연출이 없습니다.<br/>구슬 교환의 소품 교환에서 획득할 수 있습니다.</p>'}</div></section></section></main>`);
+  setContent('customize', `<main class="custom-screen owned-custom-screen effect-locker-screen"><div class="custom-backdrop"></div><header class="custom-header"><button class="custom-back" data-custom-back aria-label="이전 화면">‹</button><div><span>MY LOCKER</span><h2>내 보관함</h2></div></header><section class="custom-layout"><aside class="custom-preview effect-preview"><div class="effect-preview-stage"><i class="effect-preview-aura${auraClass}" aria-hidden="true"></i><div class="effect-preview-avatar" data-effect-avatar></div><strong class="effect-preview-nameplate ${nameplateClass}">${escapeHtml(currentAccount.nickname)}</strong><small>${nameplate ? '인게임 명찰 장착 중' : '기본 인게임 명찰'}</small></div><p>인게임 플레이어 명찰 · 홈 오라 미리보기</p></aside><section class="custom-catalog locker-catalog has-locker-subtabs"><nav class="locker-nav"><div class="locker-top-tabs" role="tablist">${([['character', '캐릭터'], ['skin', '스킨'], ['room', '방 꾸미기'], ['effects', '연출']] as const).map(([section, label]) => `<button type="button" class="custom-tab ${section === 'effects' ? 'active' : ''}" data-locker-section="${section}">${label}</button>`).join('')}</div><div class="locker-sub-tabs">${categories.map(([category, label]) => `<button type="button" class="${category === activeCategory ? 'active' : ''}" data-effect-category="${category}">${label}</button>`).join('')}</div></nav><div class="effect-locker-grid">${cards || '<p class="empty-collection">보유한 연출이 없습니다.<br/>구슬 교환의 소품 교환에서 획득할 수 있습니다.</p>'}</div></section></section></main>`);
   const avatarHost = app.querySelector<HTMLElement>('[data-effect-avatar]');
   if (avatarHost) {
     customAvatarPreview?.destroy();
@@ -3656,7 +3675,7 @@ function cosmeticCollectionScreen(
         item.slot === "tile"
           ? `<div class="catalog-art cosmetic-art tile-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${tilePreviewUrl(item.id)}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 타일 미리보기" /></div>`
             : authoredTurretArt
-            ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
+            ? `<div class="catalog-art cosmetic-art turret-skin-card-art" style="--swatch:${item.swatch}"><img class="ready" src="${authoredTurretArt}?v=${TURRET_ART_VERSION}" alt="${escapeHtml(item.label)} Lv.1 미리보기" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
             : prestigePackageImage
               ? `<div class="catalog-art cosmetic-art prestige-package-card-art"><img class="ready" src="${prestigePackageImage}?v=${APP_RELEASE_VERSION}" alt="${escapeHtml(item.label)} 프레스티지 대표 이미지" loading="lazy" decoding="async" />${traitLabel ? `<span class="trait-ribbon">${escapeHtml(traitLabel)}</span>` : ""}</div>`
             : premiumSurfer
@@ -3811,9 +3830,11 @@ function cosmeticCollectionScreen(
         turretPreview.src = `${
           turretSkinAssetUrl(item.id, 1) ??
           "/assets/buildings/cute-basic-turret-1.png"
-        }?v=${APP_RELEASE_VERSION}`;
+        }?v=${TURRET_ART_VERSION}`;
         turretPreview.alt = `${item.label} Lv.1 미리보기`;
       }
+      const galleryButton = app.querySelector<HTMLButtonElement>('[data-turret-levels-open]');
+      if (galleryButton) galleryButton.dataset.turretSkinId = item.id;
     } else {
       const previewAppearance: AvatarAppearance =
         item.slot === "character"
@@ -3874,6 +3895,11 @@ function cosmeticCollectionScreen(
         }
       });
     });
+  app.querySelector<HTMLButtonElement>('[data-turret-levels-open]')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const button = event.currentTarget as HTMLButtonElement;
+    showTurretLevelGallery(button.dataset.turretSkinId ?? '');
+  });
   app.querySelector("[data-custom-back]")?.addEventListener("click", () => {
     if (!shopping && customizeReturnView === "room-menu") roomMenu();
     else if (

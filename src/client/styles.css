@@ -13120,6 +13120,119 @@ body.game-chat-active {
   font-weight: 850;
   text-align: center;
 }
+.turret-level-preview-trigger {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(132, 236, 255, 0.72);
+  border-radius: 999px;
+  color: #eafcff;
+  background: rgba(5, 18, 42, 0.86);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32), inset 0 0 10px rgba(82, 213, 255, 0.14);
+  font: 850 10px var(--game-arcade-font, sans-serif);
+  white-space: nowrap;
+}
+.turret-level-preview-trigger:active {
+  transform: translateY(1px);
+}
+
+.turret-level-gallery-modal {
+  z-index: 12000;
+  align-items: center;
+  padding: max(14px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom));
+}
+.turret-level-gallery-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(94vw, 430px);
+  max-height: min(86dvh, 760px);
+  overflow: hidden;
+  border: 1px solid #5e83d4;
+  border-radius: 24px;
+  color: #fff;
+  background: linear-gradient(180deg, #142a59, #080f2b 68%);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.62), inset 0 0 28px rgba(81, 198, 255, 0.08);
+}
+.turret-level-gallery-sheet > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 17px 17px 13px;
+  border-bottom: 1px solid rgba(112, 178, 255, 0.18);
+}
+.turret-level-gallery-sheet header div { min-width: 0; }
+.turret-level-gallery-sheet header small {
+  color: #72eaff;
+  font: 900 9px var(--game-arcade-font, sans-serif);
+  letter-spacing: 0.16em;
+}
+.turret-level-gallery-sheet h2 {
+  margin: 3px 0 0;
+  font: 950 21px var(--game-arcade-font, sans-serif);
+}
+.turret-level-gallery-sheet header p {
+  margin: 4px 0 0;
+  color: #9eb6df;
+  font-size: 10px;
+}
+.turret-level-gallery-sheet [data-modal-close] {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  padding: 0;
+  border: 2px solid #72e9ff;
+  border-radius: 50%;
+  color: #fff;
+  background: #20386f;
+  font: 700 27px/1 sans-serif;
+}
+.turret-level-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  min-height: 0;
+  padding: 12px 12px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.turret-level-gallery-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 6px 8px;
+  border: 1px solid rgba(103, 155, 232, 0.48);
+  border-radius: 14px;
+  background: linear-gradient(155deg, rgba(39, 70, 137, 0.9), rgba(10, 21, 52, 0.94));
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.24);
+}
+.turret-level-gallery-card > div {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: radial-gradient(circle, rgba(70, 217, 255, 0.2), rgba(5, 11, 30, 0.8) 68%);
+}
+.turret-level-gallery-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 5px rgba(0, 0, 0, 0.45));
+}
+.turret-level-gallery-card strong {
+  color: #ffe47c;
+  font: 900 11px var(--game-arcade-font, sans-serif);
+  text-align: center;
+}
 .turret-skin-card-art {
   overflow: hidden;
   border: 1px solid rgba(255, 213, 100, 0.34);

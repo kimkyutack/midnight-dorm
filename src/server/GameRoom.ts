@@ -159,6 +159,7 @@ export class GameRoom extends DurableObject<Env> {
       : 800;
     const profileAvatarUrl = request.headers.get('x-profile-avatar-url') || null;
     const profileFrameId = request.headers.get('x-profile-frame-id') || null;
+    const nameplateId = request.headers.get('x-prestige-nameplate-id') || null;
     let equippedEmoteIds: string[] = [];
     try {
       const parsed = JSON.parse(decodeURIComponent(request.headers.get('x-profile-emote-ids') ?? '[]'));
@@ -216,6 +217,7 @@ export class GameRoom extends DurableObject<Env> {
         profileRankedRating,
         profileAvatarUrl,
         profileFrameId,
+        nameplateId,
         equippedEmoteIds,
         appearance,
         turretSkins,

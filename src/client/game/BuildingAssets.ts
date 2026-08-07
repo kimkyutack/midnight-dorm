@@ -3,7 +3,7 @@ import { turretSkinAssetUrl } from '../../shared/customization';
 
 // Asset URLs are versioned so a device with an older service-worker/image
 // cache receives the new illustration set immediately after an app update.
-const BUILDING_ART_VERSION = 'cute-tile-v14-prestige-evolution';
+const BUILDING_ART_VERSION = 'cute-tile-v15-prestige-evolution';
 
 const LEVELLED_BUILDINGS = new Set<BuildingKind>([
   'basic-turret',

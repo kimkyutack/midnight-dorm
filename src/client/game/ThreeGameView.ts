@@ -396,7 +396,8 @@ interface PlayerView {
   lastPosition: THREE.Vector3;
   seed: number;
   prestigeTheme: PrestigeMotionTheme | null;
-  prestigeWisps: THREE.Mesh[];
+  prestigeTrailTexture: PrestigeTrailTexture | null;
+  lastPrestigeTrailTile: Vec2;
   prestigeTrail: Array<{ effect: THREE.Group; tileKey: string }>;
 }
 
@@ -619,6 +620,18 @@ function effectMesh(
 }
 
 type PrestigeMotionTheme = 'moonlit' | 'starlit' | 'abyssal';
+interface PrestigeTrailTexture {
+  texture: THREE.Texture;
+  packedAlpha: boolean;
+}
+
+// The authored loops stay shared per theme: every tile samples one video
+// texture rather than creating a decoder for each of the four to six trails.
+const PRESTIGE_MOTION_VIDEO_EFFECT_ASSETS: Record<PrestigeMotionTheme, string> = {
+  moonlit: '/assets/prestige/moonlit-phantom-fox/effects/moonfire-trail.webm?revision=2',
+  starlit: '/assets/prestige/starlit-cloud-rabbit/effects/starlight-trail.webm?revision=2',
+  abyssal: '/assets/prestige/abyssal-knight-gorilla/effects/abyssal-fire-trail.webm?revision=1',
+};
 
 function prestigeMotionTheme(skinId: string): PrestigeMotionTheme | null {
   if (skinId === 'skin-look-fox-moonlit-phantom') return 'moonlit';
@@ -627,67 +640,68 @@ function prestigeMotionTheme(skinId: string): PrestigeMotionTheme | null {
   return null;
 }
 
-function makeFoxfire(size = 0.24, color = 0x54efff, opacity = 0.82): THREE.Mesh {
-  const fire = effectMesh(
-    new THREE.CircleGeometry(size, 16),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  );
-  fire.rotation.x = -Math.PI / 2;
-  fire.renderOrder = 8_580;
-  return fire;
-}
-
-function makePrestigeTrailEffect(theme: PrestigeMotionTheme): THREE.Group {
+function makePrestigeTrailEffect(
+  theme: PrestigeMotionTheme,
+  trailTexture: PrestigeTrailTexture,
+): THREE.Group {
   const root = new THREE.Group();
-  root.renderOrder = 8_580;
-  const colors = theme === 'moonlit'
-    ? [0x25dcff, 0x628cff, 0xb9f8ff]
-    : theme === 'abyssal'
-      ? [0x8b2cff, 0xe13dff, 0xff684b]
-      : [0x8cecff, 0xffefad, 0xb08cff];
-  const materialList: THREE.MeshBasicMaterial[] = [];
-  const addGlow = (x: number, z: number, size: number, color: number, opacity: number): void => {
-    const material = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(size, theme === 'starlit' ? 5 : 14), material);
-    glow.rotation.x = -Math.PI / 2;
-    glow.rotation.z = theme === 'starlit' ? Math.PI / 4 : 0;
-    glow.position.set(x, 0, z);
-    glow.renderOrder = 8_580;
-    root.add(glow);
-    materialList.push(material);
-  };
-  if (theme === 'starlit') {
-    addGlow(-0.22, -0.12, 0.22, colors[0]!, 0.92);
-    addGlow(0.18, 0.08, 0.14, colors[1]!, 0.86);
-    addGlow(0.02, 0.25, 0.1, colors[2]!, 0.75);
-  } else {
-    addGlow(-0.2, 0.05, 0.32, colors[0]!, 0.86);
-    addGlow(0.18, -0.05, 0.28, colors[1]!, 0.78);
-    addGlow(0.02, 0.18, 0.2, colors[2]!, 0.66);
-  }
-  root.userData.prestigeTrailMaterials = materialList;
-  root.position.y = 0.058;
+  // Draw after the opaque floor but before the survivor plane.  The room tile
+  // top is roughly y=.083, so keeping this effect above .10 prevents the
+  // prestige fire from disappearing inside a skinned floor tile.
+  root.renderOrder = 5_100;
+  const initialOpacity = theme === 'starlit' ? 0.96 : 0.9;
+  // WebM alpha is decoded inconsistently on mobile Safari. Each authored
+  // clip therefore packs RGB on the left and its grayscale alpha mask on the
+  // right; this shader reconstructs true transparency from one shared video
+  // decoder per prestige theme.
+  const material = trailTexture.packedAlpha
+    ? new THREE.ShaderMaterial({
+        uniforms: {
+          map: { value: trailTexture.texture },
+          opacity: { value: initialOpacity },
+        },
+        vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `varying vec2 vUv; uniform sampler2D map; uniform float opacity; void main() { vec4 color = texture2D(map, vec2(vUv.x * 0.5, vUv.y)); float alpha = texture2D(map, vec2(0.5 + vUv.x * 0.5, vUv.y)).r * opacity; if (alpha < 0.015) discard; gl_FragColor = vec4(color.rgb, alpha); }`,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshBasicMaterial({
+        map: trailTexture.texture,
+        color: 0xffffff,
+        transparent: true,
+        opacity: initialOpacity,
+        alphaTest: 0.015,
+        blending: THREE.NormalBlending,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+        side: THREE.DoubleSide,
+      });
+  const width = theme === 'abyssal' ? 1.22 : theme === 'starlit' ? 1.12 : 1.08;
+  const depth = theme === 'abyssal' ? 0.74 : theme === 'starlit' ? 0.72 : 0.7;
+  const image = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
+  image.rotation.x = -Math.PI / 2;
+  image.renderOrder = 5_100;
+  root.add(image);
+  root.userData.prestigeTrailMaterials = [material];
+  root.position.y = ROOM_FLOOR_CENTER_Y + FLOOR_TILE_HEIGHT / 2 + 0.025;
   return root;
 }
 
 function setPrestigeTrailOpacity(effect: THREE.Group, opacity: number): void {
-  const materials = effect.userData.prestigeTrailMaterials as THREE.MeshBasicMaterial[] | undefined;
-  materials?.forEach((material, index) => {
-    material.opacity = opacity * (1 - index * 0.12);
+  const materials = effect.userData.prestigeTrailMaterials as Array<THREE.MeshBasicMaterial | THREE.ShaderMaterial> | undefined;
+  materials?.forEach((material) => {
+    if (material instanceof THREE.ShaderMaterial) {
+      const opacityUniform = material.uniforms.opacity;
+      if (opacityUniform) opacityUniform.value = opacity;
+    } else material.opacity = opacity;
   });
 }
 
@@ -802,6 +816,92 @@ function updateProfileBadge(sprite: THREE.Sprite, player: PlayerState): string {
   return display.badgeKey;
 }
 
+type InGameNameplateTheme = 'moonlit' | 'starlit' | 'abyssal' | null;
+
+function inGameNameplateTheme(nameplateId?: string | null): InGameNameplateTheme {
+  if (nameplateId === 'nameplate-moonlit-phantom') return 'moonlit';
+  if (nameplateId === 'nameplate-starlit-cloud') return 'starlit';
+  if (nameplateId === 'nameplate-abyssal-knight') return 'abyssal';
+  return null;
+}
+
+function drawPrestigeNameplate(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  theme: Exclude<InGameNameplateTheme, null>,
+): void {
+  const palettes = {
+    moonlit: ['#06152f', '#143d79', '#75eaff', '#d8f8ff'],
+    starlit: ['#172351', '#4966ba', '#ffe7a4', '#f7fbff'],
+    abyssal: ['#170919', '#491333', '#ff704c', '#f1b4ff'],
+  } as const;
+  const [deep, mid, accent, shine] = palettes[theme];
+  const body = context.createLinearGradient(0, 0, width, height);
+  body.addColorStop(0, deep);
+  body.addColorStop(0.5, mid);
+  body.addColorStop(1, deep);
+  context.fillStyle = body;
+  context.beginPath();
+  context.roundRect(8, 13, width - 16, height - 26, 38);
+  context.fill();
+  context.strokeStyle = accent;
+  context.lineWidth = 5;
+  context.stroke();
+  context.strokeStyle = `${shine}88`;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.roundRect(16, 21, width - 32, height - 42, 29);
+  context.stroke();
+
+  context.save();
+  context.fillStyle = accent;
+  context.shadowColor = accent;
+  context.shadowBlur = 13;
+  if (theme === 'moonlit') {
+    for (const x of [35, width - 35]) {
+      context.beginPath();
+      context.arc(x, height / 2, 18, 0.45 * Math.PI, 1.55 * Math.PI);
+      context.arc(x + (x < width / 2 ? 8 : -8), height / 2, 14, 1.55 * Math.PI, 0.45 * Math.PI, true);
+      context.fill();
+    }
+  } else if (theme === 'starlit') {
+    for (const x of [36, width - 36]) {
+      context.beginPath();
+      context.moveTo(x, height / 2 - 19);
+      context.lineTo(x + 6, height / 2 - 6);
+      context.lineTo(x + 19, height / 2);
+      context.lineTo(x + 6, height / 2 + 6);
+      context.lineTo(x, height / 2 + 19);
+      context.lineTo(x - 6, height / 2 + 6);
+      context.lineTo(x - 19, height / 2);
+      context.lineTo(x - 6, height / 2 - 6);
+      context.closePath();
+      context.fill();
+    }
+  } else {
+    for (const x of [36, width - 36]) {
+      context.beginPath();
+      context.moveTo(x, height / 2 - 22);
+      context.lineTo(x + 18, height / 2);
+      context.lineTo(x, height / 2 + 22);
+      context.lineTo(x - 18, height / 2);
+      context.closePath();
+      context.fill();
+      context.fillStyle = deep;
+      context.beginPath();
+      context.moveTo(x, height / 2 - 10);
+      context.lineTo(x + 8, height / 2);
+      context.lineTo(x, height / 2 + 10);
+      context.lineTo(x - 8, height / 2);
+      context.closePath();
+      context.fill();
+      context.fillStyle = accent;
+    }
+  }
+  context.restore();
+}
+
 function updateTextBillboard(
   sprite: THREE.Sprite,
   key: string,
@@ -811,6 +911,7 @@ function updateTextBillboard(
   gradient: readonly [string, string, string] | null = null,
   fitToText = false,
   fontSize = 42,
+  nameplateTheme: InGameNameplateTheme = null,
 ): void {
   const data = sprite.userData.billboard as BillboardData;
   if (data.key === key) return;
@@ -829,13 +930,17 @@ function updateTextBillboard(
     }
   }
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = background;
-  context.beginPath();
-  context.roundRect(10, 18, canvas.width - 20, canvas.height - 36, Math.min(42, canvas.height / 3));
-  context.fill();
-  context.strokeStyle = 'rgba(210,232,255,.34)';
-  context.lineWidth = 4;
-  context.stroke();
+  if (nameplateTheme) {
+    drawPrestigeNameplate(context, canvas.width, canvas.height, nameplateTheme);
+  } else {
+    context.fillStyle = background;
+    context.beginPath();
+    context.roundRect(10, 18, canvas.width - 20, canvas.height - 36, Math.min(42, canvas.height / 3));
+    context.fill();
+    context.strokeStyle = 'rgba(210,232,255,.34)';
+    context.lineWidth = 4;
+    context.stroke();
+  }
   context.fillStyle = gradient
     ? (() => {
       const fill = context.createLinearGradient(82, 0, canvas.width - 82, 0);
@@ -1005,8 +1110,11 @@ function disposeTransientObject(object: THREE.Object3D): void {
           material instanceof THREE.MeshBasicMaterial ||
           material instanceof THREE.MeshStandardMaterial) &&
         material.map instanceof THREE.Texture
-      )
-        textures.add(material.map);
+      ) {
+        if (!material.map.userData.sharedEnvironmentTexture) {
+          textures.add(material.map);
+        }
+      }
     }
   });
   for (const texture of textures) texture.dispose();
@@ -2306,6 +2414,10 @@ export class ThreeGameView {
   private readonly roomTileSkinViews = new Map<string, RoomTileSkinView>();
   private readonly contaminationViews = new Map<string, THREE.Group>();
   private readonly environmentTextures = new Map<string, THREE.Texture>();
+  private readonly prestigeTrailVideos = new Map<PrestigeMotionTheme, {
+    video: HTMLVideoElement;
+    texture: THREE.VideoTexture;
+  }>();
   private readonly playerStateById = new Map<string, PlayerState>();
   private readonly ghostStateById = new Map<string, GhostState>();
   private readonly buildingStateById = new Map<string, BuildingState>();
@@ -2964,6 +3076,13 @@ export class ThreeGameView {
     });
     for (const texture of this.environmentTextures.values()) texture.dispose();
     this.environmentTextures.clear();
+    for (const { video, texture } of this.prestigeTrailVideos.values()) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      texture.dispose();
+    }
+    this.prestigeTrailVideos.clear();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.hudCanvas.remove();
@@ -4019,8 +4138,49 @@ export class ThreeGameView {
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    texture.userData.sharedEnvironmentTexture = true;
     this.environmentTextures.set(url, texture);
     return texture;
+  }
+
+  private loadPrestigeTrailTexture(theme: PrestigeMotionTheme): PrestigeTrailTexture {
+    const cached = this.prestigeTrailVideos.get(theme);
+    if (cached) return { texture: cached.texture, packedAlpha: true };
+
+    const video = document.createElement('video');
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.loop = true;
+    video.preload = 'auto';
+    video.src = PRESTIGE_MOTION_VIDEO_EFFECT_ASSETS[theme];
+
+    const texture = new THREE.VideoTexture(video);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    this.prestigeTrailVideos.set(theme, { video, texture });
+
+    const start = () => {
+      void video.play().catch(() => {
+        // Muted inline media normally starts automatically. If a browser keeps
+        // the decoder paused until the first gesture, the static fallback is
+        // still available and the next game input retries playback.
+        this.renderer.domElement.addEventListener('pointerdown', start, {
+          once: true,
+          passive: true,
+        });
+      });
+    };
+    video.addEventListener('canplay', start, { once: true });
+    video.addEventListener('error', () => {
+      texture.dispose();
+      this.prestigeTrailVideos.delete(theme);
+    }, { once: true });
+    video.load();
+    start();
+    return { texture, packedAlpha: true };
   }
 
   private addTileInstances(
@@ -4346,13 +4506,9 @@ export class ThreeGameView {
         const actor = new AtlasSpriteActor(survivorSpriteDefinition(player.appearance));
         root.add(actor.object);
         const prestigeTheme = prestigeMotionTheme(player.appearance.skin);
-        const prestigeWisps = prestigeTheme
-          ? [
-              makeFoxfire(0.12, prestigeTheme === 'abyssal' ? 0xca45ff : prestigeTheme === 'starlit' ? 0xffefac : 0x54efff),
-              makeFoxfire(0.09, prestigeTheme === 'abyssal' ? 0x7d36ff : prestigeTheme === 'starlit' ? 0x8cecff : 0x788cff),
-            ]
-          : [];
-        prestigeWisps.forEach((wisp) => root.add(wisp));
+        const prestigeTrailTexture = prestigeTheme
+          ? this.loadPrestigeTrailTexture(prestigeTheme)
+          : null;
         const label = makeBillboard();
         label.scale.set(2.48, 0.66, 1);
         label.position.set(0.1, PLAYER_HEIGHT + 0.42, -0.72);
@@ -4373,7 +4529,11 @@ export class ThreeGameView {
           lastPosition: worldPoint(player.position),
           seed: player.id.length * 0.71,
           prestigeTheme,
-          prestigeWisps,
+          prestigeTrailTexture,
+          lastPrestigeTrailTile: {
+            x: Math.round(player.position.x),
+            y: Math.round(player.position.y),
+          },
           prestigeTrail: [],
         };
         this.playerViews.set(player.id, view);
@@ -4397,12 +4557,14 @@ export class ThreeGameView {
       }
       updateTextBillboard(
         view.label,
-        `${profileDisplay.badgeKey}:${profileDisplay.label}:${player.nickname}`,
+        `${profileDisplay.badgeKey}:${profileDisplay.label}:${player.nickname}:${player.nameplateId ?? 'basic'}`,
         `${profileDisplay.label} · ${player.nickname}`,
         elite ? '#ecc9ff' : '#ffffff',
         'rgba(5,8,17,.78)',
         profileDisplay.rank ? rankLabelGradient(profileDisplay.rank) : null,
         true,
+        42,
+        inGameNameplateTheme(player.nameplateId),
       );
       const labelWidth = (view.label.userData.billboard as BillboardData).canvas.width;
       const labelScaleX = 2.48 * (labelWidth / 512);
@@ -5096,18 +5258,22 @@ export class ThreeGameView {
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
       if (view.prestigeTheme) {
-        view.prestigeWisps.forEach((wisp, index) => {
-          const phase = time * 0.0045 + view.seed + index * Math.PI;
-          wisp.position.set(Math.cos(phase) * (0.42 + index * 0.08), 0.24 + Math.sin(phase * 1.4) * 0.12, Math.sin(phase) * 0.32);
-          wisp.scale.setScalar(moving ? 1 + Math.sin(phase * 2) * 0.2 : 0.72);
-        });
-        if (moving) {
-          const tileKey = `${Math.round(view.root.position.x)},${Math.round(view.root.position.z)}`;
-          const last = view.prestigeTrail[view.prestigeTrail.length - 1];
-          if (last?.tileKey !== tileKey) {
-            const effect = makePrestigeTrailEffect(view.prestigeTheme);
-            effect.position.x = Math.round(view.root.position.x);
-            effect.position.z = Math.round(view.root.position.z);
+        const tile = {
+          x: Math.round(view.root.position.x),
+          y: Math.round(view.root.position.z),
+        };
+        if (moving && view.prestigeTrailTexture) {
+          const previous = view.lastPrestigeTrailTile;
+          const tileKey = `${previous.x},${previous.y}`;
+          if (previous.x !== tile.x || previous.y !== tile.y) {
+            const effect = makePrestigeTrailEffect(
+              view.prestigeTheme,
+              view.prestigeTrailTexture,
+            );
+            // The current tile deliberately remains clean. The loop is left on
+            // the tile the survivor has already crossed, never under their feet.
+            effect.position.x = previous.x;
+            effect.position.z = previous.y;
             this.scene.add(effect);
             view.prestigeTrail.push({ effect, tileKey });
             const trailLimit = view.prestigeTheme === 'moonlit' ? 4 : view.prestigeTheme === 'abyssal' ? 5 : 6;
@@ -5120,6 +5286,7 @@ export class ThreeGameView {
             }
           }
         }
+        view.lastPrestigeTrailTile = tile;
         view.prestigeTrail.forEach((trail, index) => {
           const progress = (index + 1) / Math.max(1, view.prestigeTrail.length);
           trail.effect.scale.setScalar(0.72 + progress * 0.48 + Math.sin(time * 0.006 + index) * 0.07);

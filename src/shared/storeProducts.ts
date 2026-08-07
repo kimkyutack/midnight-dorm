@@ -5,7 +5,7 @@ export const CASH_STORE_PRODUCTS = [
   { id: 'com.midnightdorm.cash.1200', cash: 1_200, fallbackPriceKrw: 15_000 },
   { id: 'com.midnightdorm.cash.2500', cash: 2_500, fallbackPriceKrw: 30_000 },
   { id: 'com.midnightdorm.cash.5200', cash: 5_200, fallbackPriceKrw: 60_000 },
-  { id: 'com.midnightdorm.cash.10400', cash: 10_400, fallbackPriceKrw: 156_000 },
+  { id: 'com.midnightdorm.cash.10800', cash: 10_800, fallbackPriceKrw: 120_000 },
 ] as const;
 
 export type CashStoreProduct = typeof CASH_STORE_PRODUCTS[number];

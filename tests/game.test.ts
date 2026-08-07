@@ -46,20 +46,20 @@ describe('cash store products', () => {
     expect(STORE_PRODUCT_IDS).toEqual(CASH_STORE_PRODUCTS.map((product) => product.id));
     expect(new Set(STORE_PRODUCT_IDS).size).toBe(STORE_PRODUCT_IDS.length);
     expect(CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.1200')?.cash).toBe(1_200);
-    expect(CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10400')).toMatchObject({
-      cash: 10_400,
-      fallbackPriceKrw: 156_000,
+    expect(CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10800')).toMatchObject({
+      cash: 10_800,
+      fallbackPriceKrw: 120_000,
     });
-    expect(Math.max(...CASH_STORE_PRODUCTS.map((product) => product.cash))).toBe(10_400);
+    expect(Math.max(...CASH_STORE_PRODUCTS.map((product) => product.cash))).toBe(10_800);
     expect(CASH_STORE_PRODUCTS.every((product) => product.cash > 0 && product.fallbackPriceKrw > 0)).toBe(true);
   });
 
   it('adds the 20 percent bonus exactly once for each product SKU', () => {
-    const product = CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10400');
+    const product = CASH_PRODUCT_BY_ID.get('com.midnightdorm.cash.10800');
     expect(product).toBeDefined();
-    expect(firstCashPurchaseBonus(product!)).toBe(2_080);
-    expect(cashGrantAmount(product!, true)).toBe(12_480);
-    expect(cashGrantAmount(product!, false)).toBe(10_400);
+    expect(firstCashPurchaseBonus(product!)).toBe(2_160);
+    expect(cashGrantAmount(product!, true)).toBe(12_960);
+    expect(cashGrantAmount(product!, false)).toBe(10_800);
   });
 });
 
@@ -70,8 +70,8 @@ describe('moonlit phantom prestige rules', () => {
     expect(ids.has(MOONLIT_PHANTOM_SKIN_ID)).toBe(false);
     expect(ids.has(MOONLIT_PHANTOM_TILE_ID)).toBe(false);
     expect(ids.has(MOONLIT_FOXFIRE_TURRET_ID)).toBe(false);
-    expect(GHOST_ORB_PITY_DRAWS * 10 * GHOST_ORB_CASH_COST).toBe(33_000);
-    expect(GHOST_ORB_CASH_COST).toBe(100);
+    expect(GHOST_ORB_PITY_DRAWS * 10 * GHOST_ORB_CASH_COST).toBe(44_550);
+    expect(GHOST_ORB_CASH_COST).toBe(135);
   });
 
   it('refunds duplicate cosmetics at the exact current point-shop price', () => {
@@ -86,6 +86,7 @@ describe('moonlit phantom prestige rules', () => {
     const pointWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'points').reduce((sum, reward) => sum + reward.weight, 0);
     const cosmeticWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'cosmetic').reduce((sum, reward) => sum + reward.weight, 0);
     const naturalOrbWeight = GHOST_ORB_DRAW_TABLE.filter((reward) => reward.kind === 'orbs').reduce((sum, reward) => sum + reward.weight, 0);
+    expect(totalWeight).toBeCloseTo(100, 6);
     expect(pointWeight / totalWeight).toBeGreaterThan(0.95);
     expect(cosmeticWeight / totalWeight).toBeLessThan(0.04);
     expect(naturalOrbWeight / totalWeight).toBeLessThan(0.005);
@@ -1298,7 +1299,7 @@ describe('survivor customization rules', () => {
     const base = { character: 'character-fox', skin: 'skin-none', tile: 'tile-none', turret: 'turret-none' };
     expect(survivorSpriteDefinition({ ...base, skin: 'skin-look-fox-moonlit-phantom' }).movementSideFacesLeft).toBe(false);
     expect(survivorSpriteDefinition({ ...base, character: 'character-bunny', skin: 'skin-look-bunny-starlit-cloud' }).movementSideFacesLeft).toBe(true);
-    expect(survivorSpriteDefinition({ ...base, character: 'character-gorilla', skin: 'skin-look-gorilla-abyssal-knight' }).movementSideFacesLeft).toBe(true);
+    expect(survivorSpriteDefinition({ ...base, character: 'character-gorilla', skin: 'skin-look-gorilla-abyssal-knight' }).movementSideFacesLeft).toBe(false);
   });
 
   it('rotates the -Z-facing avatar toward movement instead of walking backward', () => {
@@ -3616,6 +3617,27 @@ describe('protocol and lifecycle', () => {
     const result = engine.join({ nickname: 'Tester1', deviceId: 'device-test-1', reconnectToken: tokens[0] }, now + 29_000);
     expect(result.reconnected).toBe(true);
     expect(result.player.id).toBe(ids[0]);
+  });
+
+  it('keeps the equipped prestige nameplate in player state and reconnects', () => {
+    const map = generateMap(72_931, 'solo');
+    const engine = new GameEngine('NAMEPLATE', map, false, { playMode: 'solo' });
+    const joined = engine.join({
+      nickname: '명찰점검',
+      deviceId: 'device-nameplate-check',
+      nameplateId: 'nameplate-moonlit-phantom',
+    });
+    expect(engine.snapshot().players[0]?.nameplateId).toBe('nameplate-moonlit-phantom');
+
+    const now = 1_750_000_000_000;
+    engine.disconnect(joined.player.id, now);
+    const reconnected = engine.join({
+      nickname: '명찰점검',
+      deviceId: 'device-nameplate-check',
+      reconnectToken: joined.reconnectToken,
+      nameplateId: 'nameplate-starlit-cloud',
+    }, now + 5_000);
+    expect(reconnected.player.nameplateId).toBe('nameplate-starlit-cloud');
   });
 
   it('marks an inactive room eligible for automatic cleanup', () => {

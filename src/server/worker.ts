@@ -319,6 +319,7 @@ async function routeRoom(request: Request, env: Env, code: string, action: 'ws' 
   headers.set('x-profile-ranked-rating', String(profile.ranked.rating));
   headers.set('x-profile-avatar-url', profile.profileAvatarUrl ?? '');
   headers.set('x-profile-frame-id', profile.prestige.profileFrameId ?? '');
+  headers.set('x-prestige-nameplate-id', profile.prestige.nameplateId ?? '');
   headers.set('x-profile-emote-ids', encodeURIComponent(JSON.stringify(profile.prestige.equippedEmoteIds)));
   headers.set('x-avatar-appearance', encodeURIComponent(JSON.stringify(profile.appearance)));
   headers.set('x-turret-skins', encodeURIComponent(JSON.stringify(profile.turretSkins)));

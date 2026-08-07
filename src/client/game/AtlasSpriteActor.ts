@@ -334,8 +334,7 @@ export function survivorSpriteId(characterId: string): string {
 export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpriteDefinition {
   const authoredSideFacesLeft =
     appearance.character === 'character-puppy' ||
-    appearance.skin === 'skin-look-bunny-starlit-cloud' ||
-    appearance.skin === 'skin-look-gorilla-abyssal-knight';
+    appearance.skin === 'skin-look-bunny-starlit-cloud';
   return {
     movementUrl: skinMovementSheetUrl(appearance),
     sleepUrl: skinSleepUrl(appearance),
@@ -345,7 +344,8 @@ export function survivorSpriteDefinition(appearance: AvatarAppearance): AtlasSpr
     // Every current paperdoll sheet follows front/back/side row order.
     // The old puppy-only swap made 몽 visibly walk backwards.
     frontBackSwapped: false,
-    // 몽과 토끼/고릴라 프레스티지 원본은 측면 행이 왼쪽을 향한다.
+    // 몽과 토끼 프레스티지 원본은 측면 행이 왼쪽을 향한다.
+    // 고릴라 프레스티지는 오른쪽 기준으로 다시 제작되어 반전하지 않는다.
     // 원본 방향을 명시하지 않으면 이동 입력과 반대로 걷는 것처럼 보인다.
     movementSideFacesLeft: authoredSideFacesLeft,
   };

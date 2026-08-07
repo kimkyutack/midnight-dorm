@@ -955,6 +955,7 @@ export class GameEngine {
         player.profileRankedRating = normalizeProfileRankedRating(identity.profileRankedRating);
         player.profileAvatarUrl = identity.profileAvatarUrl ?? null;
         player.profileFrameId = identity.profileFrameId ?? null;
+        player.nameplateId = identity.nameplateId ?? null;
         player.equippedEmoteIds = [...new Set(identity.equippedEmoteIds ?? [])].slice(0, 4);
         player.appearance = normalizeAppearance(
           identity.appearance ?? player.appearance,
@@ -999,6 +1000,7 @@ export class GameEngine {
       identity.profileAvatarUrl,
       identity.profileRankedSeasonId,
       identity.profileFrameId,
+      identity.nameplateId,
       identity.equippedEmoteIds,
     );
     this.state.players.push(player);
@@ -5905,6 +5907,9 @@ export class GameEngine {
         player.profileRankedRating,
         player.profileAvatarUrl,
         player.profileRankedSeasonId,
+        player.profileFrameId,
+        player.nameplateId,
+        player.equippedEmoteIds,
       );
       next.consumableLoadout = [...player.consumableLoadout];
       return { ...next, connected: player.connected, ready: player.isBot };
@@ -5991,6 +5996,7 @@ export class GameEngine {
     profileAvatarUrl: string | null = null,
     profileRankedSeasonId = 'S1',
     profileFrameId: string | null = null,
+    nameplateId: string | null = null,
     equippedEmoteIds: string[] = [],
   ): PlayerState {
     const benefits = rankBenefits(
@@ -6009,6 +6015,7 @@ export class GameEngine {
       profileRankedRating: normalizeProfileRankedRating(profileRankedRating),
       profileAvatarUrl,
       profileFrameId,
+      nameplateId,
       equippedEmoteIds: [...new Set(equippedEmoteIds)].slice(0, 4),
       appearance: normalizeAppearance(appearance),
       turretSkins: normalizeTurretSkins(turretSkins),

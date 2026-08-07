@@ -185,6 +185,7 @@ export interface PlayerState {
   /** Public, versioned same-origin profile image URL when the player chose one. */
   profileAvatarUrl?: string | null;
   profileFrameId?: string | null;
+  nameplateId?: string | null;
   equippedEmoteIds?: string[];
   appearance: AvatarAppearance;
   color: number;
@@ -716,6 +717,7 @@ export interface JoinIdentity {
   profileRankedRating?: number;
   profileAvatarUrl?: string | null;
   profileFrameId?: string | null;
+  nameplateId?: string | null;
   equippedEmoteIds?: string[];
   appearance?: AvatarAppearance;
   turretSkins?: TurretSkinLoadout;
