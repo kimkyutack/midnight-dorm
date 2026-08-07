@@ -1,5 +1,5 @@
 import { higherRank, rankedTierForRating, rankFromXp } from '../shared/progression';
-import type { DirectMessage, FriendRequest, SocialConversation, SocialFriend, SocialInvite, SocialPerson, SocialSnapshot } from '../shared/social';
+import type { DirectMessage, FriendRequest, SocialConversation, SocialFriend, SocialInvite, SocialInviteMode, SocialPerson, SocialSnapshot } from '../shared/social';
 import type { AccountProfile, RankId } from '../shared/types';
 import { getAuthenticatedProfile } from './auth';
 import type { SocialPresence } from './SocialPresence';
@@ -11,7 +11,18 @@ const MAX_MESSAGE_LENGTH = 200;
 const MESSAGE_WINDOW_MS = 5_000;
 const MAX_MESSAGES_PER_WINDOW = 5;
 const INVITE_TTL_MS = 5 * 60_000;
+const HIDE_SEEK_INVITE_PREFIX = 'HS:';
 const noStoreHeaders = { 'cache-control': 'no-store, max-age=0, must-revalidate', pragma: 'no-cache' };
+
+export function encodeSocialRoomInvite(roomCode: string, mode: SocialInviteMode): string {
+  return mode === 'hide-seek' ? `${HIDE_SEEK_INVITE_PREFIX}${roomCode}` : roomCode;
+}
+
+export function decodeSocialRoomInvite(storedCode: string): { roomCode: string; mode: SocialInviteMode } {
+  return storedCode.startsWith(HIDE_SEEK_INVITE_PREFIX)
+    ? { roomCode: storedCode.slice(HIDE_SEEK_INVITE_PREFIX.length), mode: 'hide-seek' }
+    : { roomCode: storedCode, mode: 'defense' };
+}
 
 export interface SocialEnv {
   SOCIAL_PRESENCE: DurableObjectNamespace<SocialPresence>;
@@ -226,10 +237,13 @@ async function snapshotFor(db: D1Database, profile: AccountProfile): Promise<Soc
     unreadCount += unreadMessages;
     conversations.push({ ...other, lastMessage: messageFromRow(row), unreadCount: unreadMessages });
   }
-  const invites = (inviteRows.results ?? []).map((row) => ({
-    ...personFromRow({ ...row, id: row.sender_id }), id: row.id, roomCode: row.room_code,
-    createdAt: row.created_at, expiresAt: row.expires_at,
-  })) as SocialInvite[];
+  const invites = (inviteRows.results ?? []).map((row) => {
+    const target = decodeSocialRoomInvite(row.room_code);
+    return {
+      ...personFromRow({ ...row, id: row.sender_id }), id: row.id, roomCode: target.roomCode,
+      mode: target.mode, createdAt: row.created_at, expiresAt: row.expires_at,
+    };
+  }) as SocialInvite[];
   unreadCount += invites.length;
   return {
     friendCode: codeRow?.friend_code || friendCodeFor(profile.id),
@@ -374,16 +388,17 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
     }
     if (url.pathname === '/api/social/invites' && request.method === 'POST') {
       if (!sameOrigin(request)) return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
-      const body = await request.json<{ recipientId?: unknown; roomCode?: unknown }>().catch(() => ({}));
-      const inviteBody = body as { recipientId?: unknown; roomCode?: unknown };
+      const body = await request.json<{ recipientId?: unknown; roomCode?: unknown; mode?: unknown }>().catch(() => ({}));
+      const inviteBody = body as { recipientId?: unknown; roomCode?: unknown; mode?: unknown };
       const recipientId = typeof inviteBody.recipientId === 'string' ? inviteBody.recipientId : '';
       const roomCode = typeof inviteBody.roomCode === 'string' ? inviteBody.roomCode.trim().toUpperCase() : '';
+      const mode: SocialInviteMode = inviteBody.mode === 'hide-seek' ? 'hide-seek' : 'defense';
       if (!/^[A-Z2-9]{8}$/.test(roomCode)) return Response.json({ error: '초대할 방 코드를 확인해주세요.' }, { status: 400 });
       if (!await requireFriendship(db, profile.id, recipientId)) return Response.json({ error: '친구에게만 초대할 수 있습니다.' }, { status: 403 });
       const now = Date.now();
       await db.prepare(`INSERT INTO game_invites (id, sender_account_id, recipient_account_id, room_code, created_at, expires_at)
         VALUES (?, ?, ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), profile.id, recipientId, roomCode, now, now + INVITE_TTL_MS).run();
+        .bind(crypto.randomUUID(), profile.id, recipientId, encodeSocialRoomInvite(roomCode, mode), now, now + INVITE_TTL_MS).run();
       await push(env, recipientId, { type: 'invite', fromAccountId: profile.id });
       return Response.json({ ok: true });
     }
@@ -398,7 +413,12 @@ export async function routeSocial(request: Request, db: D1Database, env: SocialE
       if (!invite) return Response.json({ error: '만료되었거나 처리된 초대입니다.' }, { status: 404 });
       const decisionColumn = socialInviteDecisionColumn(action);
       await db.prepare(`UPDATE game_invites SET ${decisionColumn} = ? WHERE id = ?`).bind(Date.now(), inviteId).run();
-      return Response.json({ ok: true, roomCode: action === 'accept' ? invite.room_code : undefined });
+      const target = decodeSocialRoomInvite(invite.room_code);
+      return Response.json({
+        ok: true,
+        roomCode: action === 'accept' ? target.roomCode : undefined,
+        mode: action === 'accept' ? target.mode : undefined,
+      });
     }
     return Response.json({ error: '지원하지 않는 소셜 요청입니다.' }, { status: 404 });
   } catch (error) {

@@ -24,6 +24,7 @@ export interface HideSeekExperienceOptions {
   reconnectToken?: string;
   onReconnectToken: (token: string) => void;
   onExit: () => void;
+  inviteFriends?: (roomCode: string) => void;
   playSound?: () => void;
   openSettings: () => void;
   setBackgroundTrack: (track: 'main' | 'ingame') => void;
@@ -350,7 +351,7 @@ class HideSeekExperience implements HideSeekExperienceHandle {
       <section class="hide-seek-rule-card"><span>최대 1 VS 6</span><h2>불이 꺼지면, 소리 없이 숨으세요</h2><p>20초 동안 숨고 열쇠로 자물쇠 5개를 해제하세요. 랜턴에 잡히면 추격이 시작됩니다.</p></section>
       <section class="hide-seek-role-picker"><small>희망 역할</small><div><button data-pref="survivor" class="${me?.preference === 'survivor' ? 'active' : ''}">생존자</button><button data-pref="any" class="${me?.preference === 'any' ? 'active' : ''}">상관없음</button><button data-pref="ghost" class="${me?.preference === 'ghost' ? 'active' : ''}">술래</button></div></section>
       <section class="hide-seek-roster"><header><strong>참가자 <b data-hide-seek-roster-count>${snapshot.players.length}/7</b></strong><small>귀신 1명 · 생존자 최대 6명</small></header><ol data-hide-seek-roster></ol></section>
-      <footer><div class="hide-seek-lobby-tools"><button class="danger" data-hide-seek-leave>방 나가기</button>${isHost ? '<button data-hide-seek-add-bot>＋ 봇 추가</button><button data-hide-seek-fill-bots>빈자리 채우기</button>' : '<span>방장이 게임을 준비하고 있습니다.</span>'}</div><div class="hide-seek-lobby-actions"><button class="secondary" data-hide-seek-ready>${me?.ready ? '준비 취소' : '준비'}</button>${isHost ? '<button class="primary" data-hide-seek-start>추격 시작</button>' : ''}</div></footer>
+      <footer><div class="hide-seek-lobby-tools"><button class="danger" data-hide-seek-leave>방 나가기</button><button data-hide-seek-invite>친구 초대</button>${isHost ? '<button data-hide-seek-add-bot>＋ 봇 추가</button><button data-hide-seek-fill-bots>빈자리 채우기</button>' : '<span>방장이 게임을 준비하고 있습니다.</span>'}</div><div class="hide-seek-lobby-actions"><button class="secondary" data-hide-seek-ready>${me?.ready ? '준비 취소' : '준비'}</button>${isHost ? '<button class="primary" data-hide-seek-start>추격 시작</button>' : ''}</div></footer>
       <div class="hide-seek-toast" data-hide-seek-toast></div>
     </main>`;
     this.bindLobby();
@@ -361,6 +362,10 @@ class HideSeekExperience implements HideSeekExperienceHandle {
     this.options.app.querySelector('[data-hide-seek-leave]')?.addEventListener('click', () => this.leave());
     this.options.app.querySelector('[data-hide-seek-copy]')?.addEventListener('click', () => {
       void navigator.clipboard?.writeText(this.options.code).then(() => this.toast('초대 코드를 복사했습니다.'));
+    });
+    this.options.app.querySelector('[data-hide-seek-invite]')?.addEventListener('click', () => {
+      this.options.playSound?.();
+      this.options.inviteFriends?.(this.options.code);
     });
     this.options.app.querySelectorAll<HTMLElement>('[data-pref]').forEach((button) => button.addEventListener('click', () => {
       this.options.playSound?.();

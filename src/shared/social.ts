@@ -1,5 +1,7 @@
 import type { RankId, RankedTier } from './types';
 
+export type SocialInviteMode = 'defense' | 'hide-seek';
+
 export interface SocialPerson {
   accountId: string;
   nickname: string;
@@ -33,6 +35,7 @@ export interface SocialConversation extends SocialPerson {
 export interface SocialInvite extends SocialPerson {
   id: string;
   roomCode: string;
+  mode: SocialInviteMode;
   createdAt: number;
   expiresAt: number;
 }

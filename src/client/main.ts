@@ -117,6 +117,7 @@ import type {
 import type {
   DirectMessage,
   SocialInvite,
+  SocialInviteMode,
   SocialPerson,
   SocialSnapshot,
 } from "../shared/social";
@@ -2868,6 +2869,9 @@ async function connectToHideSeekRoom(code: string, initialNotice?: string): Prom
       delete profile.reconnectTokens[tokenKey];
       saveProfile(profile);
       homeScreen();
+    },
+    inviteFriends: (roomCode) => {
+      void showSocialHub("friends", roomCode, "hide-seek");
     },
     playSound: () => audio.play("button"),
     openSettings: showSettings,
@@ -8284,6 +8288,7 @@ async function showSocialConversation(
 async function showSocialHub(
   initialTab: "friends" | "chat" | "invites" = "friends",
   inviteRoomCode?: string,
+  inviteMode: SocialInviteMode = "defense",
 ): Promise<void> {
   app.querySelector(".social-modal")?.remove();
   const modal = dismissibleModal(
@@ -8373,7 +8378,7 @@ async function showSocialHub(
           : '<p class="social-empty">친구를 추가하면 대화를 시작할 수 있습니다.</p>'
       }</section>`;
     } else {
-      content.innerHTML = `<section class="social-section"><h3>받은 방 초대</h3>${social.invites.length ? social.invites.map((invite: SocialInvite) => socialPersonCard(invite, `<button data-social-invite-action="accept" data-social-invite-id="${invite.id}">수락</button><button class="ghost" data-social-invite-action="decline" data-social-invite-id="${invite.id}">거절</button>`, `방 초대 · ${invite.roomCode}`)).join("") : '<p class="social-empty">받은 방 초대가 없습니다.</p>'}</section>`;
+      content.innerHTML = `<section class="social-section"><h3>받은 방 초대</h3>${social.invites.length ? social.invites.map((invite: SocialInvite) => socialPersonCard(invite, `<button data-social-invite-action="accept" data-social-invite-id="${invite.id}">수락</button><button class="ghost" data-social-invite-action="decline" data-social-invite-id="${invite.id}">거절</button>`, `${invite.mode === "hide-seek" ? "술래잡기 초대" : "친구방 초대"} · ${invite.roomCode}`)).join("") : '<p class="social-empty">받은 방 초대가 없습니다.</p>'}</section>`;
     }
     content
       .querySelectorAll<HTMLButtonElement>("[data-social-chat]")
@@ -8439,8 +8444,9 @@ async function showSocialHub(
           void socialPost("/api/social/invites", {
             recipientId,
             roomCode: inviteRoomCode,
+            mode: inviteMode,
           })
-            .then(() => toast("친구에게 방 초대를 보냈습니다."))
+            .then(() => toast(inviteMode === "hide-seek" ? "친구에게 술래잡기 초대를 보냈습니다." : "친구에게 방 초대를 보냈습니다."))
             .catch((error: unknown) =>
               toast(
                 error instanceof Error
@@ -8463,7 +8469,8 @@ async function showSocialHub(
             .then(async (data) => {
               if (action === "accept" && typeof data.roomCode === "string") {
                 modal.remove();
-                await joinRoomFromInvite(data.roomCode);
+                if (data.mode === "hide-seek") await joinHideSeekRoom(data.roomCode);
+                else await joinRoomFromInvite(data.roomCode);
                 return;
               }
               await reload();
