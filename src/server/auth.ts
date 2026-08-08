@@ -66,7 +66,7 @@ const publicPrestigeProfileImageUrl = (profileImageId: string | null | undefined
   if (profileImageId === 'profile-image-starlit-cloud-rabbit')
     return '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2';
   if (profileImageId === 'profile-image-abyssal-knight-gorilla')
-    return '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2';
+    return '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v3';
   return null;
 };
 
@@ -548,7 +548,7 @@ function profileFromRow(
       ? '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2'
       : profileImageId === 'profile-image-starlit-cloud-rabbit'
         ? '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2'
-        : '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2'
+        : '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v3'
     : profileAvatarUrl;
   const currentSeason = rankedSeasonId();
   const seasonIsCurrent = row.ranked_season_id === currentSeason;

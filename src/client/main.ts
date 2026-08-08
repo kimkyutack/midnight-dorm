@@ -1352,10 +1352,10 @@ const ABYSSAL_KNIGHT_PRESTIGE_THEME = {
     '귀신 HP -10%',
     '문 업그레이드 비용 -50%',
   ],
-  iconUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2',
+  iconUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v3',
   heroUrl: '/assets/prestige/abyssal-knight-gorilla/featured-package.webp',
   contents: [
-    { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', imageFit: 'cover' },
+    { id: 'profile', label: '프로필 이미지', detail: '심연 기사단장 콩', imageUrl: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v3', imageFit: 'cover' },
     { id: 'frame', label: '프로필 테두리', detail: '흑염 군단 테두리', imageUrl: '/assets/profile-images/abyssal-knight-frame.webp?v=prestige-v2' },
     { id: 'emotes', label: '이모티콘 4종', detail: '심연 기사단 감정 표현', imageUrl: '/assets/emotes/abyssal-knight-gorilla/roar.webp?v=prestige-v2', imageFit: 'contain' },
     { id: 'skin', label: '프레스티지 스킨', detail: '심연 기사단장 콩', imageUrl: '/assets/sprites/skins/skin-abyssal-knight-gorilla/concept.webp?v=prestige-v3', imageFit: 'contain' },
@@ -1442,9 +1442,9 @@ const PRESTIGE_CINEMATICS: Readonly<Record<string, {
   },
 };
 const PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN: Readonly<Record<string, string>> = {
-  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=3',
-  [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait.mp4?revision=1',
-  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=2',
+  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=4',
+  [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait.mp4?revision=2',
+  [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=3',
 };
 const PRESTIGE_LOCKER_PREVIEW_POSTER_BY_SKIN: Readonly<Record<string, string>> = {
   [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait-poster.png?revision=1',
@@ -1499,15 +1499,22 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
   stopPrestigeLockerPreviewVideo(video);
 
   const controller = new AbortController();
+  const fallbackController = new AbortController();
   let stopped = false;
+  let blobUrl: string | null = null;
+  let blobLoading = false;
+  let fallbackTimer = 0;
   const observer = new MutationObserver(() => {
     if (!video.isConnected) cleanup();
   });
   const cleanup = (): void => {
     if (stopped) return;
     stopped = true;
+    window.clearTimeout(fallbackTimer);
     controller.abort();
+    fallbackController.abort();
     observer.disconnect();
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
     prestigeLockerPreviewVideoCleanups.delete(video);
   };
   prestigeLockerPreviewVideoCleanups.set(video, cleanup);
@@ -1520,6 +1527,7 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
     void video.play().catch(() => undefined);
   };
   const markReady = (): void => {
+    window.clearTimeout(fallbackTimer);
     video.classList.add("is-ready");
   };
   const resumeFromStart = (): void => {
@@ -1529,12 +1537,44 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
   const handleVisibilityChange = (): void => {
     if (!document.hidden) tryPlay();
   };
+  const loadBlobFallback = async (): Promise<void> => {
+    if (stopped || blobLoading || blobUrl || !video.isConnected) return;
+    blobLoading = true;
+    const sourceUrl = video.currentSrc || video.src;
+    try {
+      const response = await fetch(sourceUrl, {
+        cache: "force-cache",
+        signal: fallbackController.signal,
+      });
+      if (!response.ok || stopped) return;
+      const blob = await response.blob();
+      if (stopped) return;
+      if (!video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      blobUrl = URL.createObjectURL(blob);
+      video.src = blobUrl;
+      video.load();
+      tryPlay();
+    } catch {
+      // The poster remains visible when both streaming and blob playback fail.
+    } finally {
+      blobLoading = false;
+    }
+  };
+  const scheduleBlobFallback = (): void => {
+    if (blobUrl || blobLoading || stopped) return;
+    window.clearTimeout(fallbackTimer);
+    fallbackTimer = window.setTimeout(() => {
+      void loadBlobFallback();
+    }, 1800);
+  };
 
   video.addEventListener("canplay", tryPlay, { signal: controller.signal });
   video.addEventListener("ended", resumeFromStart, { signal: controller.signal });
   video.addEventListener("playing", () => {
     markReady();
   }, { signal: controller.signal });
+  video.addEventListener("stalled", scheduleBlobFallback, { signal: controller.signal });
+  video.addEventListener("waiting", scheduleBlobFallback, { signal: controller.signal });
   video.addEventListener("error", () => {
     video.classList.remove("is-ready");
     cleanup();
@@ -1549,6 +1589,7 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
   observer.observe(document.documentElement, { childList: true, subtree: true });
   video.load();
   tryPlay();
+  scheduleBlobFallback();
 }
 
 function playCinematicVideo(
@@ -3263,7 +3304,7 @@ function showProfileAssetPicker(parentModal?: HTMLElement): void {
   const presets = [
     { id: 'profile-image-moonlit-phantom-fox', label: '월령 여우', image: '/assets/profile-images/moonlit-phantom-fox.webp?v=prestige-v2', packageId: MOONLIT_PHANTOM_PACKAGE_ID },
     { id: 'profile-image-starlit-cloud-rabbit', label: '성운 모모', image: '/assets/profile-images/starlit-cloud-rabbit.webp?v=prestige-v2', packageId: STARLIT_CLOUD_RABBIT_PACKAGE_ID },
-    { id: 'profile-image-abyssal-knight-gorilla', label: '심연 콩', image: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v2', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
+    { id: 'profile-image-abyssal-knight-gorilla', label: '심연 콩', image: '/assets/profile-images/abyssal-knight-gorilla.webp?v=prestige-v3', packageId: ABYSSAL_KNIGHT_GORILLA_PACKAGE_ID },
   ].filter((entry) => ownedAccessories.has(entry.id));
   const frames = [
     { id: 'profile-frame-basic', label: '기본 테두리', image: '/assets/profile-images/basic-profile-frame.svg' },
