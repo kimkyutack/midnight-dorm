@@ -24,6 +24,14 @@
   height: min(66%, 204px);
 }
 
+/* The gorilla is as wide as the rabbit inside the shared 384px cell, but its
+ * visible silhouette is only 80.5% as tall. Compensate at the home stage only
+ * so both prestige poses have the same optical height without stretching the
+ * source artwork or clipping its sword and shield on narrow phones. */
+.game-home .home-pose-avatar[data-home-pose-skin="skin-look-gorilla-abyssal-knight"] {
+  height: min(87%, 262px, calc(100cqw - 64px));
+}
+
 /* Keep the shop item list as the sole vertical scroller. Explicit block-size
  * constraints avoid a WebKit grid min-content loop where the scrollbar is
  * painted but touch movement is handed to the non-scrolling page shell. */
