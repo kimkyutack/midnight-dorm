@@ -5,6 +5,14 @@
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
+/* Event navigation is kept independent from the reward body so future event
+ * types can be appended without rebuilding the attendance calendar. */
+.event-category-tabs {
+  width: min(100%, 560px);
+  grid-template-columns: repeat(var(--event-tab-count, 1), minmax(0, 1fr)) !important;
+  margin: 4px auto 10px;
+}
+
 .event-center-tabs .attendance-tab {
   border-color: rgba(255, 255, 255, 0.92) !important;
   color: #26325d !important;

@@ -1442,7 +1442,7 @@ const PRESTIGE_CINEMATICS: Readonly<Record<string, {
   },
 };
 const PRESTIGE_LOCKER_PREVIEW_VIDEO_BY_SKIN: Readonly<Record<string, string>> = {
-  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=2',
+  [MOONLIT_PHANTOM_SKIN_ID]: '/assets/prestige/moonlit-phantom-fox/locker/prestige-fox-wait.mp4?revision=3',
   [STARLIT_CLOUD_RABBIT_SKIN_ID]: '/assets/prestige/starlit-cloud-rabbit/locker/prestige-rabbit-wait.mp4?revision=1',
   [ABYSSAL_KNIGHT_GORILLA_SKIN_ID]: '/assets/prestige/abyssal-knight-gorilla/locker/prestige-gorilla-wait.mp4?revision=2',
 };
@@ -1478,7 +1478,16 @@ function prestigeLockerPreviewVideoMarkup(videoUrl: string, posterUrl: string | 
   const fallback = posterUrl
     ? `<img class="prestige-locker-preview-poster" src="${escapeHtml(posterUrl)}" alt="${escapeHtml(label)}" />`
     : '';
-  return `${fallback}<video class="prestige-locker-preview-video" data-prestige-locker-video aria-label="${escapeHtml(label)} 대기 모션" autoplay loop muted playsinline preload="auto" disablepictureinpicture${poster}><source src="${escapeHtml(videoUrl)}" type="video/mp4" /></video>`;
+  // There is only one authored MP4 source per preview. Binding it directly to
+  // the video element is more reliable than a nested <source> in iOS WebViews:
+  // source children can remain at HAVE_NOTHING after an app-shell restore.
+  return `${fallback}<video class="prestige-locker-preview-video" data-prestige-locker-video aria-label="${escapeHtml(label)} 대기 모션" src="${escapeHtml(videoUrl)}" autoplay loop muted playsinline preload="auto" disablepictureinpicture${poster}></video>`;
+}
+
+const prestigeLockerPreviewVideoCleanups = new WeakMap<HTMLVideoElement, () => void>();
+
+function stopPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
+  prestigeLockerPreviewVideoCleanups.get(video)?.();
 }
 
 function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
@@ -1487,11 +1496,25 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
   video.muted = true;
   video.defaultMuted = true;
   video.loop = true;
+  stopPrestigeLockerPreviewVideo(video);
+
+  const controller = new AbortController();
+  let stopped = false;
+  const observer = new MutationObserver(() => {
+    if (!video.isConnected) cleanup();
+  });
+  const cleanup = (): void => {
+    if (stopped) return;
+    stopped = true;
+    controller.abort();
+    observer.disconnect();
+    prestigeLockerPreviewVideoCleanups.delete(video);
+  };
+  prestigeLockerPreviewVideoCleanups.set(video, cleanup);
 
   const tryPlay = (): void => {
     if (!video.isConnected) {
-      window.removeEventListener("pointerdown", tryPlay, true);
-      window.removeEventListener("touchend", tryPlay, true);
+      cleanup();
       return;
     }
     void video.play().catch(() => undefined);
@@ -1503,20 +1526,27 @@ function startPrestigeLockerPreviewVideo(video: HTMLVideoElement): void {
     video.currentTime = 0;
     tryPlay();
   };
-  const stopGestureRecovery = (): void => {
-    window.removeEventListener("pointerdown", tryPlay, true);
-    window.removeEventListener("touchend", tryPlay, true);
+  const handleVisibilityChange = (): void => {
+    if (!document.hidden) tryPlay();
   };
 
-  video.addEventListener("loadeddata", markReady, { once: true });
-  video.addEventListener("canplay", tryPlay);
-  video.addEventListener("ended", resumeFromStart);
-  video.addEventListener("playing", stopGestureRecovery, { once: true });
+  video.addEventListener("canplay", tryPlay, { signal: controller.signal });
+  video.addEventListener("ended", resumeFromStart, { signal: controller.signal });
+  video.addEventListener("playing", () => {
+    markReady();
+  }, { signal: controller.signal });
+  video.addEventListener("error", () => {
+    video.classList.remove("is-ready");
+    cleanup();
+  }, { once: true, signal: controller.signal });
   // iOS WebView and low-power Safari can reject the first muted autoplay
   // attempt. The next user gesture resumes the same element without replacing
   // it, so the idle clip does not remain frozen on its poster frame.
-  window.addEventListener("pointerdown", tryPlay, true);
-  window.addEventListener("touchend", tryPlay, true);
+  window.addEventListener("pointerdown", tryPlay, { capture: true, signal: controller.signal });
+  window.addEventListener("touchend", tryPlay, { capture: true, signal: controller.signal });
+  window.addEventListener("keydown", tryPlay, { capture: true, signal: controller.signal });
+  document.addEventListener("visibilitychange", handleVisibilityChange, { signal: controller.signal });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
   video.load();
   tryPlay();
 }
@@ -2171,7 +2201,7 @@ function renderAttendanceEventScreen(overview: EventMissionOverview): void {
     `<main class="event-screen">
       <div class="event-screen-backdrop"></div>
       <header class="event-header"><button data-event-back aria-label="홈으로">‹</button><div><span>EVENT CENTER</span><h1>이벤트</h1></div><strong>✦ ${overview.customPoints.toLocaleString()} P</strong></header>
-      <section class="event-hero"><img src="/assets/ui/event-missions.webp?v=${APP_RELEASE_VERSION}" alt="출석 보상 이벤트"/><div><small>30-DAY CHECK-IN</small><h2>누적 출석 보상</h2><p>접속한 횟수에 따라 특별한 생존 보급품을 받으세요.</p></div></section>
+      <nav class="event-tabs event-center-tabs event-category-tabs" aria-label="이벤트 종류"><button type="button" class="attendance-tab active" data-event-category="attendance">출석보상</button></nav>
       ${attendanceSectionMarkup(overview)}
     </main>`,
   );
@@ -4290,6 +4320,8 @@ function cosmeticCollectionScreen(
     if (!previewHost) return;
     customAvatarPreview?.destroy();
     customAvatarPreview = null;
+    const previousPrestigeVideo = previewHost.querySelector<HTMLVideoElement>("[data-prestige-locker-video]");
+    if (previousPrestigeVideo) stopPrestigeLockerPreviewVideo(previousPrestigeVideo);
     // An equipped prestige skin remains the active preview when entering the
     // point shop, even though prestige products themselves are not sold there.
     const prestigeVideoUrl = prestigeLockerPreviewVideoUrl(previewAppearance.skin);

@@ -24,6 +24,33 @@
   height: min(66%, 204px);
 }
 
+/* Keep the shop item list as the sole vertical scroller. Explicit block-size
+ * constraints avoid a WebKit grid min-content loop where the scrollbar is
+ * painted but touch movement is handed to the non-scrolling page shell. */
+.supply-shop-screen.catalog-item-screen {
+  height: 100%;
+  min-height: 0;
+}
+
+.supply-shop-screen .supply-items-shell {
+  align-self: stretch;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.supply-shop-screen .supply-item-scroll {
+  position: relative;
+  z-index: 3;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow-y: scroll !important;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y !important;
+  pointer-events: auto;
+}
+
 /* HQ preview files are intentionally used only in this enlarged stage. */
 .turret-skin-preview-stage > img[data-turret-preview] {
   image-rendering: auto;

@@ -55,6 +55,7 @@ const MAX_RAPID_EFFECTS_PER_POOL = 32;
 const TURRET_VISUAL_INTERVAL_MS = 55;
 const INTERACTION_SCAN_INTERVAL_MS = 100;
 const QUALITY_SAMPLE_INTERVAL_MS = 2_000;
+const QUALITY_CHANGE_COOLDOWN_MS = 8_000;
 const MAX_IDLE_BUILDING_TEXTURES = 12;
 const MAX_HUD_MESSAGES = 24;
 const RESOURCE_HUD_COMPACT_SCALE = 0.85;
@@ -437,6 +438,7 @@ interface PlayerView {
   prestigeTrailTexture: PrestigeTrailTexture | null;
   lastPrestigeTrailTile: Vec2;
   prestigeTrail: Array<{ effect: THREE.Group; tileKey: string }>;
+  prestigeTrailPool: THREE.Group[];
 }
 
 interface GhostView {
@@ -676,6 +678,12 @@ function prestigeMotionTheme(skinId: string): PrestigeMotionTheme | null {
   if (skinId === 'skin-look-bunny-starlit-cloud') return 'starlit';
   if (skinId === 'skin-look-gorilla-abyssal-knight') return 'abyssal';
   return null;
+}
+
+function prestigeTrailLimit(theme: PrestigeMotionTheme): number {
+  if (theme === 'moonlit') return 4;
+  if (theme === 'abyssal') return 5;
+  return 6;
 }
 
 function makePrestigeTrailEffect(
@@ -2572,6 +2580,8 @@ export class ThreeGameView {
   private frameTimeEma = 16.7;
   private nextQualitySampleAt = 0;
   private effectHeadroomSamples = 0;
+  private slowFrameSamples = 0;
+  private lastQualityChangeAt = Number.NEGATIVE_INFINITY;
   private effectQuality: EffectQuality = 'high';
   private moonLight: THREE.DirectionalLight | null = null;
 
@@ -3144,7 +3154,10 @@ export class ThreeGameView {
     this.unbindInput();
     for (const view of this.playerViews.values()) {
       view.actor.dispose();
-      for (const trail of view.prestigeTrail) disposeTransientObject(trail.effect);
+      for (const effect of view.prestigeTrailPool) {
+        this.scene.remove(effect);
+        disposeTransientObject(effect);
+      }
     }
     for (const view of this.ghostViews.values()) view.actor.dispose();
     this.playerViews.clear();
@@ -3228,16 +3241,27 @@ export class ThreeGameView {
     if (this.frameTimeEma > 25) {
       this.effectQuality = 'low';
       this.effectHeadroomSamples = 0;
-      nextPixelRatio = Math.max(
-        this.minRenderPixelRatio,
-        Math.round((this.renderPixelRatio - 0.25) * 4) / 4,
-      );
+      this.slowFrameSamples += 1;
+      if (
+        this.slowFrameSamples >= 2 &&
+        time - this.lastQualityChangeAt >= QUALITY_CHANGE_COOLDOWN_MS
+      ) {
+        nextPixelRatio = Math.max(
+          this.minRenderPixelRatio,
+          Math.round((this.renderPixelRatio - 0.25) * 4) / 4,
+        );
+      }
     } else if (this.frameTimeEma > 18.5) {
       this.effectQuality = 'balanced';
       this.effectHeadroomSamples = 0;
+      this.slowFrameSamples = 0;
     } else if (this.frameTimeEma < 16.5) {
+      this.slowFrameSamples = 0;
       this.effectHeadroomSamples += 1;
-      if (this.effectHeadroomSamples >= 3) {
+      if (
+        this.effectHeadroomSamples >= 6 &&
+        time - this.lastQualityChangeAt >= QUALITY_CHANGE_COOLDOWN_MS
+      ) {
         this.effectQuality = 'high';
         nextPixelRatio = Math.min(
           this.maxRenderPixelRatio,
@@ -3247,9 +3271,13 @@ export class ThreeGameView {
       }
     } else {
       this.effectHeadroomSamples = 0;
+      this.slowFrameSamples = 0;
     }
     if (Math.abs(nextPixelRatio - this.renderPixelRatio) >= 0.01) {
       this.renderPixelRatio = nextPixelRatio;
+      this.lastQualityChangeAt = time;
+      this.slowFrameSamples = 0;
+      this.effectHeadroomSamples = 0;
       this.renderer.setPixelRatio(this.renderPixelRatio);
       this.renderer.domElement.dataset.pixelRatio = this.renderPixelRatio.toFixed(2);
       this.resize();
@@ -4290,8 +4318,13 @@ export class ThreeGameView {
     };
     video.addEventListener('canplay', start, { once: true });
     video.addEventListener('error', () => {
-      texture.dispose();
-      this.prestigeTrailVideos.delete(theme);
+      // Existing pooled materials already reference this VideoTexture. Keep
+      // the texture object alive until destroy() and only release the failed
+      // decoder; disposing it here leaves every existing trail pool bound to
+      // an invalid GPU texture.
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
     }, { once: true });
     video.load();
     start();
@@ -4604,9 +4637,9 @@ export class ThreeGameView {
       const appearanceKey = [player.appearance.character, player.appearance.skin].join('|');
       if (view && view.appearanceKey !== appearanceKey) {
         this.scene.remove(view.root);
-        for (const trail of view.prestigeTrail) {
-          this.scene.remove(trail.effect);
-          disposeTransientObject(trail.effect);
+        for (const effect of view.prestigeTrailPool) {
+          this.scene.remove(effect);
+          disposeTransientObject(effect);
         }
         view.actor.dispose();
         disposeBillboards(view.root);
@@ -4624,6 +4657,17 @@ export class ThreeGameView {
         const prestigeTrailTexture = prestigeTheme
           ? this.loadPrestigeTrailTexture(prestigeTheme)
           : null;
+        const prestigeTrailPool = prestigeTheme && prestigeTrailTexture
+          ? Array.from({ length: prestigeTrailLimit(prestigeTheme) }, () => {
+              const effect = makePrestigeTrailEffect(
+                prestigeTheme,
+                prestigeTrailTexture,
+              );
+              effect.visible = false;
+              this.scene.add(effect);
+              return effect;
+            })
+          : [];
         const label = makeBillboard();
         label.scale.set(2.48, 0.66, 1);
         label.position.set(0.1, PLAYER_HEIGHT + 0.42, -0.72);
@@ -4650,6 +4694,7 @@ export class ThreeGameView {
             y: Math.round(player.position.y),
           },
           prestigeTrail: [],
+          prestigeTrailPool,
         };
         this.playerViews.set(player.id, view);
       }
@@ -4692,9 +4737,9 @@ export class ThreeGameView {
     for (const [id, view] of this.playerViews) {
       if (active.has(id)) continue;
       this.scene.remove(view.root);
-      for (const trail of view.prestigeTrail) {
-        this.scene.remove(trail.effect);
-        disposeTransientObject(trail.effect);
+      for (const effect of view.prestigeTrailPool) {
+        this.scene.remove(effect);
+        disposeTransientObject(effect);
       }
       view.actor.dispose();
       disposeBillboards(view.root);
@@ -5374,40 +5419,55 @@ export class ThreeGameView {
       const dx = view.root.position.x - view.lastPosition.x;
       const dz = view.root.position.z - view.lastPosition.z;
       const moving = Math.hypot(dx, dz) > 0.0015;
-      if (lying && view.prestigeTrail.length > 0) {
-        for (const trail of view.prestigeTrail) {
-          this.scene.remove(trail.effect);
-          disposeTransientObject(trail.effect);
+      const prestigeTile = {
+        x: Math.round(view.root.position.x),
+        y: Math.round(view.root.position.z),
+      };
+      if (lying) {
+        if (view.prestigeTrail.length > 0) {
+          for (const trail of view.prestigeTrail) {
+            trail.effect.visible = false;
+          }
+          view.prestigeTrail.length = 0;
         }
-        view.prestigeTrail.length = 0;
+        // A bed interaction can snap the actor to another tile. Reset the
+        // trail origin so the first step after waking never paints the old
+        // pre-sleep location.
+        view.lastPrestigeTrailTile = prestigeTile;
       }
       if (view.prestigeTheme && !lying) {
-        const tile = {
-          x: Math.round(view.root.position.x),
-          y: Math.round(view.root.position.z),
-        };
+        const tile = prestigeTile;
+        const authoredTrailLimit = prestigeTrailLimit(view.prestigeTheme);
+        const activeTrailLimit = this.effectQuality === 'low'
+          ? Math.min(2, authoredTrailLimit)
+          : this.effectQuality === 'balanced'
+            ? Math.min(4, authoredTrailLimit)
+            : authoredTrailLimit;
+        while (view.prestigeTrail.length > activeTrailLimit) {
+          const hidden = view.prestigeTrail.shift();
+          if (hidden) hidden.effect.visible = false;
+        }
         if (moving && view.prestigeTrailTexture) {
           const previous = view.lastPrestigeTrailTile;
           const tileKey = `${previous.x},${previous.y}`;
           if (previous.x !== tile.x || previous.y !== tile.y) {
-            const effect = makePrestigeTrailEffect(
-              view.prestigeTheme,
-              view.prestigeTrailTexture,
-            );
+            const recycled = view.prestigeTrail.length >= activeTrailLimit
+              ? view.prestigeTrail.shift() ?? null
+              : null;
+            const inactive = recycled
+              ? null
+              : view.prestigeTrailPool.find((candidate) => !candidate.visible);
+            const effect = recycled?.effect ?? inactive ?? null;
+            if (!effect) {
+              view.lastPrestigeTrailTile = tile;
+              continue;
+            }
             // The current tile deliberately remains clean. The loop is left on
             // the tile the survivor has already crossed, never under their feet.
             effect.position.x = previous.x;
             effect.position.z = previous.y;
-            this.scene.add(effect);
+            effect.visible = true;
             view.prestigeTrail.push({ effect, tileKey });
-            const trailLimit = view.prestigeTheme === 'moonlit' ? 4 : view.prestigeTheme === 'abyssal' ? 5 : 6;
-            while (view.prestigeTrail.length > trailLimit) {
-              const expired = view.prestigeTrail.shift();
-              if (expired) {
-                this.scene.remove(expired.effect);
-                disposeTransientObject(expired.effect);
-              }
-            }
           }
         }
         view.lastPrestigeTrailTile = tile;
