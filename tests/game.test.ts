@@ -30,7 +30,7 @@ import { buildingAssetUrl, randomItemAssetUrl } from '../src/client/game/Buildin
 import { buildingCatalogAssetUrl } from '../src/client/game/CatalogThumbnail3D';
 import { GameNetwork, mergeSnapshotFrame, reconcileMovementInputSequence, shouldFlushMovementStart } from '../src/client/network';
 import { APP_RELEASE_VERSION, compareAppVersions, isUpdateAvailable } from '../src/shared/appUpdates';
-import { buildForceRefreshUrl } from '../src/client/pwaRefresh';
+import { buildForceRefreshUrl, isStaleDynamicImportError } from '../src/client/pwaRefresh';
 import { botStrategyFor, decideBotIntent } from '../src/server/bots';
 import { RANKED_BOT_NICKNAMES } from '../src/server/botNames';
 import { compactRealtimeEvents } from '../src/shared/realtimeEvents';
@@ -332,6 +332,15 @@ describe('app update versioning', () => {
     expect(refreshed.searchParams.get('app-update')).toBe(APP_RELEASE_VERSION);
     expect(refreshed.searchParams.get('force-refresh')).toBe('nonce-123');
     expect(refreshed.hash).toBe('#home');
+  });
+
+  it('recognizes stale lazy chunks across WebKit and Chromium error wording', () => {
+    expect(isStaleDynamicImportError(new TypeError(
+      'Failed to fetch dynamically imported module: https://example.com/assets/hideSeek-old.js',
+    ))).toBe(true);
+    expect(isStaleDynamicImportError('Importing a module script failed.')).toBe(true);
+    expect(isStaleDynamicImportError(new SyntaxError("Unexpected token '<'"))).toBe(true);
+    expect(isStaleDynamicImportError(new Error('술래잡기 방이 가득 찼습니다.'))).toBe(false);
   });
 });
 
@@ -1122,8 +1131,11 @@ describe('generated mobile game art', () => {
 
   it('gives every random box result its own in-world image', () => {
     const assets = RANDOM_ITEMS.map((item) => randomItemAssetUrl(item.id));
-    expect(assets.every((asset) => asset.includes('/assets/items/rewards/'))).toBe(true);
+    expect(assets.every((asset) => asset.includes('/assets/items/'))).toBe(true);
     expect(new Set(assets).size).toBe(RANDOM_ITEMS.length);
+    expect(randomItemAssetUrl('silver-moth')).toContain(
+      '/assets/items/reward-chicken-2.png',
+    );
     expect(buildingAssetUrl('gem-core', 1, 'moon-gem-reward')).toBe(
       randomItemAssetUrl('moon-gem-reward'),
     );

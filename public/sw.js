@@ -1,5 +1,5 @@
-const CACHE = "midnight-dorm-shell-v21";
-const ASSET_CACHE = "midnight-dorm-assets-v21";
+const CACHE = "midnight-dorm-shell-v22";
+const ASSET_CACHE = "midnight-dorm-assets-v22";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -70,7 +70,17 @@ self.addEventListener("fetch", (event) => {
         const cached = await cache.match(request);
         if (cached) return cached;
         const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
+        // SPA fallback responses are HTML with a 200 status. Never cache one
+        // under a missing hashed JS/CSS URL: doing so makes every later lazy
+        // import fail even after the network has recovered.
+        const contentType = response.headers.get("content-type") || "";
+        const expectsScript = /\.(?:m?js|css)$/.test(url.pathname);
+        const validBundle = !expectsScript || (
+          url.pathname.endsWith(".css")
+            ? contentType.includes("text/css")
+            : /javascript|ecmascript/.test(contentType)
+        );
+        if (response.ok && validBundle) await cache.put(request, response.clone());
         return response;
       }),
     );

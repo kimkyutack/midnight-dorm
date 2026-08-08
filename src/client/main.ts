@@ -91,7 +91,10 @@ import type {
   EventMissionProgress,
 } from "../shared/eventMissions";
 import type { AttendanceRewardProgress } from '../shared/attendanceRewards';
-import { buildForceRefreshUrl } from "./pwaRefresh";
+import {
+  buildForceRefreshUrl,
+  isStaleDynamicImportError,
+} from "./pwaRefresh";
 import type {
   AccountProfile,
   AvatarAppearance,
@@ -284,6 +287,7 @@ const POLICE_ENFORCER_CROCO_SKIN_ID = "skin-look-crocodile-police-enforcer";
 const SECRET_AGENT_MONKEY_SKIN_ID = "skin-look-monkey-secret-agent";
 let skinLaunchPromoShownForAccountId: string | null = null;
 let hideSeekLaunchGuideStep: "home-mode" | "hide-seek-option" | null = null;
+let staleBundleRefreshStarted = false;
 type HomePlayMode = PlayMode | "ranked";
 let homePlayMode: HomePlayMode = "solo";
 const homeStageSelection: Partial<Record<PlayMode, StageId>> = {};
@@ -2867,7 +2871,13 @@ async function connectToHideSeekRoom(code: string, initialNotice?: string): Prom
   const tokenKey = `hide-seek:${code}`;
   profile.activeHideSeekRoomCode = code;
   saveProfile(profile);
-  const { mountHideSeekExperience } = await import("./hideSeek");
+  let mountHideSeekExperience: typeof import("./hideSeek").mountHideSeekExperience;
+  try {
+    ({ mountHideSeekExperience } = await import("./hideSeek"));
+  } catch (error) {
+    if (recoverFromStaleBundle(error)) return;
+    throw error;
+  }
   hideSeekExperience = mountHideSeekExperience({
     app,
     code,
@@ -8740,6 +8750,35 @@ async function forceRefreshForUpdate(
   location.replace(nextUrl);
 }
 
+function recoverFromStaleBundle(error: unknown): boolean {
+  if (!isStaleDynamicImportError(error)) return false;
+  if (staleBundleRefreshStarted) return true;
+
+  const refreshKey = `midnight-dorm:stale-bundle:${APP_RELEASE_VERSION}`;
+  let refreshedRecently = false;
+  try {
+    const previous = Number(sessionStorage.getItem(refreshKey) ?? 0);
+    refreshedRecently = Number.isFinite(previous) && Date.now() - previous < 60_000;
+    if (!refreshedRecently) sessionStorage.setItem(refreshKey, String(Date.now()));
+  } catch {
+    // Storage can be unavailable in private WebViews. The in-memory guard
+    // still prevents repeated recovery inside this document.
+  }
+  if (refreshedRecently) return false;
+
+  staleBundleRefreshStarted = true;
+  connectionOverlay("최신 게임 파일로 갱신하는 중…");
+  void forceRefreshForUpdate(APP_RELEASE_VERSION).catch(() => location.reload());
+  return true;
+}
+
+window.addEventListener("vite:preloadError", (event) => {
+  const preloadEvent = event as Event & { payload?: unknown };
+  if (!recoverFromStaleBundle(preloadEvent.payload)) return;
+  // Vite otherwise rethrows the failed import after dispatching this event.
+  event.preventDefault();
+});
+
 async function checkForAppUpdate(): Promise<void> {
   if (testShellMode || updatePromptOpen) return;
   try {
@@ -8977,6 +9016,8 @@ function renderUiPreview(mode: string): void {
       void import("./hideSeek").then(() => {
         hideSeekPreviewStylesLoaded = true;
         renderUiPreview(mode);
+      }).catch((error) => {
+        recoverFromStaleBundle(error);
       });
       return;
     }

@@ -6156,19 +6156,7 @@ export class ThreeGameView {
           : `문 Lv.${state.doorLevel} · ${doorVisualForLevel(state.doorLevel).label}`,
         left + padding,
         titleY,
-        card.width - (card.compact ? 25 : 37),
-      );
-      context.textAlign = 'right';
-      context.fillStyle = intact ? '#f5fbff' : '#ff7892';
-      context.fillText(
-        intact
-          ? card.compact
-            ? `${Math.ceil(state.doorHp)}`
-            : `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}`
-          : '파괴됨',
-        left + card.width - padding,
-        titleY,
-        card.compact ? 21 : 34,
+        card.width - padding * 2,
       );
 
       const barLeft = left + padding;
@@ -6177,6 +6165,32 @@ export class ThreeGameView {
       context.fillRect(barLeft, barTop, barWidth, barHeight);
       context.fillStyle = hpColor;
       context.fillRect(barLeft, barTop, barWidth * hpRatio, barHeight);
+
+      // HP used to share the title row. Four-digit high-level values then
+      // covered the authored door name. Keep the entire title row for the
+      // name and render HP inside its own bar with a small contrast stroke.
+      const hpText = intact
+        ? card.compact
+          ? `${Math.ceil(state.doorHp)}`
+          : `${Math.ceil(state.doorHp)}/${Math.ceil(state.doorMaxHp)}`
+        : '파괴됨';
+      context.textAlign = 'right';
+      context.font = `850 ${card.compact ? 4.5 : 5.2}px system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
+      context.lineWidth = 1.8;
+      context.strokeStyle = 'rgba(2,5,12,.92)';
+      context.fillStyle = intact ? '#ffffff' : '#ff9aae';
+      context.strokeText(
+        hpText,
+        barLeft + barWidth - 1,
+        barTop + barHeight / 2,
+        barWidth - 2,
+      );
+      context.fillText(
+        hpText,
+        barLeft + barWidth - 1,
+        barTop + barHeight / 2,
+        barWidth - 2,
+      );
 
       if (state.doorShieldMaxHp > 0) {
         const shieldRatio = clamp(
@@ -6255,20 +6269,37 @@ export class ThreeGameView {
           28,
           Math.min(86, context.measureText(view.levelLabel).width + 10),
         );
-        if (doorCards.some((card) =>
+        const overlappingDoor = doorCards.find((card) =>
           labelPoint[0] + labelWidth / 2 >= card.x - card.width / 2 &&
           labelPoint[0] - labelWidth / 2 <= card.x + card.width / 2 &&
           labelPoint[1] + 7 >= card.y - card.height / 2 &&
           labelPoint[1] - 7 <= card.y + card.height / 2
-        )) {
-          context.restore();
-          continue;
+        );
+        let labelX = labelPoint[0];
+        let labelY = labelPoint[1];
+        if (overlappingDoor) {
+          const gap = 3;
+          const leftCandidate = overlappingDoor.x
+            - overlappingDoor.width / 2 - labelWidth / 2 - gap;
+          const rightCandidate = overlappingDoor.x
+            + overlappingDoor.width / 2 + labelWidth / 2 + gap;
+          const leftFits = leftCandidate - labelWidth / 2 >= 2;
+          const rightFits = rightCandidate + labelWidth / 2 <= width - 2;
+          const prefersLeft = labelPoint[0] <= overlappingDoor.x;
+          if (prefersLeft && leftFits) labelX = leftCandidate;
+          else if (!prefersLeft && rightFits) labelX = rightCandidate;
+          else if (leftFits) labelX = leftCandidate;
+          else if (rightFits) labelX = rightCandidate;
+          else labelY = overlappingDoor.y - overlappingDoor.height / 2 - 9;
+          // Door-mounted turrets remain readable without overpowering the
+          // primary door HP/name card.
+          context.globalAlpha = 0.74;
         }
         context.fillStyle = view.levelBackground;
         context.beginPath();
         context.roundRect(
-          labelPoint[0] - labelWidth / 2,
-          labelPoint[1] - 7,
+          labelX - labelWidth / 2,
+          labelY - 7,
           labelWidth,
           14,
           5,
@@ -6277,8 +6308,8 @@ export class ThreeGameView {
         context.fillStyle = view.levelColor;
         context.fillText(
           view.levelLabel,
-          labelPoint[0],
-          labelPoint[1],
+          labelX,
+          labelY,
           labelWidth - 6,
         );
         context.restore();

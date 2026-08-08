@@ -74,6 +74,12 @@ const RANDOM_ITEM_ART: Record<string, string> = {
 
 /** Image-led top-down construction art for every installable building. */
 export function randomItemAssetUrl(itemId?: string): string {
+  // The original silver-moth reward file was exported against an opaque
+  // chroma background, so Three.js could not present the chicken statue as a
+  // transparent in-world prop. Reuse the dedicated transparent chicken art
+  // that already ships with the reward set.
+  if (itemId === 'silver-moth')
+    return `/assets/items/reward-chicken-2.png?v=${BUILDING_ART_VERSION}`;
   const file = itemId ? RANDOM_ITEM_ART[itemId] : undefined;
   return file
     ? `/assets/items/rewards/${file}.png?v=${BUILDING_ART_VERSION}`
